@@ -8,7 +8,7 @@
   <img src="img/kerrareg.png" width="400" />
 </p>
 
-A Kubernetes-native, self-hosted module registry that implements the [Module Registry Protocol](https://opentofu.org/docs/internals/module-registry-protocol/). Kerrareg gives organizations complete control over module distribution, versioning, and storage — without relying on the public registry.
+A Kubernetes-native, self-hosted OpenTofu/Terraform module registry that implements the [Module Registry Protocol](https://opentofu.org/docs/internals/module-registry-protocol/). Kerrareg gives organizations complete control over module distribution, versioning, and storage — without relying on the public registry.
 
 Compatible with **OpenTofu** (all versions) and **Terraform** (v1.2+).
 
@@ -462,6 +462,7 @@ These values apply to `version`, `module`, and `depot` independently:
 | `serviceAccount.create` | `true` | Create service accounts |
 | `serviceAccount.annotations` | `{}` | Annotations (use for IRSA/Workload Identity) |
 | `rbac.create` | `true` | Create RBAC roles and bindings |
+| `rbac.scopeToNamespace` | `false` | Use namespace-scoped Role/RoleBinding instead of ClusterRole/ClusterRoleBinding |
 
 #### Storage
 
@@ -733,12 +734,23 @@ kubectl create rolebinding test-user-reader -n kerrareg-system \
   --serviceaccount=kerrareg-system:test-user
 ```
 
-Generate a short-lived token and set it as the registry credential:
+Generate a short-lived token and write it to `~/.terraform.d/credentials.tfrc.json`, using the `host:port` of your Kerrareg server as the credential key:
 
 ```bash
-export TF_TOKEN_KERRAREG_DEFDEV_IO=$(kubectl create token test-user -n kerrareg-system)
-tofu init -backend=false
+TOKEN=$(kubectl create token test-user -n kerrareg-system) && \
+PORT=$(docker ps --filter "name=kindccm" --format '{{.Ports}}' | sed -n 's/.*:\([0-9]*\)->443.*/\1/p') && \
+mkdir -p ~/.terraform.d && cat > ~/.terraform.d/credentials.tfrc.json <<EOF
+{
+  "credentials": {
+    "kerrareg.defdev.io:${PORT}": {
+      "token": "${TOKEN}"
+    }
+  }
+}
+EOF
 ```
+> [!NOTE]
+> Because `cloud-provider-kind` assigns a non-standard port (not `443`), you must use a `credentials.tfrc.json` file for authentication. The `TF_TOKEN_` environment variable approach does not support hostnames with port numbers.
 
 OpenTofu sends the bearer token to Kerrareg, which forwards it to the Kubernetes API for authentication and RBAC authorization. This is the same flow used in production — no separate user database or API keys required.
 
@@ -778,6 +790,26 @@ sudo sed -i '' '/kerrareg.defdev.io/d' /etc/hosts
 ```
 
 ## Configuration
+
+### Namespace-Scoped Mode
+
+By default, Kerrareg controllers use `ClusterRole`/`ClusterRoleBinding` and watch resources across all namespaces. To restrict controllers to a single namespace, enable namespace-scoped mode:
+
+```yaml
+rbac:
+  scopeToNamespace: true
+
+global:
+  namespace: my-kerrareg-namespace
+```
+
+When `rbac.scopeToNamespace` is `true`:
+
+- RBAC resources are created as `Role`/`RoleBinding` scoped to `global.namespace`
+- Each controller only watches and reconciles resources in that namespace
+- The `WATCH_NAMESPACE` environment variable is automatically set on controller pods
+
+This is useful in multi-tenant clusters or environments where cluster-wide permissions are not available.
 
 ### GitHub Authentication
 
@@ -943,11 +975,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/kerrareg-github-actions-role
+          aws-region: us-west-2
+
       - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KERRAREG_KUBECONFIG }}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
+        run: aws eks update-kubeconfig --name my-cluster --region us-west-2
 
       - name: Publish module version
         run: |

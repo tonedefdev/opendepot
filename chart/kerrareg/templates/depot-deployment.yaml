@@ -27,6 +27,11 @@ spec:
       - name: depot-controller
         image: "{{ .Values.depot.image.repository }}:{{ .Values.global.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- if .Values.rbac.scopeToNamespace }}
+        env:
+        - name: WATCH_NAMESPACE
+          value: {{ .Values.global.namespace }}
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
