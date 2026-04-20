@@ -43,6 +43,11 @@ spec:
       - name: version-controller
         image: "{{ .Values.version.image.repository }}:{{ .Values.global.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- if .Values.rbac.scopeToNamespace }}
+        env:
+        - name: WATCH_NAMESPACE
+          value: {{ .Values.global.namespace }}
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
           {{- if not .Values.storage.filesystem.enabled }}

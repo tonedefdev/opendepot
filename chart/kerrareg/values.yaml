@@ -116,6 +116,9 @@ serviceAccount:
 rbac:
   # Create RBAC roles and role bindings
   create: true
+  # When true, use namespace-scoped Role/RoleBinding instead of ClusterRole/ClusterRoleBinding.
+  # Controllers will only watch resources in global.namespace.
+  scopeToNamespace: false
 
 ## Storage configuration
 storage:
