@@ -102,7 +102,6 @@ export type VersionStatus = {
     checksum?: string;
     [key: string]: unknown;
 };
-};
 
 export type GraphDepot = {
   id: string;
