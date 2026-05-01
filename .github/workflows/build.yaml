@@ -10,7 +10,7 @@ on:
       - 'services/**'
       - 'pkg/**'
       - 'api/**'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/build.yaml'
   workflow_dispatch:
 
 permissions:
