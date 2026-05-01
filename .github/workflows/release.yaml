@@ -1,7 +1,12 @@
 name: Release Charts
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'chart/**'
 jobs:
   release:
     runs-on: ubuntu-latest
