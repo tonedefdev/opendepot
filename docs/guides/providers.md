@@ -1,3 +1,10 @@
+---
+tags:
+  - providers
+  - consuming
+  - guides
+---
+
 # Consuming Providers
 
 Once providers are synced, declare them as required providers in your OpenTofu or Terraform configuration using the `<registry-host>/<namespace>/<name>` source format:
@@ -6,11 +13,11 @@ Once providers are synced, declare them as required providers in your OpenTofu o
 terraform {
   required_providers {
     aws = {
-      source  = "kerrareg.defdev.io/kerrareg-system/aws"
+      source  = "opendepot.defdev.io/opendepot-system/aws"
       version = "~> 5.80"
     }
     azurerm = {
-      source  = "kerrareg.defdev.io/kerrareg-system/azurerm"
+      source  = "opendepot.defdev.io/opendepot-system/azurerm"
       version = ">= 4.0.0"
     }
   }
@@ -21,12 +28,12 @@ The source format is `<registry-host>/<namespace>/<name>`, where `<namespace>` i
 
 **Pointing OpenTofu at the provider registry**
 
-Because Kerrareg serves providers at a custom host, you need a `host` block in your `.tofurc` or `.terraformrc` to tell OpenTofu where the `providers.v1` API lives:
+Because OpenDepot serves providers at a custom host, you need a `host` block in your `.tofurc` or `.terraformrc` to tell OpenTofu where the `providers.v1` API lives:
 
 ```
-host "kerrareg.defdev.io" {
+host "opendepot.defdev.io" {
   services = {
-    "providers.v1" = "https://kerrareg.defdev.io/kerrareg/providers/v1/"
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
   }
 }
 ```
@@ -34,9 +41,9 @@ host "kerrareg.defdev.io" {
 With authentication (recommended for production):
 
 ```
-host "kerrareg.defdev.io" {
+host "opendepot.defdev.io" {
   services = {
-    "providers.v1" = "https://kerrareg.defdev.io/kerrareg/providers/v1/"
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
   }
   token = "<kubernetes-bearer-token>"
 }
@@ -61,7 +68,7 @@ tofu init
 To publish a new version, append it to `spec.versions`:
 
 ```bash
-kubectl patch provider aws -n kerrareg-system \
+kubectl patch provider aws -n opendepot-system \
   --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"5.81.0"}}]'
 ```
 
@@ -70,6 +77,6 @@ The Provider controller creates new `Version` resources for every OS/architectur
 **Force re-sync**
 
 ```bash
-kubectl patch provider aws -n kerrareg-system \
+kubectl patch provider aws -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 ```

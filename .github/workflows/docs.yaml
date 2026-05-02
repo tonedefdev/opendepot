@@ -8,7 +8,7 @@ on:
       - docs/**
       - mkdocs.yml
       - CONTRIBUTING.md
-      - chart/kerrareg/README.md
+      - chart/opendepot/README.md
 
 jobs:
   deploy:
@@ -19,20 +19,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Install MkDocs Material
-        run: pip install mkdocs-material
+      - name: Install system dependencies for social cards
+        run: sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
+
+      - name: Install MkDocs dependencies
+        run: pip install -r requirements.txt
 
       - name: Prepare docs
         run: |
-          mkdir -p docs/img
-          cp img/small_icon.svg docs/img/
           cp CONTRIBUTING.md docs/contributing.md
-          cp chart/kerrareg/README.md docs/helm-chart.md
+          cp chart/opendepot/README.md docs/helm-chart.md
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force

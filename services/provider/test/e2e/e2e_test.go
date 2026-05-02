@@ -30,15 +30,15 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 // namespace where the project is deployed in.
-const namespace = "kerrareg-system"
+const namespace = "opendepot-system"
 
 var _ = Describe("Provider", Ordered, func() {
 	const (
-		providerNamespace     = "kerrareg-system"
+		providerNamespace     = "opendepot-system"
 		serverPortForwardPort = "18080"
 		providerCRName        = "aws"
 		providerVersion       = "5.80.0"
@@ -51,7 +51,7 @@ var _ = Describe("Provider", Ordered, func() {
 	BeforeAll(func() {
 		By("applying the test Provider CR")
 		providerYAML := fmt.Sprintf(`
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
   name: %s
@@ -76,7 +76,7 @@ spec:
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply test Provider CR")
 
-		By("starting port-forward to the kerrareg server")
+		By("starting port-forward to the opendepot server")
 		pfCtx, cancel := context.WithCancel(context.Background())
 		pfCancel = cancel
 		pfCmd := exec.CommandContext(pfCtx, "kubectl", "port-forward",
@@ -103,7 +103,7 @@ spec:
 		By("waiting for Version CRs to be created")
 		Eventually(func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "versions",
-				"-l", fmt.Sprintf("kerrareg.io/provider=%s", providerCRName),
+				"-l", fmt.Sprintf("opendepot.defdev.io/provider=%s", providerCRName),
 				"-n", providerNamespace,
 				"--no-headers",
 			)
@@ -164,29 +164,29 @@ spec:
 		Expect(body).To(ContainSubstring("providers.v1"))
 
 		By("checking provider versions list endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/versions",
+		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/versions",
 			base, providerNamespace, providerCRName))
 		Expect(body).To(ContainSubstring(providerVersion))
 
 		By("checking provider download endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/%s/download/linux/amd64",
+		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/download/linux/amd64",
 			base, providerNamespace, providerCRName, providerVersion))
 		Expect(body).To(ContainSubstring("download_url"))
 		Expect(body).To(ContainSubstring("shasum"))
 		Expect(body).To(ContainSubstring("signing_keys"))
 
 		By("checking SHA256SUMS endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/%s/SHA256SUMS/linux/amd64",
+		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS/linux/amd64",
 			base, providerNamespace, providerCRName, providerVersion))
 		Expect(body).NotTo(BeEmpty())
 
 		By("checking SHA256SUMS.sig endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/%s/SHA256SUMS.sig/linux/amd64",
+		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS.sig/linux/amd64",
 			base, providerNamespace, providerCRName, providerVersion))
 		Expect(body).NotTo(BeEmpty())
 	})
 
-	It("should successfully run tofu init against the kerrareg registry", func() {
+	It("should successfully run tofu init against the opendepot registry", func() {
 		By("creating a temp directory with a Terraform config")
 		tmpDir := GinkgoT().TempDir()
 
@@ -204,7 +204,7 @@ spec:
 		By("writing a .tofurc to point at the local registry")
 		tofuRC := fmt.Sprintf(`host "localhost:%s" {
   services = {
-    "providers.v1" = "http://localhost:%s/kerrareg/providers/v1/"
+    "providers.v1" = "http://localhost:%s/opendepot/providers/v1/"
   }
 }
 `, serverPortForwardPort, serverPortForwardPort)
@@ -225,9 +225,9 @@ spec:
 
 	It("should enforce Kubernetes RBAC when anonymousAuth is disabled", func() {
 		const (
-			authTestSA   = "kerrareg-e2e-provider-reader"
-			authTestRole = "kerrareg-e2e-provider-reader"
-			authTestRB   = "kerrareg-e2e-provider-reader"
+			authTestSA   = "opendepot-e2e-provider-reader"
+			authTestRole = "opendepot-e2e-provider-reader"
+			authTestRB   = "opendepot-e2e-provider-reader"
 		)
 
 		chartPath, err := utils.GetChartPath()
@@ -295,7 +295,7 @@ spec:
 
 		By("verifying unauthenticated request returns 401")
 		unauthResp, err := http.Get(fmt.Sprintf( //nolint:noctx
-			"http://localhost:%s/kerrareg/providers/v1/%s/%s/versions",
+			"http://localhost:%s/opendepot/providers/v1/%s/%s/versions",
 			serverPortForwardPort, providerNamespace, providerCRName))
 		Expect(err).NotTo(HaveOccurred())
 		_ = unauthResp.Body.Close()
@@ -305,7 +305,7 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "create", "serviceaccount", authTestSA, "-n", providerNamespace))
 		_, _ = utils.Run(exec.Command("kubectl", "create", "role", authTestRole,
 			"-n", providerNamespace,
-			"--resource=providers.kerrareg.io,versions.kerrareg.io",
+			"--resource=providers.opendepot.defdev.io,versions.opendepot.defdev.io",
 			"--verb=get,list,watch",
 		))
 		_, _ = utils.Run(exec.Command("kubectl", "create", "rolebinding", authTestRB,
@@ -325,12 +325,12 @@ spec:
 
 		// OpenTofu sends credentials (from the .tofurc credentials block) over HTTP for
 		// hostnames that are not the loopback address "localhost". We use
-		// "kerrareg.localtest.me:18080" — a public DNS wildcard that resolves to 127.0.0.1 —
+		// "opendepot.localtest.me:18080" — a public DNS wildcard that resolves to 127.0.0.1 —
 		// so that the existing port-forward (localhost:18080) is reachable while OpenTofu
 		// treats the host as a non-local name and forwards the bearer token on every HTTP
 		// request (versions, download metadata, SHA256SUMS, binary). This is the same
 		// pattern used in the module e2e auth test.
-		const authRegistryHost = "kerrareg.localtest.me:18080"
+		const authRegistryHost = "opendepot.localtest.me:18080"
 
 		By("running tofu init with bearer token authentication")
 		tmpDir := GinkgoT().TempDir()
@@ -347,7 +347,7 @@ spec:
 
 		tofuRC := fmt.Sprintf(`host "%s" {
   services = {
-    "providers.v1" = "http://%s/kerrareg/providers/v1/"
+    "providers.v1" = "http://%s/opendepot/providers/v1/"
   }
 }
 credentials "%s" {

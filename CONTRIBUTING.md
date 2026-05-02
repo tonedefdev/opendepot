@@ -1,6 +1,6 @@
-# Contributing to Kerrareg
+# Contributing to OpenDepot
 
-Thank you for your interest in contributing to Kerrareg! This guide covers everything you need to run the end-to-end test suite locally.
+Thank you for your interest in contributing to OpenDepot! This guide covers everything you need to run the end-to-end test suite locally.
 
 ## Table of Contents
 
@@ -42,9 +42,9 @@ go version && docker version --format '{{.Server.Version}}' && kind version && k
 ## Repository Layout
 
 ```
-kerrareg/
+opendepot/
 ├── api/v1alpha1/        # CRD types; run `make generate manifests` here to regenerate
-├── chart/kerrareg/      # Helm chart deployed by every e2e suite
+├── chart/opendepot/      # Helm chart deployed by every e2e suite
 │   └── crds/            # CRD YAML files applied before each test run
 ├── services/
 │   ├── depot/           # Depot controller — watches Depot CRs, creates Module/Provider CRs
@@ -91,7 +91,7 @@ cd services/module
 IMG=module-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
 ```
 
-The suite uses `kerrareg.localtest.me` as the registry hostname — this is a public DNS name that resolves to `127.0.0.1` and satisfies OpenTofu's requirement for a hostname that contains at least one dot.
+The suite uses `opendepot.localtest.me` as the registry hostname — this is a public DNS name that resolves to `127.0.0.1` and satisfies OpenTofu's requirement for a hostname that contains at least one dot.
 
 ### Provider Controller
 
@@ -155,7 +155,7 @@ cd api/v1alpha1
 make generate manifests
 ```
 
-This writes updated CRDs to `chart/kerrareg/crds/`. The e2e suites apply that directory with `kubectl apply --server-side --force-conflicts` in their `BeforeSuite`, so a fresh `make generate manifests` is all that is needed — no manual `kubectl apply` is required before running tests.
+This writes updated CRDs to `chart/opendepot/crds/`. The e2e suites apply that directory with `kubectl apply --server-side --force-conflicts` in their `BeforeSuite`, so a fresh `make generate manifests` is all that is needed — no manual `kubectl apply` is required before running tests.
 
 ---
 
@@ -186,7 +186,7 @@ All services that import shared packages (`pkg/` or other services' Go modules) 
 
 ## Adding a Storage Backend
 
-Kerrareg's storage layer is abstracted behind the `Storage` interface defined in [`pkg/storage/storage.go`](pkg/storage/storage.go). Adding support for a new storage system (e.g. Oracle Object Storage, MinIO, an SFTP server) requires only implementing that interface and wiring the new type into the controllers.
+OpenDepot's storage layer is abstracted behind the `Storage` interface defined in [`pkg/storage/storage.go`](pkg/storage/storage.go). Adding support for a new storage system (e.g. Oracle Object Storage, MinIO, an SFTP server) requires only implementing that interface and wiring the new type into the controllers.
 
 ### The interface
 
@@ -221,7 +221,7 @@ All methods receive a `*types.StorageObjectInput` which carries everything a bac
        "context"
        "io"
 
-       "github.com/tonedefdev/kerrareg/pkg/storage/types"
+       "github.com/tonedefdev/opendepot/pkg/storage/types"
    )
 
    type MinIO struct {
@@ -256,7 +256,7 @@ All methods receive a `*types.StorageObjectInput` which carries everything a bac
 
 4. **Wire the backend into each controller** that handles storage. Each relevant controller constructs a `storage.Storage` value based on the `storageMethod` field on the reconciled CR — add a case for the new method that instantiates your new type.
 
-5. **Update the Helm chart** (`chart/kerrareg/values.yaml` and the relevant deployment template) to surface any new configuration your backend requires (endpoint, bucket name, credentials reference, etc.).
+5. **Update the Helm chart** (`chart/opendepot/values.yaml` and the relevant deployment template) to surface any new configuration your backend requires (endpoint, bucket name, credentials reference, etc.).
 
 ### `RemoveTrailingSlash` helper
 
@@ -268,8 +268,8 @@ The package exposes `storage.RemoveTrailingSlash(s *string)` which strips a trai
 
 Each controller's e2e suite follows the same pattern:
 
-1. **BeforeSuite** — builds Docker images, loads them into Kind via `kind load docker-image`, applies CRDs from `chart/kerrareg/crds/`, then runs `helm upgrade --install` with `--set` overrides to deploy the local images.
+1. **BeforeSuite** — builds Docker images, loads them into Kind via `kind load docker-image`, applies CRDs from `chart/opendepot/crds/`, then runs `helm upgrade --install` with `--set` overrides to deploy the local images.
 2. **Ordered `Describe` block** — a `BeforeAll` creates the test CRs; `AfterAll` deletes them. Tests within the block run sequentially and build on each other's state (e.g. later tests assume a synced artifact from an earlier test).
 3. **AfterSuite** — reverts the Helm release back to production image references so the cluster is left in a clean state.
 
-The Helm release name is `kerrareg` and the namespace is `kerrareg-system` for all suites. Because suites share the same cluster and Helm release, **do not run multiple suites concurrently** — run them one at a time.
+The Helm release name is `opendepot` and the namespace is `opendepot-system` for all suites. Because suites share the same cluster and Helm release, **do not run multiple suites concurrently** — run them one at a time.

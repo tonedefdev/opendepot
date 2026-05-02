@@ -1,8 +1,8 @@
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
   name: aws
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   providerConfig:
     name: aws

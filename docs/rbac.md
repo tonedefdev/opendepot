@@ -1,5 +1,11 @@
-# Kubernetes RBAC
+---
+tags:
+  - rbac
+  - kubernetes
+  - security
+---
 
+# Kubernetes RBAC
 
 The Helm chart creates ServiceAccounts and RBAC resources for each controller automatically when `rbac.create: true` (the default).
 
@@ -40,31 +46,31 @@ For CI/CD pipelines that need to create or update `Module` resources:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kerrareg-ci-publisher
-  namespace: kerrareg-system
+  name: opendepot-ci-publisher
+  namespace: opendepot-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: kerrareg-module-publisher
-  namespace: kerrareg-system
+  name: opendepot-module-publisher
+  namespace: opendepot-system
 rules:
-  - apiGroups: ["kerrareg.io"]
+  - apiGroups: ["opendepot.defdev.io"]
     resources: ["modules"]
     verbs: ["create", "update", "patch", "get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: kerrareg-ci-publisher-binding
-  namespace: kerrareg-system
+  name: opendepot-ci-publisher-binding
+  namespace: opendepot-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: kerrareg-module-publisher
+  name: opendepot-module-publisher
 subjects:
   - kind: ServiceAccount
-    name: kerrareg-ci-publisher
-    namespace: kerrareg-system
+    name: opendepot-ci-publisher
+    namespace: opendepot-system
 ```
 

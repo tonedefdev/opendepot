@@ -1,7 +1,15 @@
-# Authenticating with Kerrareg
+---
+tags:
+  - authentication
+  - kubernetes
+  - security
+search:
+  boost: 2
+---
 
+# Authenticating with OpenDepot
 
-Kerrareg supports two authentication methods. Both leverage Kubernetes credentials — either a short-lived bearer token or a base64-encoded kubeconfig.
+OpenDepot supports two authentication methods. Both leverage Kubernetes credentials — either a short-lived bearer token or a base64-encoded kubeconfig.
 
 ### Method 1: Environment Variables (Recommended)
 
@@ -9,33 +17,51 @@ Use an environment variable to pass a Kubernetes access token. OpenTofu (all ver
 
 The variable name is derived from the registry hostname: replace dots with underscores and convert to uppercase.
 
-`kerrareg.defdev.io` → `TF_TOKEN_KERRAREG_DEFDEV_IO`
+`opendepot.defdev.io` → `TF_TOKEN_KERRAREG_DEFDEV_IO`
 
-**Amazon EKS:**
+=== "Amazon EKS"
 
-```bash
-export TF_TOKEN_KERRAREG_DEFDEV_IO=$(aws eks get-token \
-  --cluster-name my-cluster \
-  --region us-west-2 \
-  --output json | jq -r '.status.token')
+    ```bash
+    export TF_TOKEN_KERRAREG_DEFDEV_IO=$(aws eks get-token \
+      --cluster-name my-cluster \
+      --region us-west-2 \
+      --output json | jq -r '.status.token')
 
-tofu init
-tofu plan
-```
+    tofu init
+    tofu plan
+    ```
 
-**Google GKE:**
+=== "Google GKE"
 
-```bash
-export TF_TOKEN_KERRAREG_DEFDEV_IO=$(gcloud auth print-access-token)
-```
+    ```bash
+    export TF_TOKEN_KERRAREG_DEFDEV_IO=$(gcloud auth print-access-token)
 
-**Azure AKS:**
+    tofu init
+    tofu plan
+    ```
 
-```bash
-export TF_TOKEN_KERRAREG_DEFDEV_IO=$(az account get-access-token \
-  --resource 6dae42f8-4368-4678-94ff-3960e28e3630 \
-  --query accessToken -o tsv)
-```
+=== "Azure AKS"
+
+    ```bash
+    export TF_TOKEN_KERRAREG_DEFDEV_IO=$(az account get-access-token \
+      --resource 6dae42f8-4368-4678-94ff-3960e28e3630 \
+      --query accessToken -o tsv)
+
+    tofu init
+    tofu plan
+    ```
+
+=== "Generic OIDC"
+
+    ```bash
+    # Any cluster using kubelogin or exec credentials
+    export TF_TOKEN_KERRAREG_DEFDEV_IO=$(kubectl get secret \
+      -n opendepot-system my-sa-token \
+      -o jsonpath='{.data.token}' | base64 -d)
+
+    tofu init
+    tofu plan
+    ```
 
 Tokens are short-lived and automatically rotate, making this the most secure option.
 
@@ -57,7 +83,7 @@ kubectl config view --raw | base64 | tr -d '\n' > /tmp/kubeconfig.b64
 ```json
 {
   "credentials": {
-    "kerrareg.defdev.io": {
+    "opendepot.defdev.io": {
       "token": "<contents-of-kubeconfig.b64>"
     }
   }

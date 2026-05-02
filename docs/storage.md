@@ -1,7 +1,16 @@
+---
+tags:
+  - storage
+  - s3
+  - azure
+  - gcs
+  - filesystem
+  - configuration
+---
+
 # Storage Backends
 
-
-Kerrareg supports four storage backends. Each is configured via the `storageConfig` field on `Depot.spec.global.storageConfig`, `ModuleConfig.storageConfig`, or directly on a `Module.spec.moduleConfig.storageConfig`.
+OpenDepot supports four storage backends. Each is configured via the `storageConfig` field on `Depot.spec.global.storageConfig`, `ModuleConfig.storageConfig`, or directly on a `Module.spec.moduleConfig.storageConfig`.
 
 ## Amazon S3
 
@@ -41,7 +50,7 @@ Kerrareg supports four storage backends. Each is configured via the `storageConf
 ```yaml
 storageConfig:
   s3:
-    bucket: kerrareg-modules
+    bucket: opendepot-modules
     region: us-west-2
 ```
 
@@ -74,10 +83,10 @@ storageConfig:
 ```yaml
 storageConfig:
   azureStorage:
-    accountName: kerraregmodules
-    accountUrl: https://kerraregmodules.blob.core.windows.net
+    accountName: opendepotmodules
+    accountUrl: https://opendepotmodules.blob.core.windows.net
     subscriptionID: 00000000-0000-0000-0000-000000000000
-    resourceGroup: kerrareg-rg
+    resourceGroup: opendepot-rg
 ```
 
 ## Google Cloud Storage
@@ -105,7 +114,7 @@ storageConfig:
 ```yaml
 storageConfig:
   gcs:
-    bucket: kerrareg-modules
+    bucket: opendepot-modules
 ```
 
 ## Local Filesystem
@@ -136,11 +145,11 @@ Stores module archives on a shared volume mounted to both the Version controller
 **Local Development with kind (hostPath):**
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set storage.filesystem.enabled=true \
-  --set storage.filesystem.hostPath=/tmp/kerrareg-modules
+  --set storage.filesystem.hostPath=/tmp/opendepot-modules
 ```
 
 When using `hostPath`, the chart adds an `initContainer` that runs as root to set ownership of the volume to uid `65532` (the non-root user the containers run as).
@@ -148,8 +157,8 @@ When using `hostPath`, the chart adds an `initContainer` that runs as root to se
 **Production with PVC (ReadWriteMany):**
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.storageClassName=efs-sc \

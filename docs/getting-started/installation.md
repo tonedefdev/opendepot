@@ -1,5 +1,13 @@
-# Installation
+---
+tags:
+  - installation
+  - helm
+  - kubernetes
+search:
+  boost: 2
+---
 
+# Installation
 
 ## Prerequisites
 
@@ -14,22 +22,25 @@
 CRDs must be installed before deploying the Helm chart:
 
 ```bash
-kubectl apply -f chart/kerrareg/crds/
+kubectl apply -f chart/opendepot/crds/
 ```
 
 ## Install with Helm
 
+!!! tip "Minimal install"
+    For a quick start, the one-liner below is all you need. OpenDepot will use in-cluster defaults. Customise with `--set` flags or a values file once you're ready.
+
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace
 ```
 
 To customize values:
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set global.image.tag=v0.1.0 \
   --set server.service.type=ClusterIP \
@@ -39,19 +50,23 @@ helm upgrade --install kerrareg chart/kerrareg \
 Or use a values file:
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   -f my-values.yaml
 ```
 
 ## Helm Chart Values
 
+??? info "Full Helm values reference"
+
+    The tables below list every configurable Helm value. Most defaults are sensible for a standard installation — focus on `global.image.tag`, your storage backend, and `server.ingress` or `server.tls` for production.
+
 ## Global
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `global.namespace` | `kerrareg-system` | Namespace for all resources |
+| `global.namespace` | `opendepot-system` | Namespace for all resources |
 | `global.imagePullPolicy` | `IfNotPresent` | Image pull policy |
 | `global.image.tag` | `dev` | Image tag for all services |
 
@@ -63,7 +78,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 | `server.replicaCount` | `1` | Number of replicas |
 | `server.anonymousAuth` | `false` | Use the server's service account for unauthenticated module access (see note below) |
 | `server.useBearerToken` | `true` | Use bearer token auth instead of kubeconfig |
-| `server.image.repository` | `ghcr.io/tonedefdev/kerrareg/server` | Server image |
+| `server.image.repository` | `ghcr.io/tonedefdev/opendepot/server` | Server image |
 | `server.service.type` | `LoadBalancer` | Service type |
 | `server.service.port` | `80` | Service port |
 | `server.service.targetPort` | `8080` | Container port |
@@ -72,7 +87,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 | `server.tls.keyPath` | `/etc/tls/tls.key` | Path to TLS key |
 | `server.ingress.enabled` | `false` | Enable Kubernetes Ingress |
 | `server.ingress.istio.enabled` | `true` | Enable Istio VirtualService |
-| `server.ingress.istio.hosts` | `[kerrareg.defdev.io]` | Istio VirtualService hosts |
+| `server.ingress.istio.hosts` | `[opendepot.defdev.io]` | Istio VirtualService hosts |
 | `server.resources.requests.cpu` | `100m` | CPU request |
 | `server.resources.requests.memory` | `128Mi` | Memory request |
 | `server.resources.limits.cpu` | `500m` | CPU limit |
@@ -94,7 +109,7 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 |-------|---------|-------------|
 | `<service>.enabled` | `true` (`provider`: `false`) | Deploy the controller |
 | `<service>.replicaCount` | `1` | Number of replicas |
-| `<service>.image.repository` | `ghcr.io/tonedefdev/kerrareg/<service>-controller` | Image repository |
+| `<service>.image.repository` | `ghcr.io/tonedefdev/opendepot/<service>-controller` | Image repository |
 | `<service>.image.tag` | `""` | Overrides `global.image.tag` when set |
 | `<service>.resources.requests.cpu` | `100m` | CPU request |
 | `<service>.resources.requests.memory` | `128Mi` | Memory request |
@@ -165,7 +180,7 @@ make deploy
 | `make load` | Load all images into the kind cluster |
 | `make deploy` | Build and load all images |
 | `make service NAME=server` | Build and load a single service |
-| `make restart` | Restart all deployments in `kerrareg-system` |
+| `make restart` | Restart all deployments in `opendepot-system` |
 | `make redeploy` | Build, load, and restart all services |
 | `make kind-restart` | Full cluster recreation with Istio, TLS, gateway, and Helm deploy (for production-like local setup) |
 
@@ -176,4 +191,4 @@ make deploy
 | `PLATFORM` | `linux/arm64` | Target platform for container builds |
 | `KIND_CLUSTER` | `kind` | Name of the kind cluster |
 | `TAG` | `dev` | Image tag for all services |
-| `REGISTRY` | `ghcr.io/tonedefdev/kerrareg` | Container registry prefix |
+| `REGISTRY` | `ghcr.io/tonedefdev/opendepot` | Container registry prefix |

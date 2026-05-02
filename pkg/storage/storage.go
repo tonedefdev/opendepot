@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tonedefdev/kerrareg/pkg/storage/types"
+	"github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
 // Storage interface implements methods to store a specific Version in an external storage system.

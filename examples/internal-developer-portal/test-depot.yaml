@@ -1,11 +1,11 @@
 apiVersion: v1
 items:
-- apiVersion: kerrareg.io/v1alpha1
+- apiVersion: opendepot.defdev.io/v1alpha1
   kind: Depot
   metadata:
     creationTimestamp: "2026-04-22T05:47:49Z"
     generation: 5
-    name: kerrareg-depot
+    name: opendepot-depot
     namespace: default
     resourceVersion: "5684063"
     uid: 253098b3-f490-4043-a605-fe1e51f853f1

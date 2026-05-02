@@ -18,7 +18,7 @@ import { ResourceSummaryCards } from "./components/ResourceSummaryCards";
 import { ResourceGraph } from "./components/ResourceGraph";
 import { NodeDetailsPanel } from "./components/NodeDetailsPanel";
 
-const defaultNamespace = "kerrareg-system";
+const defaultNamespace = "opendepot-system";
 const depotColor = "#0057B8";
 const moduleColor = "#0A7D45";
 const versionColor = "#A15700";
@@ -30,7 +30,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<SelectedNode>(null);
 
-  const logoSrc = "/img/kerrareg.png";
+  const logoSrc = "/img/opendepot.png";
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -77,7 +77,7 @@ export function App() {
             <Box
               component="img"
               src={logoSrc}
-              alt="Kerrareg"
+              alt="OpenDepot"
               sx={{
                 width: { xs: 100, sm: 120, md: 136 },
                 height: "auto",

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	storagetypes "github.com/tonedefdev/kerrareg/pkg/storage/types"
+	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"

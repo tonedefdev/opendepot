@@ -30,19 +30,19 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 // namespace where the project is deployed in.
-const namespace = "kerrareg-system"
+const namespace = "opendepot-system"
 
 var _ = Describe("Module", Ordered, func() {
 	const (
-		moduleNamespace       = "kerrareg-system"
+		moduleNamespace       = "opendepot-system"
 		serverPortForwardPort = "18080"
 		// OpenTofu requires a module registry hostname with at least one dot.
-		// kerrareg.localtest.me resolves to 127.0.0.1 via public DNS (localtest.me service).
-		registryHost        = "kerrareg.localtest.me:18080"
+		// opendepot.localtest.me resolves to 127.0.0.1 via public DNS (localtest.me service).
+		registryHost        = "opendepot.localtest.me:18080"
 		moduleCRName        = "terraform-aws-key-pair"
 		moduleVersion       = "2.0.0"
 		moduleVersionCRName = "terraform-aws-key-pair-2.0.0"
@@ -55,7 +55,7 @@ var _ = Describe("Module", Ordered, func() {
 	BeforeAll(func() {
 		By("applying the test Module CR")
 		moduleYAML := fmt.Sprintf(`
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: %s
@@ -81,7 +81,7 @@ spec:
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply test Module CR")
 
-		By("starting port-forward to the kerrareg server")
+		By("starting port-forward to the opendepot server")
 		pfCtx, cancel := context.WithCancel(context.Background())
 		pfCancel = cancel
 		pfCmd := exec.CommandContext(pfCtx, "kubectl", "port-forward",
@@ -108,7 +108,7 @@ spec:
 		By("waiting for Version CRs to be created")
 		Eventually(func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "versions",
-				"-l", fmt.Sprintf("kerrareg.io/module=%s", moduleCRName),
+				"-l", fmt.Sprintf("opendepot.defdev.io/module=%s", moduleCRName),
 				"-n", moduleNamespace,
 				"--no-headers",
 			)
@@ -169,19 +169,19 @@ spec:
 		Expect(body).To(ContainSubstring("modules.v1"))
 
 		By("checking module versions list endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/kerrareg/modules/v1/%s/%s/%s/versions",
+		body = httpGetBody(fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/versions",
 			base, moduleNamespace, moduleCRName, moduleProvider))
 		Expect(body).To(ContainSubstring(moduleVersion))
 
 		By("checking module download endpoint returns X-Terraform-Get header")
-		resp := httpGetRaw(fmt.Sprintf("%s/kerrareg/modules/v1/%s/%s/%s/%s/download",
+		resp := httpGetRaw(fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/%s/download",
 			base, moduleNamespace, moduleCRName, moduleProvider, moduleVersion))
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
-		Expect(resp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/kerrareg/modules/v1/download/"))
+		Expect(resp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/opendepot/modules/v1/download/"))
 	})
 
-	It("should successfully run tofu init against the kerrareg registry", func() {
+	It("should successfully run tofu init against the opendepot registry", func() {
 		By("creating a temp directory with a Terraform config")
 		tmpDir := GinkgoT().TempDir()
 
@@ -195,7 +195,7 @@ spec:
 		By("writing a .tofurc to point at the local module registry")
 		tofuRC := fmt.Sprintf(`host "%s" {
   services = {
-    "modules.v1" = "http://%s/kerrareg/modules/v1/"
+    "modules.v1" = "http://%s/opendepot/modules/v1/"
   }
 }
 `, registryHost, registryHost)
@@ -216,9 +216,9 @@ spec:
 
 	It("should enforce Kubernetes RBAC when anonymousAuth is disabled", func() {
 		const (
-			authTestSA   = "kerrareg-e2e-reader"
-			authTestRole = "kerrareg-e2e-reader"
-			authTestRB   = "kerrareg-e2e-reader"
+			authTestSA   = "opendepot-e2e-reader"
+			authTestRole = "opendepot-e2e-reader"
+			authTestRB   = "opendepot-e2e-reader"
 		)
 
 		chartPath, err := utils.GetChartPath()
@@ -286,7 +286,7 @@ spec:
 
 		By("verifying unauthenticated request returns 401")
 		unauthResp, err := http.Get(fmt.Sprintf( //nolint:noctx
-			"http://localhost:%s/kerrareg/modules/v1/%s/%s/%s/versions",
+			"http://localhost:%s/opendepot/modules/v1/%s/%s/%s/versions",
 			serverPortForwardPort, moduleNamespace, moduleCRName, moduleProvider))
 		Expect(err).NotTo(HaveOccurred())
 		_ = unauthResp.Body.Close()
@@ -296,7 +296,7 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "create", "serviceaccount", authTestSA, "-n", moduleNamespace))
 		_, _ = utils.Run(exec.Command("kubectl", "create", "role", authTestRole,
 			"-n", moduleNamespace,
-			"--resource=modules.kerrareg.io,versions.kerrareg.io",
+			"--resource=modules.opendepot.defdev.io,versions.opendepot.defdev.io",
 			"--verb=get,list,watch",
 		))
 		_, _ = utils.Run(exec.Command("kubectl", "create", "rolebinding", authTestRB,
@@ -325,7 +325,7 @@ spec:
 
 		tofuRC := fmt.Sprintf(`host "%s" {
   services = {
-    "modules.v1" = "http://%s/kerrareg/modules/v1/"
+    "modules.v1" = "http://%s/opendepot/modules/v1/"
   }
 }
 credentials "%s" {

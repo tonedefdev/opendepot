@@ -24,15 +24,15 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	kerraregv1alpha1 "github.com/tonedefdev/kerrareg/api/v1alpha1"
-	"github.com/tonedefdev/kerrareg/pkg/storage"
-	storageTypes "github.com/tonedefdev/kerrareg/pkg/storage/types"
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/storage"
+	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
 var (
 	logger                 *slog.Logger
-	kerraregAnonymousAuth  *bool
-	kerraregUseBearerToken *bool
+	opendepotAnonymousAuth  *bool
+	opendepotUseBearerToken *bool
 )
 
 func init() {
@@ -41,30 +41,30 @@ func init() {
 }
 
 func main() {
-	kerraregAnonymousAuth = flag.Bool("anonymous-auth", false, "when true use the server's service account to serve modules and versions without requiring client authentication")
-	kerraregUseBearerToken = flag.Bool("use-bearer-token", false, "when true use a bearer token instead of a base64 encoded kubeconfig to authenticate with the kubernetes API server")
-	kerraregCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
-	kerraregCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
+	opendepotAnonymousAuth = flag.Bool("anonymous-auth", false, "when true use the server's service account to serve modules and versions without requiring client authentication")
+	opendepotUseBearerToken = flag.Bool("use-bearer-token", false, "when true use a bearer token instead of a base64 encoded kubeconfig to authenticate with the kubernetes API server")
+	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
+	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Get("/.well-known/terraform.json", serviceDiscoveryHandler)
-	r.Get("/kerrareg/modules/v1/{namespace}/{name}/{system}/versions", getModuleVersions)
-	r.Get("/kerrareg/modules/v1/{namespace}/{name}/{system}/{version}/download", getDownloadModuleUrl)
-	r.Get("/kerrareg/providers/v1/{namespace}/{type}/versions", getProviderVersions)
-	r.Get("/kerrareg/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}", getProviderPackageMetadata)
-	r.Get("/kerrareg/providers/v1/download/{namespace}/{type}/{version}", serveProviderPackageDownload)
-	r.Get("/kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}", getProviderPackageSHA256SUMS)
-	r.Get("/kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}", getProviderPackageSHA256SUMSSignature)
+	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/versions", getModuleVersions)
+	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/{version}/download", getDownloadModuleUrl)
+	r.Get("/opendepot/providers/v1/{namespace}/{type}/versions", getProviderVersions)
+	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}", getProviderPackageMetadata)
+	r.Get("/opendepot/providers/v1/download/{namespace}/{type}/{version}", serveProviderPackageDownload)
+	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}", getProviderPackageSHA256SUMS)
+	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}", getProviderPackageSHA256SUMSSignature)
 
-	r.Get("/kerrareg/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}", serveModuleFromAzureBlob)
-	r.Get("/kerrareg/modules/v1/download/fileSystem/{directory}/{name}/{fileName}", serveModuleFromFileSystem)
-	r.Get("/kerrareg/modules/v1/download/gcs/{bucket}/{name}/{fileName}", serveModuleFromGCS)
-	r.Get("/kerrareg/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
+	r.Get("/opendepot/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}", serveModuleFromAzureBlob)
+	r.Get("/opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}", serveModuleFromFileSystem)
+	r.Get("/opendepot/modules/v1/download/gcs/{bucket}/{name}/{fileName}", serveModuleFromGCS)
+	r.Get("/opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
 
-	if *kerraregCertPath != "" && *kerraregCertKey != "" {
-		http.ListenAndServeTLS("", *kerraregCertPath, *kerraregCertKey, r)
+	if *opendepotCertPath != "" && *opendepotCertKey != "" {
+		http.ListenAndServeTLS("", *opendepotCertPath, *opendepotCertKey, r)
 	} else {
 		logger.Info("Server started and listening on default port: 8080 without TLS. For secure communication, provide paths to TLS certificate and key using --tls-cert-path and --tls-cert-key flags.")
 		if err := http.ListenAndServe(":8080", r); err != nil {
@@ -84,7 +84,7 @@ type ModuleVersionsResponse struct {
 }
 
 type ModuleVersions struct {
-	Versions []kerraregv1alpha1.ModuleVersion `json:"versions"`
+	Versions []opendepotv1alpha1.ModuleVersion `json:"versions"`
 }
 
 type ProviderVersionsResponse struct {
@@ -127,8 +127,8 @@ type ProviderSigningKey struct {
 func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	response := ServiceDiscoveryResponse{
-		ModulesURL:   "/kerrareg/modules/v1/",
-		ProvidersURL: "/kerrareg/providers/v1/",
+		ModulesURL:   "/opendepot/modules/v1/",
+		ProvidersURL: "/opendepot/providers/v1/",
 	}
 	json.NewEncoder(w).Encode(response)
 }
@@ -137,10 +137,10 @@ func normalizeVersion(versionString string) string {
 	return strings.TrimPrefix(strings.TrimSpace(versionString), "v")
 }
 
-func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, providerType, requestedVersion string, ctxName string, ctxReq *http.Request) (*kerraregv1alpha1.Version, error) {
+func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, providerType, requestedVersion string, ctxName string, ctxReq *http.Request) (*opendepotv1alpha1.Version, error) {
 	result, err := clientset.RESTClient().
 		Get().
-		AbsPath("/apis/kerrareg.io/v1alpha1").
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Namespace(namespace).
 		Resource("versions").
 		DoRaw(ctxReq.Context())
@@ -148,7 +148,7 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 		return nil, err
 	}
 
-	var versionList kerraregv1alpha1.VersionList
+	var versionList opendepotv1alpha1.VersionList
 	if err = json.Unmarshal(result, &versionList); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal versions list for %s: %w", ctxName, err)
 	}
@@ -173,8 +173,8 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 	return nil, nil
 }
 
-func buildDownloadPathFromVersion(versionResource *kerraregv1alpha1.Version) (string, error) {
-	var storageConfig *kerraregv1alpha1.StorageConfig
+func buildDownloadPathFromVersion(versionResource *opendepotv1alpha1.Version) (string, error) {
+	var storageConfig *opendepotv1alpha1.StorageConfig
 	var name *string
 
 	if versionResource.Spec.ModuleConfigRef != nil && versionResource.Spec.ModuleConfigRef.StorageConfig != nil {
@@ -269,7 +269,7 @@ func decodeSHA256Checksum(base64Checksum string) (string, error) {
 	return hex.EncodeToString(decoded), nil
 }
 
-func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r *http.Request) (*kerraregv1alpha1.Version, error) {
+func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r *http.Request) (*opendepotv1alpha1.Version, error) {
 	name := chi.URLParam(r, "name")
 	namespace := chi.URLParam(r, "namespace")
 	version := chi.URLParam(r, "version")
@@ -277,7 +277,7 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 
 	result, err := clientset.RESTClient().
 		Get().
-		AbsPath("/apis/kerrareg.io/v1alpha1").
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Namespace(namespace).
 		Resource("versions").
 		Name(moduleName).
@@ -286,7 +286,7 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 		return nil, err
 	}
 
-	var moduleVersion kerraregv1alpha1.Version
+	var moduleVersion opendepotv1alpha1.Version
 	if err = json.Unmarshal(result, &moduleVersion); err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return nil, err
@@ -347,7 +347,7 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checksumQuery := url.QueryEscape(*moduleVersion.Status.Checksum)
-	w.Header().Set("X-Terraform-Get", fmt.Sprintf("/kerrareg/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery))
+	w.Header().Set("X-Terraform-Get", fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -375,12 +375,12 @@ func serveModuleFromAzureBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := &kerraregv1alpha1.Version{
-		Spec: kerraregv1alpha1.VersionSpec{
-			ModuleConfigRef: &kerraregv1alpha1.ModuleConfig{
+	version := &opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
 				Name: &name,
-				StorageConfig: &kerraregv1alpha1.StorageConfig{
-					AzureStorage: &kerraregv1alpha1.AzureStorageConfig{
+				StorageConfig: &opendepotv1alpha1.StorageConfig{
+					AzureStorage: &opendepotv1alpha1.AzureStorageConfig{
 						AccountName:    accountName,
 						AccountUrl:     accountUrl,
 						ResourceGroup:  rg,
@@ -434,7 +434,7 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 		}
 
 		q.Set("archive", archiveType)
-		sourceURL := fmt.Sprintf("%s://%s/kerrareg/modules/v1/download/fileSystem/%s/%s/%s?%s",
+		sourceURL := fmt.Sprintf("%s://%s/opendepot/modules/v1/download/fileSystem/%s/%s/%s?%s",
 			scheme, r.Host, encodedDir, moduleName, fileName, q.Encode())
 
 		w.Header().Set("X-Terraform-Get", sourceURL)
@@ -480,11 +480,11 @@ func serveModuleFromGCS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := &kerraregv1alpha1.Version{
-		Spec: kerraregv1alpha1.VersionSpec{
-			ModuleConfigRef: &kerraregv1alpha1.ModuleConfig{
-				StorageConfig: &kerraregv1alpha1.StorageConfig{
-					GCS: &kerraregv1alpha1.GoogleCloudStorageConfig{
+	version := &opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
+				StorageConfig: &opendepotv1alpha1.StorageConfig{
+					GCS: &opendepotv1alpha1.GoogleCloudStorageConfig{
 						Bucket: bucket,
 					},
 				},
@@ -515,11 +515,11 @@ func serveModuleFromS3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := kerraregv1alpha1.Version{
-		Spec: kerraregv1alpha1.VersionSpec{
-			ModuleConfigRef: &kerraregv1alpha1.ModuleConfig{
-				StorageConfig: &kerraregv1alpha1.StorageConfig{
-					S3: &kerraregv1alpha1.AmazonS3Config{
+	version := opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
+				StorageConfig: &opendepotv1alpha1.StorageConfig{
+					S3: &opendepotv1alpha1.AmazonS3Config{
 						Bucket: bucket,
 					},
 				},
@@ -616,14 +616,14 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 // When bearer token mode is enabled, extracts the token from the Authorization header.
 // Otherwise, extracts a base64-encoded kubeconfig from the Authorization header.
 func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, error) {
-	if *kerraregAnonymousAuth {
+	if *opendepotAnonymousAuth {
 		return generateKubeClient(nil, nil, false)
 	}
 
 	var kubeconfig []byte
 	var bearerToken string
 
-	if *kerraregUseBearerToken {
+	if *opendepotUseBearerToken {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
@@ -638,7 +638,7 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		kubeconfig = config
 	}
 
-	return generateKubeClient(kubeconfig, &bearerToken, *kerraregUseBearerToken)
+	return generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
 }
 
 func extractKubeconfig(w http.ResponseWriter, r *http.Request) ([]byte, error) {
@@ -672,7 +672,7 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 
 	result, err := clientset.RESTClient().
 		Get().
-		AbsPath("/apis/kerrareg.io/v1alpha1").
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Namespace(namespace).
 		Resource("modules").
 		Name(name).
@@ -681,7 +681,7 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 		logger.Error("unable to get modules", "error", err, "namespace", namespace, "name", name, "responseBody", string(result))
 	}
 
-	var module kerraregv1alpha1.Module
+	var module opendepotv1alpha1.Module
 	if err = json.Unmarshal(result, &module); err != nil {
 		logger.Error("unable to unmarshal module", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -713,7 +713,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 
 	_, err = clientset.RESTClient().
 		Get().
-		AbsPath("/apis/kerrareg.io/v1alpha1").
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Namespace(namespace).
 		Resource("providers").
 		Name(providerType).
@@ -731,7 +731,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 
 	result, err := clientset.RESTClient().
 		Get().
-		AbsPath("/apis/kerrareg.io/v1alpha1").
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Namespace(namespace).
 		Resource("versions").
 		DoRaw(r.Context())
@@ -741,7 +741,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var versionList kerraregv1alpha1.VersionList
+	var versionList opendepotv1alpha1.VersionList
 	if err = json.Unmarshal(result, &versionList); err != nil {
 		logger.Error("unable to unmarshal versions list", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -832,9 +832,9 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 		OS:                  osName,
 		Arch:                arch,
 		Filename:            *versionResource.Spec.FileName,
-		DownloadURL:         fmt.Sprintf("%s/kerrareg/providers/v1/download/%s/%s/%s", baseURL, namespace, providerType, versionString),
-		SHASumsURL:          fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/%s/SHA256SUMS/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
-		SHASumsSignatureURL: fmt.Sprintf("%s/kerrareg/providers/v1/%s/%s/%s/SHA256SUMS.sig/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
+		DownloadURL:         fmt.Sprintf("%s/opendepot/providers/v1/download/%s/%s/%s", baseURL, namespace, providerType, versionString),
+		SHASumsURL:          fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
+		SHASumsSignatureURL: fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS.sig/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
 		SHASum:              checksumHex,
 		SigningKeys:         *signingKeys,
 	}
@@ -882,7 +882,7 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checksumQuery := url.QueryEscape(*versionResource.Status.Checksum)
-	http.Redirect(w, r, fmt.Sprintf("/kerrareg/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
 }
 
 func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {

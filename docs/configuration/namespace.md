@@ -1,13 +1,20 @@
+---
+tags:
+  - configuration
+  - kubernetes
+  - rbac
+---
+
 # Namespace-Scoped Mode
 
-By default, Kerrareg controllers use `ClusterRole`/`ClusterRoleBinding` and watch resources across all namespaces. To restrict controllers to a single namespace, enable namespace-scoped mode:
+By default, OpenDepot controllers use `ClusterRole`/`ClusterRoleBinding` and watch resources across all namespaces. To restrict controllers to a single namespace, enable namespace-scoped mode:
 
 ```yaml
 rbac:
   scopeToNamespace: true
 
 global:
-  namespace: my-kerrareg-namespace
+  namespace: my-opendepot-namespace
 ```
 
 When `rbac.scopeToNamespace` is `true`:

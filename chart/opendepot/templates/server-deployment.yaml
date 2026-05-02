@@ -1,0 +1,113 @@
+{{- if .Values.server.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      serviceAccountName: server
+      securityContext:
+        {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
+        runAsNonRoot: true
+        {{- end }}
+        runAsUser: 65532
+        {{- if .Values.storage.filesystem.enabled }}
+        fsGroup: 65532
+        {{- end }}
+      {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.37
+        command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: modules
+          mountPath: {{ .Values.storage.filesystem.mountPath }}
+      {{- end }}
+      containers:
+      - name: server
+        image: "{{ .Values.server.image.repository }}:{{ default .Values.global.image.tag .Values.server.image.tag }}"
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        args:
+        {{- if .Values.server.anonymousAuth }}
+        - --anonymous-auth
+        {{- end }}
+        {{- if .Values.server.useBearerToken }}
+        - --use-bearer-token
+        {{- end }}
+        {{- if .Values.server.tls.enabled }}
+        - --tls-cert-path={{ .Values.server.tls.certPath }}
+        - --tls-cert-key={{ .Values.server.tls.keyPath }}
+        {{- end }}
+        {{- if .Values.server.gpg.secretName }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.server.gpg.secretName }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.server.service.targetPort }}
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          {{- if not .Values.storage.filesystem.enabled }}
+          readOnlyRootFilesystem: true
+          {{- end }}
+        resources:
+          {{- toYaml .Values.server.resources | nindent 10 }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
+        volumeMounts:
+        {{- if .Values.server.tls.enabled }}
+        - name: tls
+          mountPath: {{ .Values.server.tls.certPath | dir }}
+          readOnly: true
+        {{- end }}
+        {{- if .Values.storage.filesystem.enabled }}
+        - name: modules
+          mountPath: {{ .Values.storage.filesystem.mountPath }}
+        {{- end }}
+        {{- end }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
+      volumes:
+      {{- if .Values.server.tls.enabled }}
+      - name: tls
+        secret:
+          secretName: opendepot-tls
+      {{- end }}
+      {{- if .Values.storage.filesystem.enabled }}
+      - name: modules
+        {{- if .Values.storage.filesystem.hostPath }}
+        hostPath:
+          path: {{ .Values.storage.filesystem.hostPath }}
+          type: DirectoryOrCreate
+        {{- else }}
+        persistentVolumeClaim:
+          claimName: opendepot-modules
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

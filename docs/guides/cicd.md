@@ -1,13 +1,20 @@
+---
+tags:
+  - cicd
+  - push-based
+  - guides
+---
+
 # Push-Based Workflow: CI/CD Pipeline
 
 For private modules you control, bypass the Depot entirely and create `Module` resources directly from your CI/CD pipeline:
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -18,7 +25,7 @@ spec:
     immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
     githubClientConfig:
       useAuthenticatedClient: true
@@ -46,7 +53,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<AWS_ACCOUNT_ID>:role/kerrareg-github-actions-role
+          role-to-assume: arn:aws:iam::<AWS_ACCOUNT_ID>:role/opendepot-github-actions-role
           aws-region: us-west-2
 
       - name: Setup kubeconfig
@@ -55,11 +62,11 @@ jobs:
       - name: Publish module version
         run: |
           kubectl apply -f - <<EOF
-          apiVersion: kerrareg.io/v1alpha1
+          apiVersion: opendepot.defdev.io/v1alpha1
           kind: Module
           metadata:
             name: my-module
-            namespace: kerrareg-system
+            namespace: opendepot-system
           spec:
             moduleConfig:
               name: my-module
@@ -69,7 +76,7 @@ jobs:
               fileFormat: zip
               storageConfig:
                 s3:
-                  bucket: kerrareg-modules
+                  bucket: opendepot-modules
                   region: us-west-2
             versions:
               - version: ${{ github.event.release.tag_name }}
@@ -80,12 +87,12 @@ The Module controller creates the `Version` resource, and the Version controller
 
 ## Adding Versions to an Existing Module
 
-To publish a new version of a module that already exists in Kerrareg, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.
+To publish a new version of a module that already exists in OpenDepot, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.
 
 **Using `kubectl patch` (quick):**
 
 ```bash
-kubectl patch module terraform-aws-eks -n kerrareg-system \
+kubectl patch module terraform-aws-eks -n opendepot-system \
   --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"21.13.0"}}]'
 ```
 
@@ -94,11 +101,11 @@ kubectl patch module terraform-aws-eks -n kerrareg-system \
 Include all existing versions alongside the new one. The Module controller is idempotent — it won't re-create versions that already exist.
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -108,7 +115,7 @@ spec:
     fileFormat: zip
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
   versions:
     - version: "21.10.1"
@@ -123,7 +130,7 @@ spec:
 - name: Add version to existing module
   run: |
     VERSION=${{ github.event.release.tag_name }}
-    kubectl patch module my-module -n kerrareg-system \
+    kubectl patch module my-module -n opendepot-system \
       --type json \
       -p "[{\"op\":\"add\",\"path\":\"/spec/versions/-\",\"value\":{\"version\":\"${VERSION}\"}}]"
 ```
@@ -136,11 +143,11 @@ If a Module or Version fails to sync (e.g., due to a transient network error), y
 
 ```bash
 # Force a Module to re-sync all its versions
-kubectl patch module terraform-aws-eks -n kerrareg-system \
+kubectl patch module terraform-aws-eks -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 
 # Force a single Version to re-sync
-kubectl patch version.kerrareg.io terraform-aws-eks-21.18.0 -n kerrareg-system \
+kubectl patch version.opendepot.defdev.io terraform-aws-eks-21.18.0 -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 ```
 

@@ -1,0 +1,58 @@
+{% extends "main.html" %}
+
+{% block tabs %}
+{{ super() }}
+<section class="mdx-container">
+  <div class="md-grid md-typeset">
+    <div class="mdx-hero">
+
+      <div class="mdx-hero__content">
+        <h1>Self-hosted registry for OpenTofu &amp; Terraform</h1>
+        <p>
+          A Kubernetes-native module and provider registry with zero extra
+          infrastructure. Authentication, RBAC, and self-healing come free —
+          no database, no API keys, no separate identity store.
+        </p>
+        <a href="{{ base_url }}/getting-started/installation/" class="md-button md-button--primary">
+          Get Started &nbsp;→
+        </a>
+        <a href="https://github.com/tonedefdev/opendepot" class="md-button" target="_blank" rel="noopener">
+          View on GitHub
+        </a>
+
+        <div class="mdx-hero__stats">
+          <span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px;margin-right:4px"><path d="M17 3H7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 3c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 14c-2.7 0-4.8-1.4-4.8-3.1 0-1.7 2.1-3.1 4.8-3.1s4.8 1.4 4.8 3.1c0 1.7-2.1 3.1-4.8 3.1z" fill="currentColor"/><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/></svg>
+            No Database
+          </span>
+          <span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px;margin-right:4px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/></svg>
+            Self-Healing
+          </span>
+          <span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px;margin-right:4px"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z" fill="currentColor"/></svg>
+            Multi-Cloud Storage
+          </span>
+          <span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px;margin-right:4px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z" fill="currentColor"/></svg>
+            Tamper-Resistant
+          </span>
+          <span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px;margin-right:4px"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM9.5 16.5l-2-2 4.5-4.5L9.5 7.5l2-2 4.5 4.5-2 2-2.5-2.5-2.5 2.5 2.5 2.5-2 2z" fill="currentColor"/></svg>
+            Kubernetes-Native
+          </span>
+        </div>
+      </div>
+
+      <div class="mdx-hero__image">
+        <img
+          src="{{ base_url }}/img/opendepot.svg"
+          alt="OpenDepot logo"
+          draggable="false"
+        />
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}
