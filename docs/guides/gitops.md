@@ -1,21 +1,28 @@
+---
+tags:
+  - gitops
+  - argocd
+  - guides
+---
+
 # GitOps with Argo CD
 
-For teams that manage infrastructure declaratively through Git, Kerrareg fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
+For teams that manage infrastructure declaratively through Git, OpenDepot fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
 
 **How it works:**
 
 1. A developer opens a PR against their OpenTofu module repository with the code changes
-2. The same PR includes an update to the Kerrareg `Module` manifest, adding the new version to `spec.versions`
+2. The same PR includes an update to the OpenDepot `Module` manifest, adding the new version to `spec.versions`
 3. The team reviews both the module code and the registry manifest in a single PR
 4. On approval and merge, Argo CD detects the change and syncs the `Module` resource to the cluster
-5. Kerrareg takes over — the Module controller creates a `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage
+5. OpenDepot takes over — the Module controller creates a `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage
 
 This gives you a complete audit trail: every module version published to your registry maps to an approved, merged pull request.
 
 **Example repository structure:**
 
 ```
-kerrareg-manifests/
+opendepot-manifests/
 ├── modules/
 │   ├── terraform-aws-eks.yaml
 │   ├── terraform-aws-vpc.yaml
@@ -26,11 +33,11 @@ kerrareg-manifests/
 **Module manifest (`modules/terraform-aws-eks.yaml`):**
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -41,7 +48,7 @@ spec:
     immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
     githubClientConfig:
       useAuthenticatedClient: true
@@ -58,17 +65,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: kerrareg-modules
+  name: opendepot-modules
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/my-org/kerrareg-manifests
+    repoURL: https://github.com/my-org/opendepot-manifests
     targetRevision: main
     path: modules
   destination:
     server: https://kubernetes.default.svc
-    namespace: kerrareg-system
+    namespace: opendepot-system
   syncPolicy:
     automated:
       prune: false
@@ -78,9 +85,9 @@ spec:
 !!! tip
     Set `prune: false` so that Argo CD does not delete `Module` resources removed from Git — this prevents accidental module deletion. Use `selfHeal: true` so that any manual drift on the cluster is corrected back to the Git-declared state.
 
-**Why this works well with Kerrareg:**
+**Why this works well with OpenDepot:**
 
 - **Single PR, full visibility** — module code and registry manifest are reviewed together
 - **No cluster credentials in CI** — Argo CD handles authentication to the cluster; developers only push to Git
 - **Immutable audit trail** — Git history records exactly who added each version and when
-- **Declarative all the way down** — Git declares the desired state, Argo CD syncs it, and Kerrareg reconciles it to storage
+- **Declarative all the way down** — Git declares the desired state, Argo CD syncs it, and OpenDepot reconciles it to storage

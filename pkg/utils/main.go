@@ -5,11 +5,11 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	kerraregv1alpha1 "github.com/tonedefdev/kerrareg/api/v1alpha1"
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
 // getLatestVersion returns the latest semantic version of a Module
-func GetLatestVersion(module kerraregv1alpha1.Module) *string {
+func GetLatestVersion(module opendepotv1alpha1.Module) *string {
 	versions := make([]string, 0, len(module.Spec.Versions))
 	for _, version := range module.Spec.Versions {
 		var semverString string
@@ -31,7 +31,7 @@ func GetLatestVersion(module kerraregv1alpha1.Module) *string {
 // the Module or Provider's configuration.
 // If the version history limit is nil or less than or equal to 0, nil is returned to indicate that all versions should be kept.
 // If neither a Module nor a Provider is provided, an error is returned.
-func VersionsToKeep(module *kerraregv1alpha1.Module, provider *kerraregv1alpha1.Provider) ([]string, error) {
+func VersionsToKeep(module *opendepotv1alpha1.Module, provider *opendepotv1alpha1.Provider) ([]string, error) {
 	if module != nil {
 		if module.Spec.ModuleConfig.VersionHistoryLimit == nil || *module.Spec.ModuleConfig.VersionHistoryLimit <= 0 {
 			return nil, nil
@@ -81,7 +81,7 @@ func VersionsToKeep(module *kerraregv1alpha1.Module, provider *kerraregv1alpha1.
 
 // GetName returns the Module or Provider name as the resource's name if
 // the configuration field for Config.Name is nil.
-func GetName(module *kerraregv1alpha1.Module, provider *kerraregv1alpha1.Provider) (*string, error) {
+func GetName(module *opendepotv1alpha1.Module, provider *opendepotv1alpha1.Provider) (*string, error) {
 	if module != nil {
 		var moduleName string
 		if module.Spec.ModuleConfig.Name != nil {
@@ -110,7 +110,7 @@ func GetName(module *kerraregv1alpha1.Module, provider *kerraregv1alpha1.Provide
 // GetVersionName returns the Module or Provider name as either the name of the object or
 // from the specific resource's configuration field if it's non-nil.
 // If neither a Module nor a Provider is provided, the function returns an error.
-func GetVersionName(module *kerraregv1alpha1.Module, provider *kerraregv1alpha1.Provider, sanitizedModuleVersion string) (string, error) {
+func GetVersionName(module *opendepotv1alpha1.Module, provider *opendepotv1alpha1.Provider, sanitizedModuleVersion string) (string, error) {
 	if module != nil {
 		var moduleVersionName string
 		if module.Spec.ModuleConfig.Name == nil {

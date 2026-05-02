@@ -26,11 +26,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 // namespace where the project is deployed in.
-const namespace = "kerrareg-system"
+const namespace = "opendepot-system"
 
 var _ = Describe("Version", Ordered, func() {
 	const (
@@ -117,7 +117,7 @@ var _ = Describe("Version", Ordered, func() {
 
 		It("should reconcile a Version CR created by the Module controller", func() {
 			By("applying the test Module CR")
-			moduleYAML := fmt.Sprintf(`apiVersion: kerrareg.io/v1alpha1
+			moduleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: %s

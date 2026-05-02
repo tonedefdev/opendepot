@@ -11,7 +11,7 @@ import type {
   GraphEdge,
 } from "./types";
 
-const GROUP = "kerrareg.io";
+const GROUP = "opendepot.defdev.io";
 const VERSION = "v1alpha1";
 
 function hasInClusterContext(): boolean {
@@ -65,7 +65,7 @@ function safeName(name?: string): string {
   return name || "unknown";
 }
 
-export async function buildKerraregGraph(namespace: string): Promise<GraphResponse> {
+export async function buildOpenDepotGraph(namespace: string): Promise<GraphResponse> {
   const kc = makeKubeConfig();
   const api = kc.makeApiClient(CustomObjectsApi);
 
@@ -110,7 +110,7 @@ export async function buildKerraregGraph(namespace: string): Promise<GraphRespon
   const versionsByModuleName = new Map<string, VersionResource[]>();
   for (const version of versions) {
     const labels = version.metadata?.labels || {};
-    const moduleName = labels["kerrareg.io/module"];
+    const moduleName = labels["opendepot.defdev.io/module"];
     if (!moduleName) {
       continue;
     }

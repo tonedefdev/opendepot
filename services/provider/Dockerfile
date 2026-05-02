@@ -6,7 +6,7 @@ ARG TARGETARCH
 WORKDIR /workspace
 
 # Copy go.work and all module manifests for workspace-aware builds
-COPY go.work go.work
+COPY go.work go.work.sum ./
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
@@ -18,8 +18,8 @@ COPY services/provider/go.mod services/provider/go.sum services/provider/
 COPY pkg/utils/go.mod pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 
-# Download dependencies (workspace off since not all modules are copied yet)
-RUN cd services/provider && GOWORK=off go mod download
+# Download dependencies in workspace mode so replace directives resolve local modules
+RUN cd services/provider && go mod download
 
 # Copy source
 COPY api/v1alpha1/ api/v1alpha1/

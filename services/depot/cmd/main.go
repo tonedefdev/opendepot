@@ -37,9 +37,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/tonedefdev/kerrareg/services/depot/internal/controller"
+	"github.com/tonedefdev/opendepot/services/depot/internal/controller"
 
-	kerraregv1alpha1 "github.com/tonedefdev/kerrareg/api/v1alpha1"
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -50,7 +50,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(kerraregv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(opendepotv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -185,7 +185,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "edba2866.kerrareg.io",
+		LeaderElectionID:       "edba2866.opendepot.defdev.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

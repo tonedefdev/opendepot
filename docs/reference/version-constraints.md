@@ -1,7 +1,12 @@
+---
+tags:
+  - reference
+  - version-constraints
+---
+
 # Version Constraints
 
-
-Kerrareg supports all standard OpenTofu/Terraform version constraint syntax:
+OpenDepot supports all standard OpenTofu/Terraform version constraint syntax:
 
 | Syntax | Example | Meaning |
 |--------|---------|---------|

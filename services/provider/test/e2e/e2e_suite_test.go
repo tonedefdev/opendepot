@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 var (
@@ -51,15 +51,15 @@ var (
 
 const (
 	// helmReleaseName is the existing Helm release that owns module/version/server.
-	helmReleaseName = "kerrareg"
+	helmReleaseName = "opendepot"
 	// gpgSecretName is the k8s Secret created to hold the test GPG keys.
-	gpgSecretName = "kerrareg-provider-gpg-test"
+	gpgSecretName = "opendepot-provider-gpg-test"
 )
 
 // TestE2E runs the end-to-end test suite for the provider controller.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kerrareg provider e2e test suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting opendepot provider e2e test suite\n")
 	RunSpecs(t, "e2e suite")
 }
 
@@ -106,13 +106,13 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the server image into Kind")
 
 	By("ensuring all chart CRDs are installed")
-	allCRDsPath := filepath.Join(repoRoot, "chart", "kerrareg", "crds")
+	allCRDsPath := filepath.Join(repoRoot, "chart", "opendepot", "crds")
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "-f", allCRDsPath)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply chart CRDs")
 
 	By("generating test GPG key pair")
-	gpgHome, err = os.MkdirTemp("", "kerrareg-e2e-gpg-*")
+	gpgHome, err = os.MkdirTemp("", "opendepot-e2e-gpg-*")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create temp GPG home")
 
 	keyID, asciiArmor, privateKeyBase64, err := utils.GenerateTestGPGKeyPair(gpgHome)
@@ -146,6 +146,9 @@ var _ = BeforeSuite(func() {
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
+		"--set", "global.image.tag=",
+		"--set", "depot.enabled=false",
+		"--set", "module.enabled=false",
 		"--set", "provider.enabled=true",
 		"--set", fmt.Sprintf("provider.image.repository=%s", providerRepo),
 		"--set", fmt.Sprintf("provider.image.tag=%s", providerTag),
@@ -168,30 +171,15 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	By("removing provider controller from Helm release")
-	chartPath, err := utils.GetChartPath()
-	if err == nil {
-		cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
-			"--namespace", namespace,
-			"--reuse-values",
-			"--set", "provider.enabled=false",
-			"--set", "server.gpg.secretName=",
-			"--set", "server.anonymousAuth=false",
-			"--set", fmt.Sprintf("server.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/server"),
-			"--set", "server.image.tag=",
-			"--set", fmt.Sprintf("version.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/version-controller"),
-			"--set", "version.image.tag=",
-			"--set", "storage.filesystem.enabled=false",
-			"--set", "storage.filesystem.hostPath=",
-			"--set", "version.resources.limits.memory=512Mi",
-			"--wait",
-			"--timeout", "2m",
-		)
-		_, _ = utils.Run(cmd)
-	}
+	By("uninstalling Helm release to clean up provider e2e resources")
+	cmd := exec.Command("helm", "uninstall", helmReleaseName,
+		"--namespace", namespace,
+		"--ignore-not-found",
+	)
+	_, _ = utils.Run(cmd)
 
 	By("deleting GPG secret")
-	cmd := exec.Command("kubectl", "delete", "secret", gpgSecretName,
+	cmd = exec.Command("kubectl", "delete", "secret", gpgSecretName,
 		"--namespace", namespace, "--ignore-not-found",
 	)
 	_, _ = utils.Run(cmd)

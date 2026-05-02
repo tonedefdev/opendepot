@@ -9,7 +9,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/tonedefdev/kerrareg/pkg/storage/types"
+	"github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
 type FileSystem struct{}

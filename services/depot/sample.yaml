@@ -1,4 +1,4 @@
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
   name: my-team-depot

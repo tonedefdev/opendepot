@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	storagetypes "github.com/tonedefdev/kerrareg/pkg/storage/types"
+	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"

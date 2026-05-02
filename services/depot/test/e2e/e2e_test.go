@@ -26,12 +26,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 var _ = Describe("Depot", Ordered, func() {
 	const (
-		depotNamespace    = "kerrareg-system"
+		depotNamespace    = "opendepot-system"
 		depotCRName       = "e2e-depot"
 		moduleCRName      = "terraform-aws-key-pair"
 		moduleVersion     = "2.0.0"
@@ -57,7 +57,7 @@ var _ = Describe("Depot", Ordered, func() {
 
 		By("applying the Depot CR")
 		depotYAML := fmt.Sprintf(`
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
   name: %s

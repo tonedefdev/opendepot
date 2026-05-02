@@ -1,4 +1,4 @@
-module github.com/tonedefdev/kerrareg/pkg/github
+module github.com/tonedefdev/opendepot/pkg/github
 
 go 1.25.5
 
@@ -6,7 +6,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-github/v81 v81.0.0
-	github.com/tonedefdev/kerrareg/api/v1alpha1 v0.0.0-20260419174733-7858787b36b2
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
 	golang.org/x/oauth2 v0.36.0
 	k8s.io/api v0.35.4
 	sigs.k8s.io/controller-runtime v0.23.3

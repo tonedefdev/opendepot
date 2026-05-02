@@ -93,6 +93,8 @@ jobs:
             path: services/depot
           - name: server
             path: services/server
+          - name: provider-controller
+            path: services/provider
 
     name: Manifest ${{ matrix.service.name }}
 

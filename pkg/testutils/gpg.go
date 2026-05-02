@@ -37,7 +37,7 @@ func GenerateTestGPGKeyPair(gpgHome string) (keyID, asciiArmor, privateKeyBase64
 		return string(out), e
 	}
 
-	batchInput := "%no-protection\nKey-Type: RSA\nKey-Length: 2048\nName-Real: Kerrareg E2E Test\nName-Email: test@kerrareg.test\nExpire-Date: 0\n%commit\n"
+	batchInput := "%no-protection\nKey-Type: RSA\nKey-Length: 2048\nName-Real: OpenDepot E2E Test\nName-Email: test@opendepot.defdev.io\nExpire-Date: 0\n%commit\n"
 	batchFile := filepath.Join(gpgHome, "keybatch")
 	if err = os.WriteFile(batchFile, []byte(batchInput), 0600); err != nil {
 		return "", "", "", fmt.Errorf("failed to write gpg batch file: %w", err)

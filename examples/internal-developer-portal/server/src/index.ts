@@ -2,23 +2,23 @@ import cors from "cors";
 import express from "express";
 import fs from "node:fs";
 import path from "node:path";
-import { buildKerraregGraph } from "./k8s";
+import { buildOpenDepotGraph } from "./k8s";
 
 const app = express();
 const port = Number(process.env.PORT || 8082);
-const defaultNamespace = process.env.KERRAREG_NAMESPACE || "kerrareg-system";
+const defaultNamespace = process.env.KERRAREG_NAMESPACE || "opendepot-system";
 
 app.use(cors());
 app.use(express.json());
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, service: "kerrareg-portal-api" });
+  res.json({ ok: true, service: "opendepot-portal-api" });
 });
 
 app.get("/api/graph", async (req, res) => {
   try {
     const namespace = String(req.query.namespace || defaultNamespace);
-    const graph = await buildKerraregGraph(namespace);
+    const graph = await buildOpenDepotGraph(namespace);
     res.json(graph);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
@@ -40,5 +40,5 @@ if (fs.existsSync(distPath)) {
 }
 
 app.listen(port, () => {
-  console.log(`kerrareg portal api listening on :${port}`);
+  console.log(`opendepot portal api listening on :${port}`);
 });

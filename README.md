@@ -1,20 +1,20 @@
-# Kerrareg
+# OpenDepot
 
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/tonedefdev/kerrareg/blob/main/LICENSE)
-[![Helm](https://img.shields.io/badge/Helm_Chart-0.1.0-0F1689?logo=helm&logoColor=white)](https://github.com/tonedefdev/kerrareg/tree/main/chart/kerrareg)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/tonedefdev/opendepot/blob/main/LICENSE)
+[![Helm](https://img.shields.io/badge/Helm_Chart-0.1.0-0F1689?logo=helm&logoColor=white)](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot)
 
 <p align="center">
-  <img src="img/kerrareg.svg" width="400" />
+  <img src="img/opendepot_main_logo.svg" width="400" />
 </p>
 
-A Kubernetes-native, self-hosted OpenTofu/Terraform module registry that implements the [Module Registry Protocol](https://opentofu.org/docs/internals/module-registry-protocol/). Kerrareg gives organizations complete control over module distribution, versioning, and storage — without relying on the public registry.
+A Kubernetes-native, self-hosted OpenTofu/Terraform module and provider registry that implements both the [Module Registry Protocol](https://opentofu.org/docs/internals/module-registry-protocol/) and the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). OpenDepot gives organizations complete control over distribution, versioning, and storage — without relying on the public registry.
 
 Compatible with **OpenTofu** (all versions) and **Terraform** (v1.2+).
 
 ## Table of Contents
 
-- [Why Kerrareg?](#why-kerrareg)
+- [Why OpenDepot?](#why-opendepot)
 - [How It Works](#how-it-works)
 - [Architecture](#architecture)
 - [Services](#services)
@@ -25,8 +25,8 @@ Compatible with **OpenTofu** (all versions) and **Terraform** (v1.2+).
   - [GPG Signing for Providers](#gpg-signing-for-providers)
 - [Usage](#usage)
   - [Consuming Providers](#consuming-providers)
-- [Migrating to Kerrareg](#migrating-to-kerrareg)
-- [Authenticating with Kerrareg](#authenticating-with-kerrareg)
+- [Migrating to OpenDepot](#migrating-to-opendepot)
+- [Authenticating with OpenDepot](#authenticating-with-opendepot)
 - [Kubernetes RBAC](#kubernetes-rbac)
 - [API Reference](#api-reference)
 - [Internal Developer Portal Example](#internal-developer-portal-example)
@@ -34,15 +34,15 @@ Compatible with **OpenTofu** (all versions) and **Terraform** (v1.2+).
 - [Project Structure](#project-structure)
 - [License](#license)
 
-## Why Kerrareg?
+## Why OpenDepot?
 
 There are several open-source Terraform/OpenTofu module registries. They're good projects, but they all share a common challenge: **authentication and authorization are bolted on**. Most require you to stand up a separate database, configure API keys or OAuth flows, and manage user accounts outside of your infrastructure platform.
 
-Kerrareg takes a fundamentally different approach. Instead of reinventing auth, it delegates it entirely to Kubernetes — the platform you're likely already running!
+OpenDepot takes a fundamentally different approach. Instead of reinventing auth, it delegates it entirely to Kubernetes — the platform you're likely already running!
 
 ### Security First
 
-| Capability | Kerrareg | Traditional Registries |
+| Capability | OpenDepot | Traditional Registries |
 |-----------|----------|------------------------|
 | **Authentication** | Kubernetes bearer tokens or kubeconfig — no proprietary tokens, no user database | API keys, OAuth, or basic auth requiring a separate identity store |
 | **Authorization** | Kubernetes RBAC — namespace-scoped roles control who can read, publish, or admin modules | Custom permission models, often coarse-grained or application-level only |
@@ -50,13 +50,13 @@ Kerrareg takes a fundamentally different approach. Instead of reinventing auth, 
 | **Audit Trail** | Kubernetes audit logs capture every API call with user identity, verb, and resource | Varies — often requires additional logging configuration |
 | **Zero Additional Infrastructure** | No database, no Redis, no external IdP integration | Typically requires PostgreSQL, MySQL, or SQLite plus session management |
 
-Because Kerrareg uses Kubernetes ServiceAccounts and RBAC natively, your existing identity federation (IRSA on EKS, Workload Identity on GKE/AKS, or any OIDC provider) works out of the box. There's nothing extra to configure — if a user or CI pipeline can authenticate to your cluster, they can authenticate to Kerrareg.
+Because OpenDepot uses Kubernetes ServiceAccounts and RBAC natively, your existing identity federation (IRSA on EKS, Workload Identity on GKE/AKS, or any OIDC provider) works out of the box. There's nothing extra to configure — if a user or CI pipeline can authenticate to your cluster, they can authenticate to OpenDepot.
 
 ### Desired State Reconciliation
 
 Traditional registries are imperative: you push a module or provider version via an API call, and the registry stores it. If something goes wrong — a failed upload, a corrupted archive, a storage outage — you have to detect and remediate it yourself.
 
-Kerrareg is **declarative**. You describe the modules/providers and versions you want, and Kubernetes controllers continuously reconcile toward that desired state:
+OpenDepot is **declarative**. You describe the modules/providers and versions you want, and Kubernetes controllers continuously reconcile toward that desired state:
 
 - **Self-healing:** If a Version resource fails to sync, the controller retries with exponential backoff. Transient GitHub, network, or storage errors resolve automatically.
 - **Idempotent:** Applying the same Module/Provider manifest twice is a no-op. Controllers only act on drift.
@@ -69,13 +69,13 @@ This is the same operational model that makes Kubernetes itself reliable, applie
 
 Most registries compute a checksum when a module is uploaded and verify it on download — but that single point of validation leaves a window for tampering. If someone replaces the artifact in storage, the registry has no way to detect the change.
 
-Kerrareg takes a stronger approach. When a Version controller first discovers a module artifact, it computes the checksum and writes it to the Version resource's **`.status`** field. Kubernetes exposes status as a separate subresource (`versions/status`), and Kerrareg's RBAC only grants write access to the Version controller's ServiceAccount — users, CI pipelines, and `kubectl edit` cannot modify it unless explicitly given access to it. On every subsequent reconciliation, the controller compares the storage artifact's checksum against this recorded status value. If the checksums diverge, the controller flags the version as tampered and refuses to serve it.
+OpenDepot takes a stronger approach. When a Version controller first discovers a module artifact, it computes the checksum and writes it to the Version resource's **`.status`** field. Kubernetes exposes status as a separate subresource (`versions/status`), and OpenDepot's RBAC only grants write access to the Version controller's ServiceAccount — users, CI pipelines, and `kubectl edit` cannot modify it unless explicitly given access to it. On every subsequent reconciliation, the controller compares the storage artifact's checksum against this recorded status value. If the checksums diverge, the controller flags the version as tampered and refuses to serve it.
 
 This means an attacker who gains write access to your storage backend still can't silently swap a module archive. The checksum of record lives in the Kubernetes API, is protected by Kubernetes RBAC, and is verified continuously — not just once at upload time.
 
-### How Kerrareg Compares
+### How OpenDepot Compares
 
-| Feature | Kerrareg | Terrareg | Tapir |
+| Feature | OpenDepot | Terrareg | Tapir |
 |---------|----------|----------|-------|
 | Auth mechanism | Kubernetes RBAC + bearer tokens | API keys + SAML/OpenID Connect | API keys |
 | Database required | No (Kubernetes API is the datastore) | Yes (PostgreSQL/MySQL/SQLite) | Yes (MongoDB/PostgreSQL) |
@@ -87,7 +87,7 @@ This means an attacker who gains write access to your storage backend still can'
 | Air-gapped support | Yes (filesystem backend + PVC) | Yes (filesystem) | Limited |
 
 > [!TIP]
-> If you're already running Kubernetes, Kerrareg gives you a module registry where security, auth, and operations come free — no extra infrastructure, no extra accounts, no extra attack surface.
+> If you're already running Kubernetes, OpenDepot gives you a registry where security, auth, and operations come free — no extra infrastructure, no extra accounts, no extra attack surface.
 
 ## How It Works
 
@@ -95,7 +95,7 @@ When you reference a module in your OpenTofu configuration:
 
 ```hcl
 module "eks" {
-  source  = "kerrareg.defdev.io/kerrareg-system/terraform-aws-eks/aws"
+  source  = "opendepot.defdev.io/opendepot-system/terraform-aws-eks/aws"
   version = "~> 21.0"
 }
 ```
@@ -106,11 +106,30 @@ OpenTofu uses the Module Registry Protocol to:
 2. **List versions** matching your constraint (`~> 21.0`)
 3. **Download** the module archive from the configured storage backend
 
-Kerrareg implements all required protocol endpoints, making it a drop-in replacement for any public or private module registry.
+When you reference a provider in your OpenTofu configuration:
+
+```hcl
+terraform {
+  required_providers {
+    aws = {
+      source  = "opendepot.defdev.io/opendepot-system/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+```
+
+OpenTofu uses the Provider Registry Protocol to:
+
+1. **Discover** provider versions and supported platforms
+2. **Request** package metadata for the selected version, OS, and architecture
+3. **Download and verify** the provider archive using `SHA256SUMS` and `SHA256SUMS.sig`
+
+OpenDepot implements all required protocol endpoints, making it a drop-in replacement for any public or private module and provider registry.
 
 ## Architecture
 
-Kerrareg consists of four services running in Kubernetes:
+OpenDepot consists of four services running in Kubernetes:
 
 ```mermaid
 graph TD
@@ -200,16 +219,16 @@ The Provider controller:
 - Tracks the latest version using semantic version sorting
 - Garbage-collects orphaned `Version` resources when versions are removed
 - Enforces `versionHistoryLimit` when configured
-- Labels each `Version` with `kerrareg.io/provider=<name>` for easy filtering
+- Labels each `Version` with `opendepot.defdev.io/provider=<name>` for easy filtering
 
 **Example Provider resource:**
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
   name: aws
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   providerConfig:
     name: aws
@@ -221,7 +240,7 @@ spec:
       - arm64
     storageConfig:
       s3:
-        bucket: kerrareg-providers
+        bucket: opendepot-providers
         region: us-west-2
   versions:
     - version: "5.80.0"
@@ -251,7 +270,7 @@ Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) ar
 
 ## Storage Backends
 
-Kerrareg supports four storage backends. Each is configured via the `storageConfig` field on `Depot.spec.global.storageConfig`, `ModuleConfig.storageConfig`, or directly on a `Module.spec.moduleConfig.storageConfig`.
+OpenDepot supports four storage backends. Each is configured via the `storageConfig` field on `Depot.spec.global.storageConfig`, `ModuleConfig.storageConfig`, or directly on a `Module.spec.moduleConfig.storageConfig`.
 
 ### Amazon S3
 
@@ -291,7 +310,7 @@ Kerrareg supports four storage backends. Each is configured via the `storageConf
 ```yaml
 storageConfig:
   s3:
-    bucket: kerrareg-modules
+    bucket: opendepot-modules
     region: us-west-2
 ```
 
@@ -324,10 +343,10 @@ storageConfig:
 ```yaml
 storageConfig:
   azureStorage:
-    accountName: kerraregmodules
-    accountUrl: https://kerraregmodules.blob.core.windows.net
+    accountName: opendepotmodules
+    accountUrl: https://opendepotmodules.blob.core.windows.net
     subscriptionID: 00000000-0000-0000-0000-000000000000
-    resourceGroup: kerrareg-rg
+    resourceGroup: opendepot-rg
 ```
 
 ### Google Cloud Storage
@@ -355,7 +374,7 @@ storageConfig:
 ```yaml
 storageConfig:
   gcs:
-    bucket: kerrareg-modules
+    bucket: opendepot-modules
 ```
 
 ### Local Filesystem
@@ -386,11 +405,11 @@ Stores module archives on a shared volume mounted to both the Version controller
 **Local Development with kind (hostPath):**
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set storage.filesystem.enabled=true \
-  --set storage.filesystem.hostPath=/tmp/kerrareg-modules
+  --set storage.filesystem.hostPath=/tmp/opendepot-modules
 ```
 
 When using `hostPath`, the chart adds an `initContainer` that runs as root to set ownership of the volume to uid `65532` (the non-root user the containers run as).
@@ -398,8 +417,8 @@ When using `hostPath`, the chart adds an `initContainer` that runs as root to se
 **Production with PVC (ReadWriteMany):**
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.storageClassName=efs-sc \
@@ -441,22 +460,22 @@ storageConfig:
 CRDs must be installed before deploying the Helm chart:
 
 ```bash
-kubectl apply -f chart/kerrareg/crds/
+kubectl apply -f chart/opendepot/crds/
 ```
 
 ### Install with Helm
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace
 ```
 
 To customize values:
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   --set global.image.tag=v0.1.0 \
   --set server.service.type=ClusterIP \
@@ -466,8 +485,8 @@ helm upgrade --install kerrareg chart/kerrareg \
 Or use a values file:
 
 ```bash
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system \
   --create-namespace \
   -f my-values.yaml
 ```
@@ -478,7 +497,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `global.namespace` | `kerrareg-system` | Namespace for all resources |
+| `global.namespace` | `opendepot-system` | Namespace for all resources |
 | `global.imagePullPolicy` | `IfNotPresent` | Image pull policy |
 | `global.image.tag` | `dev` | Image tag for all services |
 
@@ -490,7 +509,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 | `server.replicaCount` | `1` | Number of replicas |
 | `server.anonymousAuth` | `false` | Use the server's service account for unauthenticated module access (see note below) |
 | `server.useBearerToken` | `true` | Use bearer token auth instead of kubeconfig |
-| `server.image.repository` | `ghcr.io/tonedefdev/kerrareg/server` | Server image |
+| `server.image.repository` | `ghcr.io/tonedefdev/opendepot/server` | Server image |
 | `server.service.type` | `LoadBalancer` | Service type |
 | `server.service.port` | `80` | Service port |
 | `server.service.targetPort` | `8080` | Container port |
@@ -499,7 +518,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 | `server.tls.keyPath` | `/etc/tls/tls.key` | Path to TLS key |
 | `server.ingress.enabled` | `false` | Enable Kubernetes Ingress |
 | `server.ingress.istio.enabled` | `true` | Enable Istio VirtualService |
-| `server.ingress.istio.hosts` | `[kerrareg.defdev.io]` | Istio VirtualService hosts |
+| `server.ingress.istio.hosts` | `[opendepot.defdev.io]` | Istio VirtualService hosts |
 | `server.resources.requests.cpu` | `100m` | CPU request |
 | `server.resources.requests.memory` | `128Mi` | Memory request |
 | `server.resources.limits.cpu` | `500m` | CPU limit |
@@ -521,7 +540,7 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 |-------|---------|-------------|
 | `<service>.enabled` | `true` (`provider`: `false`) | Deploy the controller |
 | `<service>.replicaCount` | `1` | Number of replicas |
-| `<service>.image.repository` | `ghcr.io/tonedefdev/kerrareg/<service>-controller` | Image repository |
+| `<service>.image.repository` | `ghcr.io/tonedefdev/opendepot/<service>-controller` | Image repository |
 | `<service>.image.tag` | `""` | Overrides `global.image.tag` when set |
 | `<service>.resources.requests.cpu` | `100m` | CPU request |
 | `<service>.resources.requests.memory` | `128Mi` | Memory request |
@@ -592,7 +611,7 @@ make deploy
 | `make load` | Load all images into the kind cluster |
 | `make deploy` | Build and load all images |
 | `make service NAME=server` | Build and load a single service |
-| `make restart` | Restart all deployments in `kerrareg-system` |
+| `make restart` | Restart all deployments in `opendepot-system` |
 | `make redeploy` | Build, load, and restart all services |
 | `make kind-restart` | Full cluster recreation with Istio, TLS, gateway, and Helm deploy (for production-like local setup) |
 
@@ -603,14 +622,14 @@ make deploy
 | `PLATFORM` | `linux/arm64` | Target platform for container builds |
 | `KIND_CLUSTER` | `kind` | Name of the kind cluster |
 | `TAG` | `dev` | Image tag for all services |
-| `REGISTRY` | `ghcr.io/tonedefdev/kerrareg` | Container registry prefix |
+| `REGISTRY` | `ghcr.io/tonedefdev/opendepot` | Container registry prefix |
 
 ## Local Testing with kind
 
-The fastest way to try Kerrareg is with a local [kind](https://kind.sigs.k8s.io/) cluster using the filesystem storage backend and `hostPath`. This avoids any cloud provider setup — no S3 bucket, no Azure Storage Account, no credentials, no ingress controller, and no TLS certificates. You'll have a fully functional registry in minutes using `kubectl port-forward` and the public `*.localtest.me` DNS service (all `*.localtest.me` hostnames resolve to `127.0.0.1`).
+The fastest way to try OpenDepot is with a local [kind](https://kind.sigs.k8s.io/) cluster using the filesystem storage backend and `hostPath`. This avoids any cloud provider setup — no S3 bucket, no Azure Storage Account, no credentials, no ingress controller, and no TLS certificates. You'll have a fully functional registry in minutes using `kubectl port-forward` and the public `*.localtest.me` DNS service (all `*.localtest.me` hostnames resolve to `127.0.0.1`).
 
 > [!NOTE]
-> OpenTofu and Terraform require module registry hostnames to contain at least one dot. `localhost` alone is not valid. `kerrareg.localtest.me` resolves to `127.0.0.1` via public DNS, making it a convenient dotted hostname for local testing without editing `/etc/hosts` or installing any ingress controller.
+> OpenTofu and Terraform require module registry hostnames to contain at least one dot. `localhost` alone is not valid. `opendepot.localtest.me` resolves to `127.0.0.1` via public DNS, making it a convenient dotted hostname for local testing without editing `/etc/hosts` or installing any ingress controller.
 
 ### Prerequisites
 
@@ -623,18 +642,18 @@ The fastest way to try Kerrareg is with a local [kind](https://kind.sigs.k8s.io/
 ### Step 1: Create the Cluster
 
 ```bash
-kind create cluster --name kerrareg
+kind create cluster --name opendepot
 ```
 
 ### Step 2: Install CRDs and Deploy with Helm
 
-Install the CRDs, then deploy Kerrareg with filesystem storage, `hostPath` volume, and anonymous auth:
+Install the CRDs, then deploy OpenDepot with filesystem storage, `hostPath` volume, and anonymous auth:
 
 ```bash
-kubectl apply --server-side -f chart/kerrareg/crds/
+kubectl apply --server-side -f chart/opendepot/crds/
 
-helm upgrade --install kerrareg chart/kerrareg \
-  -n kerrareg-system --create-namespace \
+helm upgrade --install opendepot chart/opendepot \
+  -n opendepot-system --create-namespace \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.hostPath=/data/modules \
   --set server.anonymousAuth=true \
@@ -644,7 +663,7 @@ helm upgrade --install kerrareg chart/kerrareg \
 Verify all pods are running:
 
 ```bash
-kubectl get pods -n kerrareg-system
+kubectl get pods -n opendepot-system
 ```
 
 > [!NOTE]
@@ -652,24 +671,24 @@ kubectl get pods -n kerrareg-system
 
 ### Step 3: Port-Forward the Server
 
-In a separate terminal, forward the Kerrareg server to a local port:
+In a separate terminal, forward the OpenDepot server to a local port:
 
 ```bash
-kubectl port-forward svc/server 8080:80 -n kerrareg-system
+kubectl port-forward svc/server 8080:80 -n opendepot-system
 ```
 
-The server is now reachable at `http://kerrareg.localtest.me:8080` — no ingress controller or TLS certificate required. OpenTofu will resolve `kerrareg.localtest.me` to `127.0.0.1` via public DNS and connect through the port-forward.
+The server is now reachable at `http://opendepot.localtest.me:8080` — no ingress controller or TLS certificate required. OpenTofu will resolve `opendepot.localtest.me` to `127.0.0.1` via public DNS and connect through the port-forward.
 
 Verify service discovery is working:
 
 ```bash
-curl http://kerrareg.localtest.me:8080/.well-known/terraform.json
+curl http://opendepot.localtest.me:8080/.well-known/terraform.json
 ```
 
 Expected output:
 
 ```json
-{"modules.v1":"/kerrareg/modules/v1/"}
+{"modules.v1":"/opendepot/modules/v1/"}
 ```
 
 ### Step 4: Create a Test Module
@@ -678,11 +697,11 @@ Apply a `Module` resource that pulls a small public module from GitHub:
 
 ```bash
 cat <<EOF | kubectl apply -f -
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-key-pair
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     provider: aws
@@ -703,7 +722,7 @@ EOF
 Watch the Version resource sync:
 
 ```bash
-kubectl get versions -n kerrareg-system -w
+kubectl get versions -n opendepot-system -w
 ```
 
 Once `SYNCED` shows `true`, the module archive has been fetched from GitHub and stored in the local filesystem.
@@ -713,19 +732,19 @@ Once `SYNCED` shows `true`, the module archive has been fetched from GitHub and 
 Create a working directory with a Terraform/OpenTofu config and a `.tofurc` (or `.terraformrc`) that points OpenTofu at your local registry:
 
 ```bash
-mkdir /tmp/kerrareg-test && cd /tmp/kerrareg-test
+mkdir /tmp/opendepot-test && cd /tmp/opendepot-test
 
 cat > main.tf <<'EOF'
 module "key_pair" {
-  source  = "kerrareg.localtest.me:8080/kerrareg-system/terraform-aws-key-pair/aws"
+  source  = "opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws"
   version = "2.0.0"
 }
 EOF
 
 cat > .tofurc <<'EOF'
-host "kerrareg.localtest.me:8080" {
+host "opendepot.localtest.me:8080" {
   services = {
-    "modules.v1" = "http://kerrareg.localtest.me:8080/kerrareg/modules/v1/"
+    "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
   }
 }
 EOF
@@ -733,11 +752,11 @@ EOF
 TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
 
-The `.tofurc` `host` block overrides the default HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. You should see OpenTofu download the module from your local Kerrareg instance:
+The `.tofurc` `host` block overrides the default HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. You should see OpenTofu download the module from your local OpenDepot instance:
 
 ```
 Initializing modules...
-Downloading kerrareg.localtest.me:8080/kerrareg-system/terraform-aws-key-pair/aws 2.0.0 for key_pair...
+Downloading opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws 2.0.0 for key_pair...
 - key_pair in .terraform/modules/key_pair
 
 OpenTofu has been successfully initialized!
@@ -745,11 +764,11 @@ OpenTofu has been successfully initialized!
 
 ### Step 6: (Optional) Test with Authentication
 
-To test Kerrareg's Kubernetes-native auth, redeploy with `anonymousAuth` disabled:
+To test OpenDepot's Kubernetes-native auth, redeploy with `anonymousAuth` disabled:
 
 ```bash
-helm upgrade kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade opendepot chart/opendepot \
+  -n opendepot-system \
   --reuse-values \
   --set server.anonymousAuth=false \
   --set server.useBearerToken=true \
@@ -759,35 +778,35 @@ helm upgrade kerrareg chart/kerrareg \
 Create a ServiceAccount and bind it to a read-only role:
 
 ```bash
-kubectl create serviceaccount test-user -n kerrareg-system
+kubectl create serviceaccount test-user -n opendepot-system
 
-kubectl create role kerrareg-reader -n kerrareg-system \
-  --resource=modules.kerrareg.io,versions.kerrareg.io \
+kubectl create role opendepot-reader -n opendepot-system \
+  --resource=modules.opendepot.defdev.io,versions.opendepot.defdev.io \
   --verb=get,list,watch
 
-kubectl create rolebinding test-user-reader -n kerrareg-system \
-  --role=kerrareg-reader \
-  --serviceaccount=kerrareg-system:test-user
+kubectl create rolebinding test-user-reader -n opendepot-system \
+  --role=opendepot-reader \
+  --serviceaccount=opendepot-system:test-user
 ```
 
 Generate a short-lived token and set it in `.tofurc`:
 
 ```bash
-TOKEN=$(kubectl create token test-user -n kerrareg-system --duration=1h)
+TOKEN=$(kubectl create token test-user -n opendepot-system --duration=1h)
 
-cat > /tmp/kerrareg-test/.tofurc <<EOF
-host "kerrareg.localtest.me:8080" {
+cat > /tmp/opendepot-test/.tofurc <<EOF
+host "opendepot.localtest.me:8080" {
   services = {
-    "modules.v1" = "http://kerrareg.localtest.me:8080/kerrareg/modules/v1/"
+    "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
   }
   token = "${TOKEN}"
 }
 EOF
 
-TF_CLI_CONFIG_FILE=/tmp/kerrareg-test/.tofurc tofu init
+TF_CLI_CONFIG_FILE=/tmp/opendepot-test/.tofurc tofu init
 ```
 
-OpenTofu sends the bearer token to Kerrareg, which forwards it to the Kubernetes API for authentication and RBAC authorization. This is the same flow used in production — no separate user database or API keys required.
+OpenTofu sends the bearer token to OpenDepot, which forwards it to the Kubernetes API for authentication and RBAC authorization. This is the same flow used in production — no separate user database or API keys required.
 
 ### Step 7: (Optional) Test with a Depot
 
@@ -795,11 +814,11 @@ To test automatic version discovery from GitHub:
 
 ```yaml
 cat <<EOF | kubectl apply -f -
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
   name: test-depot
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   global:
     moduleConfig:
@@ -840,31 +859,31 @@ OpenTofu verifies a GPG signature over the `SHA256SUMS` file when installing a p
 gpg --batch --gen-key <<EOF
 Key-Type: RSA
 Key-Length: 4096
-Name-Real: Kerrareg Local
-Name-Email: kerrareg@local.test
+Name-Real: OpenDepot Local
+Name-Email: opendepot@local.test
 Expire-Date: 0
 %no-protection
 EOF
 
-KEY_ID=$(gpg --list-keys --with-colons kerrareg@local.test | awk -F: '/^pub/{print $5}' | tail -1)
+KEY_ID=$(gpg --list-keys --with-colons opendepot@local.test | awk -F: '/^pub/{print $5}' | tail -1)
 ASCII_ARMOR=$(gpg --armor --export "$KEY_ID")
 PRIVATE_B64=$(gpg --armor --export-secret-keys "$KEY_ID" | base64 | tr -d '\n')
 
-kubectl create secret generic kerrareg-provider-gpg \
-  --namespace kerrareg-system \
+kubectl create secret generic opendepot-provider-gpg \
+  --namespace opendepot-system \
   --from-literal=KERRAREG_PROVIDER_GPG_KEY_ID="$KEY_ID" \
   --from-literal=KERRAREG_PROVIDER_GPG_ASCII_ARMOR="$ASCII_ARMOR" \
   --from-literal=KERRAREG_PROVIDER_GPG_PRIVATE_KEY_BASE64="$PRIVATE_B64"
 ```
 
-**Step 8b: Redeploy Kerrareg with the provider controller and GPG secret**
+**Step 8b: Redeploy OpenDepot with the provider controller and GPG secret**
 
 ```bash
-helm upgrade kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade opendepot chart/opendepot \
+  -n opendepot-system \
   --reuse-values \
   --set provider.enabled=true \
-  --set server.gpg.secretName=kerrareg-provider-gpg \
+  --set server.gpg.secretName=opendepot-provider-gpg \
   --wait
 ```
 
@@ -872,11 +891,11 @@ helm upgrade kerrareg chart/kerrareg \
 
 ```bash
 cat <<EOF | kubectl apply -f -
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
   name: aws
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   providerConfig:
     name: aws
@@ -895,7 +914,7 @@ EOF
 Watch the Version resource sync (this downloads ~700 MB from HashiCorp):
 
 ```bash
-kubectl get versions -n kerrareg-system -w
+kubectl get versions -n opendepot-system -w
 ```
 
 Once `SYNCED` shows `true`, the provider binary is stored in the local filesystem.
@@ -903,13 +922,13 @@ Once `SYNCED` shows `true`, the provider binary is stored in the local filesyste
 **Step 8d: Use the provider registry with OpenTofu**
 
 ```bash
-mkdir /tmp/kerrareg-provider-test && cd /tmp/kerrareg-provider-test
+mkdir /tmp/opendepot-provider-test && cd /tmp/opendepot-provider-test
 
 cat > main.tf <<'EOF'
 terraform {
   required_providers {
     aws = {
-      source  = "kerrareg.localtest.me:8080/kerrareg-system/aws"
+      source  = "opendepot.localtest.me:8080/opendepot-system/aws"
       version = "5.80.0"
     }
   }
@@ -917,9 +936,9 @@ terraform {
 EOF
 
 cat > .tofurc <<'EOF'
-host "kerrareg.localtest.me:8080" {
+host "opendepot.localtest.me:8080" {
   services = {
-    "providers.v1" = "http://kerrareg.localtest.me:8080/kerrareg/providers/v1/"
+    "providers.v1" = "http://opendepot.localtest.me:8080/opendepot/providers/v1/"
   }
 }
 EOF
@@ -927,13 +946,13 @@ EOF
 TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
 
-The `.tofurc` `host` block overrides HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. OpenTofu will resolve `kerrareg.localtest.me` to `127.0.0.1` and install the provider from your local Kerrareg instance:
+The `.tofurc` `host` block overrides HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. OpenTofu will resolve `opendepot.localtest.me` to `127.0.0.1` and install the provider from your local OpenDepot instance:
 
 ```
 Initializing provider plugins...
-- Finding kerrareg.localtest.me:8080/kerrareg-system/aws versions matching "5.80.0"...
-- Installing kerrareg.localtest.me:8080/kerrareg-system/aws v5.80.0...
-- Installed kerrareg.localtest.me:8080/kerrareg-system/aws v5.80.0
+- Finding opendepot.localtest.me:8080/opendepot-system/aws versions matching "5.80.0"...
+- Installing opendepot.localtest.me:8080/opendepot-system/aws v5.80.0...
+- Installed opendepot.localtest.me:8080/opendepot-system/aws v5.80.0
 
 OpenTofu has been successfully initialized!
 ```
@@ -941,8 +960,8 @@ OpenTofu has been successfully initialized!
 ### Cleanup
 
 ```bash
-kubectl port-forward svc/server 8080:80 -n kerrareg-system  # stop with Ctrl-C
-kind delete cluster --name kerrareg
+kubectl port-forward svc/server 8080:80 -n opendepot-system  # stop with Ctrl-C
+kind delete cluster --name opendepot
 ```
 
 
@@ -950,14 +969,14 @@ kind delete cluster --name kerrareg
 
 ### Namespace-Scoped Mode
 
-By default, Kerrareg controllers use `ClusterRole`/`ClusterRoleBinding` and watch resources across all namespaces. To restrict controllers to a single namespace, enable namespace-scoped mode:
+By default, OpenDepot controllers use `ClusterRole`/`ClusterRoleBinding` and watch resources across all namespaces. To restrict controllers to a single namespace, enable namespace-scoped mode:
 
 ```yaml
 rbac:
   scopeToNamespace: true
 
 global:
-  namespace: my-kerrareg-namespace
+  namespace: my-opendepot-namespace
 ```
 
 When `rbac.scopeToNamespace` is `true`:
@@ -976,8 +995,8 @@ For private repositories and to avoid GitHub API rate limits, create a GitHub Ap
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kerrareg-github-application-secret
-  namespace: kerrareg-system
+  name: opendepot-github-application-secret
+  namespace: opendepot-system
 type: Opaque
 data:
   githubAppID: <base64-encoded-app-id>
@@ -998,7 +1017,7 @@ githubClientConfig:
 
 #### Direct TLS on the Server
 
-Set `server.tls.enabled: true` in your Helm values and provide a TLS Secret named `kerrareg-tls`:
+Set `server.tls.enabled: true` in your Helm values and provide a TLS Secret named `opendepot-tls`:
 
 ```yaml
 server:
@@ -1015,7 +1034,7 @@ server:
 
 #### TLS via Istio Ingress Gateway
 
-For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. See [chart/kerrareg/istio/gateway.yaml](chart/kerrareg/istio/gateway.yaml) for an example, and store your TLS certificate as a Secret in the `istio-ingress` namespace:
+For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. See [chart/opendepot/istio/gateway.yaml](chart/opendepot/istio/gateway.yaml) for an example, and store your TLS certificate as a Secret in the `istio-ingress` namespace:
 
 ```yaml
 server:
@@ -1023,12 +1042,12 @@ server:
     istio:
       enabled: true
       hosts:
-        - kerrareg.defdev.io
+        - opendepot.defdev.io
 ```
 
 ### GPG Signing for Providers
 
-The Terraform Provider Registry Protocol requires that providers ship a `SHA256SUMS` file and a detached GPG signature (`SHA256SUMS.sig`). OpenTofu downloads both and verifies the signature using the public key returned by the registry's package metadata endpoint. Kerrareg handles signing automatically — you provide the key, and the server signs on every request.
+The Terraform Provider Registry Protocol requires that providers ship a `SHA256SUMS` file and a detached GPG signature (`SHA256SUMS.sig`). OpenTofu downloads both and verifies the signature using the public key returned by the registry's package metadata endpoint. OpenDepot handles signing automatically — you provide the key, and the server signs on every request.
 
 **Generating a key pair**
 
@@ -1038,8 +1057,8 @@ Use any GPG key management workflow you prefer. The key must have no passphrase 
 gpg --batch --gen-key <<EOF
 Key-Type: RSA
 Key-Length: 4096
-Name-Real: My Org Kerrareg
-Name-Email: kerrareg@myorg.io
+Name-Real: My Org OpenDepot
+Name-Email: opendepot@myorg.io
 Expire-Date: 0
 %no-protection
 EOF
@@ -1048,7 +1067,7 @@ EOF
 **Extracting key material**
 
 ```bash
-KEY_ID=$(gpg --list-keys --with-colons kerrareg@myorg.io | awk -F: '/^pub/{print $5}' | tail -1)
+KEY_ID=$(gpg --list-keys --with-colons opendepot@myorg.io | awk -F: '/^pub/{print $5}' | tail -1)
 ASCII_ARMOR=$(gpg --armor --export "$KEY_ID")
 PRIVATE_B64=$(gpg --armor --export-secret-keys "$KEY_ID" | base64 | tr -d '\n')
 ```
@@ -1056,8 +1075,8 @@ PRIVATE_B64=$(gpg --armor --export-secret-keys "$KEY_ID" | base64 | tr -d '\n')
 **Creating the Kubernetes Secret**
 
 ```bash
-kubectl create secret generic kerrareg-provider-gpg \
-  --namespace kerrareg-system \
+kubectl create secret generic opendepot-provider-gpg \
+  --namespace opendepot-system \
   --from-literal=KERRAREG_PROVIDER_GPG_KEY_ID="$KEY_ID" \
   --from-literal=KERRAREG_PROVIDER_GPG_ASCII_ARMOR="$ASCII_ARMOR" \
   --from-literal=KERRAREG_PROVIDER_GPG_PRIVATE_KEY_BASE64="$PRIVATE_B64"
@@ -1066,10 +1085,10 @@ kubectl create secret generic kerrareg-provider-gpg \
 **Referencing the Secret in Helm**
 
 ```bash
-helm upgrade kerrareg chart/kerrareg \
-  -n kerrareg-system \
+helm upgrade opendepot chart/opendepot \
+  -n opendepot-system \
   --reuse-values \
-  --set server.gpg.secretName=kerrareg-provider-gpg \
+  --set server.gpg.secretName=opendepot-provider-gpg \
   --wait
 ```
 
@@ -1078,7 +1097,7 @@ Or in your `values.yaml`:
 ```yaml
 server:
   gpg:
-    secretName: kerrareg-provider-gpg
+    secretName: opendepot-provider-gpg
 ```
 
 > [!IMPORTANT]
@@ -1091,22 +1110,22 @@ server:
 
 ### GitOps Workflow: Argo CD
 
-For teams that manage infrastructure declaratively through Git, Kerrareg fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
+For teams that manage infrastructure declaratively through Git, OpenDepot fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
 
 **How it works:**
 
 1. A developer opens a PR against their OpenTofu module repository with the code changes
-2. The same PR includes an update to the Kerrareg `Module` manifest, adding the new version to `spec.versions`
+2. The same PR includes an update to the OpenDepot `Module` manifest, adding the new version to `spec.versions`
 3. The team reviews both the module code and the registry manifest in a single PR
 4. On approval and merge, Argo CD detects the change and syncs the `Module` resource to the cluster
-5. Kerrareg takes over — the Module controller creates a `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage
+5. OpenDepot takes over — the Module controller creates a `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage
 
 This gives you a complete audit trail: every module version published to your registry maps to an approved, merged pull request.
 
 **Example repository structure:**
 
 ```
-kerrareg-manifests/
+opendepot-manifests/
 ├── modules/
 │   ├── terraform-aws-eks.yaml
 │   ├── terraform-aws-vpc.yaml
@@ -1117,11 +1136,11 @@ kerrareg-manifests/
 **Module manifest (`modules/terraform-aws-eks.yaml`):**
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -1132,7 +1151,7 @@ spec:
     immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
     githubClientConfig:
       useAuthenticatedClient: true
@@ -1149,17 +1168,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: kerrareg-modules
+  name: opendepot-modules
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/my-org/kerrareg-manifests
+    repoURL: https://github.com/my-org/opendepot-manifests
     targetRevision: main
     path: modules
   destination:
     server: https://kubernetes.default.svc
-    namespace: kerrareg-system
+    namespace: opendepot-system
   syncPolicy:
     automated:
       prune: false
@@ -1169,12 +1188,12 @@ spec:
 > [!TIP]
 > Set `prune: false` so that Argo CD does not delete `Module` resources removed from Git — this prevents accidental module deletion. Use `selfHeal: true` so that any manual drift on the cluster is corrected back to the Git-declared state.
 
-**Why this works well with Kerrareg:**
+**Why this works well with OpenDepot:**
 
 - **Single PR, full visibility** — module code and registry manifest are reviewed together
 - **No cluster credentials in CI** — Argo CD handles authentication to the cluster; developers only push to Git
 - **Immutable audit trail** — Git history records exactly who added each version and when
-- **Declarative all the way down** — Git declares the desired state, Argo CD syncs it, and Kerrareg reconciles it to storage
+- **Declarative all the way down** — Git declares the desired state, Argo CD syncs it, and OpenDepot reconciles it to storage
 
 
 ### Pull-Based Workflow: Using the Depot
@@ -1185,11 +1204,11 @@ Use the Depot for public, private, or externally maintained modules. The Depot a
 > You can setup GitHub authentication via a GitHub Application to access private repos.
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
   name: my-team-depot
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   global:
     githubClientConfig:
@@ -1199,7 +1218,7 @@ spec:
       immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
   moduleConfigs:
     - name: terraform-aws-eks
@@ -1220,7 +1239,7 @@ spec:
       versionConstraints: ">= 5.80.0"
       storageConfig:
         s3:
-          bucket: kerrareg-modules
+          bucket: opendepot-modules
           region: us-west-2
   pollingIntervalMinutes: 60
 ```
@@ -1246,10 +1265,10 @@ moduleConfigs:
     versionConstraints: ">= 21.10.1"
     storageConfig:
       azureStorage:
-        accountName: kerraregmodules
-        accountUrl: https://kerraregmodules.blob.core.windows.net
+        accountName: opendepotmodules
+        accountUrl: https://opendepotmodules.blob.core.windows.net
         subscriptionID: 00000000-0000-0000-0000-000000000000
-        resourceGroup: kerrareg-rg
+        resourceGroup: opendepot-rg
 ```
 
 ### Push-Based Workflow: CI/CD Pipeline
@@ -1257,11 +1276,11 @@ moduleConfigs:
 For private modules you control, bypass the Depot entirely and create `Module` resources directly from your CI/CD pipeline:
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -1272,7 +1291,7 @@ spec:
     immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
     githubClientConfig:
       useAuthenticatedClient: true
@@ -1300,7 +1319,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<AWS_ACCOUNT_ID>:role/kerrareg-github-actions-role
+          role-to-assume: arn:aws:iam::<AWS_ACCOUNT_ID>:role/opendepot-github-actions-role
           aws-region: us-west-2
 
       - name: Setup kubeconfig
@@ -1309,11 +1328,11 @@ jobs:
       - name: Publish module version
         run: |
           kubectl apply -f - <<EOF
-          apiVersion: kerrareg.io/v1alpha1
+          apiVersion: opendepot.defdev.io/v1alpha1
           kind: Module
           metadata:
             name: my-module
-            namespace: kerrareg-system
+            namespace: opendepot-system
           spec:
             moduleConfig:
               name: my-module
@@ -1323,7 +1342,7 @@ jobs:
               fileFormat: zip
               storageConfig:
                 s3:
-                  bucket: kerrareg-modules
+                  bucket: opendepot-modules
                   region: us-west-2
             versions:
               - version: ${{ github.event.release.tag_name }}
@@ -1334,12 +1353,12 @@ The Module controller creates the `Version` resource, and the Version controller
 
 ### Adding Versions to an Existing Module
 
-To publish a new version of a module that already exists in Kerrareg, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.
+To publish a new version of a module that already exists in OpenDepot, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.
 
 **Using `kubectl patch` (quick):**
 
 ```bash
-kubectl patch module terraform-aws-eks -n kerrareg-system \
+kubectl patch module terraform-aws-eks -n opendepot-system \
   --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"21.13.0"}}]'
 ```
 
@@ -1348,11 +1367,11 @@ kubectl patch module terraform-aws-eks -n kerrareg-system \
 Include all existing versions alongside the new one. The Module controller is idempotent — it won't re-create versions that already exist.
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
   name: terraform-aws-eks
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   moduleConfig:
     name: terraform-aws-eks
@@ -1362,7 +1381,7 @@ spec:
     fileFormat: zip
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
   versions:
     - version: "21.10.1"
@@ -1377,7 +1396,7 @@ spec:
 - name: Add version to existing module
   run: |
     VERSION=${{ github.event.release.tag_name }}
-    kubectl patch module my-module -n kerrareg-system \
+    kubectl patch module my-module -n opendepot-system \
       --type json \
       -p "[{\"op\":\"add\",\"path\":\"/spec/versions/-\",\"value\":{\"version\":\"${VERSION}\"}}]"
 ```
@@ -1390,26 +1409,26 @@ If a Module or Version fails to sync (e.g., due to a transient network error), y
 
 ```bash
 # Force a Module to re-sync all its versions
-kubectl patch module terraform-aws-eks -n kerrareg-system \
+kubectl patch module terraform-aws-eks -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 
 # Force a single Version to re-sync
-kubectl patch version.kerrareg.io terraform-aws-eks-21.18.0 -n kerrareg-system \
+kubectl patch version.opendepot.defdev.io terraform-aws-eks-21.18.0 -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 ```
 
 The controller resets `forceSync` to `false` after reconciliation completes.
 
-### Migrating to Kerrareg
+### Migrating to OpenDepot
 
 > [!TIP]
 > The Depot is designed as a migration tool, not just an ongoing automation. Whether you're moving modules from a public or private GitHub-hosted source, or migrating providers away from the public HashiCorp registry, the Depot handles the heavy lifting — discovering versions, downloading archives, and populating your storage backend. Once everything is synced, simply delete the Depot and switch to the [push-based CI/CD workflow](#push-based-workflow-cicd-pipeline). Deleting a Depot **does not** delete the Modules or Providers it created, so your registry stays fully intact.
 
-**Migrating modules** — Use the Depot to bulk-import existing modules into Kerrareg:
+**Migrating modules** — Use the Depot to bulk-import existing modules into OpenDepot:
 
 1. Create a `Depot` with broad version constraints (e.g., `">= 0.0.0"`) to pull in the full release history
 2. Wait for all versions to sync (check `Module` and `Version` status resources)
-3. Update your OpenTofu/Terraform configurations to source modules from Kerrareg
+3. Update your OpenTofu/Terraform configurations to source modules from OpenDepot
 4. Delete the Depot — all `Module` and `Version` resources remain untouched
 5. Going forward, publish new versions via GitOps or a CI/CD workflow
 
@@ -1417,10 +1436,10 @@ The controller resets `forceSync` to `false` after reconciliation completes.
 
 1. Create a `Depot` with `providerConfigs` listing each provider, your target OS/architecture matrix, and a version constraint
 2. Wait for all `Provider` and `Version` resources to sync
-3. Update your OpenTofu/Terraform configurations to source providers from Kerrareg (see [Consuming Providers](#consuming-providers))
+3. Update your OpenTofu/Terraform configurations to source providers from OpenDepot (see [Consuming Providers](#consuming-providers))
 4. Delete the Depot — all `Provider` and `Version` resources remain untouched
 
-This pattern lets you adopt Kerrareg incrementally without disrupting existing workflows. The Depot bridges the gap between the public registries and a fully self-hosted solution.
+This pattern lets you adopt OpenDepot incrementally without disrupting existing workflows. The Depot bridges the gap between the public registries and a fully self-hosted solution.
 
 ### Consuming Modules
 
@@ -1428,12 +1447,12 @@ Once modules are synced, reference them in your OpenTofu or Terraform configurat
 
 ```hcl
 module "eks" {
-  source  = "kerrareg.defdev.io/kerrareg-system/terraform-aws-eks/aws"
+  source  = "opendepot.defdev.io/opendepot-system/terraform-aws-eks/aws"
   version = "~> 21.0"
 }
 
 module "aks" {
-  source  = "kerrareg.defdev.io/kerrareg-system/terraform-azurerm-aks/azurerm"
+  source  = "opendepot.defdev.io/opendepot-system/terraform-azurerm-aks/azurerm"
   version = ">= 10.0.0"
 }
 ```
@@ -1448,11 +1467,11 @@ Once providers are synced, declare them as required providers in your OpenTofu o
 terraform {
   required_providers {
     aws = {
-      source  = "kerrareg.defdev.io/kerrareg-system/aws"
+      source  = "opendepot.defdev.io/opendepot-system/aws"
       version = "~> 5.80"
     }
     azurerm = {
-      source  = "kerrareg.defdev.io/kerrareg-system/azurerm"
+      source  = "opendepot.defdev.io/opendepot-system/azurerm"
       version = ">= 4.0.0"
     }
   }
@@ -1463,12 +1482,12 @@ The source format is `<registry-host>/<namespace>/<name>`, where `<namespace>` i
 
 **Pointing OpenTofu at the provider registry**
 
-Because Kerrareg serves providers at a custom host, you need a `host` block in your `.tofurc` or `.terraformrc` to tell OpenTofu where the `providers.v1` API lives:
+Because OpenDepot serves providers at a custom host, you need a `host` block in your `.tofurc` or `.terraformrc` to tell OpenTofu where the `providers.v1` API lives:
 
 ```
-host "kerrareg.defdev.io" {
+host "opendepot.defdev.io" {
   services = {
-    "providers.v1" = "https://kerrareg.defdev.io/kerrareg/providers/v1/"
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
   }
 }
 ```
@@ -1476,9 +1495,9 @@ host "kerrareg.defdev.io" {
 With authentication (recommended for production):
 
 ```
-host "kerrareg.defdev.io" {
+host "opendepot.defdev.io" {
   services = {
-    "providers.v1" = "https://kerrareg.defdev.io/kerrareg/providers/v1/"
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
   }
   token = "<kubernetes-bearer-token>"
 }
@@ -1503,7 +1522,7 @@ tofu init
 To publish a new version, append it to `spec.versions`:
 
 ```bash
-kubectl patch provider aws -n kerrareg-system \
+kubectl patch provider aws -n opendepot-system \
   --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"5.81.0"}}]'
 ```
 
@@ -1512,13 +1531,13 @@ The Provider controller creates new `Version` resources for every OS/architectur
 **Force re-sync**
 
 ```bash
-kubectl patch provider aws -n kerrareg-system \
+kubectl patch provider aws -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 ```
 
-## Authenticating with Kerrareg
+## Authenticating with OpenDepot
 
-Kerrareg supports two authentication methods. Both leverage Kubernetes credentials — either a short-lived bearer token or a base64-encoded kubeconfig.
+OpenDepot supports two authentication methods. Both leverage Kubernetes credentials — either a short-lived bearer token or a base64-encoded kubeconfig.
 
 ### Method 1: Environment Variables (Recommended)
 
@@ -1526,7 +1545,7 @@ Use an environment variable to pass a Kubernetes access token. OpenTofu (all ver
 
 The variable name is derived from the registry hostname: replace dots with underscores and convert to uppercase.
 
-`kerrareg.defdev.io` → `TF_TOKEN_KERRAREG_DEFDEV_IO`
+`opendepot.defdev.io` → `TF_TOKEN_KERRAREG_DEFDEV_IO`
 
 **Amazon EKS:**
 
@@ -1574,7 +1593,7 @@ kubectl config view --raw | base64 | tr -d '\n' > /tmp/kubeconfig.b64
 ```json
 {
   "credentials": {
-    "kerrareg.defdev.io": {
+    "opendepot.defdev.io": {
       "token": "<contents-of-kubeconfig.b64>"
     }
   }
@@ -1672,32 +1691,32 @@ For CI/CD pipelines that need to create or update `Module` resources:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kerrareg-ci-publisher
-  namespace: kerrareg-system
+  name: opendepot-ci-publisher
+  namespace: opendepot-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: kerrareg-module-publisher
-  namespace: kerrareg-system
+  name: opendepot-module-publisher
+  namespace: opendepot-system
 rules:
-  - apiGroups: ["kerrareg.io"]
+  - apiGroups: ["opendepot.defdev.io"]
     resources: ["modules"]
     verbs: ["create", "update", "patch", "get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: kerrareg-ci-publisher-binding
-  namespace: kerrareg-system
+  name: opendepot-ci-publisher-binding
+  namespace: opendepot-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: kerrareg-module-publisher
+  name: opendepot-module-publisher
 subjects:
   - kind: ServiceAccount
-    name: kerrareg-ci-publisher
-    namespace: kerrareg-system
+    name: opendepot-ci-publisher
+    namespace: opendepot-system
 ```
 
 ## API Reference
@@ -1712,15 +1731,15 @@ GET /.well-known/terraform.json
 
 ```json
 {
-  "modules.v1": "/kerrareg/modules/v1/",
-  "providers.v1": "/kerrareg/providers/v1/"
+  "modules.v1": "/opendepot/modules/v1/",
+  "providers.v1": "/opendepot/providers/v1/"
 }
 ```
 
 ### List Module Versions
 
 ```
-GET /kerrareg/modules/v1/{namespace}/{name}/{system}/versions
+GET /opendepot/modules/v1/{namespace}/{name}/{system}/versions
 ```
 
 Returns all available versions of a module. Requires authentication.
@@ -1736,7 +1755,7 @@ Returns all available versions of a module. Requires authentication.
 ### Download Module
 
 ```
-GET /kerrareg/modules/v1/{namespace}/{name}/{system}/{version}/download
+GET /opendepot/modules/v1/{namespace}/{name}/{system}/{version}/download
 ```
 
 Returns `204 No Content` with an `X-Terraform-Get` header pointing to the storage-specific download URL. Requires authentication.
@@ -1746,16 +1765,16 @@ Returns `204 No Content` with an `X-Terraform-Get` header pointing to the storag
 These endpoints are called by OpenTofu/Terraform after receiving the `X-Terraform-Get` redirect. They validate the SHA256 checksum and stream the module archive.
 
 ```
-GET /kerrareg/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/gcs/{bucket}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/fileSystem/{directory}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/gcs/{bucket}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}?fileChecksum={checksum}
 ```
 
 ### List Provider Versions
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/versions
+GET /opendepot/providers/v1/{namespace}/{type}/versions
 ```
 
 Returns all available versions of a provider and the platforms each version supports. Requires authentication.
@@ -1787,7 +1806,7 @@ Returns all available versions of a provider and the platforms each version supp
 ### Provider Package Metadata
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}
 ```
 
 Returns the download URL, SHA256 checksum, and GPG signing key for a specific provider binary. Requires authentication.
@@ -1810,10 +1829,10 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
   "os": "linux",
   "arch": "amd64",
   "filename": "terraform-provider-aws_5.80.0_linux_amd64.zip",
-  "download_url": "https://.../kerrareg/providers/v1/download/kerrareg-system/aws/5.80.0",
+  "download_url": "https://.../opendepot/providers/v1/download/opendepot-system/aws/5.80.0",
   "shasum": "<hex-sha256>",
-  "shasums_url": "https://.../kerrareg/providers/v1/kerrareg-system/aws/5.80.0/SHA256SUMS/linux/amd64",
-  "shasums_signature_url": "https://.../kerrareg/providers/v1/kerrareg-system/aws/5.80.0/SHA256SUMS.sig/linux/amd64",
+  "shasums_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS/linux/amd64",
+  "shasums_signature_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS.sig/linux/amd64",
   "signing_keys": {
     "gpg_public_keys": [
       {
@@ -1828,7 +1847,7 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
 ### Provider Binary Download
 
 ```
-GET /kerrareg/providers/v1/download/{namespace}/{type}/{version}
+GET /opendepot/providers/v1/download/{namespace}/{type}/{version}
 ```
 
 Streams the provider binary archive (`.zip`) directly from storage. Does **not** require client authentication — the server uses its own ServiceAccount per the Terraform Provider Registry Protocol.
@@ -1836,7 +1855,7 @@ Streams the provider binary archive (`.zip`) directly from storage. Does **not**
 ### Provider SHA256SUMS
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}
 ```
 
 Returns the `SHA256SUMS` text file for the specified provider version and platform. Does **not** require client authentication.
@@ -1844,7 +1863,7 @@ Returns the `SHA256SUMS` text file for the specified provider version and platfo
 ### Provider SHA256SUMS Signature
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}
 ```
 
 Returns the detached GPG signature over the `SHA256SUMS` file, signed with the key configured in `server.gpg.secretName`. Does **not** require client authentication.
@@ -1853,7 +1872,7 @@ Returns the detached GPG signature over the `SHA256SUMS` file, signed with the k
 
 An example React + Material UI Internal Developer Portal is included at [examples/internal-developer-portal](examples/internal-developer-portal).
 
-It visualizes the Kubernetes-native Kerrareg resource graph:
+It visualizes the Kubernetes-native OpenDepot resource graph:
 
 - `Depot` -> managed `Module` resources -> generated `Version` resources
 
@@ -1874,7 +1893,7 @@ Then open `http://localhost:5173`.
 
 ## Version Constraints
 
-Kerrareg supports all standard OpenTofu/Terraform version constraint syntax:
+OpenDepot supports all standard OpenTofu/Terraform version constraint syntax:
 
 | Syntax | Example | Meaning |
 |--------|---------|---------|
@@ -1887,11 +1906,11 @@ Kerrareg supports all standard OpenTofu/Terraform version constraint syntax:
 ## Project Structure
 
 ```
-kerrareg/
+opendepot/
 ├── api/v1alpha1/              # CRD type definitions
 │   ├── types.go               # Depot, Module, Version, StorageConfig schemas
 │   └── groupversion_info.go   # API group registration
-├── chart/kerrareg/            # Helm chart
+├── chart/opendepot/            # Helm chart
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   ├── crds/                  # CRD manifests

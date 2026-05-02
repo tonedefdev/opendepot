@@ -1,6 +1,6 @@
-# Kerrareg Internal Developer Portal (Example)
+# OpenDepot Internal Developer Portal (Example)
 
-A React + Material UI demo app that visualizes Kerrareg resources as a graph:
+A React + Material UI demo app that visualizes OpenDepot resources as a graph:
 
 - Depot -> Modules -> Versions
 
@@ -43,7 +43,7 @@ npm run dev
 
 ## Environment Variables
 
-- `KERRAREG_NAMESPACE`: Namespace to query (default `kerrareg-system`)
+- `KERRAREG_NAMESPACE`: Namespace to query (default `opendepot-system`)
 - `KERRAREG_K8S_AUTH_MODE`: `auto`, `kubeconfig`, or `incluster` (default `auto`)
 - `KUBECONFIG`: Optional path when running in local kubeconfig mode
 - `PORT`: API server port (default `8082`)
@@ -83,5 +83,5 @@ Use the manifests in [k8s/rbac-readonly.yaml](k8s/rbac-readonly.yaml) and [k8s/d
 ## Notes
 
 - The graph maps Depot -> Module using `Depot.status.modules`.
-- The graph maps Module -> Version using label `kerrareg.io/module`.
+- The graph maps Module -> Version using label `opendepot.defdev.io/module`.
 - This is a demo portal intended for Internal Developer Portal integration examples.

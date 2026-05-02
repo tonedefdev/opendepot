@@ -1,4 +1,4 @@
-REGISTRY ?= ghcr.io/tonedefdev/kerrareg
+REGISTRY ?= ghcr.io/tonedefdev/opendepot
 PLATFORM ?= linux/arm64
 KIND_CLUSTER ?= kind
 TAG ?= dev
@@ -28,7 +28,7 @@ load: $(addprefix load-,$(SERVICES))
 ## Build and load all images into the kind cluster
 deploy: build load
 
-CHART_PATH ?= chart/kerrareg
+CHART_PATH ?= chart/opendepot
 ISTIO_VERSION ?= 1.28.3
 
 ## Recreate kind cluster with Istio, TLS, gateway, Helm chart, and cloud-provider-kind
@@ -51,7 +51,7 @@ kind-restart:
 	@echo "=== Applying Istio gateway ==="
 	kubectl apply -f $(CHART_PATH)/gateway.yaml
 	@echo "=== Deploying Helm chart ==="
-	helm upgrade --install kerrareg $(CHART_PATH) -n kerrareg-system --create-namespace --wait
+	helm upgrade --install opendepot $(CHART_PATH) -n opendepot-system --create-namespace --wait
 	@echo "=== Starting cloud-provider-kind ==="
 	@pkill -f cloud-provider-kind 2>/dev/null || true
 	@sleep 1
@@ -80,9 +80,9 @@ $(foreach svc,$(SERVICES),$(eval $(call SERVICE_RULES,$(svc))))
 service:
 	@$(MAKE) build-$(NAME) load-$(NAME)
 
-## Restart deployments in kerrareg-system after loading new images
+## Restart deployments in opendepot-system after loading new images
 restart:
-	kubectl rollout restart deployment -n kerrareg-system
+	kubectl rollout restart deployment -n opendepot-system
 
 ## Build, load, and restart all
 redeploy: deploy restart

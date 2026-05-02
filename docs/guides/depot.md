@@ -1,3 +1,10 @@
+---
+tags:
+  - depot
+  - pull-based
+  - guides
+---
+
 # Pull-Based Workflow: Using the Depot
 
 Use the Depot for public, private, or externally maintained modules. The Depot automatically discovers versions from GitHub and manages the full lifecycle. 
@@ -6,11 +13,11 @@ Use the Depot for public, private, or externally maintained modules. The Depot a
     You can setup GitHub authentication via a GitHub Application to access private repos.
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
   name: my-team-depot
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   global:
     githubClientConfig:
@@ -20,7 +27,7 @@ spec:
       immutable: true
     storageConfig:
       s3:
-        bucket: kerrareg-modules
+        bucket: opendepot-modules
         region: us-west-2
   moduleConfigs:
     - name: terraform-aws-eks
@@ -41,7 +48,7 @@ spec:
       versionConstraints: ">= 5.80.0"
       storageConfig:
         s3:
-          bucket: kerrareg-modules
+          bucket: opendepot-modules
           region: us-west-2
   pollingIntervalMinutes: 60
 ```
@@ -67,8 +74,8 @@ moduleConfigs:
     versionConstraints: ">= 21.10.1"
     storageConfig:
       azureStorage:
-        accountName: kerraregmodules
-        accountUrl: https://kerraregmodules.blob.core.windows.net
+        accountName: opendepotmodules
+        accountUrl: https://opendepotmodules.blob.core.windows.net
         subscriptionID: 00000000-0000-0000-0000-000000000000
-        resourceGroup: kerrareg-rg
+        resourceGroup: opendepot-rg
 ```

@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 var (
@@ -48,13 +48,13 @@ var (
 
 const (
 	// helmReleaseName is the existing Helm release that owns module/version/server.
-	helmReleaseName = "kerrareg"
+	helmReleaseName = "opendepot"
 )
 
 // TestE2E runs the end-to-end test suite for the version controller.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kerrareg version e2e test suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting opendepot version e2e test suite\n")
 	RunSpecs(t, "e2e suite")
 }
 
@@ -102,7 +102,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the server image into Kind")
 
 	By("ensuring all chart CRDs are installed")
-	allCRDsPath := filepath.Join(repoRoot, "chart", "kerrareg", "crds")
+	allCRDsPath := filepath.Join(repoRoot, "chart", "opendepot", "crds")
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "-f", allCRDsPath)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply chart CRDs")
@@ -124,6 +124,9 @@ var _ = BeforeSuite(func() {
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
+		"--set", "global.image.tag=",
+		"--set", "depot.enabled=false",
+		"--set", "provider.enabled=false",
 		"--set", "module.enabled=true",
 		"--set", fmt.Sprintf("module.image.repository=%s", moduleRepo),
 		"--set", fmt.Sprintf("module.image.tag=%s", moduleTag),
@@ -142,27 +145,12 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	By("resetting Helm release to remove version e2e overrides")
-	chartPath, err := utils.GetChartPath()
-	if err == nil {
-		cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
-			"--namespace", namespace,
-			"--reuse-values",
-			"--set", "module.enabled=true",
-			"--set", fmt.Sprintf("module.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/module-controller"),
-			"--set", "module.image.tag=",
-			"--set", "server.anonymousAuth=false",
-			"--set", fmt.Sprintf("server.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/server"),
-			"--set", "server.image.tag=",
-			"--set", fmt.Sprintf("version.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/version-controller"),
-			"--set", "version.image.tag=",
-			"--set", "storage.filesystem.enabled=false",
-			"--set", "storage.filesystem.hostPath=",
-			"--wait",
-			"--timeout", "2m",
-		)
-		_, _ = utils.Run(cmd)
-	}
+	By("uninstalling Helm release to clean up version e2e resources")
+	cmd := exec.Command("helm", "uninstall", helmReleaseName,
+		"--namespace", namespace,
+		"--ignore-not-found",
+	)
+	_, _ = utils.Run(cmd)
 })
 
 // splitImageRef splits an image reference "repo:tag" into its components.

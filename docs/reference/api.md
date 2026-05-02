@@ -1,5 +1,10 @@
-# API Reference
+---
+tags:
+  - reference
+  - api
+---
 
+# API Reference
 
 ## Service Discovery
 
@@ -11,15 +16,15 @@ GET /.well-known/terraform.json
 
 ```json
 {
-  "modules.v1": "/kerrareg/modules/v1/",
-  "providers.v1": "/kerrareg/providers/v1/"
+  "modules.v1": "/opendepot/modules/v1/",
+  "providers.v1": "/opendepot/providers/v1/"
 }
 ```
 
 ## List Module Versions
 
 ```
-GET /kerrareg/modules/v1/{namespace}/{name}/{system}/versions
+GET /opendepot/modules/v1/{namespace}/{name}/{system}/versions
 ```
 
 Returns all available versions of a module. Requires authentication.
@@ -35,7 +40,7 @@ Returns all available versions of a module. Requires authentication.
 ## Download Module
 
 ```
-GET /kerrareg/modules/v1/{namespace}/{name}/{system}/{version}/download
+GET /opendepot/modules/v1/{namespace}/{name}/{system}/{version}/download
 ```
 
 Returns `204 No Content` with an `X-Terraform-Get` header pointing to the storage-specific download URL. Requires authentication.
@@ -45,16 +50,16 @@ Returns `204 No Content` with an `X-Terraform-Get` header pointing to the storag
 These endpoints are called by OpenTofu/Terraform after receiving the `X-Terraform-Get` redirect. They validate the SHA256 checksum and stream the module archive.
 
 ```
-GET /kerrareg/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/gcs/{bucket}/{name}/{fileName}?fileChecksum={checksum}
-GET /kerrareg/modules/v1/download/fileSystem/{directory}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/gcs/{bucket}/{name}/{fileName}?fileChecksum={checksum}
+GET /opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}?fileChecksum={checksum}
 ```
 
 ## List Provider Versions
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/versions
+GET /opendepot/providers/v1/{namespace}/{type}/versions
 ```
 
 Returns all available versions of a provider and the platforms each version supports. Requires authentication.
@@ -86,7 +91,7 @@ Returns all available versions of a provider and the platforms each version supp
 ## Provider Package Metadata
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}
 ```
 
 Returns the download URL, SHA256 checksum, and GPG signing key for a specific provider binary. Requires authentication.
@@ -109,10 +114,10 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
   "os": "linux",
   "arch": "amd64",
   "filename": "terraform-provider-aws_5.80.0_linux_amd64.zip",
-  "download_url": "https://.../kerrareg/providers/v1/download/kerrareg-system/aws/5.80.0",
+  "download_url": "https://.../opendepot/providers/v1/download/opendepot-system/aws/5.80.0",
   "shasum": "<hex-sha256>",
-  "shasums_url": "https://.../kerrareg/providers/v1/kerrareg-system/aws/5.80.0/SHA256SUMS/linux/amd64",
-  "shasums_signature_url": "https://.../kerrareg/providers/v1/kerrareg-system/aws/5.80.0/SHA256SUMS.sig/linux/amd64",
+  "shasums_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS/linux/amd64",
+  "shasums_signature_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS.sig/linux/amd64",
   "signing_keys": {
     "gpg_public_keys": [
       {
@@ -127,7 +132,7 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
 ## Provider Binary Download
 
 ```
-GET /kerrareg/providers/v1/download/{namespace}/{type}/{version}
+GET /opendepot/providers/v1/download/{namespace}/{type}/{version}
 ```
 
 Streams the provider binary archive (`.zip`) directly from storage. Does **not** require client authentication — the server uses its own ServiceAccount per the Terraform Provider Registry Protocol.
@@ -135,7 +140,7 @@ Streams the provider binary archive (`.zip`) directly from storage. Does **not**
 ## Provider SHA256SUMS
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}
 ```
 
 Returns the `SHA256SUMS` text file for the specified provider version and platform. Does **not** require client authentication.
@@ -143,7 +148,7 @@ Returns the `SHA256SUMS` text file for the specified provider version and platfo
 ## Provider SHA256SUMS Signature
 
 ```
-GET /kerrareg/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}
+GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}
 ```
 
 Returns the detached GPG signature over the `SHA256SUMS` file, signed with the key configured in `server.gpg.secretName`. Does **not** require client authentication.

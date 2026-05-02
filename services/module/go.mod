@@ -1,4 +1,4 @@
-module github.com/tonedefdev/kerrareg/services/module
+module github.com/tonedefdev/opendepot/services/module
 
 go 1.25.5
 
@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/tonedefdev/kerrareg/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
 	golang.org/x/mod v0.31.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0

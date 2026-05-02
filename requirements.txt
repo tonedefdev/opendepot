@@ -1,0 +1,6 @@
+mkdocs-material[imaging]>=9.5
+mkdocs-git-revision-date-localized-plugin
+mkdocs-minify-plugin
+# On macOS with Homebrew cairo, use Homebrew Python instead of system Python:
+#   /opt/homebrew/bin/python3.13 -m pip install -r requirements.txt --break-system-packages
+#   /opt/homebrew/bin/python3.13 -m mkdocs serve

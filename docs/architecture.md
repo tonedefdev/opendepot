@@ -1,6 +1,13 @@
+---
+tags:
+  - architecture
+  - internals
+  - kubernetes
+---
+
 # Architecture
 
-Kerrareg consists of four Kubernetes controllers and a server, all deployed via the Helm chart.
+OpenDepot consists of four Kubernetes controllers and a server, all deployed via the Helm chart.
 
 ## Event Flow
 
@@ -58,16 +65,16 @@ The Provider controller:
 - Tracks the latest version using semantic version sorting
 - Garbage-collects orphaned `Version` resources when versions are removed
 - Enforces `versionHistoryLimit` when configured
-- Labels each `Version` with `kerrareg.io/provider=<name>` for easy filtering
+- Labels each `Version` with `opendepot.defdev.io/provider=<name>` for easy filtering
 
 **Example Provider resource:**
 
 ```yaml
-apiVersion: kerrareg.io/v1alpha1
+apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
   name: aws
-  namespace: kerrareg-system
+  namespace: opendepot-system
 spec:
   providerConfig:
     name: aws
@@ -79,7 +86,7 @@ spec:
       - arm64
     storageConfig:
       s3:
-        bucket: kerrareg-providers
+        bucket: opendepot-providers
         region: us-west-2
   versions:
     - version: "5.80.0"
@@ -111,11 +118,11 @@ Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) ar
 ## Project Structure
 
 ```
-kerrareg/
+opendepot/
 ├── api/v1alpha1/              # CRD type definitions
 │   ├── types.go               # Depot, Module, Version, StorageConfig schemas
 │   └── groupversion_info.go   # API group registration
-├── chart/kerrareg/            # Helm chart
+├── chart/opendepot/            # Helm chart
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   ├── crds/                  # CRD manifests

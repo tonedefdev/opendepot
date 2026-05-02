@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package testutils provides shared helpers for Kerrareg e2e test suites.
+// Package testutils provides shared helpers for OpenDepot e2e test suites.
 // All test suites import this package (aliased as "utils") instead of
 // maintaining per-service copies of the same code.
 package testutils
@@ -111,7 +111,7 @@ func GetNonEmptyLines(output string) []string {
 }
 
 // GetProjectDir returns the service root directory by stripping "/test/e2e" from
-// the current working directory. All Kerrareg e2e suites run from
+// the current working directory. All OpenDepot e2e suites run from
 // services/<name>/test/e2e, so this reliably returns services/<name>.
 func GetProjectDir() (string, error) {
 	wd, err := os.Getwd()
@@ -122,17 +122,17 @@ func GetProjectDir() (string, error) {
 	return wd, nil
 }
 
-// GetChartPath returns the absolute path to the kerrareg Helm chart
-// (chart/kerrareg at the repository root).
+// GetChartPath returns the absolute path to the opendepot Helm chart
+// (chart/opendepot at the repository root).
 func GetChartPath() (string, error) {
 	projDir, err := GetProjectDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(projDir, "..", "..", "chart", "kerrareg"), nil
+	return filepath.Join(projDir, "..", "..", "chart", "opendepot"), nil
 }
 
-// GetRepoRoot returns the root directory of the kerrareg repository.
+// GetRepoRoot returns the root directory of the opendepot repository.
 func GetRepoRoot() (string, error) {
 	projDir, err := GetProjectDir()
 	if err != nil {

@@ -1,12 +1,12 @@
-module github.com/tonedefdev/kerrareg/services/server
+module github.com/tonedefdev/opendepot/services/server
 
 go 1.25.5
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/go-chi/chi/v5 v5.2.3
-	github.com/tonedefdev/kerrareg/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
-	github.com/tonedefdev/kerrareg/pkg/storage v0.0.0-20260204044222-70ab09438161
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
+	github.com/tonedefdev/opendepot/pkg/storage v0.0.0-20260204044222-70ab09438161
 	k8s.io/client-go v0.35.0
 )
 

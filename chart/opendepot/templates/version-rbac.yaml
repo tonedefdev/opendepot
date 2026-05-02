@@ -1,0 +1,90 @@
+{{- if and .Values.version.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
+metadata:
+  name: version-controller-role
+  {{- if .Values.rbac.scopeToNamespace }}
+  namespace: {{ .Values.global.namespace }}
+  {{- end }}
+rules:
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - modules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - modules/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - versions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - versions/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - versions/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - providers
+  verbs:
+  - get
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - providers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.scopeToNamespace }}RoleBinding{{ else }}ClusterRoleBinding{{ end }}
+metadata:
+  name: version-controller-role-binding
+  {{- if .Values.rbac.scopeToNamespace }}
+  namespace: {{ .Values.global.namespace }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
+  name: version-controller-role
+subjects:
+- kind: ServiceAccount
+  name: version-controller
+  namespace: {{ .Values.global.namespace }}
+{{- end }}

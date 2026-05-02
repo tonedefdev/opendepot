@@ -206,10 +206,6 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/tonedefdev/kerrareg/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f h1:iDSF8EXfpD89O5ccSbvpqOZV4cEBDhajylMI3pwuYVs=
-github.com/tonedefdev/kerrareg/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f/go.mod h1:vJdOZT76yi7PCC6aaowEJMFQBvb601dICOA+KLd6I7c=
-github.com/tonedefdev/kerrareg/pkg/storage v0.0.0-20260204044222-70ab09438161 h1:Vg/OdTfAsFVrrQs/05NO4/JyO2pAvxrEr6UlkNrPN24=
-github.com/tonedefdev/kerrareg/pkg/storage v0.0.0-20260204044222-70ab09438161/go.mod h1:ns2DXrx9JwivoGWpEmzgh4ektOTxZ6/RhBFxd8UzZ8o=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

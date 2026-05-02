@@ -1,8 +1,15 @@
+---
+tags:
+  - configuration
+  - tls
+  - security
+---
+
 # TLS Configuration
 
 ## Direct TLS on the Server
 
-Set `server.tls.enabled: true` in your Helm values and provide a TLS Secret named `kerrareg-tls`:
+Set `server.tls.enabled: true` in your Helm values and provide a TLS Secret named `opendepot-tls`:
 
 ```yaml
 server:
@@ -19,7 +26,7 @@ server:
 
 ## TLS via Istio Ingress Gateway
 
-For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. See [chart/kerrareg/istio/gateway.yaml](https://github.com/tonedefdev/kerrareg/blob/main/chart/kerrareg/istio/gateway.yaml) for an example, and store your TLS certificate as a Secret in the `istio-ingress` namespace:
+For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. See [chart/opendepot/istio/gateway.yaml](https://github.com/tonedefdev/opendepot/blob/main/chart/opendepot/istio/gateway.yaml) for an example, and store your TLS certificate as a Secret in the `istio-ingress` namespace:
 
 ```yaml
 server:
@@ -27,5 +34,5 @@ server:
     istio:
       enabled: true
       hosts:
-        - kerrareg.defdev.io
+        - opendepot.defdev.io
 ```

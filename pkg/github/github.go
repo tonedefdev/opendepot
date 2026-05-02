@@ -21,7 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kerraregv1alpha1 "github.com/tonedefdev/kerrareg/api/v1alpha1"
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
 // jwtTransport is a custom HTTP transport that adds the JWT to the Authorization header.
@@ -59,7 +59,7 @@ func CreateGithubClient(ctx context.Context, useAuthenticatedClient bool, github
 }
 
 // GetModuleArchiveFromRef gets a module from Github based on its ref and returns a byte slice and the file's base64 encoded SHA256 checksum.
-func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient *github.Client, version *kerraregv1alpha1.Version, format github.ArchiveFormat) (moduleBytes []byte, checksum *string, err error) {
+func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient *github.Client, version *opendepotv1alpha1.Version, format github.ArchiveFormat) (moduleBytes []byte, checksum *string, err error) {
 	ref := version.Spec.Version
 	if !strings.HasPrefix(ref, "v") {
 		ref = "v" + ref
@@ -120,7 +120,7 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 }
 
 // GetArchiveRequest retrieves the archive link for a given repository and reference (branch, tag, or commit SHA).
-func GetArchiveRequest(ctx context.Context, githubClient *github.Client, version *kerraregv1alpha1.Version, format github.ArchiveFormat, ref string) (*http.Response, error) {
+func GetArchiveRequest(ctx context.Context, githubClient *github.Client, version *opendepotv1alpha1.Version, format github.ArchiveFormat, ref string) (*http.Response, error) {
 	al, alResp, err := githubClient.Repositories.GetArchiveLink(ctx, version.Spec.ModuleConfigRef.RepoOwner, *version.Spec.ModuleConfigRef.Name, format, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	}, 10)
@@ -201,12 +201,12 @@ func GenerateAuthenticatedGithubClient(ctx context.Context, githubClientConfig *
 	return github.NewClient(oauthClient), nil
 }
 
-// GetGithubApplicationSecret retrieves the kerrareg-github-application-secret kubernetes secret from the cluster
+// GetGithubApplicationSecret retrieves the opendepot-github-application-secret kubernetes secret from the cluster
 // using the client received by k8sClient. It returns a GithubClientConfig for making authenticated requests to the Github API.
 // The k8sClient parameter should be received by the controller's client.
 func GetGithubApplicationSecret(ctx context.Context, k8sClient client.Client, secretNamespace string) (*GithubClientConfig, error) {
 	object := client.ObjectKey{
-		Name:      kerraregv1alpha1.KerraregGithubSecretName,
+		Name:      opendepotv1alpha1.OpenDepotGithubSecretName,
 		Namespace: secretNamespace,
 	}
 
@@ -215,19 +215,19 @@ func GetGithubApplicationSecret(ctx context.Context, k8sClient client.Client, se
 		return nil, err
 	}
 
-	appID, err := strconv.ParseInt(string(secret.Data[kerraregv1alpha1.KerraregGithubSecretDataFieldAppID]), 0, 64)
+	appID, err := strconv.ParseInt(string(secret.Data[opendepotv1alpha1.OpenDepotGithubSecretDataFieldAppID]), 0, 64)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse '%s' as int64: %w", kerraregv1alpha1.KerraregGithubSecretDataFieldAppID, err)
+		return nil, fmt.Errorf("unable to parse '%s' as int64: %w", opendepotv1alpha1.OpenDepotGithubSecretDataFieldAppID, err)
 	}
 
-	installID, err := strconv.ParseInt(string(secret.Data[kerraregv1alpha1.KerraregGithubSecretDataFieldInstallID]), 0, 64)
+	installID, err := strconv.ParseInt(string(secret.Data[opendepotv1alpha1.OpenDepotGithubSecretDataFieldInstallID]), 0, 64)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse '%s' as int64: %w", kerraregv1alpha1.KerraregGithubSecretDataFieldInstallID, err)
+		return nil, fmt.Errorf("unable to parse '%s' as int64: %w", opendepotv1alpha1.OpenDepotGithubSecretDataFieldInstallID, err)
 	}
 
-	keyData, err := base64.StdEncoding.DecodeString(string(secret.Data[kerraregv1alpha1.KerraregGithubSecretDataFieldPrivateKey]))
+	keyData, err := base64.StdEncoding.DecodeString(string(secret.Data[opendepotv1alpha1.OpenDepotGithubSecretDataFieldPrivateKey]))
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode '%s': %w", kerraregv1alpha1.KerraregGithubSecretDataFieldPrivateKey, err)
+		return nil, fmt.Errorf("unable to decode '%s': %w", opendepotv1alpha1.OpenDepotGithubSecretDataFieldPrivateKey, err)
 	}
 
 	githubClientConfig := &GithubClientConfig{

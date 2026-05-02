@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	utils "github.com/tonedefdev/kerrareg/pkg/testutils"
+	utils "github.com/tonedefdev/opendepot/pkg/testutils"
 )
 
 var (
@@ -38,19 +38,25 @@ var (
 		}
 		return "depot-controller:e2e-test"
 	}()
+
+	// versionImage is the version controller image to deploy for e2e tests.
+	versionImage = "version-controller:e2e-test"
+
+	// serverImage is the server image to deploy for e2e tests.
+	serverImage = "server:e2e-test"
 )
 
 const (
 	// helmReleaseName is the existing Helm release that owns module/version/server.
-	helmReleaseName = "kerrareg"
-	// namespace is the namespace where all kerrareg resources live.
-	namespace = "kerrareg-system"
+	helmReleaseName = "opendepot"
+	// namespace is the namespace where all opendepot resources live.
+	namespace = "opendepot-system"
 )
 
 // TestE2E runs the end-to-end test suite for the depot controller.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kerrareg depot e2e test suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting opendepot depot e2e test suite\n")
 	RunSpecs(t, "e2e suite")
 }
 
@@ -70,8 +76,34 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the depot controller image into Kind")
 
+	By("building the version controller image")
+	versionBuildCmd := exec.Command("docker", "build",
+		"-t", versionImage,
+		"-f", "services/version/Dockerfile",
+		".",
+	)
+	_, err = utils.RunAt(versionBuildCmd, repoRoot)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+
+	By("building the server image")
+	serverBuildCmd := exec.Command("docker", "build",
+		"-t", serverImage,
+		"-f", "services/server/Dockerfile",
+		".",
+	)
+	_, err = utils.RunAt(serverBuildCmd, repoRoot)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+
+	By("loading the version controller image on Kind")
+	err = utils.LoadImageToKindClusterWithName(versionImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the version controller image into Kind")
+
+	By("loading the server image on Kind")
+	err = utils.LoadImageToKindClusterWithName(serverImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the server image into Kind")
+
 	By("ensuring all chart CRDs are installed")
-	allCRDsPath := filepath.Join(repoRoot, "chart", "kerrareg", "crds")
+	allCRDsPath := filepath.Join(repoRoot, "chart", "opendepot", "crds")
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "-f", allCRDsPath)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply chart CRDs")
@@ -85,18 +117,25 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 	depotRepo, depotTag := splitImageRef(projectImage)
+	versionRepo, versionTag := splitImageRef(versionImage)
+	serverRepo, serverTag := splitImageRef(serverImage)
 
 	cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 		"--install",
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
+		"--set", "global.image.tag=",
 		"--set", "depot.enabled=true",
 		"--set", fmt.Sprintf("depot.image.repository=%s", depotRepo),
 		"--set", fmt.Sprintf("depot.image.tag=%s", depotTag),
-		"--set", "module.enabled=true",
+		"--set", fmt.Sprintf("version.image.repository=%s", versionRepo),
+		"--set", fmt.Sprintf("version.image.tag=%s", versionTag),
+		"--set", "module.enabled=false",
 		"--set", "provider.enabled=false",
 		"--set", "server.anonymousAuth=true",
+		"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
+		"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 		// Enable filesystem storage with a hostPath volume for Kind.
 		"--set", "storage.filesystem.enabled=true",
 		"--set", "storage.filesystem.hostPath=/data/modules",
@@ -108,23 +147,12 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	By("resetting Helm release to remove depot e2e overrides")
-	chartPath, err := utils.GetChartPath()
-	if err == nil {
-		cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
-			"--namespace", namespace,
-			"--reuse-values",
-			"--set", "depot.enabled=true",
-			"--set", fmt.Sprintf("depot.image.repository=%s", "ghcr.io/tonedefdev/kerrareg/depot-controller"),
-			"--set", "depot.image.tag=",
-			"--set", "server.anonymousAuth=false",
-			"--set", "storage.filesystem.enabled=false",
-			"--set", "storage.filesystem.hostPath=",
-			"--wait",
-			"--timeout", "2m",
-		)
-		_, _ = utils.Run(cmd)
-	}
+	By("uninstalling Helm release to clean up depot e2e resources")
+	cmd := exec.Command("helm", "uninstall", helmReleaseName,
+		"--namespace", namespace,
+		"--ignore-not-found",
+	)
+	_, _ = utils.Run(cmd)
 })
 
 // splitImageRef splits an image reference "repo:tag" into its components.

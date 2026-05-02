@@ -1,66 +1,108 @@
-site_name: Kerrareg
+site_name: OpenDepot
 site_description: Self-hosted OpenTofu/Terraform Module and Provider Registry for Kubernetes
-site_url: https://tonedefdev.github.io/kerrareg/docs
-repo_url: https://github.com/tonedefdev/kerrareg
-repo_name: tonedefdev/kerrareg
+site_url: https://tonedefdev.github.io/opendepot/docs
+repo_url: https://github.com/tonedefdev/opendepot
+repo_name: tonedefdev/opendepot
 edit_uri: edit/main/docs/
 
 docs_dir: docs
 
 theme:
   name: material
-  logo: img/small_icon.svg
-  favicon: img/small_icon.svg
+  custom_dir: overrides
+  logo: img/opendepot_small_logo.svg
+  favicon: img/opendepot_small_logo.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - scheme: default
-      primary: white
-      accent: blue
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: white
-      accent: blue
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.path
+    - navigation.indexes
+    - navigation.prune
     - navigation.top
+    - toc.follow
     - search.highlight
     - search.share
+    - search.suggest
     - content.code.copy
+    - content.code.annotate
     - content.action.edit
+    - content.tabs.link
+    - content.tooltips
+    - announce.dismiss
+    - header.autohide
 
 nav:
   - Home: index.md
   - Getting Started:
+    - getting-started/index.md
     - Installation: getting-started/installation.md
     - Local Quickstart: getting-started/quickstart.md
   - Architecture: architecture.md
   - Storage Backends: storage.md
   - Configuration:
+    - configuration/index.md
     - Namespace-Scoped Mode: configuration/namespace.md
     - GitHub Authentication: configuration/github-auth.md
     - TLS: configuration/tls.md
     - GPG Signing: configuration/gpg.md
   - Guides:
+    - guides/index.md
     - GitOps with Argo CD: guides/gitops.md
     - Depot (Pull-Based): guides/depot.md
     - CI/CD (Push-Based): guides/cicd.md
     - Consuming Modules: guides/modules.md
     - Consuming Providers: guides/providers.md
-    - Migrating to Kerrareg: guides/migration.md
+    - Migrating to OpenDepot: guides/migration.md
   - Authentication: authentication.md
   - Kubernetes RBAC: rbac.md
   - Reference:
+    - reference/index.md
     - API: reference/api.md
     - Version Constraints: reference/version-constraints.md
   - Contributing: contributing.md
   - Helm Chart: helm-chart.md
 
+plugins:
+  - search:
+      lang: en
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+      enable_git_follow: false
+      fallback_to_build_date: true
+  - minify:
+      minify_html: true
+  - tags
+
 markdown_extensions:
+  - attr_list
+  - md_in_html
+  - def_list
+  - abbr
+  - footnotes
+  - tables
+  - admonition
+  - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
@@ -69,8 +111,26 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
-  - admonition
-  - pymdownx.details
-  - tables
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.snippets
+  - pymdownx.keys
+  - pymdownx.tasklist:
+      custom_checkbox: true
   - toc:
       permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/tonedefdev/opendepot
+      name: OpenDepot on GitHub
+  generator: false
+
+copyright: Copyright &copy; 2025 OpenDepot Contributors

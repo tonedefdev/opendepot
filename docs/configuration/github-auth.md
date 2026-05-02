@@ -1,3 +1,10 @@
+---
+tags:
+  - configuration
+  - github
+  - authentication
+---
+
 # GitHub Authentication
 
 For private repositories and to avoid GitHub API rate limits, create a GitHub App and store its credentials as a Kubernetes Secret:
@@ -6,8 +13,8 @@ For private repositories and to avoid GitHub API rate limits, create a GitHub Ap
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kerrareg-github-application-secret
-  namespace: kerrareg-system
+  name: opendepot-github-application-secret
+  namespace: opendepot-system
 type: Opaque
 data:
   githubAppID: <base64-encoded-app-id>
