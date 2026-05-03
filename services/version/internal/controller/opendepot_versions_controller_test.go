@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,6 +61,7 @@ var _ = Describe("Version Controller", func() {
 			reconciler := &VersionReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Log:    logr.Discard(),
 			}
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).To(HaveOccurred())
@@ -94,6 +96,7 @@ var _ = Describe("Version Controller", func() {
 			reconciler := &VersionReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Log:    logr.Discard(),
 			}
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).To(HaveOccurred())
@@ -128,6 +131,7 @@ var _ = Describe("Version Controller", func() {
 			reconciler := &VersionReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Log:    logr.Discard(),
 			}
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).To(HaveOccurred())

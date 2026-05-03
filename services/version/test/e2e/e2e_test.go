@@ -153,7 +153,19 @@ spec:
 		})
 
 		It("should not successfully sync a Version CR with conflicting moduleConfigRef and providerConfigRef", func() {
-			By("verifying the Version CR never reaches synced=true while dual-config is present")
+			By("waiting for the dual-config syncStatus message to be written")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", versionCRName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.syncStatus}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("both are defined"),
+					"expected dual-config guard syncStatus message to be written")
+			}).Should(Succeed())
+
+			By("confirming the Version CR never reaches synced=true")
 			Consistently(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "version", versionCRName,
 					"-n", namespace,
@@ -163,7 +175,7 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(Equal("true"),
 					"Version CR with both moduleConfigRef and providerConfigRef must not sync successfully")
-			}, 30*time.Second, 5*time.Second).Should(Succeed())
+			}, 15*time.Second, 3*time.Second).Should(Succeed())
 		})
 
 		It("should fully remove the Version CR after deletion", func() {
@@ -178,9 +190,11 @@ spec:
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "version", versionCRName,
 					"-n", namespace,
+					"--ignore-not-found",
 				)
-				_, err := utils.Run(cmd)
-				g.Expect(err).To(HaveOccurred(), "Version CR should no longer exist after deletion")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty(), "Version CR should be fully removed")
 			}, 2*time.Minute).Should(Succeed())
 		})
 	})

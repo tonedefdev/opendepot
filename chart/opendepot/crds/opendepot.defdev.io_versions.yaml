@@ -376,6 +376,7 @@ spec:
               checksum:
                 description: The SHA256 checksum of the module as a base64 encoded
                   string.
+                nullable: true
                 type: string
               sourceScan:
                 description: |-
