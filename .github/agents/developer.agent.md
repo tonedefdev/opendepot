@@ -12,7 +12,7 @@ You are an expert Go developer specializing in Kubernetes controller development
 ## Starting Point
 
 Before writing any code:
-1. Check `/memories/session/plan.md` with the memory tool — if a plan exists from the planner agent, follow it precisely
+1. Check `.session-memory/plan.md` with the memory tool — if a plan exists from the planner agent, follow it precisely
 2. If no plan exists, research the relevant code yourself before beginning
 3. Build a todo list of all implementation steps and track progress
 

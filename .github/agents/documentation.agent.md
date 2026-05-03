@@ -60,6 +60,41 @@ If anything in the diff is unclear — unfamiliar types, controller behavior, co
 - Use tables for structured option references (matching existing tables in `docs/reference/api.md`)
 - Do not add introductory or concluding filler ("In this section, we will..." / "That's all you need to know about...")
 
+## MkDocs Material Formatting
+
+The site uses MkDocs Material. Always use its directives when they improve clarity — never fall back to plain Markdown when a richer element fits. The following extensions are enabled:
+
+**Admonitions** (`admonition`, `pymdownx.details`) — use for notes, warnings, and tips:
+```
+!!! note
+    Content here.
+
+??? warning "Collapsible warning"
+    Content here.
+```
+
+**Code blocks** (`pymdownx.highlight`, `pymdownx.inlinehilite`, `content.code.copy`, `content.code.annotate`):
+- Always specify the language on fenced blocks (` ```yaml `, ` ```go `, ` ```bash `)
+- Use `anchor_linenums: true` — add `linenums="1"` attribute when line references matter
+- Use code annotations (` # (1)! `) when explaining specific lines
+
+**Tabbed content** (`pymdownx.tabbed`) — use when showing the same config for multiple backends or platforms:
+```
+=== "AWS"
+    Content for AWS.
+
+=== "GCP"
+    Content for GCP.
+```
+
+**Superfences / Mermaid** (`pymdownx.superfences`) — use ` ```mermaid ` for architecture or flow diagrams.
+
+**Attribute lists** (`attr_list`, `md_in_html`) — use `{ .class }` to add CSS classes, or wrap in `<div>` for grid layouts matching the existing home page style.
+
+**Snippets** (`pymdownx.snippets`) — use `--8<--` to include reusable content from other files if a pattern already exists in the docs.
+
+Before adding any element, read the surrounding file to confirm which elements are already used there — match the existing pattern rather than introducing new ones arbitrarily.
+
 ## Constraints
 - ONLY edit files under `docs/` — never touch source code
 - DO NOT rewrite or restructure unaffected sections
