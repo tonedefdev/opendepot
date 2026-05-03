@@ -26,7 +26,7 @@ server:
 
 ## TLS via Istio Ingress Gateway
 
-For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. See [chart/opendepot/istio/gateway.yaml](https://github.com/tonedefdev/opendepot/blob/main/chart/opendepot/istio/gateway.yaml) for an example, and store your TLS certificate as a Secret in the `istio-ingress` namespace:
+For TLS termination at the Istio ingress gateway, enable the Istio VirtualService and create a Gateway resource. The chart's VirtualService references the gateway `istio-ingress/istio-ingress-gateway` by default. Store your TLS certificate as a Secret in the `istio-ingress` namespace:
 
 ```yaml
 server:
