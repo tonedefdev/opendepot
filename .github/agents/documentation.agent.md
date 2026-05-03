@@ -1,7 +1,7 @@
 ---
 description: "Use when: updating documentation after a feature is implemented, documenting new CRD fields, writing guides for new behaviors, updating the API reference, recording configuration changes, or any documentation task in the OpenDepot project. Invoked by the Code Review agent once implementation is confirmed complete, or directly by the user."
 name: "OpenDepot Documentation"
-tools: [read, edit, search, execute, todo]
+tools: [read, edit, search, execute, todo, vscode/memory]
 argument-hint: "Describe the feature or changes that need documentation"
 ---
 

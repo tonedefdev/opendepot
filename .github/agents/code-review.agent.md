@@ -2,7 +2,7 @@
 description: "Use when: reviewing that the Developer agent implemented everything to spec, validating implementation completeness against the plan, checking for missed steps, ensuring acceptance criteria are met, or passing off to Documentation once implementation is confirmed complete. Sits between the Developer agent and Documentation agent in the OpenDepot workflow."
 name: "OpenDepot Code Review"
 model: "Claude Sonnet 4.6 (copilot)"
-tools: [read, search, execute, agent, todo]
+tools: [read, search, execute, agent, todo, vscode/memory]
 agents: ["OpenDepot Developer", "OpenDepot Documentation"]
 argument-hint: "Summary of what was implemented by the Developer agent"
 ---
@@ -12,7 +12,7 @@ You are a strict code reviewer for the OpenDepot project. Your sole job is to ve
 ## Starting Point
 
 Your **first two actions** are always:
-1. Read `/memories/session/plan.md` with the memory tool — this is the ground truth for what was supposed to be implemented
+1. Read `.session-memory/plan.md` with the memory tool — this is the ground truth for what was supposed to be implemented
 2. Run `git diff main..HEAD` to see exactly what was changed
 
 If no plan exists in session memory, ask the user to provide the implementation summary or re-run the Planner agent before proceeding.
