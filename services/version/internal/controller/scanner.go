@@ -176,6 +176,10 @@ func extractBinaryFromZip(archiveBytes []byte) ([]byte, error) {
 			continue
 		}
 
+		if f.Mode()&0111 == 0 {
+			continue
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s in provider zip: %w", f.Name, err)
@@ -542,11 +546,10 @@ func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes 
 		return nil, fmt.Errorf("failed to extract module archive: %w", err)
 	}
 
-	args := []string{"fs", "--format", "json"}
-	if offline {
-		args = append(args, "--offline-scan")
-	}
-	args = append(args, "--cache-dir", cacheDir, "--quiet", tmpDir)
+	// --scanners misconfig is required: trivy fs defaults to vuln,secret only.
+	// Config-class (IaC) rules are bundled in the Trivy binary and do not need
+	// the vulnerability DB, so this works correctly with --offline-scan.
+	args := []string{"fs", "--format", "json", "--scanners", "misconfig"}
 
 	output, err := runTrivy(ctx, args...)
 	if err != nil {
