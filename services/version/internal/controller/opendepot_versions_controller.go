@@ -358,16 +358,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// temp file on disk instead.
 	var binaryScan *opendepotv1alpha1.ProviderBinaryScan
 	if r.ScanningEnabled && version.Spec.Type == opendepotv1alpha1.OpenDepotProvider && providerTmpPath != "" {
-		r.Log.V(5).Info("waiting for scan semaphore (provider binary scan)", "version", version.Name)
-		select {
-		case r.scanSem <- struct{}{}:
-		case <-ctx.Done():
-			return ctrl.Result{}, ctx.Err()
-		}
-
 		var scanErr error
 		binaryScan, scanErr = r.runProviderScan(ctx, version, providerTmpPath, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
-		<-r.scanSem
 		r.Log.V(5).Info("provider binary scan complete", "version", version.Name, "findingsPresent", binaryScan != nil)
 
 		if scanErr != nil {
@@ -382,16 +374,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// The scan result is returned here and written atomically in the final status update below.
 	var moduleScan *opendepotv1alpha1.ModuleSourceScan
 	if r.ScanningEnabled && r.ScanModules && version.Spec.Type == opendepotv1alpha1.OpenDepotModule && len(fileBytes) > 0 {
-		r.Log.V(5).Info("waiting for scan semaphore (module source scan)", "version", version.Name)
-		select {
-		case r.scanSem <- struct{}{}:
-		case <-ctx.Done():
-			return ctrl.Result{}, ctx.Err()
-		}
-
 		var scanErr error
 		moduleScan, scanErr = r.runModuleScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
-		<-r.scanSem
 		r.Log.V(5).Info("module source scan complete", "version", version.Name, "findingsPresent", moduleScan != nil)
 
 		if scanErr != nil {

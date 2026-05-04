@@ -13,6 +13,9 @@ global:
 version:
   enabled: true
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/version-controller
     tag: ""

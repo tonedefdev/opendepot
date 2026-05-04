@@ -121,6 +121,7 @@ var _ = BeforeSuite(func() {
 		"--set", "scanning.enabled=true",
 		"--set", "scanning.scanModules=true",
 		"--set", "scanning.cache.accessMode=ReadWriteOnce",
+		"--set", "version.zapLogLevel=5",
 		"--wait",
 		"--timeout", "3m",
 	)
