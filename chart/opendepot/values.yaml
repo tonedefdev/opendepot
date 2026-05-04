@@ -7,21 +7,24 @@ global:
   namespace: opendepot-system
   imagePullPolicy: IfNotPresent
   image:
-    tag: 0.2.2
+    tag: 0.2.3
 
 ## Version Service (Core - handles GitHub fetching and storage)
 version:
   enabled: true
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/version-controller
     tag: ""
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
-    limits:
       memory: 512Mi
+    limits:
+      memory: 4Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}

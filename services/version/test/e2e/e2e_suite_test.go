@@ -118,6 +118,10 @@ var _ = BeforeSuite(func() {
 		"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 		"--set", "storage.filesystem.enabled=true",
 		"--set", "storage.filesystem.hostPath=/data/modules",
+		"--set", "scanning.enabled=true",
+		"--set", "scanning.scanModules=true",
+		"--set", "scanning.cache.accessMode=ReadWriteOnce",
+		"--set", "version.zapLogLevel=5",
 		"--wait",
 		"--timeout", "3m",
 	)
