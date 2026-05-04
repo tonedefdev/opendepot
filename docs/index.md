@@ -95,7 +95,7 @@ graph TD
     HashiCorp["HashiCorp\nReleases API"]
 
     CLI -->|HTTP requests| Server
-    Server -->|"reads Module + Version + Provider"| Depot & Module & Version & Provider
+    Server -->|"reads Module + Provider"| Module & Provider
 
     Depot -->|queries| GitHub
     Depot -->|queries| HashiCorp
