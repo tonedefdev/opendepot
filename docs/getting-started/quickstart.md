@@ -362,14 +362,9 @@ helm upgrade opendepot opendepot/opendepot \
 
 **Step 9b: Trigger a module scan**
 
-Force-resync the module from Step 4 to trigger an IaC scan:
+Enabling the Trivy scanner forces the Version controller to restart to apply the correct configuration.
 
-```bash
-kubectl patch module terraform-aws-key-pair -n opendepot-system \
-  --type merge -p '{"spec":{"forceSync":true}}'
-```
-
-Watch the Version resource reconcile, then inspect the IaC findings:
+Wait for the Version resource to reconcile, then inspect the IaC findings:
 
 ```bash
 kubectl get versions -n opendepot-system -w
@@ -397,11 +392,11 @@ You should see something like:
 }
 ```
 
-Module IaC findings contain Trivy rule IDs rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
+Module IaC findings contain Trivy rule IDs `AWS-0057` rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
 
-**Step 9c: (Requires Step 8) Inspect provider scan results by**
+**Step 9c: (Requires Step 8) Inspect provider scan results**
 
-If you completed Step 8, the provider binary and source scans run automatically.
+If you completed Step 8, the provider binary and source scans run automatically once the controller has restarted.
 
 Check the binary scan on the Version resource (per OS/arch):
 
@@ -447,8 +442,10 @@ Provider binary findings contain CVE identifiers and package version details. Th
 
 ## Cleanup
 
+Stop the port-forward and delete the Kind cluster:
+
 ```bash
-kubectl port-forward svc/server 8080:80 -n opendepot-system  # stop with Ctrl-C
+kubectl port-forward svc/server 8080:80 -n opendepot-system
 kind delete cluster --name opendepot
 ```
 

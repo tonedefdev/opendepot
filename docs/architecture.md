@@ -118,28 +118,3 @@ Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) ar
 
 !!! warning
     To prevent unauthenticated users from easily enumerating provider artifacts, provider files are stored with UUID7-based filenames.
-
-## Project Structure
-
-```
-opendepot/
-├── api/v1alpha1/              # CRD type definitions
-│   ├── types.go               # Depot, Module, Version, StorageConfig schemas
-│   └── groupversion_info.go   # API group registration
-├── chart/opendepot/            # Helm chart
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   ├── crds/                  # CRD manifests
-│   └── templates/             # Deployment, RBAC, Service templates
-├── pkg/
-│   ├── github/                # GitHub API client (App auth, archive fetching)
-│   └── storage/               # Storage backend implementations
-├── services/
-│   ├── server/                # Registry Protocol API (HTTP server)
-│   ├── version/               # Version controller (core — fetch & store)
-│   ├── module/                # Module controller (version lifecycle)
-│   ├── provider/              # Provider controller (version lifecycle for providers)
-│   └── depot/                 # Depot controller (GitHub + HashiCorp discovery)
-├── Makefile                   # Build, load, deploy targets
-└── go.work                    # Go workspace (multi-module)
-```
