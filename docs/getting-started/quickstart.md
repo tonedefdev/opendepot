@@ -344,6 +344,45 @@ Initializing provider plugins...
 OpenTofu has been successfully initialized!
 ```
 
+**Step 8d (authenticated): Using the provider registry with bearer token auth**
+
+If you enabled authentication in Step 6, providers require their own `credentials` block. Generate a token the same way:
+
+```bash
+TOKEN=$(kubectl create token test-user -n opendepot-system --duration=1h)
+```
+
+OpenTofu derives the credentials lookup key directly from the `source` address in `required_providers`. Because the provider source address includes the port (`opendepot.localtest.me:8080`), OpenTofu looks up `opendepot.localtest.me:8080` as the credentials key for providers. Module source addresses omit the port, so OpenTofu looks up `opendepot.localtest.me` for those. A `.tofurc` that covers both requires two `credentials` blocks and two `host` blocks — one for each key form:
+
+```bash
+cat > /tmp/opendepot-provider-test/.tofurc <<EOF
+credentials "opendepot.localtest.me" {
+  token = "${TOKEN}"
+}
+
+host "opendepot.localtest.me" {
+  services = {
+    "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
+  }
+}
+
+credentials "opendepot.localtest.me:8080" {
+  token = "${TOKEN}"
+}
+
+host "opendepot.localtest.me:8080" {
+  services = {
+    "providers.v1" = "http://opendepot.localtest.me:8080/opendepot/providers/v1/"
+  }
+}
+EOF
+
+TF_CLI_CONFIG_FILE=/tmp/opendepot-provider-test/.tofurc tofu init
+```
+
+!!! warning
+    Using `token` inside a `host` block is silently ignored by OpenTofu — it must be in a separate `credentials` block. The `credentials` block key must exactly match the hostname as it appears in the `source` address (including the port for providers, excluding the port for modules). A mismatch means OpenTofu sends no token and the server returns 401.
+
 ## Step 9: (Optional) Test Trivy Scanning
 
 This step shows Trivy scanning in action against the module from Step 4 and, if you completed Step 8, the provider as well.
