@@ -117,13 +117,13 @@ mkdir /tmp/opendepot-test && cd /tmp/opendepot-test
 
 cat > main.tf <<'EOF'
 module "key_pair" {
-  source  = "opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws"
+  source  = "opendepot.localtest.me/opendepot-system/terraform-aws-key-pair/aws"
   version = "2.0.0"
 }
 EOF
 
 cat > .tofurc <<'EOF'
-host "opendepot.localtest.me:8080" {
+host "opendepot.localtest.me" {
   services = {
     "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
   }
@@ -133,11 +133,11 @@ EOF
 TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
 
-The `.tofurc` `host` block overrides the default HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. You should see OpenTofu download the module from your local OpenDepot instance:
+The `.tofurc` `host` block overrides the default HTTPS protocol discovery for this hostname, allowing plain HTTP over the port-forward. The host block key is the bare hostname without a port; the port belongs only in the `services` URL value. You should see OpenTofu download the module from your local OpenDepot instance:
 
 ```
 Initializing modules...
-Downloading opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws 2.0.0 for key_pair...
+Downloading opendepot.localtest.me/opendepot-system/terraform-aws-key-pair/aws 2.0.0 for key_pair...
 - key_pair in .terraform/modules/key_pair
 
 OpenTofu has been successfully initialized!
@@ -176,16 +176,22 @@ Generate a short-lived token and set it in `.tofurc`:
 TOKEN=$(kubectl create token test-user -n opendepot-system --duration=1h)
 
 cat > /tmp/opendepot-test/.tofurc <<EOF
-host "opendepot.localtest.me:8080" {
+credentials "opendepot.localtest.me" {
+  token = "${TOKEN}"
+}
+
+host "opendepot.localtest.me" {
   services = {
     "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
   }
-  token = "${TOKEN}"
 }
 EOF
 
 TF_CLI_CONFIG_FILE=/tmp/opendepot-test/.tofurc tofu init
 ```
+
+!!! warning
+    Do not place `token` inside the `host` block. OpenTofu parses it without error but silently ignores it — the token is never sent to the server. Credentials must be in a separate `credentials` block keyed by the registry hostname. A `token` inside a `host` block is the most common cause of unexpected 401 responses during this step.
 
 OpenTofu sends the bearer token to OpenDepot, which forwards it to the Kubernetes API for authentication and RBAC authorization. This is the same flow used in production — no separate user database or API keys required.
 
