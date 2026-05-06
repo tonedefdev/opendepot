@@ -38,7 +38,7 @@ spec:
       {{- end }}
       containers:
       - name: server
-        image: "{{ .Values.server.image.repository }}:{{ default .Values.global.image.tag .Values.server.image.tag }}"
+        image: "{{ .Values.server.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.server.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         args:
         {{- if .Values.server.anonymousAuth }}

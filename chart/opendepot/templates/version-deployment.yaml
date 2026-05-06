@@ -41,7 +41,7 @@ spec:
       {{- end }}
       containers:
       - name: version-controller
-        image: "{{ .Values.version.image.repository }}:{{ default .Values.global.image.tag .Values.version.image.tag }}"
+        image: "{{ .Values.version.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.version.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         {{- if or .Values.scanning.enabled .Values.version.zapLogLevel }}
         args:
