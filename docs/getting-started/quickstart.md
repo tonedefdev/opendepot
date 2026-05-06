@@ -427,14 +427,14 @@ You should see something like:
   "scannedAt": "2026-05-03T02:11:00Z",
   "findings": [
     {
-      "vulnerabilityID": "AVD-AWS-0086",
+      "vulnerabilityID": "AWS-0086",
       "pkgName": "aws_s3_bucket",
       "installedVersion": "",
       "severity": "HIGH",
       "title": "S3 Bucket does not have logging enabled"
     },
     {
-      "vulnerabilityID": "AVD-AWS-0088",
+      "vulnerabilityID": "AWS-0088",
       "pkgName": "aws_s3_bucket",
       "installedVersion": "",
       "severity": "MEDIUM",
@@ -444,7 +444,7 @@ You should see something like:
 }
 ```
 
-Module IaC findings contain Trivy rule IDs such as `AVD-AWS-0086` rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
+Module IaC findings contain Trivy rule IDs such as `AWS-0086` rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
 
 **Step 9c: (Requires Step 8) Inspect provider scan results**
 
