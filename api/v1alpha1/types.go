@@ -84,14 +84,18 @@ type ModuleConfig struct {
 	// When true, enforces that the ChecksumSHA256 of the module archive
 	// always matches the value stored in this field and in any destination storage config.
 	Immutable *bool `json:"immutable,omitempty"`
-	// The name of the module. If omitted, the name of the Module resource
-	// is used in its place.
+	// The OpenTofu registry module name (short form), e.g. 'key-pair' for the registry path
+	// terraform-aws-modules/key-pair/aws. Used as the Kubernetes resource name for the resulting Module CR.
 	Name *string `json:"name,omitempty"`
 	// The main terraform or tofu provider required for this module.
 	Provider string `json:"provider,omitempty"`
-	// Owner of the Github repository.
+	// The namespace (organization) of the module in the OpenTofu registry, e.g. 'terraform-aws-modules'.
+	// Also used as the GitHub organization for downloading module artifacts.
 	RepoOwner string `json:"repoOwner,omitempty"`
-	// The full URL of the Github repository.
+	// The full URL of the source repository on GitHub, e.g.
+	// 'https://github.com/terraform-aws-modules/terraform-aws-key-pair'. When omitted, the Depot
+	// controller looks up the source URL from the OpenTofu registry (api.opentofu.org). If the
+	// registry lookup fails, an error is returned and the Module CR is not created/updated.
 	RepoUrl *string `json:"repoUrl,omitempty"`
 	// The external storage configuration settings.
 	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`

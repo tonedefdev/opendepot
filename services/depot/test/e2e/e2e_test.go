@@ -33,7 +33,7 @@ var _ = Describe("Depot", Ordered, func() {
 	const (
 		depotNamespace    = "opendepot-system"
 		depotCRName       = "e2e-depot"
-		moduleCRName      = "terraform-aws-key-pair"
+		moduleCRName      = "key-pair"
 		moduleVersion     = "2.0.0"
 		moduleProvider    = "aws"
 		providerCRName    = "random"

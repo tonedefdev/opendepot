@@ -4,12 +4,10 @@ go 1.25.5
 
 require (
 	github.com/go-logr/logr v1.4.3
-	github.com/google/go-github/v81 v81.0.0
 	github.com/hashicorp/go-version v1.8.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f
-	github.com/tonedefdev/opendepot/pkg/github v0.0.0-20260204044222-70ab09438161
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.23.1

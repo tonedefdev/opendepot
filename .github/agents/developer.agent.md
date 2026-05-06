@@ -77,10 +77,17 @@ Follow these patterns exactly as they exist in the codebase:
 4. Implement controller logic changes.
 5. Update e2e tests for new/changed behavior.
 6. Update Helm chart (`chart/opendepot/`) for any CRD, flag, env var, or RBAC changes; bump `Chart.yaml` version.
-7. Run: `cd services/<affected-service> && make test-e2e`
-8. Debug any failures → fix → re-run until all pass.
-9. Mark all todos complete.
-10. Run: `git commit -a -m "<brief summary of changes>"`
+7. Run `go fmt ./...` and `go vet ./...` in the affected module.
+8. Before running `make test-e2e`, verify `services/<affected-service>/hack/boilerplate.go.txt` exists. If missing, copy from `api/v1alpha1/hack/boilerplate.go.txt`.
+9. Run: `cd services/<affected-service> && make test-e2e`
+   - **Check the exit code immediately.** If it is non-zero:
+     - Read the FULL terminal output to identify the root cause
+     - Fix the problem in code
+     - Return to step 7 and re-run
+   - **You must loop steps 7–9 until `make test-e2e` exits with code 0.**
+   - Returning to the user or invoking any other agent while the exit code is non-zero is **strictly forbidden**.
+10. Mark all todos complete.
+11. Run: `git commit -a -m "<brief summary of changes>"`
 
 ## Handoff
 
