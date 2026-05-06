@@ -3,9 +3,11 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 
@@ -31,7 +33,7 @@ func (gcs *GoogleCloudStorage) NewClient(ctx context.Context) error {
 // If the object is found, it sets the soi receiver's field 'ObjectChecksum' and 'FileExists'.
 // If the object cannot be found the function returns an error.
 func (gcs *GoogleCloudStorage) GetObjectChecksum(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
-	bucketName := soi.Version.Spec.ModuleConfigRef.StorageConfig.GCS.Bucket
+	bucketName := soi.StorageConfig.GCS.Bucket
 	objectName := *soi.FilePath
 
 	bucket := gcs.client.Bucket(bucketName)
@@ -55,7 +57,7 @@ func (gcs *GoogleCloudStorage) GetObjectChecksum(ctx context.Context, soi *stora
 
 // GetObject retrieves the object from Google Cloud Storage and returns an io.Reader to stream the file.
 func (gcs *GoogleCloudStorage) GetObject(ctx context.Context, soi *storagetypes.StorageObjectInput) (io.Reader, error) {
-	bucketName := soi.Version.Spec.ModuleConfigRef.StorageConfig.GCS.Bucket
+	bucketName := soi.StorageConfig.GCS.Bucket
 	objectName := *soi.FilePath
 
 	bucket := gcs.client.Bucket(bucketName)
@@ -74,7 +76,7 @@ func (gcs *GoogleCloudStorage) GetObject(ctx context.Context, soi *storagetypes.
 
 // DeleteObject deletes the Version file from the specified GCS bucket.
 func (gcs *GoogleCloudStorage) DeleteObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
-	bucketName := soi.Version.Spec.ModuleConfigRef.StorageConfig.GCS.Bucket
+	bucketName := soi.StorageConfig.GCS.Bucket
 	objectName := *soi.FilePath
 
 	bucket := gcs.client.Bucket(bucketName)
@@ -91,10 +93,32 @@ func (gcs *GoogleCloudStorage) DeleteObject(ctx context.Context, soi *storagetyp
 	return nil
 }
 
+// PresignObject generates a time-limited signed URL for the GCS object and sets it on soi.PresignedURL.
+func (gcs *GoogleCloudStorage) PresignObject(_ context.Context, soi *storagetypes.StorageObjectInput) error {
+	ttl := soi.PresignTTL
+	if ttl == 0 {
+		ttl = 15 * time.Minute
+	}
+
+	bucketName := soi.StorageConfig.GCS.Bucket
+	objectName := *soi.FilePath
+
+	signedURL, err := gcs.client.Bucket(bucketName).SignedURL(objectName, &storage.SignedURLOptions{
+		Method:  "GET",
+		Expires: time.Now().Add(ttl),
+	})
+	if err != nil {
+		return fmt.Errorf("gcs: failed to generate signed URL: %w", err)
+	}
+
+	soi.PresignedURL = &signedURL
+	return nil
+}
+
 // PutObject uploads the Version file to the specified GCS bucket with its computed base64 encoded SHA256 checksum
 // stored in the object metadata.
 func (gcs *GoogleCloudStorage) PutObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
-	bucketName := soi.Version.Spec.ModuleConfigRef.StorageConfig.GCS.Bucket
+	bucketName := soi.StorageConfig.GCS.Bucket
 	objectName := *soi.FilePath
 
 	bucket := gcs.client.Bucket(bucketName)

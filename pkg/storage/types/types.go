@@ -2,6 +2,7 @@ package types
 
 import (
 	"io"
+	"time"
 
 	versionv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -34,6 +35,21 @@ type StorageObjectInput struct {
 	FilePath *string
 	// The sha256 checksum of the object from the storage system as a base64 encoded string.
 	ObjectChecksum *string
+	// PresignedURL is the time-limited pre-signed URL set by PresignObject.
+	// Nil when the backend does not support pre-signed URLs.
+	PresignedURL *string
+	// PresignTTL is how long the pre-signed URL should be valid.
+	// If zero, backends use a 15-minute default.
+	PresignTTL time.Duration
+	// StorageConfig is the resolved storage backend configuration.
+	// Backends read bucket names, account details, and other settings from this field.
+	// Populated by InitStorageFactory from the Version's module or provider config ref,
+	// or set directly by callers that manage backend instantiation themselves.
+	StorageConfig *versionv1alpha1.StorageConfig
+	// ContainerName is the logical container name used by Azure Blob Storage.
+	// For Azure backends this is the blob container name. Populated by InitStorageFactory
+	// from the Version's name field, or set directly by callers.
+	ContainerName *string
 	// The Version spec of the object Version.
 	Version *versionv1alpha1.Version
 }

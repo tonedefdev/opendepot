@@ -216,3 +216,13 @@ Holds Trivy IaC scan (`trivy fs`) results for a module archive. Stored in `Versi
 | `scannedAt` | `string` | RFC3339 timestamp at which the IaC scan completed |
 | `findings` | `[]SecurityFinding` | Misconfigurations found in the module's HCL source. `vulnerabilityID` contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE. |
 
+### PresignConfig fields
+
+Controls pre-signed URL generation for provider downloads. Set on `StorageConfig.presign`.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `bool` | `false` | When `true`, download requests are redirected to the storage backend via a pre-signed URL instead of proxied through the server. |
+| `ttl` | `duration` | `15m` | How long the pre-signed URL remains valid (e.g. `"15m"`, `"1h"`). |
+| `fallbackToProxy` | `bool` | `true` | When `true`, if pre-sign generation fails the server falls back to proxying the download. Set to `false` to make pre-signing strictly required. |
+

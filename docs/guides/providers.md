@@ -171,3 +171,27 @@ spec:
 See [GitHub Authentication](../configuration/github-auth.md) and [Authenticated Source Scanning](../configuration/scanning.md#authenticated-source-scanning) for setup details.
 
 See [Vulnerability Scanning](../configuration/scanning.md) for full configuration details including policy enforcement and Helm values.
+
+## Pre-signed URL Redirects
+
+By default, provider binary downloads are proxied through the OpenDepot server. Enabling pre-signed URLs causes the server to redirect OpenTofu directly to the storage backend with a time-limited signed URL, eliminating server-side bandwidth costs for large provider binaries.
+
+Add a `presign` block to the `storageConfig` on the provider's `Version` resources (or on the backing `Depot.spec.global.storageConfig` to apply it globally):
+
+```yaml
+spec:
+  providerConfig:
+    name: aws
+  storageConfig:
+    s3:
+      bucket: opendepot-providers
+      region: us-east-1
+    presign:
+      enabled: true
+      ttl: "15m"
+      fallbackToProxy: true
+```
+
+When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required — any failure returns `502 Bad Gateway`.
+
+Pre-signed URLs are supported on **S3**, **GCS**, and **Azure Blob Storage**. See [Pre-signed URL Redirects](../storage.md#pre-signed-url-redirects) for per-backend IAM requirements and field reference.

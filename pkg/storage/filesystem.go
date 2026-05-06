@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -120,4 +121,9 @@ func (storage *FileSystem) PutObject(ctx context.Context, soi *types.StorageObje
 	}
 
 	return nil
+}
+
+// PresignObject is not supported for the filesystem backend and always returns an error.
+func (storage *FileSystem) PresignObject(_ context.Context, _ *types.StorageObjectInput) error {
+	return fmt.Errorf("pre-signed URLs are not supported for filesystem storage")
 }

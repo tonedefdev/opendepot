@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 
@@ -33,7 +34,7 @@ func (storage *AmazonS3Storage) NewClient(ctx context.Context, region string) er
 func (storage *AmazonS3Storage) GetObject(ctx context.Context, soi *storagetypes.StorageObjectInput) (io.Reader, error) {
 	resp, err := storage.client.GetObject(ctx, &s3.GetObjectInput{
 		ChecksumMode: types.ChecksumModeEnabled,
-		Bucket:       &soi.Version.Spec.ModuleConfigRef.StorageConfig.S3.Bucket,
+		Bucket:       &soi.StorageConfig.S3.Bucket,
 		Key:          soi.FilePath,
 	})
 
@@ -55,9 +56,10 @@ func (storage *AmazonS3Storage) GetObject(ctx context.Context, soi *storagetypes
 func (storage *AmazonS3Storage) GetObjectChecksum(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
 	resp, err := storage.client.GetObject(ctx, &s3.GetObjectInput{
 		ChecksumMode: types.ChecksumModeEnabled,
-		Bucket:       &soi.Version.Spec.ModuleConfigRef.StorageConfig.S3.Bucket,
+		Bucket:       &soi.StorageConfig.S3.Bucket,
 		Key:          soi.FilePath,
 	})
+
 	if err != nil {
 		var noSuchKey *types.NoSuchKey
 
@@ -81,13 +83,35 @@ func (storage *AmazonS3Storage) GetObjectChecksum(ctx context.Context, soi *stor
 // DeleteObject deletes the Version file from the specified bucket.
 func (storage *AmazonS3Storage) DeleteObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
 	_, err := storage.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: &soi.Version.Spec.ModuleConfigRef.StorageConfig.S3.Bucket,
+		Bucket: &soi.StorageConfig.S3.Bucket,
 		Key:    soi.FilePath,
 	})
+
 	if err != nil {
 		return err
 	}
 
+	return nil
+}
+
+// PresignObject generates a time-limited pre-signed URL for the S3 object and sets it on soi.PresignedURL.
+func (storage *AmazonS3Storage) PresignObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
+	ttl := soi.PresignTTL
+	if ttl == 0 {
+		ttl = 15 * time.Minute
+	}
+
+	presignClient := s3.NewPresignClient(storage.client)
+	result, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: &soi.StorageConfig.S3.Bucket,
+		Key:    soi.FilePath,
+	}, s3.WithPresignExpires(ttl))
+
+	if err != nil {
+		return fmt.Errorf("s3: failed to generate presigned URL: %w", err)
+	}
+
+	soi.PresignedURL = &result.URL
 	return nil
 }
 
@@ -103,7 +127,7 @@ func (storage *AmazonS3Storage) PutObject(ctx context.Context, soi *storagetypes
 	_, err := storage.client.PutObject(ctx, &s3.PutObjectInput{
 		ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
 		ChecksumSHA256:    soi.ArchiveChecksum,
-		Bucket:            &soi.Version.Spec.ModuleConfigRef.StorageConfig.S3.Bucket,
+		Bucket:            &soi.StorageConfig.S3.Bucket,
 		Key:               soi.FilePath,
 		Body:              body,
 	})

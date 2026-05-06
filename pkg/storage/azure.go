@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 
@@ -12,6 +14,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 )
 
 type AzureBlobStorage struct {
@@ -45,7 +49,7 @@ func (storage *AzureBlobStorage) NewClients(subscriptionID string, storageAccoun
 // GetObject retrieves the object from the Azure Blob and returns an io.Reader to stream the file from the server
 func (storage *AzureBlobStorage) GetObject(ctx context.Context, soi *storagetypes.StorageObjectInput) (io.Reader, error) {
 	blob, err := storage.blobClient.DownloadStream(ctx,
-		*soi.Version.Spec.ModuleConfigRef.Name,
+		*soi.ContainerName,
 		*soi.FilePath,
 		&azblob.DownloadStreamOptions{},
 	)
@@ -60,9 +64,9 @@ func (storage *AzureBlobStorage) GetObject(ctx context.Context, soi *storagetype
 // If the container can be found the function sets the soi receiver's field for `FileExists` to `true`.
 func (storage *AzureBlobStorage) GetObjectChecksum(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
 	ctr, err := storage.storageClient.Get(ctx,
-		soi.Version.Spec.ModuleConfigRef.StorageConfig.AzureStorage.ResourceGroup,
-		soi.Version.Spec.ModuleConfigRef.StorageConfig.AzureStorage.AccountName,
-		*soi.Version.Spec.ModuleConfigRef.Name,
+		soi.StorageConfig.AzureStorage.ResourceGroup,
+		soi.StorageConfig.AzureStorage.AccountName,
+		*soi.ContainerName,
 		nil,
 	)
 	if err != nil {
@@ -82,19 +86,62 @@ func (storage *AzureBlobStorage) GetObjectChecksum(ctx context.Context, soi *sto
 // DeleteObject deletes the Version file from the specified container.
 func (storage *AzureBlobStorage) DeleteObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
 	_, err := storage.blobClient.DeleteBlob(ctx,
-		*soi.Version.Spec.ModuleConfigRef.Name,
+		*soi.ContainerName,
 		*soi.FilePath,
 		&azblob.DeleteBlobOptions{},
 	)
 	return err
 }
 
+// PresignObject generates a time-limited SAS URL for the Azure blob and sets it on soi.PresignedURL.
+func (storage *AzureBlobStorage) PresignObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
+	ttl := soi.PresignTTL
+	if ttl == 0 {
+		ttl = 15 * time.Minute
+	}
+
+	containerName := *soi.ContainerName
+	now := time.Now().UTC()
+	expiry := now.Add(ttl)
+
+	svcClient := storage.blobClient.ServiceClient()
+	startStr := now.Format(sas.TimeFormat)
+	expiryStr := expiry.Format(sas.TimeFormat)
+	udKey, err := svcClient.GetUserDelegationCredential(ctx, service.KeyInfo{
+		Start:  &startStr,
+		Expiry: &expiryStr,
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("azure: failed to get user delegation credential: %w", err)
+	}
+
+	perms := sas.BlobPermissions{Read: true}
+	sasValues := sas.BlobSignatureValues{
+		Protocol:      sas.ProtocolHTTPS,
+		StartTime:     now,
+		ExpiryTime:    expiry,
+		Permissions:   perms.String(),
+		ContainerName: containerName,
+		BlobName:      *soi.FilePath,
+	}
+
+	queryParams, err := sasValues.SignWithUserDelegation(udKey)
+	if err != nil {
+		return fmt.Errorf("azure: failed to sign SAS values: %w", err)
+	}
+
+	blobURL := storage.blobClient.ServiceClient().NewContainerClient(containerName).NewBlobClient(*soi.FilePath).URL()
+	sasURL := blobURL + "?" + queryParams.Encode()
+	soi.PresignedURL = &sasURL
+	return nil
+}
+
 // PutObject puts the Version file in the specified bucket with its computed base64 encoded SHA256 checksum.
 func (storage *AzureBlobStorage) PutObject(ctx context.Context, soi *storagetypes.StorageObjectInput) error {
 	ctr, err := storage.storageClient.Create(ctx,
-		soi.Version.Spec.ModuleConfigRef.StorageConfig.AzureStorage.ResourceGroup,
-		soi.Version.Spec.ModuleConfigRef.StorageConfig.AzureStorage.AccountName,
-		*soi.Version.Spec.ModuleConfigRef.Name,
+		soi.StorageConfig.AzureStorage.ResourceGroup,
+		soi.StorageConfig.AzureStorage.AccountName,
+		*soi.ContainerName,
 		armstorage.BlobContainer{
 			ContainerProperties: &armstorage.ContainerProperties{
 				Metadata: map[string]*string{
@@ -102,6 +149,7 @@ func (storage *AzureBlobStorage) PutObject(ctx context.Context, soi *storagetype
 				},
 			},
 		}, nil)
+
 	if err != nil {
 		return err
 	}
@@ -117,6 +165,7 @@ func (storage *AzureBlobStorage) PutObject(ctx context.Context, soi *storagetype
 		}
 		_, err = storage.blobClient.UploadBuffer(ctx, *ctr.Name, *soi.FilePath, soi.FileBytes, bufferOptions)
 	}
+
 	if err != nil {
 		return err
 	}

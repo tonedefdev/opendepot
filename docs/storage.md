@@ -175,6 +175,45 @@ storageConfig:
     directoryPath: /data/modules
 ```
 
+## Pre-signed URL Redirects
+
+When enabled, the server issues an HTTP `307 Temporary Redirect` to a time-limited URL signed by the storage backend instead of proxying the binary itself. The OpenTofu client fetches the artifact directly from the storage backend, reducing network egress through the server.
+
+Pre-signed URLs are supported on **Amazon S3**, **Google Cloud Storage**, and **Azure Blob Storage**. The filesystem backend does not support them.
+
+Configure pre-signing via the `presign` field on any `StorageConfig`:
+
+```yaml
+storageConfig:
+  s3:
+    bucket: opendepot-providers
+    region: us-east-1
+  presign:
+    enabled: true
+    ttl: "15m"
+    fallbackToProxy: true
+```
+
+**`PresignConfig` fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | When `true`, download requests are redirected to the storage backend via a pre-signed URL. |
+| `ttl` | duration | `15m` | How long the pre-signed URL remains valid (e.g. `"15m"`, `"1h"`). |
+| `fallbackToProxy` | bool | `true` | When `true`, if pre-sign generation fails the server falls back to proxying the download through itself. Set to `false` to make pre-signing strictly required. |
+
+**Additional IAM permissions required for S3 pre-signing:**
+
+No additional IAM permissions are needed. `s3:GetObject` (already required for the proxy path) is sufficient to generate pre-signed `GET` URLs.
+
+**Additional permissions required for Azure pre-signing:**
+
+Azure pre-signed URLs use [user delegation SAS tokens](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-cli). Assign the `Storage Blob Delegator` role to the controller's identity in addition to the existing `Storage Blob Data Contributor` role.
+
+**GCS signed URLs:**
+
+GCS pre-signed URLs use the [HMAC/V4 signing method](https://cloud.google.com/storage/docs/access-control/signed-urls). The workload identity must have the `iam.serviceAccounts.signBlob` permission (included in the `Service Account Token Creator` role) in addition to the existing storage permissions.
+
 ## Storage Backend Comparison
 
 | Feature | Amazon S3 | Azure Blob | Google Cloud Storage | Filesystem |
@@ -184,4 +223,5 @@ storageConfig:
 | Authentication | AWS SDK v2 defaults | DefaultAzureCredential | ADC | None |
 | Server Download Route | Yes | Yes | Yes | Yes |
 | Shared Volume Required | No | No | No | Yes (PVC or hostPath) |
+| Pre-signed URL Redirects | Yes | Yes | Yes | No |
 

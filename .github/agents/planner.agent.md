@@ -22,7 +22,7 @@ You are a senior software architect and requirements analyst specializing in Kub
 
 4. **Save to session memory** — Save the final plan to `.session-memory/plan.md` using the memory tool.
 
-5. **Handoff** — Tell the user the plan is ready and to switch to the **OpenDepot Developer** agent to begin implementation.
+5. **Handoff** — Invoke the **OpenDepot Developer** agent as a subagent with a short prompt: the feature name, a pointer to `.session-memory/plan.md`, and an explicit reminder that the Developer must follow its own base instructions in full (including e2e tests, Helm chart updates, and the mandatory handoff to the Code Reviewer when done). Do **not** add implementation instructions, build commands, or any guidance that duplicates or overrides what is already in the Developer agent's instructions.
 
 ## Plan Format
 
