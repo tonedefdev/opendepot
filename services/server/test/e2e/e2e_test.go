@@ -21,7 +21,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +43,11 @@ const (
 	moduleName = "nonexistent-test-module"
 	// moduleSystem is the provider/system segment of the module versions URL.
 	moduleSystem = "aws"
+	// tofuRegistryHost is the hostname used in tofu CLI integration tests.
+	// *.localtest.me resolves to 127.0.0.1 via public DNS, so tofu init on the
+	// test host reaches the kubectl port-forward tunnel at serverLocalPort without
+	// any special DNS configuration inside the Kind cluster.
+	tofuRegistryHost = "opendepot.localtest.me"
 )
 
 var _ = Describe("Server Authentication", Ordered, func() {
@@ -334,6 +341,161 @@ users:
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
 				"a valid base64-encoded kubeconfig must not produce a 401")
+		})
+	})
+
+	// Context: tofu CLI integration
+	//
+	// These specs verify the behaviour of `tofu init` against the server over HTTP,
+	// covering the three .tofurc configurations that users are likely to try:
+	//   1. No credentials block at all          → 401 (no token sent)
+	//   2. Token placed inside the host block   → 401 (silently ignored by OpenTofu)
+	//   3. Token in the correct credentials block → authenticated (no 401)
+	//
+	// Scenario 2 is the root cause of the "missing Authorization header" issue
+	// reported during the quickstart: placing `token` inside the `host` block is
+	// valid HCL but OpenTofu never reads it as a credential.
+	Context("tofu CLI integration", Ordered, func() {
+		var tofuBin string
+
+		BeforeAll(func() {
+			var err error
+			tofuBin, err = exec.LookPath("tofu")
+			if err != nil {
+				Skip("tofu CLI not found in PATH; skipping tofu integration tests")
+			}
+		})
+
+		// runTofuInit writes a main.tf referencing a (non-existent) module from
+		// the local port-forwarded server, writes rcContent as .tofurc, runs
+		// `tofu init -no-color`, and returns the combined stdout+stderr output.
+		// The module not existing is fine — auth failures surface before any
+		// module download is attempted.
+		//
+		// The module source uses tofuRegistryHost (opendepot.localtest.me) as the
+		// registry hostname. *.localtest.me resolves to 127.0.0.1 via public DNS,
+		// so tofu reaches the port-forward tunnel on the test host without any
+		// in-cluster DNS configuration. The port goes only in the service URL
+		// inside the host block — not in the module source address.
+		runTofuInit := func(rcContent string) string {
+			workDir := GinkgoT().TempDir()
+			mainTF := fmt.Sprintf(`module "test" {
+  source = "%s/%s/%s/%s"
+}
+`, tofuRegistryHost, moduleNamespace, moduleName, moduleSystem)
+			ExpectWithOffset(1, os.WriteFile(filepath.Join(workDir, "main.tf"), []byte(mainTF), 0600)).To(Succeed())
+
+			rcFile := filepath.Join(GinkgoT().TempDir(), ".tofurc")
+			ExpectWithOffset(1, os.WriteFile(rcFile, []byte(rcContent), 0600)).To(Succeed())
+
+			cmd := exec.Command(tofuBin, "init", "-no-color")
+			cmd.Dir = workDir
+			cmd.Env = append(os.Environ(), "TF_CLI_CONFIG_FILE="+rcFile)
+			output, _ := cmd.CombinedOutput()
+			_, _ = fmt.Fprintf(GinkgoWriter, "tofu init output:\n%s\n", output)
+			return string(output)
+		}
+
+		Context("anonymous auth over HTTP", Ordered, func() {
+			var pfCancel context.CancelFunc
+
+			BeforeAll(func() {
+				By("deploying server with --anonymous-auth=true")
+				deployServer(
+					"--set", "server.anonymousAuth=true",
+					"--set", "server.useBearerToken=false",
+				)
+				pfCancel = startPortForward()
+			})
+
+			AfterAll(func() {
+				stopPortForward(pfCancel)
+			})
+
+			It("tofu init without credentials must not fail with a 401", func() {
+				// No credentials block — anonymous auth accepts unauthenticated requests.
+				rc := fmt.Sprintf(`host "%s" {
+  services = {
+    "modules.v1" = "http://%s:%d/opendepot/modules/v1/"
+  }
+}
+`, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
+				output := runTofuInit(rc)
+				Expect(output).NotTo(ContainSubstring("401"),
+					"anonymous auth must not produce a 401 during tofu init")
+				Expect(output).NotTo(ContainSubstring("missing Authorization header"),
+					"anonymous auth must not produce an auth error during tofu init")
+			})
+		})
+
+		Context("bearer token auth over HTTP", Ordered, func() {
+			var (
+				pfCancel    context.CancelFunc
+				bearerToken string
+			)
+
+			BeforeAll(func() {
+				By("deploying server with --use-bearer-token=true")
+				deployServer(
+					"--set", "server.anonymousAuth=false",
+					"--set", "server.useBearerToken=true",
+				)
+				pfCancel = startPortForward()
+
+				By("generating a bearer token from the server ServiceAccount")
+				tokenCmd := exec.Command("kubectl", "create", "token", "server",
+					"-n", namespace, "--duration=10m")
+				token, err := utils.Run(tokenCmd)
+				ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create bearer token")
+				bearerToken = strings.TrimSpace(token)
+			})
+
+			AfterAll(func() {
+				stopPortForward(pfCancel)
+			})
+
+			It("tofu init without a credentials block in .tofurc fails with 401", func() {
+				// No credentials block — tofu sends no Authorization header.
+				rc := fmt.Sprintf(`host "%s" {
+  services = {
+    "modules.v1" = "http://%s:%d/opendepot/modules/v1/"
+  }
+}
+`, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
+				output := runTofuInit(rc)
+				Expect(output).To(
+					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
+					"tofu init without credentials must produce a 401 in bearer token mode",
+				)
+			})
+
+			It("tofu init with token placed in the host block fails with 401 (common misconfiguration)", func() {
+				// Placing `token` directly inside the `host` block is valid HCL but
+				// OpenTofu silently ignores it — credentials must live in a separate
+				// `credentials` block.  This is the root cause of the quickstart
+				// "missing Authorization header" issue.
+				rc := fmt.Sprintf("host \"%s\" {\n  services = {\n    \"modules.v1\" = \"http://%s:%d/opendepot/modules/v1/\"\n  }\n  token = %q\n}\n",
+					tofuRegistryHost, tofuRegistryHost, serverLocalPort, bearerToken)
+				output := runTofuInit(rc)
+				Expect(output).To(
+					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
+					"token inside host block must not be sent; server must return 401",
+				)
+			})
+
+			It("tofu init with token in a credentials block must not produce a 401", func() {
+				// Correct configuration: `credentials` block keyed to the registry
+				// hostname, plus `host` block to configure the HTTP service URL.
+				// OpenTofu reads the `credentials` block and includes the token in
+				// the Authorization header for all requests to that hostname.
+				rc := fmt.Sprintf("credentials \"%s\" {\n  token = %q\n}\nhost \"%s\" {\n  services = {\n    \"modules.v1\" = \"http://%s:%d/opendepot/modules/v1/\"\n  }\n}\n",
+					tofuRegistryHost, bearerToken, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
+				output := runTofuInit(rc)
+				Expect(output).NotTo(
+					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
+					"token in credentials block must be forwarded to the server; must not return 401",
+				)
+			})
 		})
 	})
 })
