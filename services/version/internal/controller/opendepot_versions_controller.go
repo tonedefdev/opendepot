@@ -195,13 +195,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
-					// Skip the fast-path if scanning is enabled but no binary scan has
-					// been recorded yet — this happens when scanning was enabled after
-					// the version was first synced, or after a controller restart where
-					// the artifact was already on disk. The one-time re-download lets
-					// the scan run; subsequent reconciles will hit the fast-path.
-					if r.ScanningEnabled && version.Status.BinaryScan == nil {
-						r.Log.V(5).Info("provider fast-path: scan enabled but no binary scan present; forcing re-download to run scan", "version", version.Name)
+					if version.Spec.ForceSync {
+						r.Log.V(5).Info("provider fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
 						break
 					}
 					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
@@ -424,6 +419,23 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return nil
 	}); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Reset forceSync to false now that reconciliation has completed successfully.
+	if version.Spec.ForceSync {
+		if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			currentVersion := &opendepotv1alpha1.Version{}
+			if err := r.Get(ctx, req.NamespacedName, currentVersion); err != nil {
+				return err
+			}
+			currentVersion.Spec.ForceSync = false
+			return r.Update(ctx, currentVersion, &client.UpdateOptions{
+				FieldManager: opendepotControllerName,
+			})
+		}); err != nil {
+			r.Log.Error(err, "Failed to reset forceSync on Version", "version", version.Name)
+			return ctrl.Result{}, err
+		}
 	}
 
 	return reconcile.Result{}, nil
