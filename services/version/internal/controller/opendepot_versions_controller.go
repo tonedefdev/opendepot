@@ -195,6 +195,15 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+					// Skip the fast-path if scanning is enabled but no binary scan has
+					// been recorded yet — this happens when scanning was enabled after
+					// the version was first synced, or after a controller restart where
+					// the artifact was already on disk. The one-time re-download lets
+					// the scan run; subsequent reconciles will hit the fast-path.
+					if r.ScanningEnabled && version.Status.BinaryScan == nil {
+						r.Log.V(5).Info("provider fast-path: scan enabled but no binary scan present; forcing re-download to run scan", "version", version.Name)
+						break
+					}
 					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
 					return reconcile.Result{}, nil
 				}
