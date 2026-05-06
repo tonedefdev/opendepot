@@ -34,5 +34,20 @@ jobs:
       - name: Install MkDocs dependencies
         run: pip install -r requirements.txt
 
+      - name: Fetch existing Helm chart index
+        run: git show origin/gh-pages:index.yaml > /tmp/helm-index.yaml 2>/dev/null || true
+
+      - name: Build MkDocs site
+        run: mkdocs build
+
+      - name: Preserve Helm chart index
+        run: |
+          if [ -s /tmp/helm-index.yaml ]; then
+            cp /tmp/helm-index.yaml site/index.yaml
+          fi
+
       - name: Deploy to GitHub Pages
-        run: mkdocs gh-deploy --force
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          ghp-import --no-jekyll --push --force site
