@@ -81,24 +81,24 @@ cat <<EOF | kubectl apply -f -
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
-  name: terraform-aws-key-pair
+  name: terraform-aws-s3-bucket
   namespace: opendepot-system
 spec:
   moduleConfig:
     provider: aws
     repoOwner: terraform-aws-modules
-    repoUrl: https://github.com/terraform-aws-modules/terraform-aws-key-pair
+    repoUrl: https://github.com/terraform-aws-modules/terraform-aws-s3-bucket
     fileFormat: zip
     storageConfig:
       fileSystem:
         directoryPath: /data/modules
   versions:
-    - version: "2.0.0"
+    - version: "4.3.0"
 EOF
 ```
 
 !!! note
-    The Module CR name (`terraform-aws-key-pair`) must match the GitHub repository name, because the module controller uses it as the repository name when fetching archives if `spec.moduleConfig.name` is omitted.
+    The Module CR name (`terraform-aws-s3-bucket`) must match the GitHub repository name, because the module controller uses it as the repository name when fetching archives if `spec.moduleConfig.name` is omitted.
 
 Watch the Version resource sync:
 
@@ -116,9 +116,9 @@ Create a working directory with a Terraform/OpenTofu config and a `.tofurc` (or 
 mkdir /tmp/opendepot-test && cd /tmp/opendepot-test
 
 cat > main.tf <<'EOF'
-module "key_pair" {
-  source  = "opendepot.localtest.me/opendepot-system/terraform-aws-key-pair/aws"
-  version = "2.0.0"
+module "s3_bucket" {
+  source  = "opendepot.localtest.me/opendepot-system/terraform-aws-s3-bucket/aws"
+  version = "4.3.0"
 }
 EOF
 
@@ -137,8 +137,8 @@ The `.tofurc` `host` block overrides the default HTTPS protocol discovery for th
 
 ```
 Initializing modules...
-Downloading opendepot.localtest.me/opendepot-system/terraform-aws-key-pair/aws 2.0.0 for key_pair...
-- key_pair in .terraform/modules/key_pair
+Downloading opendepot.localtest.me/opendepot-system/terraform-aws-s3-bucket/aws 4.3.0 for s3_bucket...
+- s3_bucket in .terraform/modules/s3_bucket
 
 OpenTofu has been successfully initialized!
 ```
@@ -214,10 +214,10 @@ spec:
       fileSystem:
         directoryPath: /data/modules
   moduleConfigs:
-    - name: terraform-aws-key-pair
+    - name: terraform-aws-s3-bucket
       provider: aws
       repoOwner: terraform-aws-modules
-      versionConstraints: ">= 2.0.0, <= 2.1.1"
+      versionConstraints: ">= 4.3.0, <= 4.4.0"
   providerConfigs:
     - name: random
       operatingSystems:
@@ -415,7 +415,7 @@ Wait for the Version resource to reconcile, then inspect the IaC findings:
 kubectl get versions -n opendepot-system -w
 # wait for SYNCED=true, then Ctrl-C
 
-kubectl get version terraform-aws-key-pair-2.0.0 \
+kubectl get version terraform-aws-s3-bucket-4.3.0 \
   -n opendepot-system \
   -o jsonpath='{.status.sourceScan}' | jq .
 ```
@@ -427,17 +427,24 @@ You should see something like:
   "scannedAt": "2026-05-03T02:11:00Z",
   "findings": [
     {
-      "vulnerabilityID": "AWS-0057",
-      "pkgName": "aws_key_pair",
+      "vulnerabilityID": "AVD-AWS-0086",
+      "pkgName": "aws_s3_bucket",
       "installedVersion": "",
-      "severity": "LOW",
-      "title": "Key pair does not use a modern key algorithm"
+      "severity": "HIGH",
+      "title": "S3 Bucket does not have logging enabled"
+    },
+    {
+      "vulnerabilityID": "AVD-AWS-0088",
+      "pkgName": "aws_s3_bucket",
+      "installedVersion": "",
+      "severity": "MEDIUM",
+      "title": "S3 Bucket does not have versioning enabled"
     }
   ]
 }
 ```
 
-Module IaC findings contain Trivy rule IDs `AWS-0057` rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
+Module IaC findings contain Trivy rule IDs such as `AVD-AWS-0086` rather than CVE identifiers. An empty `findings` array means no misconfigurations were detected.
 
 **Step 9c: (Requires Step 8) Inspect provider scan results**
 
@@ -446,7 +453,7 @@ If you completed Step 8, the provider binary and source scans run automatically 
 Check the binary scan on the Version resource (per OS/arch):
 
 ```bash
-kubectl get version aws-5.80.0-linux-amd64 \
+kubectl get version aws-5-80-0-linux-amd64 \
   -n opendepot-system \
   -o jsonpath='{.status.binaryScan}' | jq .
 ```
