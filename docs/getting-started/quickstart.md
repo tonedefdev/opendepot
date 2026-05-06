@@ -162,7 +162,7 @@ Create a ServiceAccount and bind it to a read-only role:
 kubectl create serviceaccount test-user -n opendepot-system
 
 kubectl create role opendepot-reader -n opendepot-system \
-  --resource=modules.opendepot.defdev.io,versions.opendepot.defdev.io \
+  --resource=modules.opendepot.defdev.io,versions.opendepot.defdev.io,providers.opendepot.defdev.io \
   --verb=get,list,watch
 
 kubectl create rolebinding test-user-reader -n opendepot-system \
