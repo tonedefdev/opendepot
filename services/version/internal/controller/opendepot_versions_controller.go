@@ -816,6 +816,12 @@ func (r *VersionReconciler) InitStorageFactory(ctx context.Context, soi *types.S
 		return err
 	}
 
+	soi.StorageConfig = storageConfig
+
+	if name, nameErr := getVersionName(soi.Version); nameErr == nil {
+		soi.ContainerName = name
+	}
+
 	var storageInterface storage.Storage
 	if storageConfig.FileSystem != nil {
 		storageInterface = &storage.FileSystem{}

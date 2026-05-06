@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-chi/chi/v5"
@@ -30,7 +32,7 @@ import (
 )
 
 var (
-	logger                 *slog.Logger
+	logger                  *slog.Logger
 	opendepotAnonymousAuth  *bool
 	opendepotUseBearerToken *bool
 )
@@ -375,26 +377,18 @@ func serveModuleFromAzureBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := &opendepotv1alpha1.Version{
-		Spec: opendepotv1alpha1.VersionSpec{
-			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
-				Name: &name,
-				StorageConfig: &opendepotv1alpha1.StorageConfig{
-					AzureStorage: &opendepotv1alpha1.AzureStorageConfig{
-						AccountName:    accountName,
-						AccountUrl:     accountUrl,
-						ResourceGroup:  rg,
-						SubscriptionID: subID,
-					},
-				},
+	soi := &storageTypes.StorageObjectInput{
+		FilePath:      &fileName,
+		Method:        storageTypes.Get,
+		ContainerName: &name,
+		StorageConfig: &opendepotv1alpha1.StorageConfig{
+			AzureStorage: &opendepotv1alpha1.AzureStorageConfig{
+				AccountName:    accountName,
+				AccountUrl:     accountUrl,
+				ResourceGroup:  rg,
+				SubscriptionID: subID,
 			},
 		},
-	}
-
-	soi := &storageTypes.StorageObjectInput{
-		FilePath: &fileName,
-		Method:   storageTypes.Get,
-		Version:  version,
 	}
 
 	getObjectFromStorageSystem(w, r, storage, soi, checksum)
@@ -480,22 +474,14 @@ func serveModuleFromGCS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := &opendepotv1alpha1.Version{
-		Spec: opendepotv1alpha1.VersionSpec{
-			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
-				StorageConfig: &opendepotv1alpha1.StorageConfig{
-					GCS: &opendepotv1alpha1.GoogleCloudStorageConfig{
-						Bucket: bucket,
-					},
-				},
-			},
-		},
-	}
-
 	soi := &storageTypes.StorageObjectInput{
 		FilePath: aws.String(fmt.Sprintf("%s/%s", name, fileName)),
 		Method:   storageTypes.Get,
-		Version:  version,
+		StorageConfig: &opendepotv1alpha1.StorageConfig{
+			GCS: &opendepotv1alpha1.GoogleCloudStorageConfig{
+				Bucket: bucket,
+			},
+		},
 	}
 
 	getObjectFromStorageSystem(w, r, gcsStorage, soi, checksum)
@@ -515,22 +501,14 @@ func serveModuleFromS3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := opendepotv1alpha1.Version{
-		Spec: opendepotv1alpha1.VersionSpec{
-			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
-				StorageConfig: &opendepotv1alpha1.StorageConfig{
-					S3: &opendepotv1alpha1.AmazonS3Config{
-						Bucket: bucket,
-					},
-				},
-			},
-		},
-	}
-
 	soi := &storageTypes.StorageObjectInput{
 		FilePath: aws.String(fmt.Sprintf("%s/%s", name, fileName)),
 		Method:   storageTypes.Get,
-		Version:  &version,
+		StorageConfig: &opendepotv1alpha1.StorageConfig{
+			S3: &opendepotv1alpha1.AmazonS3Config{
+				Bucket: bucket,
+			},
+		},
 	}
 
 	getObjectFromStorageSystem(w, r, storage, soi, checksum)
@@ -869,6 +847,62 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if versionResource.Status.Checksum == nil {
+		http.Error(w, "provider package checksum unavailable", http.StatusNotImplemented)
+		return
+	}
+
+	// Attempt a presigned URL redirect so Terraform downloads directly from the storage backend.
+	if versionResource.Spec.ProviderConfigRef != nil &&
+		versionResource.Spec.ProviderConfigRef.StorageConfig != nil &&
+		versionResource.Spec.ProviderConfigRef.Name != nil &&
+		versionResource.Spec.FileName != nil {
+
+		storageConfig := versionResource.Spec.ProviderConfigRef.StorageConfig
+		presignCfg := storageConfig.Presign
+
+		if presignCfg != nil && presignCfg.Enabled != nil && *presignCfg.Enabled {
+			name := versionResource.Spec.ProviderConfigRef.Name
+
+			objectKey := fmt.Sprintf("%s/%s", *name, *versionResource.Spec.FileName)
+
+			ttl := 15 * time.Minute
+			if presignCfg.TTL != nil {
+				ttl = presignCfg.TTL.Duration
+			}
+
+			soi := &storageTypes.StorageObjectInput{
+				FilePath:      &objectKey,
+				ContainerName: name,
+				StorageConfig: storageConfig,
+				PresignTTL:    ttl,
+			}
+
+			fallback := presignCfg.FallbackToProxy == nil || *presignCfg.FallbackToProxy
+
+			storageBackend, initErr := initStorageBackend(r.Context(), storageConfig)
+			if initErr != nil {
+				if !fallback {
+					logger.Error("failed to init storage backend for presign", "error", initErr)
+					http.Error(w, "failed to initialize storage backend for pre-signed URL", http.StatusBadGateway)
+					return
+				}
+				logger.Info("failed to init storage backend for presign, falling back to proxy", "error", initErr)
+			} else if presignErr := storageBackend.PresignObject(r.Context(), soi); presignErr == nil {
+				http.Redirect(w, r, *soi.PresignedURL, http.StatusTemporaryRedirect)
+				return
+			} else {
+				if !fallback {
+					logger.Error("presign failed", "error", presignErr)
+					http.Error(w, "failed to generate pre-signed URL", http.StatusBadGateway)
+					return
+				}
+				logger.Info("presign not supported or failed, falling back to proxy", "error", presignErr)
+			}
+		}
+	}
+
+	// Fallback: proxy the binary through the server.
 	downloadPath, err := buildDownloadPathFromVersion(versionResource)
 	if err != nil {
 		logger.Error("unable to build download path for provider package", "error", err, "version", versionResource.Name)
@@ -876,13 +910,42 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if versionResource.Status.Checksum == nil {
-		http.Error(w, "provider package checksum unavailable", http.StatusNotImplemented)
-		return
-	}
-
 	checksumQuery := url.QueryEscape(*versionResource.Status.Checksum)
 	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
+}
+
+// initStorageBackend creates and initialises a storage backend from the provided StorageConfig.
+// It returns an error if the backend cannot be initialised or if no supported backend is configured.
+func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.StorageConfig) (storage.Storage, error) {
+	if storageConfig.S3 != nil {
+		s3Storage := &storage.AmazonS3Storage{}
+		if err := s3Storage.NewClient(ctx, storageConfig.S3.Region); err != nil {
+			return nil, fmt.Errorf("failed to init s3 client: %w", err)
+		}
+		return s3Storage, nil
+	}
+
+	if storageConfig.GCS != nil {
+		gcsStorage := &storage.GoogleCloudStorage{}
+		if err := gcsStorage.NewClient(ctx); err != nil {
+			return nil, fmt.Errorf("failed to init gcs client: %w", err)
+		}
+		return gcsStorage, nil
+	}
+
+	if storageConfig.AzureStorage != nil {
+		azStorage := &storage.AzureBlobStorage{}
+		if err := azStorage.NewClients(storageConfig.AzureStorage.SubscriptionID, storageConfig.AzureStorage.AccountUrl); err != nil {
+			return nil, fmt.Errorf("failed to init azure client: %w", err)
+		}
+		return azStorage, nil
+	}
+
+	if storageConfig.FileSystem != nil {
+		return &storage.FileSystem{}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported storage configuration")
 }
 
 func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {

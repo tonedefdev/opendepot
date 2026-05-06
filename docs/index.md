@@ -57,6 +57,12 @@ OpenDepot delegates auth entirely to Kubernetes — the platform you're likely a
 
     The Version controller runs [Trivy](https://trivy.dev/) automatically on every provider binary, provider source (`go.mod`), and module archive. Findings are stored on the Kubernetes resource and can optionally block promotion of critical or high severity artifacts.
 
+- :material-link-variant: &nbsp;__Zero-Egress Provider Downloads__
+
+    ---
+
+    Enable pre-signed URL redirects so OpenTofu fetches provider binaries directly from S3, GCS, or Azure Blob — no bandwidth through the server, no extra hops, no infrastructure bottleneck.
+
 </div>
 
 ## How OpenDepot Compares
@@ -72,6 +78,7 @@ OpenDepot delegates auth entirely to Kubernetes — the platform you're likely a
 | Immutability enforcement | Checksum validated every reconciliation | At upload time only | At upload time only |
 | Air-gapped support | Yes (filesystem backend + PVC) | Yes (filesystem) | Limited |
 | Vulnerability scanning | Built-in (Trivy — provider binary, source, and module IaC) | No | No |
+| Pre-signed download URLs | Yes (S3, GCS, Azure Blob — configurable per resource) | No | No |
 
 !!! tip
     If you're already running Kubernetes, OpenDepot gives you a registry where security, auth, and operations come free — no extra infrastructure, no extra accounts, no extra attack surface.

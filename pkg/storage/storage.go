@@ -17,6 +17,10 @@ type Storage interface {
 	// Gets the checksum of the file from the configured storage system. When it exists the function should store the value
 	// in the soi receiver's field `ObjectChecksum` and set its `FileExists` field to `true`.
 	GetObjectChecksum(ctx context.Context, soi *types.StorageObjectInput) error
+	// PresignObject generates a time-limited pre-signed URL for direct client download
+	// and sets it on soi.PresignedURL. Backends that do not support pre-signed URLs
+	// (e.g. filesystem) must return a non-nil error.
+	PresignObject(ctx context.Context, soi *types.StorageObjectInput) error
 	// Puts a new file into the configured storage system.
 	PutObject(ctx context.Context, soi *types.StorageObjectInput) error
 }

@@ -419,6 +419,20 @@ type GoogleCloudStorageConfig struct {
 	Bucket string `json:"bucket"`
 }
 
+// PresignConfig controls pre-signed URL generation for provider and module downloads.
+type PresignConfig struct {
+	// When true, download requests are redirected to the storage backend via a pre-signed URL.
+	Enabled *bool `json:"enabled,omitempty"`
+	// TTL controls how long the pre-signed URL remains valid (e.g. "15m", "1h").
+	// If omitted, defaults to 15 minutes.
+	// +kubebuilder:default="15m"
+	TTL *metav1.Duration `json:"ttl,omitempty"`
+	// When true, if pre-sign generation fails the server falls back to proxying the download.
+	// Defaults to true.
+	// +kubebuilder:default=true
+	FallbackToProxy *bool `json:"fallbackToProxy,omitempty"`
+}
+
 // StorageConfig holds details about how to store a Version.
 type StorageConfig struct {
 	AzureStorage *AzureStorageConfig `json:"azureStorage,omitempty"`
@@ -428,6 +442,8 @@ type StorageConfig struct {
 	S3 *AmazonS3Config `json:"s3,omitempty"`
 	// The configuration settings for storing Versions in a Google Cloud Storage bucket.
 	GCS *GoogleCloudStorageConfig `json:"gcs,omitempty"`
+	// Presign is the optional configuration for pre-signed URL generation.
+	Presign *PresignConfig `json:"presign,omitempty"`
 }
 
 // The configuration settings for storing Versions on a local filesystem.

@@ -48,6 +48,7 @@ Follow these patterns exactly as they exist in the codebase:
 - Tests use Ginkgo v2 (`Describe`, `Context`, `It`, `BeforeEach`, `AfterEach`)
 - Assertions use Gomega (`Expect(...).To(...)`, `Eventually(...).Should(...)`)
 - E2e tests live at `services/<name>/test/e2e/e2e_test.go`
+- Before running `make test-e2e`, verify `services/<name>/hack/boilerplate.go.txt` exists — if missing, copy it from `api/v1alpha1/hack/boilerplate.go.txt`. Its absence causes `make generate` to fail with a misleading error before any tests run.
 
 **Helm chart** (`chart/opendepot/`):
 - CRD manifests live in `chart/opendepot/crds/` — regenerate with `make manifests` in the affected service, the make command will place them in the correct location
@@ -70,19 +71,20 @@ Follow these patterns exactly as they exist in the codebase:
 
 ## Workflow
 
-```
-1. Read plan from .session-memory/plan.md with memory tool — this is the ground truth for what to implement.
-2. Create todo list of all implementation steps
-3. Implement CRD/type changes first (api/v1alpha1/)
-4. Implement controller logic changes
-5. Update e2e tests for new/changed behavior
-6. Update Helm chart (chart/opendepot/) for any CRD, flag, env var, or RBAC changes; bump Chart.yaml version
-7. Run: cd services/<affected-service> && make test-e2e
-8. Debug any failures → fix → re-run until all pass
-9. Mark all todos complete
-10. Run: git commit -a -m "<brief summary of changes>"
-11. Invoke the OpenDepot Code Review agent as a subagent, passing a summary of what was implemented
-```
+1. Read plan from `.session-memory/plan.md` with the memory tool — this is the ground truth for what to implement.
+2. Create todo list of all implementation steps.
+3. Implement CRD/type changes first (`api/v1alpha1/`).
+4. Implement controller logic changes.
+5. Update e2e tests for new/changed behavior.
+6. Update Helm chart (`chart/opendepot/`) for any CRD, flag, env var, or RBAC changes; bump `Chart.yaml` version.
+7. Run: `cd services/<affected-service> && make test-e2e`
+8. Debug any failures → fix → re-run until all pass.
+9. Mark all todos complete.
+10. Run: `git commit -a -m "<brief summary of changes>"`
+
+## Handoff
+
+Once all acceptance criteria are met and all todos are complete, you **must** invoke the **OpenDepot Code Review** agent as a subagent. Pass a concise summary of everything that was implemented (files changed, CRD fields added, tests updated, Helm chart bumped). Do not stop or declare success without completing this handoff.
 
 ## Constraints
 - DO NOT skip e2e tests — running and passing them is a hard requirement
