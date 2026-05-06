@@ -180,8 +180,25 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			)
 			pfCancel = startPortForward()
 
-			By("generating a bearer token from the server ServiceAccount")
-			tokenCmd := exec.Command("kubectl", "create", "token", "server",
+			By("creating a ServiceAccount with RBAC to list modules")
+			saCmd := exec.Command("kubectl", "create", "serviceaccount", "test-authn-sa",
+				"-n", namespace)
+			_, _ = utils.Run(saCmd)
+
+			roleCmd := exec.Command("kubectl", "create", "role", "test-authn-role",
+				"--verb=get,list",
+				"--resource=modules.opendepot.defdev.io",
+				"-n", namespace)
+			_, _ = utils.Run(roleCmd)
+
+			rbCmd := exec.Command("kubectl", "create", "rolebinding", "test-authn-rb",
+				"--role=test-authn-role",
+				"--serviceaccount="+namespace+":test-authn-sa",
+				"-n", namespace)
+			_, _ = utils.Run(rbCmd)
+
+			By("generating a bearer token from the test-authn-sa ServiceAccount")
+			tokenCmd := exec.Command("kubectl", "create", "token", "test-authn-sa",
 				"-n", namespace, "--duration=10m")
 			token, err := utils.Run(tokenCmd)
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create bearer token")
@@ -191,9 +208,15 @@ var _ = Describe("Server Authentication", Ordered, func() {
 		AfterAll(func() {
 			stopPortForward(pfCancel)
 
-			cmd := exec.Command("kubectl", "delete", "serviceaccount", "test-denied-sa",
-				"-n", namespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
+			for _, res := range [][]string{
+				{"delete", "rolebinding", "test-authn-rb", "-n", namespace, "--ignore-not-found"},
+				{"delete", "role", "test-authn-role", "-n", namespace, "--ignore-not-found"},
+				{"delete", "serviceaccount", "test-authn-sa", "-n", namespace, "--ignore-not-found"},
+				{"delete", "serviceaccount", "test-denied-sa", "-n", namespace, "--ignore-not-found"},
+			} {
+				cmd := exec.Command("kubectl", res...)
+				_, _ = utils.Run(cmd)
+			}
 		})
 
 		It("should return 401 when the Authorization header is missing", func() {
@@ -216,7 +239,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 				"a valid bearer token must not produce a 401")
 		})
 
-		It("should not return 401 for a token from an SA with no RBAC", func() {
+		It("should return 403 for a token from an SA with no RBAC", func() {
 			By("creating a ServiceAccount with no RBAC")
 			saCmd := exec.Command("kubectl", "create", "serviceaccount", "test-denied-sa",
 				"-n", namespace)
@@ -229,7 +252,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create token for denied SA")
 			deniedToken = strings.TrimSpace(deniedToken)
 
-			By("verifying the bearer token middleware accepts the token (RBAC failure is not a 401)")
+			By("verifying the server propagates the Kubernetes 403 back to the client")
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Authorization", "Bearer "+deniedToken)
@@ -237,8 +260,8 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			resp, err := http.DefaultClient.Do(req)
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
-			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
-				"bearer token middleware must accept a valid token even when the SA has no RBAC")
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a token for an SA with no RBAC must produce a 403")
 		})
 	})
 

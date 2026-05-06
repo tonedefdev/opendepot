@@ -657,6 +657,10 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 		DoRaw(r.Context())
 	if err != nil {
 		logger.Error("unable to get modules", "error", err, "namespace", namespace, "name", name, "responseBody", string(result))
+		if k8sApiErrors.IsForbidden(err) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	var module opendepotv1alpha1.Module
