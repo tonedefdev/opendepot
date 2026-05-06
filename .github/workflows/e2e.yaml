@@ -143,7 +143,7 @@ jobs:
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: "1.6.0"
+          tofu_version: "1.11.5"
 
       - name: Create kind cluster
         run: kind create cluster --name kind

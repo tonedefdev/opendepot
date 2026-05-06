@@ -351,10 +351,6 @@ users:
 	//   1. No credentials block at all          → 401 (no token sent)
 	//   2. Token placed inside the host block   → 401 (silently ignored by OpenTofu)
 	//   3. Token in the correct credentials block → authenticated (no 401)
-	//
-	// Scenario 2 is the root cause of the "missing Authorization header" issue
-	// reported during the quickstart: placing `token` inside the `host` block is
-	// valid HCL but OpenTofu never reads it as a credential.
 	Context("tofu CLI integration", Ordered, func() {
 		var tofuBin string
 
