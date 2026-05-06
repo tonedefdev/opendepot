@@ -2,7 +2,6 @@
 description: "Use when: updating documentation after a feature is implemented, documenting new CRD fields, writing guides for new behaviors, updating the API reference, recording configuration changes, or any documentation task in the OpenDepot project. Invoked by the Code Review agent once implementation is confirmed complete, or directly by the user."
 name: "OpenDepot Documentation"
 tools: [read, edit, search, execute, todo, vscode/memory]
-agents: ["OpenDepot Planner"]
 argument-hint: "Describe the feature or changes that need documentation"
 ---
 
@@ -52,7 +51,6 @@ If anything in the diff is unclear — unfamiliar types, controller behavior, co
 4. Update only what is relevant — do not restructure or rewrite sections that are unaffected
 5. If a new feature needs a new section, add it in the correct location matching the existing heading hierarchy and tone
 6. Mark each todo complete as you go
-7. **Handoff** — Once all documentation is complete, invoke the **OpenDepot Planner** agent as a subagent. Pass a summary of the full implementation cycle: what was planned, what was implemented (key files and CRD fields), which e2e tests were added or updated, and which docs were changed. The Planner will present this summary to the user as the final step of the workflow.
 
 ## Writing Style
 

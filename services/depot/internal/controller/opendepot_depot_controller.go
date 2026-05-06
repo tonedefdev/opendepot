@@ -23,10 +23,10 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-github/v81/github"
 	"github.com/hashicorp/go-version"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,37 +36,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
 )
 
 const (
 	hashicorpReleasesAPI = "https://api.releases.hashicorp.com"
-	openTofuRegistryAPI  = "https://registry.opentofu.org"
-	terraformRegistryAPI = "https://registry.terraform.io"
 )
-
-type openTofuModuleVersion struct {
-	Version string `json:"version"`
-}
-
-type openTofuModuleVersionsItem struct {
-	Source   string                  `json:"source"`
-	Versions []openTofuModuleVersion `json:"versions"`
-}
-
-type openTofuModuleVersionsResponse struct {
-	Modules []openTofuModuleVersionsItem `json:"modules"`
-}
-
-type openTofuModuleMetadata struct {
-	Source string `json:"source"`
-}
 
 // Depot reconciles a Depot object
 type DepotReconciler struct {
 	client.Client
-	Log        logr.Logger
-	Scheme     *runtime.Scheme
-	HTTPClient *http.Client
+	Log    logr.Logger
+	Scheme *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -74,6 +55,7 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
@@ -116,11 +98,8 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			}
 
 			if moduleConfig.RepoUrl == nil {
-				sourceURL, err := r.fetchOpenTofuModuleSourceURL(ctx, moduleConfig.RepoOwner, *moduleConfig.Name, moduleConfig.Provider)
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to look up source URL for module %q: %w", *moduleConfig.Name, err)
-				}
-				moduleConfig.RepoUrl = &sourceURL
+				repoUrl := fmt.Sprintf("https://github.com/%s/%s", moduleConfig.RepoOwner, *moduleConfig.Name)
+				moduleConfig.RepoUrl = &repoUrl
 			}
 
 			module := opendepotv1alpha1.Module{
@@ -138,9 +117,77 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				Namespace: module.ObjectMeta.Namespace,
 			}
 
-			matchedVersions, err := r.listOpenTofuModuleVersions(ctx, moduleConfig.RepoOwner, *moduleConfig.Name, moduleConfig.Provider, moduleConfig.VersionConstraints)
+			var githubClient *github.Client
+
+			useAuthClient := false
+			if module.Spec.ModuleConfig.GithubClientConfig != nil {
+				useAuthClient = module.Spec.ModuleConfig.GithubClientConfig.UseAuthenticatedClient
+			}
+
+			var githubConfig *opendepotGithub.GithubClientConfig
+			if useAuthClient {
+				githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, depot.Namespace)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+
+			authGithubClient, err := opendepotGithub.CreateGithubClient(ctx, useAuthClient, githubConfig)
 			if err != nil {
 				return ctrl.Result{}, err
+			}
+
+			githubClient = authGithubClient
+			opt := &github.ListOptions{
+				Page:    1,
+				PerPage: 100,
+			}
+
+			constraints, err := version.NewConstraint(moduleConfig.VersionConstraints)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			var matchedVersions []string
+			for {
+				releases, resp, err := githubClient.Repositories.ListReleases(ctx, moduleConfig.RepoOwner, *moduleConfig.Name, opt)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+
+				if releases == nil || resp == nil {
+					return ctrl.Result{}, fmt.Errorf("releases was nil")
+				}
+
+				for _, release := range releases {
+					if release.TagName == nil {
+						continue
+					}
+
+					releaseVersion, err := version.NewVersion(*release.TagName)
+					if err != nil {
+						r.Log.V(5).Info("Skipping non-semver release tag", "tag", *release.TagName)
+						continue
+					}
+
+					// Constraints returned from version.NewConstraint use AND semantics,
+					// so a release must satisfy the full expression (e.g. >=6.0.0, <=7.0.0).
+					if !constraints.Check(releaseVersion) {
+						continue
+					}
+
+					if slices.Contains(matchedVersions, releaseVersion.String()) {
+						continue
+					}
+
+					matchedVersions = append(matchedVersions, releaseVersion.String())
+				}
+
+				if resp.NextPage == 0 {
+					break
+				}
+
+				opt.Page = resp.NextPage
 			}
 
 			r.Log.Info("Matched versions for module", "module", moduleConfig.Name, "versions", matchedVersions)
@@ -297,106 +344,6 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-// listOpenTofuModuleVersions queries the OpenTofu registry and returns all versions of the given
-// module that satisfy the provided version constraints.
-func (r *DepotReconciler) listOpenTofuModuleVersions(ctx context.Context, namespace, name, provider, versionConstraints string) ([]string, error) {
-	constraints, err := version.NewConstraint(versionConstraints)
-	if err != nil {
-		return nil, fmt.Errorf("invalid version constraints %q: %w", versionConstraints, err)
-	}
-
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s/versions", openTofuRegistryAPI, namespace, name, provider)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := r.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed for %q: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
-	}
-
-	var result openTofuModuleVersionsResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response from %q: %w", url, err)
-	}
-
-	if len(result.Modules) == 0 {
-		return nil, fmt.Errorf("no module data returned from %q", url)
-	}
-
-	var matched []string
-	for _, mv := range result.Modules[0].Versions {
-		v, err := version.NewVersion(mv.Version)
-		if err != nil {
-			r.Log.V(5).Info("Skipping non-semver module version", "version", mv.Version)
-			continue
-		}
-
-		if !constraints.Check(v) {
-			continue
-		}
-
-		if slices.Contains(matched, v.String()) {
-			continue
-		}
-
-		matched = append(matched, v.String())
-	}
-
-	return matched, nil
-}
-
-// fetchOpenTofuModuleSourceURL queries the Terraform registry for the source repository URL of a module.
-// The OpenTofu registry does not expose a module metadata endpoint, so we fall back to registry.terraform.io
-// which implements the same Terraform registry protocol and does expose this endpoint.
-func (r *DepotReconciler) fetchOpenTofuModuleSourceURL(ctx context.Context, namespace, name, provider string) (string, error) {
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s", terraformRegistryAPI, namespace, name, provider)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := r.HTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed for %q: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", fmt.Errorf("failed to read response for %q: %w", url, err)
-	}
-
-	var meta openTofuModuleMetadata
-	if err := json.Unmarshal(body, &meta); err != nil {
-		return "", fmt.Errorf("failed to parse response from %q: %w", url, err)
-	}
-
-	if meta.Source == "" {
-		return "", fmt.Errorf("module metadata from %q has no source URL", url)
-	}
-
-	if strings.HasPrefix(meta.Source, "http://") || strings.HasPrefix(meta.Source, "https://") {
-		return meta.Source, nil
-	}
-	return "https://" + meta.Source, nil
-}
-
 // hashicorpReleaseListItem is a single release entry returned by the HashiCorp Releases list endpoint.
 type hashicorpReleaseListItem struct {
 	Version          string `json:"version"`
@@ -466,20 +413,20 @@ func (r *DepotReconciler) fetchHashiCorpReleaseList(ctx context.Context, product
 			return nil, err
 		}
 
-		resp, err := r.HTTPClient.Do(req)
+		httpClient := &http.Client{Timeout: 30 * time.Second}
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("request failed for %q: %w", url, err)
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
 		}
 
 		var page []hashicorpReleaseListItem

@@ -64,8 +64,8 @@ If any check fails:
 
 ### Path B — All Checks Pass
 If every check passes:
-1. Write a concise implementation summary (what was changed, CRD fields added, tests updated, Helm chart bumped)
-2. Invoke the **OpenDepot Documentation** agent as a subagent, passing the implementation summary as the prompt so it has full context for deciding what docs to update
+1. Summarize what was implemented (a short paragraph is sufficient)
+2. Invoke the **OpenDepot Documentation** agent as a subagent, passing the implementation summary
 
 ## Constraints
 - DO NOT edit, create, or delete any source files — ever
