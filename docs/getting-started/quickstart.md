@@ -485,6 +485,14 @@ kubectl get provider aws \
 
 Provider binary findings contain CVE identifiers and package version details. The source scan covers `go.mod` dependencies — an empty `findings` array means no vulnerable dependencies were detected.
 
+!!! note
+    If `status.binaryScan` is empty after the controller restarts, the version was already cached from a previous run and the fast-path skipped re-downloading it. Use `forceSync: true` to trigger a one-time re-download and re-scan:
+
+    ```bash
+    kubectl patch version aws-5-80-0-linux-amd64 -n opendepot-system \
+      --type merge -p '{"spec":{"forceSync":true}}'
+    ```
+
 ## Cleanup
 
 Stop the port-forward and delete the Kind cluster:

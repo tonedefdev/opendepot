@@ -81,6 +81,22 @@ kubectl patch provider aws -n opendepot-system \
   --type merge -p '{"spec":{"forceSync":true}}'
 ```
 
+**Force re-sync a specific provider version**
+
+`Version` resources also support `forceSync`. Use it to force a re-download and re-scan of a specific OS/architecture binary — for example, when `status.binaryScan` is empty because scanning was enabled after the version was first synced.
+
+```bash
+kubectl patch version <version-name> -n <namespace> \
+  --type merge -p '{"spec":{"forceSync":true}}'
+```
+
+The `<version-name>` follows the pattern `<provider>-<version-dashes>-<os>-<arch>` — for example, `aws-5-80-0-linux-amd64`.
+
+The controller bypasses the provider fast-path, re-downloads the artifact, runs the binary scan, and resets `forceSync` to `false` once reconciliation completes.
+
+!!! note
+    The Version controller does **not** automatically re-scan provider binaries on restart. Provider binaries are ~700 MB each; re-downloading every cached binary on startup would exhaust memory and I/O in clusters with many provider versions. Use `forceSync: true` on a specific `Version` resource to trigger a targeted one-time re-download and re-scan.
+
 ## Vulnerability Scanning
 
 When [scanning is enabled](../configuration/scanning.md), the Version controller runs Trivy against each provider artifact and stores findings on the Kubernetes resources.

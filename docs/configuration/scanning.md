@@ -19,6 +19,16 @@ For each provider version, the Version controller performs two scans:
 - **Binary scan** — runs `trivy rootfs` against the compiled provider binary extracted from the HashiCorp release archive. Results are stored per `Version` resource in `Version.status.binaryScan` because each OS/architecture binary may embed different Go standard library versions or runtime dependencies.
 - **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are stored on the `Provider` resource in `Provider.status.sourceScan` and deduplicated across OS/architecture variants since all variants share the same source code.
 
+!!! note
+    `status.binaryScan` will be empty for any `Version` that was synced before scanning was enabled. The controller does not automatically re-scan on restart to avoid re-downloading potentially hundreds of large provider binaries. To trigger a one-time re-download and re-scan, set `forceSync: true` on the `Version` resource:
+
+    ```bash
+    kubectl patch version aws-5-80-0-linux-amd64 -n opendepot-system \
+      --type merge -p '{"spec":{"forceSync":true}}'
+    ```
+
+    The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/providers.md#consuming-providers) for the full `Version` name pattern.
+
 See [Consuming Providers](../guides/providers.md#vulnerability-scanning) for examples of reading scan results.
 
 ## Module IaC Scanning
