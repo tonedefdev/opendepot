@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -38,9 +39,9 @@ import (
 )
 
 const (
-	hashicorpReleasesAPI  = "https://api.releases.hashicorp.com"
-	openTofuRegistryAPI   = "https://registry.opentofu.org"
-	terraformRegistryAPI  = "https://registry.terraform.io"
+	hashicorpReleasesAPI = "https://api.releases.hashicorp.com"
+	openTofuRegistryAPI  = "https://registry.opentofu.org"
+	terraformRegistryAPI = "https://registry.terraform.io"
 )
 
 type openTofuModuleVersion struct {
@@ -63,8 +64,9 @@ type openTofuModuleMetadata struct {
 // Depot reconciles a Depot object
 type DepotReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log        logr.Logger
+	Scheme     *runtime.Scheme
+	HTTPClient *http.Client
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -72,7 +74,6 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
@@ -310,20 +311,19 @@ func (r *DepotReconciler) listOpenTofuModuleVersions(ctx context.Context, namesp
 		return nil, err
 	}
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	resp, err := httpClient.Do(req)
+	resp, err := r.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed for %q: %w", url, err)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
-	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
 	}
 
 	var result openTofuModuleVersionsResponse
@@ -367,20 +367,19 @@ func (r *DepotReconciler) fetchOpenTofuModuleSourceURL(ctx context.Context, name
 		return "", err
 	}
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	resp, err := httpClient.Do(req)
+	resp, err := r.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed for %q: %w", url, err)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to read response for %q: %w", url, err)
-	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("failed to read response for %q: %w", url, err)
 	}
 
 	var meta openTofuModuleMetadata
@@ -392,6 +391,9 @@ func (r *DepotReconciler) fetchOpenTofuModuleSourceURL(ctx context.Context, name
 		return "", fmt.Errorf("module metadata from %q has no source URL", url)
 	}
 
+	if strings.HasPrefix(meta.Source, "http://") || strings.HasPrefix(meta.Source, "https://") {
+		return meta.Source, nil
+	}
 	return "https://" + meta.Source, nil
 }
 
@@ -464,20 +466,20 @@ func (r *DepotReconciler) fetchHashiCorpReleaseList(ctx context.Context, product
 			return nil, err
 		}
 
-		httpClient := &http.Client{Timeout: 30 * time.Second}
-		resp, err := httpClient.Do(req)
+		resp, err := r.HTTPClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("request failed for %q: %w", url, err)
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
 		}
 
 		var page []hashicorpReleaseListItem
