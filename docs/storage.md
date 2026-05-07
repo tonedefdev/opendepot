@@ -77,6 +77,7 @@ storageConfig:
 
 - `Storage Blob Data Contributor` on the Storage Account (for read, write, and delete)
 - `Reader` on the Storage Account resource (for container metadata operations)
+- `Storage Blob Delegator` on the Storage Account (required when pre-signed URLs are enabled — used to obtain a User Delegation Key for SAS generation)
 
 **Example Configuration:**
 

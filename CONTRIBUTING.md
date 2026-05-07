@@ -198,6 +198,7 @@ type Storage interface {
     DeleteObject(ctx context.Context, soi *types.StorageObjectInput) error
     GetObject(ctx context.Context, soi *types.StorageObjectInput) (io.Reader, error)
     GetObjectChecksum(ctx context.Context, soi *types.StorageObjectInput) error
+    PresignObject(ctx context.Context, soi *types.StorageObjectInput) error
     PutObject(ctx context.Context, soi *types.StorageObjectInput) error
 }
 ```
@@ -238,6 +239,8 @@ All methods receive a `*types.StorageObjectInput` which carries everything a bac
    func (s *MinIO) DeleteObject(ctx context.Context, soi *types.StorageObjectInput) error { ... }
    func (s *MinIO) GetObject(ctx context.Context, soi *types.StorageObjectInput) (io.Reader, error) { ... }
    func (s *MinIO) GetObjectChecksum(ctx context.Context, soi *types.StorageObjectInput) error { ... }
+   func (s *MinIO) PresignObject(ctx context.Context, soi *types.StorageObjectInput) error
+   { ... }
    func (s *MinIO) PutObject(ctx context.Context, soi *types.StorageObjectInput) error { ... }
    ```
 
