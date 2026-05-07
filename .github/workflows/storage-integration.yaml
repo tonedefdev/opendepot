@@ -1,0 +1,124 @@
+name: Storage Integration Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'pkg/storage/**'
+      - 'test/**'
+      - '.github/workflows/storage-integration.yaml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  s3-integration:
+    name: S3 storage integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.11.0"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Run S3 integration tests
+        working-directory: test/integration
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          # Disable workspace mode so the module's own replace directives
+          # are used, avoiding a grpc/stats/opentelemetry ambiguous-import
+          # conflict that arises when the workspace module graph is merged.
+          GOWORK: "off"
+        run: go test -tags=integration -v -count=1 -timeout 15m .
+
+  gcs-integration:
+    name: GCS storage integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.11.0"
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Run GCS integration tests
+        working-directory: test/integration
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GCP_LOCATION: ${{ secrets.GCP_LOCATION }}
+          # Disable workspace mode — same reason as s3-integration job.
+          GOWORK: "off"
+        run: go test -tags=integration -v -count=1 -timeout 15m . -run TestGCSStorageIntegration
+
+  azure-integration:
+    name: Azure Blob Storage integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.11.0"
+
+      - name: Authenticate to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run Azure Blob Storage integration tests
+        working-directory: test/integration
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ secrets.AZURE_LOCATION }}
+          # Required by the azurerm OpenTofu provider for OIDC authentication.
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # Disable workspace mode — same reason as s3-integration job.
+          GOWORK: "off"
+        run: go test -tags=integration -v -count=1 -timeout 15m . -run TestAzureBlobStorageIntegration
