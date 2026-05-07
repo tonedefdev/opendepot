@@ -11,6 +11,7 @@ use (
 	./services/provider
 	./services/server
 	./services/version
+	./test/integration
 )
 
 replace (

@@ -86,6 +86,10 @@ Follow these patterns exactly as they exist in the codebase:
 
 Once all acceptance criteria are met and all todos are complete, you **must** invoke the **OpenDepot Code Review** agent as a subagent. Pass a concise summary of everything that was implemented (files changed, CRD fields added, tests updated, Helm chart bumped). Do not stop or declare success without completing this handoff.
 
+When the Code Review agent responds with feedback, address any requested changes and re-run tests as needed until they approve the implementation. Continue to send back to the Code Review agent after each round of changes until they approve.
+
+Once the Code Review agent approves, you can declare the implementation complete and push your changes. Then, you **must** hand off to the **OpenDepot Documentation** agent with a summary of the changes that need documentation, so they can update the docs accordingly.
+
 ## Constraints
 - DO NOT skip e2e tests — running and passing them is a hard requirement
 - DO NOT add unnecessary abstractions, helpers, or refactors beyond what the plan specifies
