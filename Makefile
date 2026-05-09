@@ -91,3 +91,12 @@ clean:
 	@for svc in $(SERVICES); do \
 		docker rmi $(REGISTRY)/$$svc:$(TAG) 2>/dev/null || true; \
 	done
+
+## Tidy all workspace modules and sync go.work; run after adding any new go.mod
+.PHONY: work-tidy
+work-tidy:
+	@go work edit -json | python3 -c \
+	  "import sys,json,subprocess,os; \
+	   [subprocess.run(['go','mod','tidy'],cwd=os.path.join('$(CURDIR)',d['DiskPath']),check=True) \
+	   for d in json.load(sys.stdin)['Use']]"
+	go work sync

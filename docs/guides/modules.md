@@ -33,7 +33,7 @@ This is useful when running the version controller standalone (without the modul
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Version
 metadata:
-  name: terraform-aws-s3-bucket-4.3.0
+  name: terraform-aws-s3-bucket-4-3-0
   namespace: opendepot-system
 spec:
   type: Module
@@ -57,8 +57,11 @@ When [scanning is enabled](../configuration/scanning.md), the Version controller
 
 Read IaC scan results from `Version.status.sourceScan`:
 
+!!! note
+    Module `Version` resource names use hyphens throughout — dots (`.`) and underscores (`_`) in the version component are replaced with hyphens (`-`) and the version is lowercased. For example, version `2.0.0` becomes `2-0-0` in the resource name. This matches the naming convention already used for provider `Version` resources (e.g. `aws-5-80-0-linux-amd64`). Clients using `tofu init` / `terraform init` are unaffected — the server normalises the version in the URL before the Kubernetes lookup.
+
 ```bash
-kubectl get version terraform-aws-key-pair-2.0.0 -n opendepot-system \
+kubectl get version terraform-aws-key-pair-2-0-0 -n opendepot-system \
   -o jsonpath='{.status.sourceScan}' | jq .
 ```
 
@@ -67,7 +70,7 @@ kubectl get version terraform-aws-key-pair-2.0.0 -n opendepot-system \
   "scannedAt": "2026-05-03T02:11:00Z",
   "findings": [
     {
-      "vulnerabilityID": "AVD-AWS-0057",
+      "vulnerabilityID": "AWS-0057",
       "pkgName": "aws_key_pair",
       "installedVersion": "",
       "severity": "LOW",
@@ -77,6 +80,6 @@ kubectl get version terraform-aws-key-pair-2.0.0 -n opendepot-system \
 }
 ```
 
-Module IaC findings detect HCL misconfigurations (e.g. insecure resource defaults, overly permissive policies). The `vulnerabilityID` field contains a Trivy rule ID such as `AVD-AWS-0057` rather than a CVE identifier. If no misconfigurations are found, `findings` will be an empty array.
+Module IaC findings detect HCL misconfigurations (e.g. insecure resource defaults, overly permissive policies). The `vulnerabilityID` field contains a Trivy rule ID such as `AWS-0057` rather than a CVE identifier. If no misconfigurations are found, `findings` will be an empty array.
 
 See [Vulnerability Scanning](../configuration/scanning.md) for configuration details and policy enforcement options.
