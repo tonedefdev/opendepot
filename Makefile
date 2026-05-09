@@ -121,6 +121,10 @@ tag-modules:
 	@if ! git diff --cached --quiet || ! git diff --quiet; then \
 	  echo "ERROR: uncommitted changes detected. Commit or stash before tagging." && exit 1; \
 	fi
+	@echo "=== Creating tags ==="
+	@for pkg in $(MODULE_PACKAGES); do \
+	  git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
+	done
 	@echo "=== Updating all go.mod files to $(MODULE_VERSION) ==="
 	@find . -name go.mod -not -path "*/vendor/*" | while read gomod; do \
 	  for pkg in $(MODULE_PACKAGES); do \
@@ -132,10 +136,6 @@ tag-modules:
 	@echo "=== Committing go.mod and go.sum changes ==="
 	@git add -u
 	@git commit -m "chore: bump internal module dependencies to $(MODULE_VERSION)"
-	@echo "=== Creating tags ==="
-	@for pkg in $(MODULE_PACKAGES); do \
-	  git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
-	done
 	@echo "=== Pushing commit and tags ==="
 	@git push origin HEAD $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION))
 	@echo "=== Done: all packages tagged at $(MODULE_VERSION) ==="
