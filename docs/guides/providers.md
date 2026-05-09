@@ -40,17 +40,6 @@ host "opendepot.defdev.io" {
 
 With authentication (recommended for production):
 
-```
-host "opendepot.defdev.io" {
-  services = {
-    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
-  }
-  token = "<kubernetes-bearer-token>"
-}
-```
-
-Or using the environment variable approach:
-
 ```bash
 export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(aws eks get-token \
   --cluster-name my-cluster \
@@ -58,6 +47,20 @@ export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(aws eks get-token \
   --output json | jq -r '.status.token')
 
 tofu init
+```
+
+
+Or using the `.tofurc` config approach:
+```
+credentials "opendepot.defdev.io" {
+  token = "<kubernetes-bearer-token>"
+}
+
+host "opendepot.defdev.io" {
+  services = {
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
+  }
+}
 ```
 
 !!! note

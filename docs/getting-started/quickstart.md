@@ -170,28 +170,13 @@ kubectl create rolebinding test-user-reader -n opendepot-system \
   --serviceaccount=opendepot-system:test-user
 ```
 
-Generate a short-lived token and set it in `.tofurc`:
+Generate a short-lived token and pass it via the `TF_TOKEN_*` environment variable. OpenTofu maps the variable name back to a hostname by replacing each `_` with `.` (lowercased), so `TF_TOKEN_OPENDEPOT_LOCALTEST_ME` supplies credentials for `opendepot.localtest.me`. The existing `.tofurc` from Step 5 already has the required `host` block — no changes to it are needed:
 
 ```bash
 TOKEN=$(kubectl create token test-user -n opendepot-system --duration=1h)
 
-cat > /tmp/opendepot-test/.tofurc <<EOF
-credentials "opendepot.localtest.me" {
-  token = "${TOKEN}"
-}
-
-host "opendepot.localtest.me" {
-  services = {
-    "modules.v1" = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
-  }
-}
-EOF
-
-TF_CLI_CONFIG_FILE=/tmp/opendepot-test/.tofurc tofu init
+TF_TOKEN_OPENDEPOT_LOCALTEST_ME="$TOKEN" TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
-
-!!! warning
-    Do not place `token` inside the `host` block. OpenTofu parses it without error but silently ignores it — the token is never sent to the server. Credentials must be in a separate `credentials` block keyed by the registry hostname. A `token` inside a `host` block is the most common cause of unexpected 401 responses during this step.
 
 OpenTofu sends the bearer token to OpenDepot, which forwards it to the Kubernetes API for authentication and RBAC authorization. This is the same flow used in production — no separate user database or API keys required.
 
@@ -276,7 +261,7 @@ helm upgrade opendepot opendepot/opendepot \
 
 **Step 8c: Create a Provider resource**
 
-```bash
+```yaml
 cat <<EOF | kubectl apply -f -
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
@@ -346,17 +331,13 @@ OpenTofu has been successfully initialized!
 
 **Step 8d (authenticated): Using the provider registry with bearer token auth**
 
-If you enabled authentication in Step 6, providers require their own `credentials` block. Generate a token the same way:
+If you enabled authentication in Step 6, providers need a `credentials` block in `.tofurc` because the provider source address includes the port (`opendepot.localtest.me:8080`) and the `TF_TOKEN_*` env var format does not support ports. Generate a token and write a `.tofurc` that covers the provider credentials and both `host` blocks:
 
 ```bash
 TOKEN=$(kubectl create token test-user -n opendepot-system --duration=1h)
-```
 
-OpenTofu derives the credentials lookup key directly from the `source` address in `required_providers`. Because the provider source address includes the port (`opendepot.localtest.me:8080`), OpenTofu looks up `opendepot.localtest.me:8080` as the credentials key for providers. Module source addresses omit the port, so OpenTofu looks up `opendepot.localtest.me` for those. A `.tofurc` that covers both requires two `credentials` blocks and two `host` blocks — one for each key form:
-
-```bash
 cat > /tmp/opendepot-provider-test/.tofurc <<EOF
-credentials "opendepot.localtest.me" {
+credentials "opendepot.localtest.me:8080" {
   token = "${TOKEN}"
 }
 
@@ -366,10 +347,6 @@ host "opendepot.localtest.me" {
   }
 }
 
-credentials "opendepot.localtest.me:8080" {
-  token = "${TOKEN}"
-}
-
 host "opendepot.localtest.me:8080" {
   services = {
     "providers.v1" = "http://opendepot.localtest.me:8080/opendepot/providers/v1/"
@@ -377,11 +354,11 @@ host "opendepot.localtest.me:8080" {
 }
 EOF
 
-TF_CLI_CONFIG_FILE=/tmp/opendepot-provider-test/.tofurc tofu init
+TF_TOKEN_OPENDEPOT_LOCALTEST_ME="$TOKEN" TF_CLI_CONFIG_FILE=/tmp/opendepot-provider-test/.tofurc tofu init
 ```
 
 !!! warning
-    Using `token` inside a `host` block is silently ignored by OpenTofu — it must be in a separate `credentials` block. The `credentials` block key must exactly match the hostname as it appears in the `source` address (including the port for providers, excluding the port for modules). A mismatch means OpenTofu sends no token and the server returns 401.
+    Using `token` inside a `host` block is silently ignored by OpenTofu — provider credentials must be in a separate `credentials` block. The `credentials` block key must exactly match the hostname as it appears in the `source` address, including the port. A mismatch means OpenTofu sends no token and the server returns 401.
 
 ## Step 9: (Optional) Test Trivy Scanning
 
