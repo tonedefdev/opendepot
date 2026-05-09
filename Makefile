@@ -100,3 +100,32 @@ work-tidy:
 	   [subprocess.run(['go','mod','tidy'],cwd=os.path.join('$(CURDIR)',d['DiskPath']),check=True) \
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
+
+## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
+## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
+## Steps: update go.mod files → work-tidy → commit → tag → push commit + tags.
+MODULE_VERSION ?= $(error MODULE_VERSION is required. Usage: make tag-modules MODULE_VERSION=vX.Y.Z)
+MODULE_PACKAGES := api/v1alpha1 pkg/github pkg/storage pkg/testutils pkg/utils
+.PHONY: tag-modules
+tag-modules:
+	@if ! git diff --cached --quiet || ! git diff --quiet; then \
+	  echo "ERROR: uncommitted changes detected. Commit or stash before tagging." && exit 1; \
+	fi
+	@echo "=== Updating all go.mod files to $(MODULE_VERSION) ==="
+	@find . -name go.mod -not -path "*/vendor/*" | while read gomod; do \
+	  for pkg in $(MODULE_PACKAGES); do \
+	    sed -i '' "s|github.com/tonedefdev/opendepot/$${pkg} v[^[:space:]]*|github.com/tonedefdev/opendepot/$${pkg} $(MODULE_VERSION)|g" "$$gomod"; \
+	  done; \
+	done
+	@echo "=== Running work-tidy ==="
+	@$(MAKE) --no-print-directory work-tidy
+	@echo "=== Committing go.mod and go.sum changes ==="
+	@git add -u
+	@git commit -m "chore: bump internal module dependencies to $(MODULE_VERSION)"
+	@echo "=== Creating tags ==="
+	@for pkg in $(MODULE_PACKAGES); do \
+	  git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
+	done
+	@echo "=== Pushing commit and tags ==="
+	@git push origin HEAD $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION))
+	@echo "=== Done: all packages tagged at $(MODULE_VERSION) ==="
