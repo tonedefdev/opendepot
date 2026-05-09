@@ -370,7 +370,7 @@ type VersionSpec struct {
 // VersionStatus defines the current status of the resource.
 type VersionStatus struct {
 	// The SHA256 checksum of the module as a base64 encoded string.
-	Checksum *string `json:"checksum"`
+	Checksum *string `json:"checksum,omitempty"`
 	// A flag that determines whether the Version has been successfully reconciled.
 	Synced bool `json:"synced"`
 	// The Version's reconciliation status.

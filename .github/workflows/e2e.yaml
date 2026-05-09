@@ -43,11 +43,11 @@ jobs:
           tofu_version: "1.6.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run module e2e tests
         working-directory: services/module
-        run: IMG=module-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-provider:
     name: Provider controller e2e
@@ -79,11 +79,11 @@ jobs:
           tofu_version: "1.6.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run provider e2e tests
         working-directory: services/provider
-        run: IMG=provider-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 30m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
 
   e2e-depot:
     name: Depot controller e2e
@@ -110,11 +110,11 @@ jobs:
           version: "v3.14.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run depot e2e tests
         working-directory: services/depot
-        run: IMG=depot-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=depot-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-server:
     name: Server e2e
@@ -146,11 +146,11 @@ jobs:
           tofu_version: "1.11.5"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run server e2e tests
         working-directory: services/server
-        run: KIND_CLUSTER=kind IMG=server:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=server:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-version:
     name: Version controller e2e
@@ -177,8 +177,8 @@ jobs:
           version: "v3.14.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run version e2e tests
         working-directory: services/version
-        run: go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m

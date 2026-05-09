@@ -35,7 +35,7 @@ var _ = Describe("Provider Controller", func() {
 	var reconciler *ProviderReconciler
 
 	BeforeEach(func() {
-			reconciler = &ProviderReconciler{
+		reconciler = &ProviderReconciler{
 			Client: k8sClient,
 			Log:    logr.Discard(),
 			Scheme: k8sClient.Scheme(),

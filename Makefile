@@ -101,6 +101,16 @@ work-tidy:
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
 
+E2E_SERVICES := depot module provider server version
+
+## Run e2e tests for all services sequentially
+.PHONY: test-e2e
+test-e2e:
+	@for svc in $(E2E_SERVICES); do \
+	  echo "=== Running e2e tests for $$svc ==="; \
+	  $(MAKE) -C services/$$svc test-e2e || exit 1; \
+	done
+
 ## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
 ## Steps: update go.mod files → work-tidy → commit → tag → push commit + tags.

@@ -472,7 +472,6 @@ spec:
                   reconciled.
                 type: boolean
             required:
-            - checksum
             - syncStatus
             - synced
             type: object
