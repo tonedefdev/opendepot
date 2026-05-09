@@ -59,23 +59,31 @@ var _ = BeforeSuite(func() {
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	By("building the version controller image")
-	buildCmd := exec.Command("docker", "build",
-		"-t", projectImage,
-		"-f", "services/version/Dockerfile",
-		".",
-	)
-	_, err = utils.RunAt(buildCmd, repoRoot)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+	if _, inspectErr := exec.Command("docker", "image", "inspect", projectImage).Output(); inspectErr != nil {
+		By("building the version controller image")
+		buildCmd := exec.Command("docker", "build",
+			"-t", projectImage,
+			"-f", "services/version/Dockerfile",
+			".",
+		)
+		_, err = utils.RunAt(buildCmd, repoRoot)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+	} else {
+		By("version controller image already present, skipping build")
+	}
 
-	By("building the server image")
-	serverBuildCmd := exec.Command("docker", "build",
-		"-t", serverImage,
-		"-f", "services/server/Dockerfile",
-		".",
-	)
-	_, err = utils.RunAt(serverBuildCmd, repoRoot)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
+		By("building the server image")
+		serverBuildCmd := exec.Command("docker", "build",
+			"-t", serverImage,
+			"-f", "services/server/Dockerfile",
+			".",
+		)
+		_, err = utils.RunAt(serverBuildCmd, repoRoot)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+	} else {
+		By("server image already present, skipping build")
+	}
 
 	By("loading the version controller image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)

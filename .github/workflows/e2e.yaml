@@ -12,11 +12,87 @@ on:
       - 'api/**'
       - '.github/workflows/e2e.yaml'
 
+env:
+  REGISTRY: ghcr.io/tonedefdev/opendepot
+  IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+
 jobs:
+  build-images:
+    name: Build and push e2e images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push depot-controller
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/depot/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=depot-controller
+          cache-to: type=gha,mode=max,scope=depot-controller
+
+      - name: Build and push module-controller
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/module/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=module-controller
+          cache-to: type=gha,mode=max,scope=module-controller
+
+      - name: Build and push provider-controller
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/provider/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=provider-controller
+          cache-to: type=gha,mode=max,scope=provider-controller
+
+      - name: Build and push server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/server/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Build and push version-controller
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/version/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=version-controller
+          cache-to: type=gha,mode=max,scope=version-controller
+
   e2e-module:
     name: Module controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
 
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +102,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }} module-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -53,6 +145,7 @@ jobs:
     name: Provider controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    needs: build-images
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +155,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }} provider-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -89,6 +198,7 @@ jobs:
     name: Depot controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
 
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +208,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }} depot-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -120,6 +246,7 @@ jobs:
     name: Server e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
 
     steps:
       - uses: actions/checkout@v4
@@ -129,6 +256,18 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -156,6 +295,7 @@ jobs:
     name: Version controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
 
     steps:
       - uses: actions/checkout@v4
@@ -165,6 +305,20 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
