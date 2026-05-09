@@ -45,7 +45,7 @@ var _ = Describe("Module", Ordered, func() {
 		registryHost        = "opendepot.localtest.me:18080"
 		moduleCRName        = "terraform-aws-key-pair"
 		moduleVersion       = "2.0.0"
-		moduleVersionCRName = "terraform-aws-key-pair-2.0.0"
+		moduleVersionCRName = "terraform-aws-key-pair-2-0-0"
 		moduleProvider      = "aws"
 		moduleStoragePath   = "/data/modules"
 	)
@@ -352,7 +352,7 @@ var _ = Describe("Module Scanning", Ordered, func() {
 		scanNamespace      = "opendepot-system"
 		scanModuleCRName   = "terraform-aws-key-pair"
 		scanModuleVersion  = "2.0.0"
-		scanVersionCRName  = "terraform-aws-key-pair-2.0.0"
+		scanVersionCRName  = "terraform-aws-key-pair-2-0-0"
 		scanModuleProvider = "aws"
 		scanStoragePath    = "/data/modules"
 	)

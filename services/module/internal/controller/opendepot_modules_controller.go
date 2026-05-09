@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -439,11 +440,15 @@ func getModuleVersionName(module *opendepotv1alpha1.Module, sanitizedModuleVersi
 
 }
 
-// SanitizeModuleVersion removes leading 'v' from version strings for terraform/tofu version compatibility.
+// sanitizeModuleVersion removes the leading 'v' and replaces '.' and '_' with '-' to produce
+// a Kubernetes-safe resource name component that is consistent with provider version naming.
 func sanitizeModuleVersion(version string) string {
 	if len(version) > 0 && version[0] == 'v' {
 		version = version[1:]
 	}
+	version = strings.ToLower(version)
+	version = strings.ReplaceAll(version, ".", "-")
+	version = strings.ReplaceAll(version, "_", "-")
 	return version
 }
 

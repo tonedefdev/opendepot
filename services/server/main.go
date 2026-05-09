@@ -271,11 +271,21 @@ func decodeSHA256Checksum(base64Checksum string) (string, error) {
 	return hex.EncodeToString(decoded), nil
 }
 
+func sanitizeModuleVersionForLookup(version string) string {
+	if len(version) > 0 && version[0] == 'v' {
+		version = version[1:]
+	}
+	version = strings.ToLower(version)
+	version = strings.ReplaceAll(version, ".", "-")
+	version = strings.ReplaceAll(version, "_", "-")
+	return version
+}
+
 func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r *http.Request) (*opendepotv1alpha1.Version, error) {
 	name := chi.URLParam(r, "name")
 	namespace := chi.URLParam(r, "namespace")
 	version := chi.URLParam(r, "version")
-	moduleName := fmt.Sprintf("%s-%s", name, version)
+	moduleName := fmt.Sprintf("%s-%s", name, sanitizeModuleVersionForLookup(version))
 
 	result, err := clientset.RESTClient().
 		Get().

@@ -18,6 +18,9 @@ COPY services/module/go.mod services/module/go.sum services/module/
 COPY services/version/go.mod services/version/go.sum services/version/
 COPY services/provider/go.mod services/provider/go.sum services/provider/
 
+# Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
+RUN go work edit -dropuse=./test/integration
+
 # Download dependencies in workspace mode so replace directives resolve local modules
 RUN cd services/server && go mod download
 
