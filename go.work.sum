@@ -281,6 +281,10 @@ github.com/tonedefdev/kerrareg/pkg/github v0.0.0-20260204044222-70ab09438161/go.
 github.com/tonedefdev/kerrareg/pkg/storage v0.0.0-20260204044222-70ab09438161 h1:Vg/OdTfAsFVrrQs/05NO4/JyO2pAvxrEr6UlkNrPN24=
 github.com/tonedefdev/kerrareg/pkg/storage v0.0.0-20260204044222-70ab09438161/go.mod h1:ns2DXrx9JwivoGWpEmzgh4ektOTxZ6/RhBFxd8UzZ8o=
 github.com/tonedefdev/opendepot/api/v1alpha1 v0.0.0-20260214165229-59ed26a15d6f/go.mod h1:vJdOZT76yi7PCC6aaowEJMFQBvb601dICOA+KLd6I7c=
+github.com/tonedefdev/opendepot/pkg/github v0.2.7/go.mod h1:zHEDMTMptGOsdRWdqcUlxbEFgFw4CBEQzuhGgnVYzcw=
+github.com/tonedefdev/opendepot/pkg/storage v0.2.7/go.mod h1:RGwm+erGodklHxwYZy115g0e5TQa7PePCW/DIxTY4Zw=
+github.com/tonedefdev/opendepot/pkg/testutils v0.2.7/go.mod h1:KwZTzQ1c7pG08EOTKNf/ZN5vxmzXcGoC1EYS4SC4Wg8=
+github.com/tonedefdev/opendepot/pkg/utils v0.2.7/go.mod h1:S2Cp2AKUwLnhfwMQ8Tpy3Qq4qpjuWcQIBcNLQNqpE54=
 github.com/urfave/cli v1.22.16/go.mod h1:EeJR6BKodywf4zciqrdw6hpCPk68JO9z5LazXZMn5Po=
 github.com/vbatts/tar-split v0.11.3/go.mod h1:9QlHN18E+fEH7RdG+QAJJcuya3rqT7eXSTY7wGrAokY=
 github.com/virtuald/go-ordered-json v0.0.0-20170621173500-b18e6e673d74/go.mod h1:RmMWU37GKR2s6pgrIEB4ixgpVCt/cf7dnJv3fuH1J1c=

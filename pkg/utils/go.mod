@@ -3,7 +3,7 @@ module github.com/tonedefdev/opendepot/pkg/utils
 go 1.25.5
 
 require (
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	golang.org/x/mod v0.31.0
 )
 
