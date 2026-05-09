@@ -7,7 +7,7 @@ global:
   namespace: opendepot-system
   imagePullPolicy: IfNotPresent
   image:
-    tag: ""  # Defaults to Chart.AppVersion when empty
+    tag: ""  # Defaults to Chart.AppVersion when empty otherwise override it here
 
 ## Version Service (Core - handles GitHub fetching and storage)
 version:

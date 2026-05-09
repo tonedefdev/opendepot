@@ -6,7 +6,7 @@ fmt: ## Run go fmt against code.
 	go fmt ./...
 
 .PHONY: vet
-vet: ## Run go vet against code.
+vet: ## Run go vet against the code.
 	go vet ./...
 
 .PHONY: setup-test-e2e

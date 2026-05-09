@@ -1,15 +1,52 @@
-name: Release Charts
+name: Release
 on:
   push:
     branches:
       - main
-    paths:
-      - 'chart/**'
+
 permissions:
   contents: write
+  issues: write
   packages: write
+
 jobs:
-  release:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      chart: ${{ steps.filter.outputs.chart }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'services/**'
+            chart:
+              - 'chart/**'
+              - 'services/**'
+
+  semantic-release:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  chart-release:
+    needs: [changes, semantic-release]
+    if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
