@@ -150,6 +150,27 @@ spec:
                         required:
                         - bucket
                         type: object
+                      presign:
+                        description: Presign is the optional configuration for pre-signed
+                          URL generation.
+                        properties:
+                          enabled:
+                            description: When true, download requests are redirected
+                              to the storage backend via a pre-signed URL.
+                            type: boolean
+                          fallbackToProxy:
+                            default: true
+                            description: |-
+                              When true, if pre-sign generation fails the server falls back to proxying the download.
+                              Defaults to true.
+                            type: boolean
+                          ttl:
+                            default: 15m
+                            description: |-
+                              TTL controls how long the pre-signed URL remains valid (e.g. "15m", "1h").
+                              If omitted, defaults to 15 minutes.
+                            type: string
+                        type: object
                       s3:
                         description: The configuration settings for storing Versions
                           in an Amazon S3 bucket.
@@ -168,21 +189,6 @@ spec:
                         required:
                         - bucket
                         - region
-                        type: object
-                      presign:
-                        description: Presign is the optional configuration for pre-signed URL generation.
-                        properties:
-                          enabled:
-                            description: When true, download requests are redirected via a pre-signed URL.
-                            type: boolean
-                          fallbackToProxy:
-                            default: true
-                            description: When true, presign failures fall back to proxying the download.
-                            type: boolean
-                          ttl:
-                            default: "15m"
-                            description: TTL controls how long the pre-signed URL remains valid (e.g. "15m").
-                            type: string
                         type: object
                     type: object
                   versionConstraints:
