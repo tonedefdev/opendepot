@@ -4,11 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    paths:
-      - 'services/**'
-      - 'pkg/**'
-      - 'api/**'
-      - '.github/workflows/build.yaml'
   workflow_dispatch:
 
 permissions:

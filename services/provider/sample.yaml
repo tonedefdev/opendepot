@@ -1,7 +1,7 @@
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
 metadata:
-  name: aws-example
+  name: aws
   namespace: opendepot-system
 spec:
   providerConfig:
