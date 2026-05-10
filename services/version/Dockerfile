@@ -1,3 +1,6 @@
+# select final stage via build arg (default: no Trivy)
+ARG INCLUDE_TRIVY=false
+
 # Build the manager binary
 FROM golang:1.25 AS builder
 ARG TARGETOS
@@ -53,6 +56,5 @@ COPY --from=trivy-source /usr/local/bin/trivy /usr/local/bin/trivy
 USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
-# select final stage via build arg (default: no Trivy)
-ARG INCLUDE_TRIVY=false
+# select which final stage was built
 FROM final-${INCLUDE_TRIVY}
