@@ -7,7 +7,7 @@ tags:
 # Migrating to OpenDepot
 
 !!! tip
-    The Depot is designed as a migration tool, not just an ongoing automation. Whether you're moving modules from a public or private GitHub-hosted source, or migrating providers away from the public HashiCorp registry, the Depot handles the heavy lifting — discovering versions, downloading archives, and populating your storage backend. Once everything is synced, simply delete the Depot and switch to the [push-based CI/CD workflow](../guides/cicd.md). Deleting a Depot **does not** delete the Modules or Providers it created, so your registry stays fully intact.
+    Migration is one of several Depot use cases. The Depot also supports ongoing upstream provider mirroring and public module tracking with automatic Trivy scanning — see [Pull-Based Workflow: Using the Depot](../guides/depot.md) for the full picture. For a one-time migration, follow the steps below: once everything is synced, delete the Depot and switch to the [push-based CI/CD workflow](../guides/cicd.md). Deleting a Depot **does not** delete the Modules or Providers it created, so your registry stays fully intact.
 
 **Migrating modules** — Use the Depot to bulk-import existing modules into OpenDepot:
 
