@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Detect changes
         uses: dorny/paths-filter@v3
         id: filter
@@ -45,7 +47,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   chart-release:
-    needs: changes
+    needs: [changes]
     if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-latest
     steps:

@@ -20,6 +20,7 @@ jobs:
   build-images:
     name: Build and push ${{ matrix.service }}
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     permissions:
       contents: read
@@ -67,6 +68,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +126,10 @@ jobs:
     timeout-minutes: 40
     needs: build-images
 
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -174,6 +183,10 @@ jobs:
     timeout-minutes: 30
     needs: build-images
 
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -221,6 +234,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -270,6 +287,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4

@@ -1,12 +1,12 @@
 ---
 name: gh-actions-debug
-description: "Use when: a GitHub Actions workflow run fails, a pipeline is stuck, a job is erroring, CI is broken, you need to fetch run logs, list workflows, trigger a workflow dispatch, cancel a run, view run history, check workflow status, manage secrets or variables, or perform any GitHub Actions operation using the gh CLI. Triggers: 'workflow failed', 'pipeline broken', 'CI error', 'check the run logs', 'trigger the workflow', 'cancel the run', 'list workflows', 'view run history', 'what did the action output', 'why did the workflow fail', 'run the workflow', 'set a secret', 'add a variable'."
+description: "Use when: a GitHub Actions workflow run fails, a pipeline is stuck, a job is erroring, CI is broken, you need to fetch run logs, list workflows, trigger a workflow dispatch, cancel a run, view run history, check workflow status, manage secrets or variables, read or post pull request comments, or perform any GitHub Actions or pull request operation using the gh CLI. Triggers: 'workflow failed', 'pipeline broken', 'CI error', 'check the run logs', 'trigger the workflow', 'cancel the run', 'list workflows', 'view run history', 'what did the action output', 'why did the workflow fail', 'run the workflow', 'set a secret', 'add a variable', 'read PR comments', 'list pull request comments', 'what did someone comment on the PR', 'post a comment on the PR'."
 argument-hint: "What you want to do — e.g. 'debug the failing release run', 'trigger build workflow on main', 'list recent runs'"
 ---
 
-# GitHub Actions via `gh` CLI
+# GitHub Actions & Pull Requests via `gh` CLI
 
-Use the `gh` CLI to interact with GitHub Actions — list, trigger, monitor, debug, cancel, and manage workflows and runs without leaving the terminal or needing an MCP server.
+Use the `gh` CLI to interact with GitHub Actions and pull requests — list, trigger, monitor, debug, cancel, and manage workflows and runs, and read or post pull request comments without leaving the terminal or needing an MCP server.
 
 ## Prerequisites
 
@@ -156,9 +156,49 @@ When a run fails, follow this sequence:
 4. Fix the workflow YAML or underlying code
 5. `gh run rerun <run-id> --failed` to re-run without triggering a new push
 
+## Pull Request Comments
+
+### List all comments on a PR
+```bash
+gh pr view <pr-number> --comments
+```
+
+### List comments as structured JSON (useful for filtering)
+```bash
+gh api repos/{owner}/{repo}/issues/<pr-number>/comments --jq '.[] | {id: .id, author: .user.login, body: .body, created_at: .created_at}'
+```
+
+### Get the most recent comment on a PR
+```bash
+gh api repos/{owner}/{repo}/issues/<pr-number>/comments --jq '.[-1] | {author: .user.login, body: .body}'
+```
+
+### Search comments for a specific string
+```bash
+gh api repos/{owner}/{repo}/issues/<pr-number>/comments --jq '.[] | select(.body | test("<search-term>"; "i")) | {author: .user.login, body: .body}'
+```
+
+### Post a comment on a PR
+```bash
+gh pr comment <pr-number> --body "Your comment text here"
+```
+
+### Post a comment from a file
+```bash
+gh pr comment <pr-number> --body-file comment.md
+```
+
+### List review comments (inline code comments)
+```bash
+gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --jq '.[] | {author: .user.login, path: .path, line: .line, body: .body}'
+```
+
+---
+
 ## Tips
 
 - `--log-failed` trims all successful step output — use it first before pulling full logs
 - Run IDs appear in GitHub UI URLs: `github.com/<owner>/<repo>/actions/runs/<run-id>`
 - Use `--json` with `--jq` on any `gh run` command to extract structured data
 - `gh run watch` streams live output — useful for triggered dispatches
+- For `gh api` commands, `{owner}/{repo}` is resolved automatically when run inside the repo — you can also use `:owner/:repo` shorthand or omit and let `gh` infer from `git remote`

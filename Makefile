@@ -113,7 +113,7 @@ test-e2e:
 
 ## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
-## Steps: update go.mod files → work-tidy → commit → tag → push commit + tags.
+## Steps: create tags → push tags → update go.mod files → work-tidy → commit.
 MODULE_VERSION ?= $(error MODULE_VERSION is required. Usage: make tag-modules MODULE_VERSION=vX.Y.Z)
 MODULE_PACKAGES := api/v1alpha1 pkg/github pkg/storage pkg/testutils pkg/utils
 .PHONY: tag-modules
@@ -123,10 +123,14 @@ tag-modules:
 	fi
 	@echo "=== Creating tags ==="
 	@for pkg in $(MODULE_PACKAGES); do \
-	  git tag "$${pkg}/$(MODULE_VERSION)" 2>/dev/null && echo "  tagged $${pkg}/$(MODULE_VERSION)" || echo "  tag $${pkg}/$(MODULE_VERSION) already exists, skipping"; \
+	  if git tag -l "$${pkg}/$(MODULE_VERSION)" | grep -q .; then \
+	    echo "  tag $${pkg}/$(MODULE_VERSION) already exists, skipping"; \
+	  else \
+	    git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
+	  fi; \
 	done
 	@echo "=== Pushing tags ==="
-	@git push origin $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION)) || true
+	@git push origin $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION))
 	@echo "=== Updating all go.mod files to $(MODULE_VERSION) ==="
 	@find . -name go.mod -not -path "*/vendor/*" | while read gomod; do \
 	  for pkg in $(MODULE_PACKAGES); do \

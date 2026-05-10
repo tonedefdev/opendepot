@@ -113,11 +113,15 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if strings.ContainsAny(version.Name, ".") {
+		terminalMsg := fmt.Sprintf("Version name '%s' is invalid: name must not contain '.' characters: rename the resource and reapply", version.Name)
+		if !version.Status.Synced && version.Status.SyncStatus == terminalMsg {
+			return ctrl.Result{}, nil
+		}
 		r.Log.V(5).Info("name guard: Version name contains '.' characters; writing terminal status",
 			"version", version.Name,
 		)
 		version.Status.Synced = false
-		version.Status.SyncStatus = fmt.Sprintf("Version name '%s' is invalid: name must not contain '.' characters: rename the resource and reapply", version.Name)
+		version.Status.SyncStatus = terminalMsg
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
