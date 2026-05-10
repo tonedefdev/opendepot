@@ -17,14 +17,28 @@ jobs:
         service:
           - name: version-controller
             path: services/version
+            buildArgs: ""
+            tagSuffix: ""
+          - name: version-controller
+            path: services/version
+            buildArgs: "INCLUDE_TRIVY=true"
+            tagSuffix: "-scanning"
           - name: module-controller
             path: services/module
+            buildArgs: ""
+            tagSuffix: ""
           - name: depot-controller
             path: services/depot
+            buildArgs: ""
+            tagSuffix: ""
           - name: server
             path: services/server
+            buildArgs: ""
+            tagSuffix: ""
           - name: provider-controller
             path: services/provider
+            buildArgs: ""
+            tagSuffix: ""
         arch:
           - amd64
           - arm64
@@ -51,7 +65,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.service.name }}
           flavor: |
-            suffix=-${{ matrix.arch }}
+            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -68,6 +82,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.service.buildArgs }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -78,17 +93,19 @@ jobs:
       matrix:
         service:
           - name: version-controller
-            path: services/version
+            tagSuffix: ""
+          - name: version-controller
+            tagSuffix: "-scanning"
           - name: module-controller
-            path: services/module
+            tagSuffix: ""
           - name: depot-controller
-            path: services/depot
+            tagSuffix: ""
           - name: server
-            path: services/server
+            tagSuffix: ""
           - name: provider-controller
-            path: services/provider
+            tagSuffix: ""
 
-    name: Manifest ${{ matrix.service.name }}
+    name: Manifest ${{ matrix.service.name }}${{ matrix.service.tagSuffix }}
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -103,6 +120,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.service.name }}
+          flavor: |
+            suffix=${{ matrix.service.tagSuffix }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -112,11 +131,20 @@ jobs:
 
       - name: Create and push multi-arch manifest
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}/${{ matrix.service.name }}"
+          SUFFIX="${{ matrix.service.tagSuffix }}"
           for TAG in $(echo "${{ steps.meta.outputs.tags }}" | tr '\n' ' '); do
-            docker buildx imagetools create -t "${TAG}" \
-              "${TAG}-amd64" \
-              "${TAG}-arm64" || true
+            if [ -n "$SUFFIX" ]; then
+              # Build job produced tags like: 0.2.7-amd64-scanning
+              # Strip the tagSuffix from the end of TAG to get the base, then append arch+suffix
+              BASE="${TAG%$SUFFIX}"
+              docker buildx imagetools create -t "${TAG}" \
+                "${BASE}-amd64${SUFFIX}" \
+                "${BASE}-arm64${SUFFIX}" || true
+            else
+              docker buildx imagetools create -t "${TAG}" \
+                "${TAG}-amd64" \
+                "${TAG}-arm64" || true
+            fi
           done
 
   build-status:

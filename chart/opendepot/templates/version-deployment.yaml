@@ -41,17 +41,21 @@ spec:
       {{- end }}
       containers:
       - name: version-controller
-        image: "{{ .Values.version.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.version.image.tag }}"
+        {{- $tag := default (default .Chart.AppVersion .Values.global.image.tag) .Values.version.image.tag }}
+        {{- $imageTag := ternary (printf "%s-scanning" $tag) $tag .Values.scanning.enabled }}
+        image: "{{ .Values.version.image.repository }}:{{ $imageTag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         {{- if or .Values.scanning.enabled .Values.version.zapLogLevel }}
         args:
         {{- if .Values.scanning.enabled }}
         - --scanning-enabled=true
-        - --trivy-cache-dir={{ .Values.scanning.cacheMountPath }}
-        - --scan-offline={{ .Values.scanning.offline }}
         - --scan-block-on-critical={{ .Values.scanning.blockOnCritical }}
         - --scan-block-on-high={{ .Values.scanning.blockOnHigh }}
-        - --scan-modules={{ .Values.scanning.scanModules }}
+        - --scan-modules=true
+        {{- if .Values.scanning.providerScanning }}
+        - --trivy-cache-dir={{ .Values.scanning.cacheMountPath }}
+        - --scan-offline={{ .Values.scanning.offline }}
+        {{- end }}
         {{- end }}
         {{- if .Values.version.zapLogLevel }}
         - --zap-log-level={{ .Values.version.zapLogLevel }}
@@ -69,18 +73,18 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.version.resources | nindent 10 }}
-        {{- if or .Values.storage.filesystem.enabled .Values.scanning.enabled }}
+        {{- if or .Values.storage.filesystem.enabled .Values.scanning.providerScanning }}
         volumeMounts:
         {{- if .Values.storage.filesystem.enabled }}
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
         {{- end }}
-        {{- if .Values.scanning.enabled }}
+        {{- if .Values.scanning.providerScanning }}
         - name: trivy-cache
           mountPath: {{ .Values.scanning.cacheMountPath }}
         {{- end }}
         {{- end }}
-      {{- if or .Values.storage.filesystem.enabled .Values.scanning.enabled }}
+      {{- if or .Values.storage.filesystem.enabled .Values.scanning.providerScanning }}
       volumes:
       {{- if .Values.storage.filesystem.enabled }}
       - name: modules
@@ -93,7 +97,7 @@ spec:
           claimName: opendepot-modules
         {{- end }}
       {{- end }}
-      {{- if .Values.scanning.enabled }}
+      {{- if .Values.scanning.providerScanning }}
       - name: trivy-cache
         persistentVolumeClaim:
           claimName: opendepot-trivy-cache

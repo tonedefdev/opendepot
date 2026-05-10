@@ -31,14 +31,22 @@ jobs:
         include:
           - service: depot-controller
             dockerfile: services/depot/Dockerfile
+            buildArgs: ""
           - service: module-controller
             dockerfile: services/module/Dockerfile
+            buildArgs: ""
           - service: provider-controller
             dockerfile: services/provider/Dockerfile
+            buildArgs: ""
           - service: server
             dockerfile: services/server/Dockerfile
+            buildArgs: ""
           - service: version-controller
             dockerfile: services/version/Dockerfile
+            buildArgs: ""
+          - service: version-controller-scanning
+            dockerfile: services/version/Dockerfile
+            buildArgs: "INCLUDE_TRIVY=true"
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +68,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          build-args: ${{ matrix.buildArgs }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -311,8 +320,10 @@ jobs:
       - name: Pull e2e images
         run: |
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller-scanning:e2e-test
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
