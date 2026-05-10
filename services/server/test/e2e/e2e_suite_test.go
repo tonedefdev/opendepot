@@ -55,17 +55,21 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the server image")
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	buildCmd := exec.Command("docker", "build",
-		"-t", serverImage,
-		"-f", "services/server/Dockerfile",
-		".",
-	)
-	_, err = utils.RunAt(buildCmd, repoRoot)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
+		By("building the server image")
+		buildCmd := exec.Command("docker", "build",
+			"-t", serverImage,
+			"-f", "services/server/Dockerfile",
+			".",
+		)
+		_, err = utils.RunAt(buildCmd, repoRoot)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+	} else {
+		By("server image already present, skipping build")
+	}
 
 	By("loading the server image on Kind")
 	err = utils.LoadImageToKindClusterWithName(serverImage)

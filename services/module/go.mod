@@ -7,8 +7,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
-	github.com/tonedefdev/opendepot/pkg/testutils v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
+	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
 	golang.org/x/mod v0.31.0
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.0

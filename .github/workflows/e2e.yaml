@@ -12,11 +12,66 @@ on:
       - 'api/**'
       - '.github/workflows/e2e.yaml'
 
+env:
+  REGISTRY: ghcr.io/tonedefdev/opendepot
+  IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+
 jobs:
+  build-images:
+    name: Build and push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - service: depot-controller
+            dockerfile: services/depot/Dockerfile
+          - service: module-controller
+            dockerfile: services/module/Dockerfile
+          - service: provider-controller
+            dockerfile: services/provider/Dockerfile
+          - service: server
+            dockerfile: services/server/Dockerfile
+          - service: version-controller
+            dockerfile: services/version/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
   e2e-module:
     name: Module controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +81,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }} module-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -43,16 +114,21 @@ jobs:
           tofu_version: "1.6.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run module e2e tests
         working-directory: services/module
-        run: IMG=module-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-provider:
     name: Provider controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +138,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }} provider-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -79,16 +171,21 @@ jobs:
           tofu_version: "1.6.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run provider e2e tests
         working-directory: services/provider
-        run: IMG=provider-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 30m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
 
   e2e-depot:
     name: Depot controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +195,22 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }} depot-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -110,16 +223,21 @@ jobs:
           version: "v3.14.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run depot e2e tests
         working-directory: services/depot
-        run: IMG=depot-controller:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=depot-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-server:
     name: Server e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -129,6 +247,18 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -146,16 +276,21 @@ jobs:
           tofu_version: "1.11.5"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run server e2e tests
         working-directory: services/server
-        run: KIND_CLUSTER=kind IMG=server:e2e-test go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=server:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-version:
     name: Version controller e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: build-images
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -165,6 +300,20 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull e2e images
+        run: |
+          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -177,8 +326,8 @@ jobs:
           version: "v3.14.0"
 
       - name: Create kind cluster
-        run: kind create cluster --name kind
+        run: kind create cluster --name opendepot-test-e2e
 
       - name: Run version e2e tests
         working-directory: services/version
-        run: go test ./test/e2e/ -v -count=1 -timeout 20m
+        run: KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m

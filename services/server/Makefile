@@ -1,12 +1,12 @@
 KIND ?= kind
-KIND_CLUSTER ?= server-test-e2e
+KIND_CLUSTER ?= opendepot-test-e2e
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
 
 .PHONY: vet
-vet: ## Run go vet against code.
+vet: ## Run go vet against the code.
 	go vet ./...
 
 .PHONY: setup-test-e2e

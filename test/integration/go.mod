@@ -5,8 +5,8 @@ go 1.25.5
 require (
 	github.com/gruntwork-io/terratest v0.48.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
-	github.com/tonedefdev/opendepot/pkg/storage v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
+	github.com/tonedefdev/opendepot/pkg/storage v0.2.7
 )
 
 require (
@@ -128,6 +128,6 @@ require (
 )
 
 replace (
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6 => ../../api/v1alpha1
-	github.com/tonedefdev/opendepot/pkg/storage v0.2.6 => ../../pkg/storage
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7 => ../../api/v1alpha1
+	github.com/tonedefdev/opendepot/pkg/storage v0.2.7 => ../../pkg/storage
 )

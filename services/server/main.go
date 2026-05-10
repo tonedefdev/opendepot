@@ -358,6 +358,11 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
+	if moduleVersion.Status.Checksum == nil {
+		http.Error(w, "module version checksum not yet available", http.StatusServiceUnavailable)
+		return
+	}
+
 	checksumQuery := url.QueryEscape(*moduleVersion.Status.Checksum)
 	w.Header().Set("X-Terraform-Get", fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery))
 	w.WriteHeader(http.StatusNoContent)

@@ -101,9 +101,19 @@ work-tidy:
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
 
+E2E_SERVICES := depot module provider server version
+
+## Run e2e tests for all services sequentially
+.PHONY: test-e2e
+test-e2e:
+	@for svc in $(E2E_SERVICES); do \
+	  echo "=== Running e2e tests for $$svc ==="; \
+	  $(MAKE) -C services/$$svc test-e2e || exit 1; \
+	done
+
 ## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
-## Steps: update go.mod files → work-tidy → commit → tag → push commit + tags.
+## Steps: create tags → push tags → update go.mod files → work-tidy → commit.
 MODULE_VERSION ?= $(error MODULE_VERSION is required. Usage: make tag-modules MODULE_VERSION=vX.Y.Z)
 MODULE_PACKAGES := api/v1alpha1 pkg/github pkg/storage pkg/testutils pkg/utils
 .PHONY: tag-modules
@@ -111,6 +121,16 @@ tag-modules:
 	@if ! git diff --cached --quiet || ! git diff --quiet; then \
 	  echo "ERROR: uncommitted changes detected. Commit or stash before tagging." && exit 1; \
 	fi
+	@echo "=== Creating tags ==="
+	@for pkg in $(MODULE_PACKAGES); do \
+	  if git tag -l "$${pkg}/$(MODULE_VERSION)" | grep -q .; then \
+	    echo "  tag $${pkg}/$(MODULE_VERSION) already exists, skipping"; \
+	  else \
+	    git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
+	  fi; \
+	done
+	@echo "=== Pushing tags ==="
+	@git push origin $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION))
 	@echo "=== Updating all go.mod files to $(MODULE_VERSION) ==="
 	@find . -name go.mod -not -path "*/vendor/*" | while read gomod; do \
 	  for pkg in $(MODULE_PACKAGES); do \
@@ -122,10 +142,5 @@ tag-modules:
 	@echo "=== Committing go.mod and go.sum changes ==="
 	@git add -u
 	@git commit -m "chore: bump internal module dependencies to $(MODULE_VERSION)"
-	@echo "=== Creating tags ==="
-	@for pkg in $(MODULE_PACKAGES); do \
-	  git tag "$${pkg}/$(MODULE_VERSION)" && echo "  tagged $${pkg}/$(MODULE_VERSION)"; \
-	done
-	@echo "=== Pushing commit and tags ==="
-	@git push origin HEAD $(foreach pkg,$(MODULE_PACKAGES),$(pkg)/$(MODULE_VERSION))
+	@git push origin HEAD
 	@echo "=== Done: all packages tagged at $(MODULE_VERSION) ==="

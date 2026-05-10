@@ -7,9 +7,9 @@ require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
-	github.com/tonedefdev/opendepot/pkg/storage v0.2.6
-	github.com/tonedefdev/opendepot/pkg/testutils v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
+	github.com/tonedefdev/opendepot/pkg/storage v0.2.7
+	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
 	k8s.io/client-go v0.35.0
 )
 

@@ -8,9 +8,9 @@ require (
 	github.com/hashicorp/go-version v1.8.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
-	github.com/tonedefdev/opendepot/pkg/github v0.2.6
-	github.com/tonedefdev/opendepot/pkg/testutils v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
+	github.com/tonedefdev/opendepot/pkg/github v0.2.7
+	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.23.3

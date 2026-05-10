@@ -249,7 +249,7 @@ func (r *ProviderReconciler) versionForProvider(provider *opendepotv1alpha1.Prov
 		Spec: opendepotv1alpha1.VersionSpec{
 			Architecture:      arch,
 			OperatingSystem:   osName,
-					Type:              opendepotv1alpha1.OpenDepotProvider,
+			Type:              opendepotv1alpha1.OpenDepotProvider,
 			Version:           version,
 			ProviderConfigRef: &provider.Spec.ProviderConfig,
 		},

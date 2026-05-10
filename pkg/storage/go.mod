@@ -10,7 +10,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1
-	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.6
+	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	google.golang.org/api v0.264.0
 )
 
