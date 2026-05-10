@@ -1,0 +1,7 @@
+{
+  "name": "github-pr",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:tonedefdev/opendepot:pull_request",
+  "description": "GitHub Actions PR OIDC",
+  "audiences": ["api://AzureADTokenExchange"]
+}

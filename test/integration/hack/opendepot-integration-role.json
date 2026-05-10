@@ -1,0 +1,20 @@
+{
+  "Name": "OpenDepot Integration Test",
+  "Description": "Minimum permissions for opendepot Azure Blob Storage integration tests. Allows resource group and storage account lifecycle management plus scoped role assignment for blob data access.",
+  "Actions": [
+    "Microsoft.Resources/subscriptions/resourceGroups/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/write",
+    "Microsoft.Resources/subscriptions/resourceGroups/delete",
+    "Microsoft.Storage/storageAccounts/read",
+    "Microsoft.Storage/storageAccounts/write",
+    "Microsoft.Storage/storageAccounts/delete",
+    "Microsoft.Storage/storageAccounts/listKeys/action",
+    "Microsoft.Authorization/roleAssignments/read",
+    "Microsoft.Authorization/roleAssignments/write",
+    "Microsoft.Authorization/roleAssignments/delete"
+  ],
+  "NotActions": [],
+  "AssignableScopes": [
+    "/subscriptions/7d069d72-e281-4e33-911b-aedadcb4f773"
+  ]
+}

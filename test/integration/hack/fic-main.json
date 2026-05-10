@@ -1,0 +1,7 @@
+{
+  "name": "github-main-ref",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:tonedefdev/opendepot:ref:refs/heads/main",
+  "description": "GitHub Actions main-branch OIDC (workflow_dispatch/push style ref token)",
+  "audiences": ["api://AzureADTokenExchange"]
+}
