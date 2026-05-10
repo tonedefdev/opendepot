@@ -1,7 +1,7 @@
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Module
 metadata:
-  name: terraform-aws-eks-example
+  name: terraform-aws-eks
   namespace: defdevio
 spec:
   moduleConfig:
