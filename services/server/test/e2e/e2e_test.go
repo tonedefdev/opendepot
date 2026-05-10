@@ -61,7 +61,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 		var err error
 		chartPath, err = utils.GetChartPath()
 		Expect(err).NotTo(HaveOccurred())
-		serverRepo, serverTag = splitImageRef(serverImage)
+		serverRepo, serverTag = utils.SplitImageRef(serverImage)
 	})
 
 	// deployServer runs helm upgrade with a common base configuration plus any

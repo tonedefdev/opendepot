@@ -20,6 +20,7 @@ limitations under the License.
 package testutils
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -181,4 +182,51 @@ func IsPrometheusCRDsInstalled() bool {
 		}
 	}
 	return false
+}
+
+// NeedsRebuild returns true if the image is absent or its opendepot.build.hash
+// label does not match wantHash.
+func NeedsRebuild(image, wantHash string) bool {
+	out, err := exec.Command(
+		"docker", "inspect",
+		"--format", `{{ index .Config.Labels "opendepot.build.hash" }}`,
+		image,
+	).Output()
+	if err != nil {
+		return true // image absent
+	}
+	return strings.TrimSpace(string(out)) != wantHash
+}
+
+// ComputeBuildContextHash computes a SHA-256 hash over the contents of all
+// git-tracked files under the given paths (relative to repoRoot). This
+// produces a deterministic fingerprint of the Docker build context without
+// requiring a build.
+func ComputeBuildContextHash(repoRoot string, paths []string) (string, error) {
+	args := append([]string{"-C", repoRoot, "ls-files", "--"}, paths...)
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", fmt.Errorf("git ls-files: %w", err)
+	}
+	h := sha256.New()
+	for rel := range strings.FieldsSeq(string(out)) {
+		data, err := os.ReadFile(filepath.Join(repoRoot, rel))
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", rel, err)
+		}
+		fmt.Fprintf(h, "%s\n", rel)
+		h.Write(data)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))[:16], nil
+}
+
+// SplitImageRef splits an image reference "repo:tag" into its components.
+// If no tag is present, "latest" is returned as the tag.
+func SplitImageRef(ref string) (repo, tag string) {
+	for i := len(ref) - 1; i >= 0; i-- {
+		if ref[i] == ':' {
+			return ref[:i], ref[i+1:]
+		}
+	}
+	return ref, "latest"
 }

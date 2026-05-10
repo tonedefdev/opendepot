@@ -102,9 +102,11 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }} module-controller:e2e-test
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -127,7 +129,7 @@ jobs:
 
       - name: Run module e2e tests
         working-directory: services/module
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-provider:
     name: Provider controller e2e
@@ -159,9 +161,11 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }} provider-controller:e2e-test
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -184,7 +188,7 @@ jobs:
 
       - name: Run provider e2e tests
         working-directory: services/provider
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
 
   e2e-depot:
     name: Depot controller e2e
@@ -323,7 +327,7 @@ jobs:
           docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller-scanning:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -341,4 +345,4 @@ jobs:
 
       - name: Run version e2e tests
         working-directory: services/version
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m

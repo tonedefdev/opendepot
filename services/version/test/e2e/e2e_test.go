@@ -352,7 +352,7 @@ spec:
 			// Use the base image ref — the Helm ternary appends "-scanning" automatically
 			// when scanning.enabled=true, so version-controller:e2e-test becomes
 			// version-controller:e2e-test-scanning.
-			baseRepo, baseTag := splitImageRef(projectImage)
+			baseRepo, baseTag := utils.SplitImageRef(projectImage)
 			cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 				"--reuse-values",
 				"--namespace", namespace,

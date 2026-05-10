@@ -17,12 +17,10 @@ limitations under the License.
 package e2e
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -66,65 +64,69 @@ var _ = BeforeSuite(func() {
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	versionHash, err := computeBuildContextHash(repoRoot, []string{
-		"services/version",
-		"api",
-		"pkg",
-		"go.work",
-		"go.work.sum",
-	})
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute version controller build hash")
+	if os.Getenv("SKIP_IMAGE_BUILD") != "true" {
+		versionHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/version",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute version controller build hash")
 
-	if needsRebuild(projectImage, versionHash) {
-		By("building the version controller image (context changed or image absent)")
-		buildCmd := exec.Command("docker", "build",
-			"-t", projectImage,
-			"--label", "opendepot.build.hash="+versionHash,
-			"-f", "services/version/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(buildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+		if utils.NeedsRebuild(projectImage, versionHash) {
+			By("building the version controller image (context changed or image absent)")
+			buildCmd := exec.Command("docker", "build",
+				"-t", projectImage,
+				"--label", "opendepot.build.hash="+versionHash,
+				"-f", "services/version/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(buildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+		} else {
+			By("version controller image up-to-date, skipping build")
+		}
+
+		if utils.NeedsRebuild(projectScanningImage, versionHash) {
+			By("building the version controller scanning image (context changed or image absent)")
+			scanningBuildCmd := exec.Command("docker", "build",
+				"-t", projectScanningImage,
+				"--label", "opendepot.build.hash="+versionHash,
+				"--build-arg", "INCLUDE_TRIVY=true",
+				"-f", "services/version/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(scanningBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller scanning image")
+		} else {
+			By("version controller scanning image up-to-date, skipping build")
+		}
+
+		serverHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/server",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute server build hash")
+
+		if utils.NeedsRebuild(serverImage, serverHash) {
+			By("building the server image (context changed or image absent)")
+			serverBuildCmd := exec.Command("docker", "build",
+				"-t", serverImage,
+				"--label", "opendepot.build.hash="+serverHash,
+				"-f", "services/server/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(serverBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+		} else {
+			By("server image up-to-date, skipping build")
+		}
 	} else {
-		By("version controller image up-to-date, skipping build")
-	}
-
-	if needsRebuild(projectScanningImage, versionHash) {
-		By("building the version controller scanning image (context changed or image absent)")
-		scanningBuildCmd := exec.Command("docker", "build",
-			"-t", projectScanningImage,
-			"--label", "opendepot.build.hash="+versionHash,
-			"--build-arg", "INCLUDE_TRIVY=true",
-			"-f", "services/version/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(scanningBuildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller scanning image")
-	} else {
-		By("version controller scanning image up-to-date, skipping build")
-	}
-
-	serverHash, err := computeBuildContextHash(repoRoot, []string{
-		"services/server",
-		"api",
-		"pkg",
-		"go.work",
-		"go.work.sum",
-	})
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute server build hash")
-
-	if needsRebuild(serverImage, serverHash) {
-		By("building the server image (context changed or image absent)")
-		serverBuildCmd := exec.Command("docker", "build",
-			"-t", serverImage,
-			"--label", "opendepot.build.hash="+serverHash,
-			"-f", "services/server/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(serverBuildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
-	} else {
-		By("server image up-to-date, skipping build")
+		By("SKIP_IMAGE_BUILD=true: skipping image builds, using pre-built images")
 	}
 
 	By("loading the version controller image on Kind")
@@ -153,8 +155,8 @@ var _ = BeforeSuite(func() {
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	versionRepo, versionTag := splitImageRef(projectImage)
-	serverRepo, serverTag := splitImageRef(serverImage)
+	versionRepo, versionTag := utils.SplitImageRef(projectImage)
+	serverRepo, serverTag := utils.SplitImageRef(serverImage)
 
 	cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 		"--install",
@@ -188,57 +190,4 @@ var _ = AfterSuite(func() {
 	_, _ = utils.Run(cmd)
 })
 
-// needsRebuild returns true if the image is absent or its opendepot.build.hash
-// label does not match wantHash.
-func needsRebuild(image, wantHash string) bool {
-	out, err := exec.Command(
-		"docker", "inspect",
-		"--format", `{{ index .Config.Labels "opendepot.build.hash" }}`,
-		image,
-	).Output()
-	if err != nil {
-		return true // image absent
-	}
-	return strings.TrimSpace(string(out)) != wantHash
-}
 
-// computeBuildContextHash computes a SHA-256 hash over the contents of all
-// git-tracked files under the given paths (relative to repoRoot). This
-// produces a deterministic fingerprint of the Docker build context without
-// requiring a build.
-func computeBuildContextHash(repoRoot string, paths []string) (string, error) {
-	args := append([]string{"-C", repoRoot, "ls-files", "--"}, paths...)
-	out, err := exec.Command("git", args...).Output()
-	if err != nil {
-		return "", fmt.Errorf("git ls-files: %w", err)
-	}
-
-	h := sha256.New()
-	for rel := range strings.FieldsSeq(string(out)) {
-		data, err := os.ReadFile(filepath.Join(repoRoot, rel))
-		if err != nil {
-			return "", fmt.Errorf("read %s: %w", rel, err)
-		}
-
-		fmt.Fprintf(h, "%s\n", rel)
-		h.Write(data)
-	}
-
-	return fmt.Sprintf("%x", h.Sum(nil))[:16], nil
-}
-
-// splitImageRef splits an image reference "repo:tag" into its components.
-// If no tag is present, "latest" is returned as the tag.
-func splitImageRef(ref string) (repo, tag string) {
-	lastColon := -1
-	for i := len(ref) - 1; i >= 0; i-- {
-		if ref[i] == ':' {
-			lastColon = i
-			break
-		}
-	}
-	if lastColon < 0 {
-		return ref, "latest"
-	}
-	return ref[:lastColon], ref[lastColon+1:]
-}
