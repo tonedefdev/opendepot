@@ -199,9 +199,68 @@ spec:
 		})
 	})
 
+	Context("Version Name Validation", Ordered, func() {
+		const dotVersionCRName = "invalid.version.name"
+
+		AfterAll(func() {
+			By("removing the invalid-name Version CR")
+			cmd := exec.Command("kubectl", "delete", "version", dotVersionCRName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should reject a Version CR whose name contains '.' characters", func() {
+			By("applying a Version CR with '.' in its name")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: "1.0.0"
+  moduleConfigRef:
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+`, dotVersionCRName, namespace)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "invalid-name-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply invalid-name Version CR")
+
+			By("waiting for the name-validation syncStatus message to be written")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", dotVersionCRName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.syncStatus}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("must not contain '.' characters"),
+					"expected name-validation syncStatus message to be written")
+			}).Should(Succeed())
+
+			By("confirming the Version CR never reaches synced=true")
+			Consistently(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", dotVersionCRName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(Equal("true"),
+					"Version CR with '.' in its name must not sync successfully")
+			}, 15*time.Second, 3*time.Second).Should(Succeed())
+		})
+	})
+
 	Context("Module IaC Scan", Ordered, func() {
 		const (
-			scanVersionName = "terraform-aws-s3-bucket-4.3.0"
+			scanVersionName = "terraform-aws-s3-bucket-4-3-0"
 			scanModuleName  = "terraform-aws-s3-bucket"
 			scanVersion     = "4.3.0"
 			scanRepoOwner   = "terraform-aws-modules"
