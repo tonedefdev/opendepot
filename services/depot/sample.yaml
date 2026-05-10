@@ -1,7 +1,7 @@
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
-  name: my-team-depot-example
+  name: my-team-depot
   namespace: defdevio
 spec:
   global:
