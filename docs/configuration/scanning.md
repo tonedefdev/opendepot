@@ -197,12 +197,12 @@ See [GitHub Authentication](github-auth.md) for instructions on creating the `op
 
 | Value | Default | Description |
 |---|---|---|
-| `scanning.enabled` | `false` | Enable Trivy vulnerability scanning for provider artifacts and module IaC |
+| `scanning.enabled` | `false` | Enable Trivy-based scanning. Switches the version-controller to the `-scanning` image variant and activates module IaC scanning. No PVC or CronJob is created at this level |
+| `scanning.providerScanning` | `false` | Enable provider binary and source scanning. Requires `scanning.enabled=true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume |
 | `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path inside the version-controller container for the Trivy DB cache |
-| `scanning.offline` | `true` | Pass `--offline-scan` to Trivy. Prevents network calls during scans |
-| `scanning.blockOnCritical` | `false` | Halt provider reconciliation when CRITICAL findings are present |
-| `scanning.blockOnHigh` | `false` | Halt provider reconciliation when HIGH findings are present |
-| `scanning.scanModules` | `false` | Enable Trivy IaC scanning for module version archives (requires `scanning.enabled=true`) |
+| `scanning.offline` | `true` | Pass `--offline-scan` to Trivy. Prevents network calls during scans. Only applies to provider scanning |
+| `scanning.blockOnCritical` | `false` | Halt reconciliation when CRITICAL findings are present (modules or providers) |
+| `scanning.blockOnHigh` | `false` | Halt reconciliation when HIGH findings are present (modules or providers) |
 | `scanning.cache.storageClassName` | `""` | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades |
 | `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for the Trivy cache PVC |
 | `scanning.cache.size` | `1Gi` | Size of the Trivy DB cache PVC |

@@ -366,21 +366,21 @@ This step shows Trivy scanning in action against the module from Step 4 and, if 
 
 **Step 9a: Enable scanning**
 
-Kind uses a single-node cluster, so `ReadWriteOnce` access mode and the default storage class are sufficient. Set `offline=false` so Trivy downloads the vulnerability database directly rather than waiting for the CronJob to complete on a fresh cluster:
+Setting `scanning.enabled=true` activates module IaC scanning with no additional infrastructure — the version-controller automatically uses the `-scanning` image variant. To also enable provider binary and source scanning (which needs the Trivy DB PVC and CronJob), set `scanning.providerScanning=true`. Kind uses a single-node cluster, so `ReadWriteOnce` access mode and the default storage class are sufficient. Set `offline=false` so Trivy downloads the vulnerability database directly rather than waiting for the CronJob to complete on a fresh cluster:
 
 ```bash
 helm upgrade opendepot opendepot/opendepot \
   -n opendepot-system \
   --reuse-values \
   --set scanning.enabled=true \
+  --set scanning.providerScanning=true \
   --set scanning.offline=false \
   --set scanning.cache.accessMode=ReadWriteOnce \
-  --set scanning.scanModules=true \
   --wait
 ```
 
 !!! note
-    `scanning.offline=false` is a convenience for local development. In production, leave `offline=true` (the default) and rely on the `trivy-db-updater` CronJob to keep the database current.
+    `scanning.offline=false` is a convenience for local development. In production, leave `offline=true` (the default) and rely on the `trivy-db-updater` CronJob to keep the database current. `scanning.offline` only applies to provider scanning — module IaC scanning uses bundled config rules and makes no network calls.
 
 **Step 9b: Trigger a module scan**
 
