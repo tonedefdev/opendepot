@@ -94,14 +94,3 @@ var _ = AfterSuite(func() {
 	)
 	_, _ = utils.Run(cmd)
 })
-
-// splitImageRef splits an image reference "repo:tag" into its components.
-// If no tag is present, "latest" is returned as the tag.
-func splitImageRef(ref string) (repo, tag string) {
-	for i := len(ref) - 1; i >= 0; i-- {
-		if ref[i] == ':' {
-			return ref[:i], ref[i+1:]
-		}
-	}
-	return ref, "latest"
-}

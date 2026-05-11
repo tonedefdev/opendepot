@@ -74,7 +74,7 @@ Follow these patterns exactly as they exist in the codebase:
 - CRD types live in `api/v1alpha1/` — never define new types elsewhere
 - Storage backends are in `pkg/storage/`
 - GitHub integration is in `pkg/github/`
-- Test utilities are in `pkg/testutils/`
+- Test utilities are in `pkg/testutils/` — all shared e2e helpers (`NeedsRebuild`, `ComputeBuildContextHash`, `SplitImageRef`, etc.) MUST live here; never duplicate them per-suite
 
 **Testing**:
 - Tests use Ginkgo v2 (`Describe`, `Context`, `It`, `BeforeEach`, `AfterEach`)

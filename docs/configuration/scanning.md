@@ -10,7 +10,10 @@ tags:
 
 # Vulnerability Scanning
 
-OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts and module archives. When enabled, the Version controller runs scans automatically during reconciliation and stores findings directly on the Kubernetes resources.
+OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts and module archives. Scanning is split into two tiers:
+
+- **Module IaC scanning** — enabled by `scanning.enabled: true`. Detects HCL misconfigurations in module archives using Trivy's bundled config rules. Requires no external infrastructure. Setting this flag automatically switches the version-controller to the `-scanning` image variant, which bundles the Trivy binary.
+- **Provider scanning** — enabled by `scanning.providerScanning: true` (requires `scanning.enabled: true`). Scans provider binaries and source dependencies against the Trivy vulnerability database. Requires a shared PersistentVolumeClaim and a CronJob to keep the database current.
 
 ## Provider Scanning
 
@@ -39,25 +42,48 @@ For each module version, the Version controller runs an IaC scan on the extracte
 
 Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE identifier.
 
-!!! note
-    Module IaC scanning does **not** require the Trivy vulnerability database (the CronJob or PVC). Config-class rules are bundled in the Trivy binary itself. You can enable module scanning without setting up the DB infrastructure.
-
 See [Consuming Modules](../guides/modules.md#vulnerability-scanning) for examples of reading scan results.
+
+## Scanning Image Variant
+
+When `scanning.enabled: true`, the Helm chart automatically selects the version-controller image tagged with the `-scanning` suffix (e.g. `0.2.7-scanning`). This variant is built from the same Dockerfile as the standard image using the `INCLUDE_TRIVY=true` build argument, which copies the Trivy binary into the final image. The standard image (`0.2.7`) does not include Trivy, keeping it lean for installations that do not require any scanning.
 
 ## Prerequisites
 
-Scanning requires a shared PersistentVolumeClaim for the Trivy vulnerability database and a CronJob that keeps it up to date. Both are created automatically when `scanning.enabled` is set to `true`.
+Provider scanning requires a shared PersistentVolumeClaim for the Trivy vulnerability database and a CronJob that keeps it up to date. Both are created automatically when `scanning.providerScanning` is set to `true`.
 
 The PVC must use a `StorageClass` that supports `ReadWriteMany` access so that the `trivy-db-updater` CronJob and the version-controller pod can mount it simultaneously. For single-node environments such as Kind, `ReadWriteOnce` with the default storage class is sufficient.
 
 !!! note
-    The Trivy DB (PVC + CronJob) is only required for **provider** binary and source scans. Module IaC scanning uses config rules bundled in the Trivy binary and works without a populated DB cache.
+    The Trivy DB (PVC + CronJob) is only required for provider binary and source scans. Module IaC scanning uses config rules bundled in the Trivy binary and works without any DB infrastructure — just set `scanning.enabled: true`.
 
-## Enabling Scanning
+## Enabling Module IaC Scanning
+
+To enable lightweight module scanning with no additional infrastructure:
 
 ```yaml
 scanning:
   enabled: true
+  blockOnCritical: false
+  blockOnHigh: false
+```
+
+Apply via Helm upgrade:
+
+```bash
+helm upgrade opendepot opendepot/opendepot \
+  --namespace opendepot-system \
+  --set scanning.enabled=true
+```
+
+## Enabling Provider Scanning
+
+To enable full provider binary and source scanning alongside module IaC scanning:
+
+```yaml
+scanning:
+  enabled: true
+  providerScanning: true
   blockOnCritical: false
   blockOnHigh: false
   cache:
@@ -72,6 +98,7 @@ Apply via Helm upgrade:
 helm upgrade opendepot opendepot/opendepot \
   --namespace opendepot-system \
   --set scanning.enabled=true \
+  --set scanning.providerScanning=true \
   --set scanning.cache.storageClassName=efs-sc
 ```
 
@@ -91,13 +118,16 @@ scanning:
 
 ## Offline Mode
 
-By default, scanning runs in offline mode (`scanning.offline: true`). Trivy reads the vulnerability database from the shared PVC populated by the `trivy-db-updater` CronJob and makes no outbound network calls during a scan. This is the recommended configuration for production clusters.
+By default, provider scanning runs in offline mode (`scanning.offline: true`). Trivy reads the vulnerability database from the shared PVC populated by the `trivy-db-updater` CronJob and makes no outbound network calls during a scan. This is the recommended configuration for production clusters.
 
 Set `scanning.offline: false` only if you want Trivy to download the database directly at scan time instead of relying on the CronJob. This requires the version-controller pod to have egress access to `ghcr.io`.
 
+!!! note
+    `scanning.offline` only applies to provider scanning. Module IaC scanning uses bundled config rules and makes no network calls regardless of this setting.
+
 ## Trivy DB Updater CronJob
 
-The `trivy-db-updater` CronJob runs `trivy image --download-db-only` on a schedule to refresh the local vulnerability database cache. By default it runs daily at 02:00 UTC.
+The `trivy-db-updater` CronJob runs `trivy image --download-db-only` on a schedule to refresh the local vulnerability database cache. It is only created when `scanning.providerScanning: true`. By default it runs daily at 02:00 UTC.
 
 ```yaml
 scanning:
@@ -167,12 +197,12 @@ See [GitHub Authentication](github-auth.md) for instructions on creating the `op
 
 | Value | Default | Description |
 |---|---|---|
-| `scanning.enabled` | `false` | Enable Trivy vulnerability scanning for provider artifacts and module IaC |
+| `scanning.enabled` | `false` | Enable Trivy-based scanning. Switches the version-controller to the `-scanning` image variant and activates module IaC scanning. No PVC or CronJob is created at this level |
+| `scanning.providerScanning` | `false` | Enable provider binary and source scanning. Requires `scanning.enabled=true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume |
 | `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path inside the version-controller container for the Trivy DB cache |
-| `scanning.offline` | `true` | Pass `--offline-scan` to Trivy. Prevents network calls during scans |
-| `scanning.blockOnCritical` | `false` | Halt provider reconciliation when CRITICAL findings are present |
-| `scanning.blockOnHigh` | `false` | Halt provider reconciliation when HIGH findings are present |
-| `scanning.scanModules` | `false` | Enable Trivy IaC scanning for module version archives (requires `scanning.enabled=true`) |
+| `scanning.offline` | `true` | Pass `--offline-scan` to Trivy. Prevents network calls during scans. Only applies to provider scanning |
+| `scanning.blockOnCritical` | `false` | Halt reconciliation when CRITICAL findings are present (modules or providers) |
+| `scanning.blockOnHigh` | `false` | Halt reconciliation when HIGH findings are present (modules or providers) |
 | `scanning.cache.storageClassName` | `""` | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades |
 | `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for the Trivy cache PVC |
 | `scanning.cache.size` | `1Gi` | Size of the Trivy DB cache PVC |

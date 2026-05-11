@@ -31,14 +31,22 @@ jobs:
         include:
           - service: depot-controller
             dockerfile: services/depot/Dockerfile
+            buildArgs: ""
           - service: module-controller
             dockerfile: services/module/Dockerfile
+            buildArgs: ""
           - service: provider-controller
             dockerfile: services/provider/Dockerfile
+            buildArgs: ""
           - service: server
             dockerfile: services/server/Dockerfile
+            buildArgs: ""
           - service: version-controller
             dockerfile: services/version/Dockerfile
+            buildArgs: ""
+          - service: version-controller-scanning
+            dockerfile: services/version/Dockerfile
+            buildArgs: "INCLUDE_TRIVY=true"
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +68,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          build-args: ${{ matrix.buildArgs }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -93,9 +102,11 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }} module-controller:e2e-test
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -118,7 +129,7 @@ jobs:
 
       - name: Run module e2e tests
         working-directory: services/module
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
 
   e2e-provider:
     name: Provider controller e2e
@@ -150,9 +161,11 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }} provider-controller:e2e-test
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -175,7 +188,7 @@ jobs:
 
       - name: Run provider e2e tests
         working-directory: services/provider
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
 
   e2e-depot:
     name: Depot controller e2e
@@ -311,8 +324,10 @@ jobs:
       - name: Pull e2e images
         run: |
           docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
           docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
           docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
+          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
           docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
 
       - name: Install kind
@@ -330,4 +345,4 @@ jobs:
 
       - name: Run version e2e tests
         working-directory: services/version
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
+        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m

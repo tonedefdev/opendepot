@@ -129,9 +129,9 @@ var _ = BeforeSuite(func() {
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	depotRepo, depotTag := splitImageRef(projectImage)
-	versionRepo, versionTag := splitImageRef(versionImage)
-	serverRepo, serverTag := splitImageRef(serverImage)
+	depotRepo, depotTag := utils.SplitImageRef(projectImage)
+	versionRepo, versionTag := utils.SplitImageRef(versionImage)
+	serverRepo, serverTag := utils.SplitImageRef(serverImage)
 
 	cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 		"--install",
@@ -168,13 +168,4 @@ var _ = AfterSuite(func() {
 	_, _ = utils.Run(cmd)
 })
 
-// splitImageRef splits an image reference "repo:tag" into its components.
-// If no tag is present, "latest" is returned as the tag.
-func splitImageRef(ref string) (repo, tag string) {
-	for i := len(ref) - 1; i >= 0; i-- {
-		if ref[i] == ':' {
-			return ref[:i], ref[i+1:]
-		}
-	}
-	return ref, "latest"
-}
+

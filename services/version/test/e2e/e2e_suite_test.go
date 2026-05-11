@@ -39,6 +39,11 @@ var (
 		return "version-controller:e2e-test"
 	}()
 
+	// projectScanningImage is the scanning variant of the version controller image
+	// (built with INCLUDE_TRIVY=true). The Helm chart selects this tag automatically
+	// when scanning.enabled=true by appending "-scanning" to the base tag.
+	projectScanningImage = "version-controller:e2e-test-scanning"
+
 	// serverImage is the server image to deploy for e2e tests.
 	serverImage = "server:e2e-test"
 )
@@ -59,35 +64,78 @@ var _ = BeforeSuite(func() {
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", projectImage).Output(); inspectErr != nil {
-		By("building the version controller image")
-		buildCmd := exec.Command("docker", "build",
-			"-t", projectImage,
-			"-f", "services/version/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(buildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
-	} else {
-		By("version controller image already present, skipping build")
-	}
+	if os.Getenv("SKIP_IMAGE_BUILD") != "true" {
+		versionHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/version",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute version controller build hash")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
-		By("building the server image")
-		serverBuildCmd := exec.Command("docker", "build",
-			"-t", serverImage,
-			"-f", "services/server/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(serverBuildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+		if utils.NeedsRebuild(projectImage, versionHash) {
+			By("building the version controller image (context changed or image absent)")
+			buildCmd := exec.Command("docker", "build",
+				"-t", projectImage,
+				"--label", "opendepot.build.hash="+versionHash,
+				"-f", "services/version/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(buildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+		} else {
+			By("version controller image up-to-date, skipping build")
+		}
+
+		if utils.NeedsRebuild(projectScanningImage, versionHash) {
+			By("building the version controller scanning image (context changed or image absent)")
+			scanningBuildCmd := exec.Command("docker", "build",
+				"-t", projectScanningImage,
+				"--label", "opendepot.build.hash="+versionHash,
+				"--build-arg", "INCLUDE_TRIVY=true",
+				"-f", "services/version/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(scanningBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller scanning image")
+		} else {
+			By("version controller scanning image up-to-date, skipping build")
+		}
+
+		serverHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/server",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute server build hash")
+
+		if utils.NeedsRebuild(serverImage, serverHash) {
+			By("building the server image (context changed or image absent)")
+			serverBuildCmd := exec.Command("docker", "build",
+				"-t", serverImage,
+				"--label", "opendepot.build.hash="+serverHash,
+				"-f", "services/server/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(serverBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+		} else {
+			By("server image up-to-date, skipping build")
+		}
 	} else {
-		By("server image already present, skipping build")
+		By("SKIP_IMAGE_BUILD=true: skipping image builds, using pre-built images")
 	}
 
 	By("loading the version controller image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the version controller image into Kind")
+
+	By("loading the version controller scanning image on Kind")
+	err = utils.LoadImageToKindClusterWithName(projectScanningImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the version controller scanning image into Kind")
 
 	By("loading the server image on Kind")
 	err = utils.LoadImageToKindClusterWithName(serverImage)
@@ -107,15 +155,14 @@ var _ = BeforeSuite(func() {
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	versionRepo, versionTag := splitImageRef(projectImage)
-	serverRepo, serverTag := splitImageRef(serverImage)
+	versionRepo, versionTag := utils.SplitImageRef(projectImage)
+	serverRepo, serverTag := utils.SplitImageRef(serverImage)
 
 	cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 		"--install",
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
-		"--set", "global.image.tag=",
 		"--set", "depot.enabled=false",
 		"--set", "provider.enabled=false",
 		"--set", "module.enabled=false",
@@ -126,9 +173,6 @@ var _ = BeforeSuite(func() {
 		"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 		"--set", "storage.filesystem.enabled=true",
 		"--set", "storage.filesystem.hostPath=/data/modules",
-		"--set", "scanning.enabled=true",
-		"--set", "scanning.scanModules=true",
-		"--set", "scanning.cache.accessMode=ReadWriteOnce",
 		"--set", "version.zapLogLevel=5",
 		"--wait",
 		"--timeout", "3m",
@@ -146,18 +190,4 @@ var _ = AfterSuite(func() {
 	_, _ = utils.Run(cmd)
 })
 
-// splitImageRef splits an image reference "repo:tag" into its components.
-// If no tag is present, "latest" is returned as the tag.
-func splitImageRef(ref string) (repo, tag string) {
-	lastColon := -1
-	for i := len(ref) - 1; i >= 0; i-- {
-		if ref[i] == ':' {
-			lastColon = i
-			break
-		}
-	}
-	if lastColon < 0 {
-		return ref, "latest"
-	}
-	return ref[:lastColon], ref[lastColon+1:]
-}
+

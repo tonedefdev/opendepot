@@ -258,6 +258,75 @@ spec:
 		})
 	})
 
+	Context("Scanning Disabled", Ordered, func() {
+		const (
+			noScanVersionName = "no-scan-s3-bucket-4-3-0"
+			noScanModule      = "terraform-aws-s3-bucket"
+			noScanVersion     = "4.3.0"
+			noScanRepoOwner   = "terraform-aws-modules"
+			noScanRepoURL     = "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
+			noScanStorageDir  = "/data/modules"
+		)
+
+		AfterAll(func() {
+			By("removing the no-scan Version CR")
+			cmd := exec.Command("kubectl", "delete", "version", noScanVersionName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should sync a module Version CR and produce no scan findings when scanning is disabled", func() {
+			By("applying a module Version CR")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: %q
+  moduleConfigRef:
+    name: %q
+    repoOwner: %q
+    repoUrl: %q
+    githubClientConfig:
+      useAuthenticatedClient: false
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, noScanVersionName, namespace, noScanVersion, noScanModule, noScanRepoOwner, noScanRepoURL, noScanStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "no-scan-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply no-scan Version CR")
+
+			By("waiting for the Version CR to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", noScanVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"),
+					"expected Version CR to reach synced=true")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting that status.sourceScan is absent when scanning is disabled")
+			cmd = exec.Command("kubectl", "get", "version", noScanVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.sourceScan}",
+			)
+			sourceScan, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sourceScan).To(BeEmpty(),
+				"expected status.sourceScan to be absent when scanning is disabled")
+		})
+	})
+
 	Context("Module IaC Scan", Ordered, func() {
 		const (
 			scanVersionName = "terraform-aws-s3-bucket-4-3-0"
@@ -273,6 +342,29 @@ spec:
 			cmd := exec.Command("kubectl", "delete", "version", scanVersionName,
 				"-n", namespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
+		})
+
+		BeforeAll(func() {
+			By("upgrading Helm release to enable scanning")
+			chartPath, err := utils.GetChartPath()
+			ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+			// Use the base image ref — the Helm ternary appends "-scanning" automatically
+			// when scanning.enabled=true, so version-controller:e2e-test becomes
+			// version-controller:e2e-test-scanning.
+			baseRepo, baseTag := utils.SplitImageRef(projectImage)
+			cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", fmt.Sprintf("version.image.repository=%s", baseRepo),
+				"--set", fmt.Sprintf("version.image.tag=%s", baseTag),
+				"--set", "scanning.enabled=true",
+				"--set", "scanning.cache.accessMode=ReadWriteOnce",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, err = utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release to enable scanning")
 		})
 
 		It("should produce IaC findings for a module with known misconfigurations", func() {

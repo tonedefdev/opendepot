@@ -159,23 +159,29 @@ storage:
     # Size of the PersistentVolumeClaim (ignored when hostPath is set)
     size: 10Gi
 
-## Scanning configuration (Trivy-based provider vulnerability scanning)
+## Scanning configuration (Trivy-based vulnerability and IaC scanning)
 scanning:
-  # Enable Trivy security scanning for provider artifacts
+  # Enable Trivy-based scanning. When true, the version-controller automatically
+  # uses the image variant tagged with the -scanning suffix, which bundles the
+  # Trivy binary. Module IaC scanning (HCL misconfiguration detection) is active
+  # at this level — no PVC or CronJob infrastructure is required.
   enabled: false
-  # Mount path inside the version-controller container for the Trivy DB cache
+  # Enable provider binary and source scanning. Requires scanning.enabled=true.
+  # When true, creates the Trivy vulnerability DB PVC and the trivy-db-updater
+  # CronJob, and mounts the cache volume into the version-controller.
+  providerScanning: false
+  # Mount path inside the version-controller container for the Trivy DB cache.
+  # Only used when providerScanning is true.
   cacheMountPath: /var/cache/trivy
   # Pass --offline-scan to Trivy, preventing network calls during scans.
-  # Set to false only when you want Trivy to download the DB at scan time instead of
-  # relying on the pre-populated cache from the trivy-db-updater CronJob.
+  # Only relevant when providerScanning is true.
   offline: true
-  # Block provider reconciliation when CRITICAL vulnerabilities are found
+  # Block reconciliation when CRITICAL vulnerabilities are found (modules or providers).
   blockOnCritical: false
-  # Block provider reconciliation when HIGH vulnerabilities are found
+  # Block reconciliation when HIGH vulnerabilities are found (modules or providers).
   blockOnHigh: false
-  # Enable Trivy IaC scanning for module version archives (requires scanning.enabled=true)
-  scanModules: false
-  # PersistentVolumeClaim for the shared Trivy vulnerability database
+  # PersistentVolumeClaim for the shared Trivy vulnerability database.
+  # Only created when providerScanning is true.
   cache:
     # StorageClass must support ReadWriteMany so that scanner and updater pods can share it.
     # For single-node environments (e.g. Kind), ReadWriteOnce with the default storage class works.
@@ -185,7 +191,8 @@ scanning:
     accessMode: ReadWriteMany
     # Size of the Trivy DB cache PVC
     size: 1Gi
-  # CronJob that runs 'trivy image --download-db-only' daily to keep the offline DB current
+  # CronJob that runs 'trivy image --download-db-only' on a schedule to keep the offline DB current.
+  # Only created when providerScanning is true.
   dbUpdater:
     # Cron schedule for the Trivy DB update job (default: 02:00 UTC daily)
     schedule: "0 2 * * *"

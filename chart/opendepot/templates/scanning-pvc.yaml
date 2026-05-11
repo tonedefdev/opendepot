@@ -1,4 +1,4 @@
-{{- if .Values.scanning.enabled }}
+{{- if and .Values.scanning.enabled .Values.scanning.providerScanning }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

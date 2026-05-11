@@ -1,7 +1,7 @@
 ---
 description: "Use when: planning a new feature, designing a change, creating a spec, gathering requirements, breaking down work, clarifying scope, or starting implementation of anything in the OpenDepot project. Produces a structured implementation plan saved to session memory for the developer agent."
 name: "OpenDepot Planner"
-tools: [read, edit, agent, todo]
+tools: [read, search, web, vscode/memory]
 argument-hint: "Describe the feature or change you want to implement"
 ---
 
