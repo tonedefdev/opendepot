@@ -65,7 +65,6 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
 </div>
 
-
 ## How OpenDepot Compares
 
 | Feature                  | OpenDepot (OSS)         | HCP Terraform Registry      | JFrog Artifactory         | GitLab Terraform Registry | Harbor / OCI Registry      | Terrarium / Tapir / Hermit (OSS) |
