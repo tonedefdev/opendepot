@@ -9,9 +9,9 @@ tags:
 
 ## Why OpenDepot?
 
-Enterprise registries like JFrog Artifactory and HCP Terraform charge for features that should come standard — vulnerability scanning, automatic version discovery, and secure auth. They also bring heavyweight operational baggage: external databases, proprietary identity stores, and infrastructure your team has to maintain.
+There are several open-source Terraform/OpenTofu module registries. They're good projects, but they all share a common challenge: **authentication and authorization are bolted on**. Most require a separate database, API keys or OAuth flows, and user accounts outside your infrastructure platform.
 
-OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those features out of the box, delegates auth entirely to Kubernetes RBAC, and requires nothing beyond a Helm chart and a storage backend.
+OpenDepot delegates auth entirely to Kubernetes — the platform you're likely already running.
 
 <div class="grid cards" markdown>
 
@@ -65,28 +65,23 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
 </div>
 
-
 ## How OpenDepot Compares
 
-| Feature                  | OpenDepot (OSS)         | HCP Terraform Registry      | JFrog Artifactory         | GitLab Terraform Registry | Harbor / OCI Registry      | Terrarium / Tapir / Hermit (OSS) |
-|--------------------------|-------------------------|----------------------------|---------------------------|--------------------------|----------------------------|-----------------------------------|
-| **License**              | Apache 2.0 (Free, OSS)  | Commercial SaaS/Enterprise | Commercial (Paid)         | GitLab EE/CE (Mixed)     | Apache 2.0 (OSS)           | OSS (varies)                      |
-| **Auth**                 | Kubernetes RBAC         | HCP tokens, SSO            | Artifactory tokens, SSO   | GitLab users             | Registry users/OIDC         | API keys, basic auth              |
-| **Database Required**    | No (K8s API)            | SaaS-managed/PostgreSQL    | Yes (external DB)         | Yes                      | Yes                         | Yes                               |
-| **Deployment**           | Helm chart, K8s-native  | SaaS / Enterprise on-prem  | Docker/K8s/VM             | SaaS or self-hosted      | Docker/K8s                  | Docker/K8s                        |
-| **Self-healing**         | Yes (controller loop)   | Partial (SaaS-managed)     | No                        | No                       | No                          | No                                |
-| **Multi-cloud Storage**  | S3, Azure, GCS, FS      | SaaS-managed               | S3, Azure, GCS            | S3, GCS, Filesystem      | S3, GCS, Azure, Filesystem  | S3, GCS, Filesystem               |
-| **Version Discovery**    | Automatic (GitHub/HC)   | VCS-connected/manual       | Manual upload/API         | Manual/CI                | Manual/CI                   | Manual upload                     |
-| **Immutability**         | Checksum every reconcile| At upload only             | Repo-level flag           | At upload only           | At upload only              | At upload only                    |
-| **Air-gapped Support**   | Yes (FS + PVC)          | Enterprise only            | Yes                       | Yes                      | Yes                         | Yes                               |
-| **Vuln Scanning**        | Built-in (Trivy)        | No                         | Paid add-on (Xray)        | No                       | No                          | No                                |
-| **Pre-signed URLs**      | Yes (S3, GCS, Azure)    | No                         | Yes (CDN)                 | No                       | No                          | No                                |
-| **Provider Support**     | Yes                     | Yes                        | Yes                       | No                       | No                          | No (modules only)                 |
-| **Open Source**          | Yes                     | No                         | No                        | Partial                  | Yes                         | Yes                               |
-
+| Feature | OpenDepot | Terrareg | Tapir |
+|---------|----------|----------|-------|
+| Auth mechanism | Kubernetes RBAC + bearer tokens | API keys + SAML/OpenID Connect | API keys |
+| Database required | No (Kubernetes API is the datastore) | Yes (PostgreSQL/MySQL/SQLite) | Yes (MongoDB/PostgreSQL) |
+| Deployment model | Helm chart, runs on any Kubernetes cluster | Docker Compose or standalone | Docker Compose or standalone |
+| Self-healing | Yes (controller reconciliation loop) | No | No |
+| Multi-cloud storage | S3, Azure Blob, GCS, Filesystem | S3, Filesystem | S3, GCS, Filesystem |
+| Version discovery | Automatic via Depot (GitHub + HashiCorp Releases APIs) | Manual upload or API push | Manual upload or API push |
+| Immutability enforcement | Checksum validated every reconciliation | At upload time only | At upload time only |
+| Air-gapped support | Yes (filesystem backend + PVC) | Yes (filesystem) | Limited |
+| Vulnerability scanning | Built-in (Trivy — provider binary, source, and module IaC) | No | No |
+| Pre-signed download URLs | Yes (S3, GCS, Azure Blob — configurable per resource) | No | No |
 
 !!! tip
-    Enterprise registries charge for features OpenDepot ships for free — automatic version discovery, built-in vulnerability scanning, and Kubernetes-native auth with no external identity store. If you're already running Kubernetes, OpenDepot gives you all of that with no license fees, no extra infrastructure, and no extra attack surface.
+    If you're already running Kubernetes, OpenDepot gives you a registry where security, auth, and operations come free — no extra infrastructure, no extra accounts, no extra attack surface.
 
 ## How It Works
 
