@@ -1107,6 +1107,27 @@ server:
 				"providerResources [\"*\"] must not produce a 401")
 		})
 
+		It("should return 403 when providerResources contains a partial pattern that does not exactly match", func() {
+			// "aws*" is NOT a glob in providerResources — it is treated as a literal string.
+			// A request for provider type "aws" must not be allowed.
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{},
+				[]string{"aws*"},
+			)
+
+			providerURL := fmt.Sprintf("http://localhost:%d/opendepot/providers/v1/%s/aws/versions",
+				serverLocalPort, namespace)
+			req, err := http.NewRequest(http.MethodGet, providerURL, nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"partial pattern \"aws*\" must not be expanded as a glob; only the literal \"*\" allows all providers")
+		})
+
 		// First-match semantics: when multiple GroupBindings match the JWT groups,
 		// the first one in alphabetical-name order wins. If that binding denies the
 		// resource, the request is 403 even if a later binding would allow it.
