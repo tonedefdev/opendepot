@@ -72,6 +72,9 @@ Expected output:
 {"modules.v1":"/opendepot/modules/v1/"}
 ```
 
+!!! note
+    When OIDC authentication is enabled (see [OIDC Authentication](../configuration/oidc.md)), the response also includes a `login.v1` object with `authz`, `token`, and `grant_types` fields. The quickstart uses `anonymousAuth: true`, so `login.v1` is absent here.
+
 ## Step 4: Create a Test Module
 
 Apply a `Module` resource that pulls a small public module from GitHub:
@@ -145,7 +148,9 @@ OpenTofu has been successfully initialized!
 
 ## Step 6: (Optional) Test with Authentication
 
-To test OpenDepot's Kubernetes-native auth, redeploy with `anonymousAuth` disabled:
+OpenDepot supports three authentication modes: Kubernetes bearer tokens, base64-encoded kubeconfigs, and OIDC JWTs via Dex. See [Authenticating with OpenDepot](../authentication.md) for a full comparison.
+
+To test Kubernetes-native bearer-token auth, redeploy with `anonymousAuth` disabled:
 
 ```bash
 helm upgrade opendepot opendepot/opendepot \

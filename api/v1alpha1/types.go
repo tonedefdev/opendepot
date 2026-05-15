@@ -452,8 +452,64 @@ type FileSystemConfig struct {
 	DirectoryPath *string `json:"directoryPath,omitempty"`
 }
 
+// GroupBindingExprEnv is the variable environment exposed to GroupBinding expressions.
+type GroupBindingExprEnv struct {
+	Groups []string `expr:"groups"`
+}
+
+// GroupBindingSpec defines the desired state of GroupBinding.
+type GroupBindingSpec struct {
+	// Expression is an expr-lang boolean expression evaluated against the OIDC JWT groups claim.
+	// The only available variable is `groups` ([]string).
+	// Examples:
+	//   '"platform" in groups'
+	//   '"platform" in groups || "platform-readonly" in groups'
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Expression string `json:"expression"`
+
+	// ModuleResources is the list of glob patterns for Module resource names this binding grants access to.
+	// The * wildcard is supported (e.g. "terraform-aws-*").
+	// Empty or omitted means no modules are accessible.
+	// +optional
+	ModuleResources []string `json:"moduleResources,omitempty"`
+
+	// ProviderResources is the list of exact Provider resource names this binding grants access to.
+	// Empty or omitted means no providers are accessible.
+	// +optional
+	ProviderResources []string `json:"providerResources,omitempty"`
+}
+
+// GroupBindingStatus defines the observed state of GroupBinding.
+type GroupBindingStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Expression",type="string",JSONPath=".spec.expression"
+
+// GroupBinding is the Schema for the groupbindings API.
+type GroupBinding struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   GroupBindingSpec   `json:"spec,omitempty"`
+	Status GroupBindingStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// GroupBindingList contains a list of GroupBinding.
+type GroupBindingList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []GroupBinding `json:"items"`
+}
+
 func init() {
 	SchemeBuilder.Register(&Depot{}, &DepotList{})
+	SchemeBuilder.Register(&GroupBinding{}, &GroupBindingList{})
 	SchemeBuilder.Register(&Module{}, &ModuleList{})
 	SchemeBuilder.Register(&Provider{}, &ProviderList{})
 	SchemeBuilder.Register(&Version{}, &VersionList{})

@@ -56,6 +56,10 @@ spec:
         {{- else }}
         {{- required "server.oidc.issuerUrl is required when server.oidc.enabled=true and dex.enabled=false" nil }}
         {{- end }}
+        {{- if .Values.server.oidc.groupsClaim }}
+        - --oidc-groups-claim={{ .Values.server.oidc.groupsClaim }}
+        {{- end }}
+        - --namespace={{ .Values.global.namespace }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}

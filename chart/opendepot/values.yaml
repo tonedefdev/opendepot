@@ -107,6 +107,10 @@ server:
     # is blank. This value is written to a Secret — do not store it in plain text
     # in production; use an external secret operator instead.
     clientSecret: ""
+    # groupsClaim is the JWT claim name containing the OIDC groups.
+    # Only used when GroupBinding resources are deployed. Defaults to "groups".
+    # Change to "cognito:groups", "roles", etc. when using a non-standard IdP.
+    groupsClaim: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set

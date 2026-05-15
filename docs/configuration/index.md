@@ -43,4 +43,10 @@ Configure OpenDepot for your environment. All configuration is done through Helm
 
     Enable Trivy-based vulnerability scanning for provider binaries and source dependencies, with optional policy enforcement to block critical or high findings.
 
+- :material-shield-account: &nbsp;[__OIDC Authentication (Dex)__](oidc.md)
+
+    ---
+
+    Deploy Dex as a bundled OIDC identity provider to enable `tofu login` and single sign-on via Entra ID, Okta, GitHub, LDAP, and other upstream IdPs.
+
 </div>

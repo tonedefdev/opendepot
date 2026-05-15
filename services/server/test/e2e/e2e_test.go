@@ -685,16 +685,20 @@ server:
 				"exp": time.Now().Add(-1 * time.Hour).Unix(),
 				"iat": time.Now().Add(-2 * time.Hour).Unix(),
 			})
+
 			Expect(err).NotTo(HaveOccurred())
 			fakeSig := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("X", 256)))
 			expiredJWT := hdr + "." + base64.RawURLEncoding.EncodeToString(payloadBytes) + "." + fakeSig
 
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
+
 			req.Header.Set("Authorization", "Bearer "+expiredJWT)
 			resp, err := http.DefaultClient.Do(req)
+
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
+
 			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
 				"an expired JWT must produce a 401")
 		})
@@ -702,10 +706,13 @@ server:
 		It("should return a non-401 response with a valid Dex JWT", func() {
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
+
 			req.Header.Set("Authorization", "Bearer "+oidcJWT)
 			resp, err := http.DefaultClient.Do(req)
+
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
+
 			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
 				"a valid Dex JWT must not produce a 401")
 		})
@@ -726,6 +733,340 @@ server:
 			Expect(ok).To(BeTrue(), "login.v1 must be a JSON object")
 			Expect(loginV1["authz"]).NotTo(BeEmpty(), "login.v1.authz must be a non-empty URL")
 			Expect(loginV1["token"]).NotTo(BeEmpty(), "login.v1.token must be a non-empty URL")
+		})
+	})
+
+	// Context: OIDC auth mode with GroupBinding
+	//
+	// These specs verify application-level access control via GroupBinding CRDs when
+	// OIDC auth mode is active. The server is deployed with --oidc-groups-claim=email
+	// so that the Dex-issued JWT's "email" claim is treated as the groups value —
+	// this avoids the need for a groups-capable upstream connector while still
+	// exercising the full GroupBinding evaluation path.
+	Context("OIDC auth mode with GroupBinding", Ordered, func() {
+		var (
+			pfCancelServer context.CancelFunc
+			pfCancelDex    context.CancelFunc
+			oidcJWT        string
+		)
+
+		const (
+			gbDexLocalPort     = 15557
+			gbTestClientSecret = "test-client-secret-gb-e2e"
+			gbTestUserEmail    = "gb-test@example.com"
+			gbTestUserPassword = "gbtestpassword"
+			gbTestUserID       = "gb-test-user-oidc-e2e"
+			// groupBindingName is the name used for the test GroupBinding resource.
+			groupBindingName = "e2e-test-groupbinding"
+		)
+
+		// gbStartDexPortForward starts a self-restarting port-forward to the Dex service
+		// and waits until the OIDC discovery endpoint is reachable.
+		gbStartDexPortForward := func(localPort int) context.CancelFunc {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+						"-n", namespace,
+						"svc/opendepot-dex",
+						fmt.Sprintf("%d:5556", localPort),
+					)
+					cmd.Stdout = GinkgoWriter
+					cmd.Stderr = GinkgoWriter
+					_ = cmd.Run()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}()
+			Eventually(func() error {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", localPort))
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				return nil
+			}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for Dex port-forward")
+			return cancel
+		}
+
+		// gbAcquireDexToken performs an ROPC grant against Dex and returns the raw ID token.
+		gbAcquireDexToken := func(localPort int, clientSecret, username, password string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", localPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {username},
+				"password":      {password},
+				"scope":         {"openid email"},
+				"client_id":     {"opendepot"},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		// applyGroupBinding creates or replaces a GroupBinding with the given expression
+		// and optional moduleResources / providerResources patterns.
+		applyGroupBinding := func(name, expression string, moduleResources, providerResources []string) {
+			mrYAML := ""
+			for _, m := range moduleResources {
+				mrYAML += fmt.Sprintf("    - %q\n", m)
+			}
+			prYAML := ""
+			for _, p := range providerResources {
+				prYAML += fmt.Sprintf("    - %q\n", p)
+			}
+			manifest := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  expression: %q
+  moduleResources:
+%s  providerResources:
+%s`, name, namespace, expression, mrYAML, prYAML)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err := utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "failed to apply GroupBinding %s", name)
+		}
+
+		// deleteGroupBinding deletes the named GroupBinding, ignoring not-found errors.
+		deleteGroupBinding := func(name string) {
+			cmd := exec.Command("kubectl", "delete", "groupbinding", name, "-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		}
+
+		BeforeAll(func() {
+			By("uninstalling previous Helm release to avoid Dex server-side apply conflicts")
+			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
+				"--namespace", namespace, "--ignore-not-found")
+			_, _ = utils.Run(uninstallCmd)
+
+			By("generating bcrypt hash for the test password")
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbTestUserPassword), 10)
+			Expect(err).NotTo(HaveOccurred())
+			passwordHash := string(hashBytes)
+
+			By("writing Dex + GroupBinding e2e values file")
+			dexValues := fmt.Sprintf(`
+dex:
+  enabled: true
+  config:
+    issuer: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+        - password
+      skipApprovalScreen: true
+      passwordConnector: local
+    staticPasswords:
+      - email: %q
+        hash: %q
+        username: gbtestuser
+        userID: %q
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10010
+    connectors: []
+server:
+  oidc:
+    enabled: true
+    clientSecret: %q
+    groupsClaim: email
+`, gbTestUserEmail, passwordHash, gbTestUserID, gbTestClientSecret)
+
+			valuesFile := filepath.Join(GinkgoT().TempDir(), "gb-e2e-values.yaml")
+			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
+
+			By("deploying server with OIDC auth mode, Dex enabled, and --oidc-groups-claim=email")
+			deployServer(
+				"--set", "server.anonymousAuth=false",
+				"--set", "server.useBearerToken=false",
+				"-f", valuesFile,
+				"--timeout", "10m",
+			)
+
+			pfCancelServer = startPortForward()
+			pfCancelDex = gbStartDexPortForward(gbDexLocalPort)
+
+			By("acquiring a valid Dex JWT via ROPC")
+			Eventually(func() error {
+				token, err := gbAcquireDexToken(gbDexLocalPort, gbTestClientSecret, gbTestUserEmail, gbTestUserPassword)
+				if err != nil {
+					return err
+				}
+				oidcJWT = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire Dex JWT via ROPC")
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancelServer)
+			stopPortForward(pfCancelDex)
+			deleteGroupBinding(groupBindingName)
+		})
+
+		It("should return 403 with a valid JWT when no GroupBinding matches", func() {
+			// No GroupBinding exists yet — findGroupBinding should return no match → 403.
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a valid JWT with no matching GroupBinding must produce a 403")
+		})
+
+		It("should return non-403 when a matching GroupBinding allows all modules", func() {
+			// The email claim is used as the groups value; the expression checks for the user's email.
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{"*"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"a valid JWT with a matching GroupBinding and wildcard moduleResources must not produce a 403")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"a valid JWT with a matching GroupBinding must not produce a 401")
+		})
+
+		It("should return 403 when the module name does not match any moduleResources pattern", func() {
+			// Replace the GroupBinding with one that has a narrower module pattern
+			// that does NOT match "nonexistent-test-module".
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{"only-this-exact-module"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"module name that does not match moduleResources must produce a 403")
+		})
+
+		It("should allow access when module name matches a glob pattern in moduleResources", func() {
+			// "nonexistent-*" should match "nonexistent-test-module".
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{"nonexistent-*"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"a glob moduleResources pattern matching the module must not produce a 403")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"a glob moduleResources pattern matching the module must not produce a 401")
+		})
+
+		It("should return 403 when a GroupBinding has an invalid expression", func() {
+			// An invalid expression should be skipped (Warn logged) and no binding matches → 403.
+			applyGroupBinding(groupBindingName,
+				"this is [[ not valid expr",
+				[]string{"*"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"an invalid GroupBinding expression must be skipped and produce a 403 (not a 500)")
+		})
+
+		It("should return 403 for a provider endpoint when the provider is not in providerResources", func() {
+			// Allow the expression to match but restrict providerResources to something
+			// that does not match the provider type "aws".
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{},
+				[]string{"only-this-provider"},
+			)
+
+			providerURL := fmt.Sprintf("http://localhost:%d/opendepot/providers/v1/%s/aws/versions",
+				serverLocalPort, namespace)
+			req, err := http.NewRequest(http.MethodGet, providerURL, nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"provider type not in providerResources must produce a 403")
+		})
+
+		It("should allow provider access when provider type matches providerResources", func() {
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{},
+				[]string{"aws"},
+			)
+
+			providerURL := fmt.Sprintf("http://localhost:%d/opendepot/providers/v1/%s/aws/versions",
+				serverLocalPort, namespace)
+			req, err := http.NewRequest(http.MethodGet, providerURL, nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"provider type matching providerResources must not produce a 403")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"provider type matching providerResources must not produce a 401")
 		})
 	})
 })

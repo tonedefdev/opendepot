@@ -66,6 +66,7 @@ nav:
     - TLS: configuration/tls.md
     - GPG Signing: configuration/gpg.md
     - Vulnerability Scanning: configuration/scanning.md
+    - OIDC Authentication: configuration/oidc.md
   - Guides:
     - guides/index.md
     - GitOps with Argo CD: guides/gitops.md

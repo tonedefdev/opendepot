@@ -18,6 +18,7 @@ import (
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"github.com/expr-lang/expr"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-chi/chi/v5"
@@ -34,11 +35,13 @@ import (
 )
 
 var (
-	logger                  *slog.Logger
-	opendepotAnonymousAuth  *bool
-	opendepotUseBearerToken *bool
-	opendepotOIDCIssuerURL  *string
-	opendepotOIDCClientID   *string
+	logger                   *slog.Logger
+	opendepotAnonymousAuth   *bool
+	opendepotUseBearerToken  *bool
+	opendepotOIDCIssuerURL   *string
+	opendepotOIDCClientID    *string
+	opendepotOIDCGroupsClaim *string
+	opendepotServerNamespace *string
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -58,6 +61,8 @@ func main() {
 	opendepotUseBearerToken = flag.Bool("use-bearer-token", false, "when true use a bearer token instead of a base64 encoded kubeconfig to authenticate with the kubernetes API server")
 	opendepotOIDCIssuerURL = flag.String("oidc-issuer-url", "", "OIDC issuer URL (e.g. https://dex.example.com/dex); when set together with --oidc-client-id the server validates OIDC JWTs and uses its own service account for Kubernetes API calls")
 	opendepotOIDCClientID = flag.String("oidc-client-id", "", "OIDC client ID; must be set together with --oidc-issuer-url")
+	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
+	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
@@ -364,10 +369,21 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, err := getKubeClientFromRequest(w, r)
+	clientset, binding, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
+	}
+
+	if binding != nil {
+		name := chi.URLParam(r, "name")
+		namespace := chi.URLParam(r, "namespace")
+		if !isResourceAllowed(binding, "module", name) {
+			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
 	}
 
 	moduleVersion, err := getModuleVersion(clientset, w, r)
@@ -660,33 +676,70 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 
 // getKubeClientFromRequest creates a Kubernetes clientset based on the configured auth mode.
 // When anonymous auth is enabled, uses the server's in-cluster service account.
-// When OIDC mode is enabled, validates the Bearer JWT and uses the server's SA.
+// When OIDC mode is enabled, validates the Bearer JWT, looks up the matching GroupBinding,
+// and returns the server's SA clientset together with the binding for resource authorization.
 // When bearer token mode is enabled, extracts the token from the Authorization header.
 // Otherwise, extracts a base64-encoded kubeconfig from the Authorization header.
-func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, error) {
+// The returned GroupBinding is non-nil only in OIDC mode.
+func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, error) {
 	if *opendepotAnonymousAuth {
-		return generateKubeClient(nil, nil, false)
+		cs, err := generateKubeClient(nil, nil, false)
+		return cs, nil, err
 	}
 
 	if oidcVerifier != nil {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, fmt.Errorf("missing Authorization header")
+			return nil, nil, fmt.Errorf("missing Authorization header")
 		}
 
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, fmt.Errorf("malformed Authorization header scheme")
+			return nil, nil, fmt.Errorf("malformed Authorization header scheme")
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		if _, err := oidcVerifier.Verify(r.Context(), rawToken); err != nil {
+		idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
+		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, fmt.Errorf("OIDC token verification failed: %w", err)
+			return nil, nil, fmt.Errorf("OIDC token verification failed: %w", err)
 		}
 
-		return generateKubeClient(nil, nil, false)
+		var claims map[string]interface{}
+		if err := idToken.Claims(&claims); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return nil, nil, fmt.Errorf("failed to extract JWT claims: %w", err)
+		}
+
+		groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+
+		cs, err := generateKubeClient(nil, nil, false)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return nil, nil, err
+		}
+
+		// GroupBinding enforcement is only active when the JWT carries a groups claim.
+		// If the claim is absent the request is still authenticated via OIDC but no
+		// fine-grained resource access control is applied (backward-compatible mode).
+		if len(groups) == 0 {
+			logger.Debug("JWT verified (no groups claim)", "subject", idToken.Subject)
+			return cs, nil, nil
+		}
+
+		logger.Debug("JWT verified", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim, "groups", groups)
+
+		binding, err := findGroupBinding(r.Context(), cs, groups)
+		if err != nil {
+			logger.Warn("no GroupBinding matched", "subject", idToken.Subject, "groups", groups)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return nil, nil, fmt.Errorf("no GroupBinding matched for groups %v: %w", groups, err)
+		}
+
+		logger.Info("GroupBinding matched", "subject", idToken.Subject, "groups", groups, "binding_name", binding.Name, "expression", binding.Spec.Expression)
+
+		return cs, binding, nil
 	}
 
 	var kubeconfig []byte
@@ -696,18 +749,103 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, fmt.Errorf("missing Authorization header")
+			return nil, nil, fmt.Errorf("missing Authorization header")
 		}
 		bearerToken = strings.TrimPrefix(authHeader, "Bearer ")
 	} else {
 		config, err := extractKubeconfig(w, r)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		kubeconfig = config
 	}
 
-	return generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
+	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
+	return cs, nil, err
+}
+
+// extractGroupsClaim reads the named claim from a JWT claims map and returns it as a []string.
+// Handles both []interface{} (array claim) and string (single-value claim) representations.
+func extractGroupsClaim(claims map[string]interface{}, claimName string) ([]string, error) {
+	raw, ok := claims[claimName]
+	if !ok {
+		return nil, fmt.Errorf("claim %q not present", claimName)
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		groups := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("claim %q contains non-string value", claimName)
+			}
+			groups = append(groups, s)
+		}
+		return groups, nil
+	case string:
+		return []string{v}, nil
+	default:
+		return nil, fmt.Errorf("claim %q has unexpected type %T", claimName, raw)
+	}
+}
+
+// findGroupBinding lists all GroupBindings in the server namespace and returns the first one
+// whose expr-lang expression evaluates to true for the provided groups.
+// Returns an error when no binding matches or when the listing fails.
+func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, groups []string) (*opendepotv1alpha1.GroupBinding, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(*opendepotServerNamespace).
+		Resource("groupbindings").
+		DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list GroupBindings: %w", err)
+	}
+
+	var list opendepotv1alpha1.GroupBindingList
+	if err := json.Unmarshal(result, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GroupBindingList: %w", err)
+	}
+
+	env := opendepotv1alpha1.GroupBindingExprEnv{Groups: groups}
+	for i := range list.Items {
+		binding := &list.Items[i]
+		program, compileErr := expr.Compile(binding.Spec.Expression, expr.Env(opendepotv1alpha1.GroupBindingExprEnv{}), expr.AsBool())
+		if compileErr != nil {
+			logger.Warn("GroupBinding expression invalid, skipping", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", compileErr)
+			continue
+		}
+		out, runErr := expr.Run(program, env)
+		if runErr != nil {
+			logger.Warn("GroupBinding expression evaluation failed, skipping", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", runErr)
+			continue
+		}
+		if out.(bool) {
+			return binding, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no GroupBinding matched for the provided groups")
+}
+
+// isResourceAllowed reports whether resourceName is permitted by the given GroupBinding.
+// For modules, patterns in ModuleResources are matched using path.Match (* wildcard).
+// For providers, patterns in ProviderResources are matched using path.Match.
+func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, resourceName string) bool {
+	var patterns []string
+	switch resourceType {
+	case "module":
+		patterns = binding.Spec.ModuleResources
+	case "provider":
+		patterns = binding.Spec.ProviderResources
+	}
+	for _, pattern := range patterns {
+		if matched, _ := path.Match(pattern, resourceName); matched {
+			return true
+		}
+	}
+	return false
 }
 
 func extractKubeconfig(w http.ResponseWriter, r *http.Request) ([]byte, error) {
@@ -730,7 +868,7 @@ func extractKubeconfig(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, err := getKubeClientFromRequest(w, r)
+	clientset, binding, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -738,6 +876,15 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
+
+	if binding != nil {
+		if !isResourceAllowed(binding, "module", name) {
+			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+	}
 
 	result, err := clientset.RESTClient().
 		Get().
@@ -775,7 +922,7 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, err := getKubeClientFromRequest(w, r)
+	clientset, binding, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -783,6 +930,15 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 
 	namespace := chi.URLParam(r, "namespace")
 	providerType := chi.URLParam(r, "type")
+
+	if binding != nil {
+		if !isResourceAllowed(binding, "provider", providerType) {
+			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+	}
 
 	_, err = clientset.RESTClient().
 		Get().
@@ -854,7 +1010,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, err := getKubeClientFromRequest(w, r)
+	clientset, binding, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -865,6 +1021,15 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	requestedVersion := chi.URLParam(r, "version")
 	osName := chi.URLParam(r, "os")
 	arch := chi.URLParam(r, "arch")
+
+	if binding != nil {
+		if !isResourceAllowed(binding, "provider", providerType) {
+			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+	}
 
 	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider package metadata", r)
 	if err != nil {
