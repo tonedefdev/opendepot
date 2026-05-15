@@ -736,9 +736,9 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 
 		binding, err := findGroupBinding(r.Context(), cs, groups)
 		if err != nil {
-			logger.Warn("no GroupBinding matched", "subject", idToken.Subject, "groups", groups)
+			logger.Warn("GroupBinding evaluation failed", "subject", idToken.Subject, "groups", groups, "error", err)
 			http.Error(w, "forbidden", http.StatusForbidden)
-			return nil, nil, "", fmt.Errorf("no GroupBinding matched for groups %v: %w", groups, err)
+			return nil, nil, "", err
 		}
 
 		logger.Info("GroupBinding matched", "subject", idToken.Subject, "groups", groups, "binding_name", binding.Name, "expression", binding.Spec.Expression)
@@ -795,7 +795,9 @@ func extractGroupsClaim(claims map[string]interface{}, claimName string) ([]stri
 
 // findGroupBinding lists all GroupBindings in the server namespace and returns the first one
 // whose expr-lang expression evaluates to true for the provided groups.
-// Returns an error when no binding matches or when the listing fails.
+// Returns an error if the listing fails, if any expression fails to compile or evaluate
+// (fail-closed: a broken binding denies all access rather than being silently skipped),
+// or if no binding matches.
 func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, groups []string) (*opendepotv1alpha1.GroupBinding, error) {
 	result, err := clientset.RESTClient().
 		Get().
@@ -820,15 +822,18 @@ func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, grou
 	for i := range list.Items {
 		binding := &list.Items[i]
 		program, compileErr := expr.Compile(binding.Spec.Expression, expr.Env(opendepotv1alpha1.GroupBindingExprEnv{}), expr.AsBool())
+
 		if compileErr != nil {
-			logger.Warn("GroupBinding expression invalid, skipping", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", compileErr)
-			continue
+			logger.Error("GroupBinding expression invalid", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", compileErr)
+			return nil, fmt.Errorf("GroupBinding %q expression is invalid: %w", binding.Name, compileErr)
 		}
+
 		out, runErr := expr.Run(program, env)
 		if runErr != nil {
-			logger.Warn("GroupBinding expression evaluation failed, skipping", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", runErr)
-			continue
+			logger.Error("GroupBinding expression evaluation failed", "binding_name", binding.Name, "expression", binding.Spec.Expression, "error", runErr)
+			return nil, fmt.Errorf("GroupBinding %q expression evaluation failed: %w", binding.Name, runErr)
 		}
+
 		if out.(bool) {
 			return binding, nil
 		}
@@ -855,6 +860,7 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 			}
 		}
 	}
+
 	return false
 }
 
@@ -947,6 +953,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+
 		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 	}
 
@@ -1038,6 +1045,7 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+
 		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 	}
 

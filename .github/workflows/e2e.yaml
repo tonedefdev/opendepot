@@ -61,16 +61,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Build ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: false
+          load: true
           tags: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
           build-args: ${{ matrix.buildArgs }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push ${{ matrix.service }}
+        run: docker push ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+
 
   e2e-module:
     name: Module controller e2e
