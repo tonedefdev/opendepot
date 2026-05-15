@@ -630,7 +630,7 @@ server:
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
 				"-f", valuesFile,
-				"--timeout", "3m",
+				"--timeout", "10m",
 			)
 
 			pfCancelServer = startPortForward()

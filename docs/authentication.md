@@ -9,7 +9,7 @@ search:
 
 # Authenticating with OpenDepot
 
-OpenDepot supports two authentication methods. Both leverage Kubernetes credentials — either a short-lived bearer token or a base64-encoded kubeconfig.
+OpenDepot supports three authentication methods: Kubernetes bearer tokens, base64-encoded kubeconfigs, and OIDC JWTs via Dex. Bearer tokens and OIDC are recommended for production; kubeconfig is primarily for development.
 
 ### Method 1: Environment Variables (Recommended)
 
@@ -94,16 +94,139 @@ kubectl config view --raw | base64 | tr -d '\n' > /tmp/kubeconfig.b64
 chmod 600 ~/.terraform.d/credentials.tfrc.json
 ```
 
+### Method 3: OIDC via Dex (Recommended for Production)
+
+OIDC authentication enables single sign-on (SSO) via existing identity providers without distributing credentials or kubeconfigs. The `tofu login` workflow guides users through browser-based authentication to obtain a JWT.
+
+#### Overview
+
+Dex is bundled as a Helm subchart that acts as an OIDC identity broker, federating upstream IdPs (Entra ID, Okta, GitHub, LDAP, etc.) and issuing standard OIDC JWTs. The OpenDepot server validates these JWTs locally via JWKS, enabling the `tofu login` workflow.
+
+#### Helm Setup
+
+Enable Dex and OIDC on the server:
+
+```yaml
+dex:
+  enabled: true
+  config:
+    issuer: https://dex.example.com/dex
+    connectors:
+      - type: github
+        id: github
+        name: GitHub
+        config:
+          clientID: <github-app-client-id>
+          clientSecret: <github-app-client-secret>
+          redirectURI: https://dex.example.com/dex/callback
+
+server:
+  oidc:
+    enabled: true
+    issuerUrl: https://dex.example.com/dex
+    clientId: opendepot
+    clientSecret: <strong-random-value>
+```
+
+!!! warning
+    Never commit `clientSecret` in plain text. Use an external secret operator (e.g., Sealed Secrets, External Secrets) to manage the value in production.
+
+When `issuerUrl` is blank and `dex.enabled: true`, the chart automatically derives the in-cluster Dex service URL.
+
+#### Connector Examples
+
+**Entra ID (Azure AD)** — Most common enterprise choice:
+
+```yaml
+dex:
+  enabled: true
+  config:
+    connectors:
+      - type: microsoft
+        id: microsoft
+        name: "Azure AD"
+        config:
+          clientID: <azure-app-id>
+          clientSecret: <azure-app-secret>
+          redirectURI: https://dex.example.com/dex/callback
+          tenant: <azure-tenant-id>
+```
+
+**GitHub** — Integration with GitHub organizations:
+
+```yaml
+dex:
+  enabled: true
+  config:
+    connectors:
+      - type: github
+        id: github
+        name: GitHub
+        config:
+          clientID: <github-oauth-app-client-id>
+          clientSecret: <github-oauth-app-secret>
+          redirectURI: https://dex.example.com/dex/callback
+          org: my-org
+```
+
+!!! note
+    `staticPasswords` is provided for automated e2e testing only. Do not enable in production.
+
+#### Using `tofu login`
+
+After Dex and OIDC are configured, users authenticate once and obtain a JWT:
+
+```bash
+tofu login opendepot.defdev.io
+```
+
+The server advertises the `login.v1` service discovery endpoint with authorization and token URLs pointing to Dex. Clients redirect to Dex for authentication (or device flow on headless systems), then exchange the authorization code for a JWT. Subsequent `tofu` commands use the JWT as the bearer token.
+
+**Example `.tofurc` configuration:**
+
+```hcl
+credentials "opendepot.defdev.io" {
+  token = "<jwt-from-tofu-login>"
+}
+
+host "registry.terraform.io" {
+  client_id     = "opendepot"
+  client_secret = "<dex-client-secret>"
+  login_uri     = "https://opendepot.defdev.io/v1/login"
+  token_uri     = "https://dex.example.com/dex/token"
+}
+```
+
+#### Security Notes
+
+- **HTTPS required**: In production, issuer URLs must use HTTPS. HTTP is allowed only for localhost (127.0.0.1) and testing.
+- **No credential distribution**: Users authenticate directly with Dex; the server never sees or stores user passwords.
+- **JWT validation**: JWTs are validated locally using the issuer's JWKS. No call to Dex is made on every request.
+- **Token expiry**: JWTs have a short lifespan (typically 1 hour). Users re-run `tofu login` to refresh.
+- **Never enable `staticPasswords` in production**: Use real IdP connectors instead.
+
+#### Troubleshooting
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| `missing Authorization header` | `.tofurc` missing `credentials` block | Add `credentials "host" { token = "..." }` block |
+| `unauthorized` | JWT expired or invalid | Re-run `tofu login` to obtain a fresh JWT |
+| `CrashLoopBackOff` on server pod | `server.oidc.issuerUrl` not set or misconfigured | Verify OIDC is enabled and issuer URL is correct; check pod logs |
+| Browser redirects to localhost but connection fails | Dex `redirectURI` not included in client config | Add all expected localhost ports (10000-10010) to Dex client redirectURIs |
+
 ### Authentication Comparison
 
-| Feature | Environment Variable | Kubeconfig File |
-|---------|---------------------|-----------------|
-| Token Lifetime | Short-lived (auto-rotating) | Long-lived (manual rotation) |
-| Security | Highest | Good |
-| Setup | Low | Low |
-| Best For | Production, CI/CD | Development |
-| OpenTofu Support | All versions | All versions |
-| Terraform Support | v1.2+ | All versions |
+| Feature | Bearer Token | Kubeconfig File | OIDC (Dex) |
+|---------|---------------------|-----------------|------------|
+| Token Lifetime | Short-lived (auto-rotating) | Long-lived (manual rotation) | Short-lived (1 hour typical) |
+| Security | High | Good | Highest |
+| Setup Complexity | Low | Low | Medium |
+| Credential Distribution | Via env var or shell | File-based | No distribution (SSO) |
+| Best For | Production, CI/CD | Development | Enterprise production (SSO) |
+| `tofu login` Support | No | No | Yes |
+| OpenTofu Support | All versions | All versions | All versions |
+| Terraform Support | v1.2+ | All versions | v1.3+ |
+| IdP Integration | No | No | Yes (GitHub, Entra ID, Okta, LDAP, etc.) |
 
 ### CI/CD Example
 

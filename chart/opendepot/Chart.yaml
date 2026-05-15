@@ -15,6 +15,6 @@ maintainers:
     email: tony.owens@defdev.io
 dependencies:
   - name: dex
-    version: "0.19.1"
+    version: "0.24.*"
     repository: https://charts.dexidp.io
     condition: dex.enabled

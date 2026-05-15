@@ -16,11 +16,8 @@
 
 # Helm
 Chart.lock
-/charts/
 
 # Documentation
 *.md
 examples/
 
-# Build artifacts
-*.tar.gz
