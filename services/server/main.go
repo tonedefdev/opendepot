@@ -369,7 +369,7 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, err := getKubeClientFromRequest(w, r)
+	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -378,12 +378,14 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	if binding != nil {
 		name := chi.URLParam(r, "name")
 		namespace := chi.URLParam(r, "namespace")
+
 		if !isResourceAllowed(binding, "module", name) {
-			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
 	}
 
 	moduleVersion, err := getModuleVersion(clientset, w, r)
@@ -680,36 +682,37 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 // and returns the server's SA clientset together with the binding for resource authorization.
 // When bearer token mode is enabled, extracts the token from the Authorization header.
 // Otherwise, extracts a base64-encoded kubeconfig from the Authorization header.
-// The returned GroupBinding is non-nil only in OIDC mode.
-func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, error) {
+// The returned GroupBinding is non-nil only in OIDC mode. The returned string is the
+// OIDC token subject (empty string for non-OIDC auth paths).
+func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, string, error) {
 	if *opendepotAnonymousAuth {
 		cs, err := generateKubeClient(nil, nil, false)
-		return cs, nil, err
+		return cs, nil, "", err
 	}
 
 	if oidcVerifier != nil {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, nil, fmt.Errorf("missing Authorization header")
+			return nil, nil, "", fmt.Errorf("missing Authorization header")
 		}
 
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, fmt.Errorf("malformed Authorization header scheme")
+			return nil, nil, "", fmt.Errorf("malformed Authorization header scheme")
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, fmt.Errorf("OIDC token verification failed: %w", err)
+			return nil, nil, "", fmt.Errorf("OIDC token verification failed: %w", err)
 		}
 
 		var claims map[string]interface{}
 		if err := idToken.Claims(&claims); err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, fmt.Errorf("failed to extract JWT claims: %w", err)
+			return nil, nil, "", fmt.Errorf("failed to extract JWT claims: %w", err)
 		}
 
 		groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
@@ -717,7 +720,7 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		cs, err := generateKubeClient(nil, nil, false)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 
 		// GroupBinding enforcement is only active when the JWT carries a groups claim.
@@ -725,7 +728,7 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		// fine-grained resource access control is applied (backward-compatible mode).
 		if len(groups) == 0 {
 			logger.Debug("JWT verified (no groups claim)", "subject", idToken.Subject)
-			return cs, nil, nil
+			return cs, nil, idToken.Subject, nil
 		}
 
 		logger.Debug("JWT verified", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim, "groups", groups)
@@ -734,12 +737,12 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		if err != nil {
 			logger.Warn("no GroupBinding matched", "subject", idToken.Subject, "groups", groups)
 			http.Error(w, "forbidden", http.StatusForbidden)
-			return nil, nil, fmt.Errorf("no GroupBinding matched for groups %v: %w", groups, err)
+			return nil, nil, "", fmt.Errorf("no GroupBinding matched for groups %v: %w", groups, err)
 		}
 
 		logger.Info("GroupBinding matched", "subject", idToken.Subject, "groups", groups, "binding_name", binding.Name, "expression", binding.Spec.Expression)
 
-		return cs, binding, nil
+		return cs, binding, idToken.Subject, nil
 	}
 
 	var kubeconfig []byte
@@ -749,19 +752,19 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, nil, fmt.Errorf("missing Authorization header")
+			return nil, nil, "", fmt.Errorf("missing Authorization header")
 		}
 		bearerToken = strings.TrimPrefix(authHeader, "Bearer ")
 	} else {
 		config, err := extractKubeconfig(w, r)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		kubeconfig = config
 	}
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
-	return cs, nil, err
+	return cs, nil, "", err
 }
 
 // extractGroupsClaim reads the named claim from a JWT claims map and returns it as a []string.
@@ -868,7 +871,7 @@ func extractKubeconfig(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, err := getKubeClientFromRequest(w, r)
+	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -879,11 +882,11 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 
 	if binding != nil {
 		if !isResourceAllowed(binding, "module", name) {
-			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "module", "resource_name", name, "namespace", namespace)
 	}
 
 	result, err := clientset.RESTClient().
@@ -922,7 +925,7 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, err := getKubeClientFromRequest(w, r)
+	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -933,11 +936,11 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 
 	if binding != nil {
 		if !isResourceAllowed(binding, "provider", providerType) {
-			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 	}
 
 	_, err = clientset.RESTClient().
@@ -1010,7 +1013,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, err := getKubeClientFromRequest(w, r)
+	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -1024,11 +1027,11 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 
 	if binding != nil {
 		if !isResourceAllowed(binding, "provider", providerType) {
-			logger.Warn("resource access denied", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		logger.Info("resource access allowed", "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 	}
 
 	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider package metadata", r)

@@ -717,6 +717,23 @@ server:
 				"a valid Dex JWT must not produce a 401")
 		})
 
+		// The server is deployed with --oidc-groups-claim=groups (default). Dex static
+		// passwords do not emit a "groups" claim, so every JWT from this context has no
+		// groups claim. The expected behavior is backward-compatible: the request is
+		// authenticated via OIDC token verification alone — no GroupBinding is required.
+		It("should remain authenticated when the configured groups claim is absent from the JWT", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"JWT with no groups claim must still be authenticated (backward-compatible OIDC mode)")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"JWT with no groups claim must not produce a 403 (no GroupBinding enforcement when claim absent)")
+		})
+
 		It("service discovery should include login.v1 when OIDC is enabled", func() {
 			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/.well-known/terraform.json", serverLocalPort))
 			Expect(err).NotTo(HaveOccurred())
@@ -1067,6 +1084,43 @@ server:
 				"provider type matching providerResources must not produce a 403")
 			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
 				"provider type matching providerResources must not produce a 401")
+		})
+
+		// First-match semantics: when multiple GroupBindings match the JWT groups,
+		// the first one in alphabetical-name order wins. If that binding denies the
+		// resource, the request is 403 even if a later binding would allow it.
+		It("should use first-match semantics when multiple GroupBindings match", func() {
+			// aaa-e2e-groupbinding lists first (alphabetical); it allows only "only-this-exact-module".
+			applyGroupBinding("aaa-e2e-groupbinding",
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{"only-this-exact-module"},
+				[]string{},
+			)
+			// zzz-e2e-groupbinding lists second; it allows everything.
+			applyGroupBinding("zzz-e2e-groupbinding",
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{"*"},
+				[]string{},
+			)
+
+			// Request for a module NOT in aaa's moduleResources — aaa matches first
+			// and denies it, so the result must be 403 regardless of zzz.
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://localhost:%d/opendepot/modules/v1/%s/other-module/aws/versions",
+					serverLocalPort, namespace),
+				nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"first-match binding (aaa) denies the resource; zzz binding must not override it")
+
+			// Clean up both bindings.
+			deleteGroupBinding("aaa-e2e-groupbinding")
+			deleteGroupBinding("zzz-e2e-groupbinding")
 		})
 	})
 })
