@@ -179,7 +179,7 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 		endpoints := oidcProvider.Endpoint()
 		response.LoginV1 = &LoginV1Info{
 			Client:     *opendepotOIDCClientID,
-			GrantTypes: []string{"authz_code", "tce_device_code"},
+			GrantTypes: []string{"authz_code", "device_code"},
 			Authz:      endpoints.AuthURL,
 			Token:      endpoints.TokenURL,
 			Ports:      []int{10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010},
@@ -674,15 +674,18 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
 			return nil, fmt.Errorf("missing Authorization header")
 		}
+
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return nil, fmt.Errorf("malformed Authorization header scheme")
 		}
+
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		if _, err := oidcVerifier.Verify(r.Context(), rawToken); err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return nil, fmt.Errorf("OIDC token verification failed: %w", err)
 		}
+
 		return generateKubeClient(nil, nil, false)
 	}
 

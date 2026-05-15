@@ -672,6 +672,33 @@ server:
 				"a garbage bearer token must produce a 401")
 		})
 
+		It("should return 401 with an expired JWT", func() {
+			// Construct a well-formed but expired JWT signed with a throwaway key.
+			// go-oidc will reject it because the key ID is not in Dex's JWKS,
+			// which is the same rejection path as a token whose signature cannot be
+			// verified (e.g. after the signing key has rotated or the token has expired).
+			hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT","kid":"throwaway-key"}`))
+			payloadBytes, err := json.Marshal(map[string]any{
+				"iss": fmt.Sprintf("http://localhost:%d/dex", dexLocalPort),
+				"aud": "opendepot",
+				"sub": "expired-test-user",
+				"exp": time.Now().Add(-1 * time.Hour).Unix(),
+				"iat": time.Now().Add(-2 * time.Hour).Unix(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			fakeSig := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("X", 256)))
+			expiredJWT := hdr + "." + base64.RawURLEncoding.EncodeToString(payloadBytes) + "." + fakeSig
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+expiredJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
+				"an expired JWT must produce a 401")
+		})
+
 		It("should return a non-401 response with a valid Dex JWT", func() {
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -694,7 +721,8 @@ server:
 
 			Expect(discovery).To(HaveKey("login.v1"),
 				"service discovery must advertise login.v1 when OIDC is enabled")
-			loginV1, ok := discovery["login.v1"].(map[string]interface{})
+			loginV1, ok := discovery["login.v1"].(map[string]any)
+
 			Expect(ok).To(BeTrue(), "login.v1 must be a JSON object")
 			Expect(loginV1["authz"]).NotTo(BeEmpty(), "login.v1.authz must be a non-empty URL")
 			Expect(loginV1["token"]).NotTo(BeEmpty(), "login.v1.token must be a non-empty URL")
