@@ -603,6 +603,7 @@ dex:
         - "urn:ietf:params:oauth:grant-type:device_code"
         - password
       skipApprovalScreen: true
+      passwordConnector: local
     staticPasswords:
       - email: %q
         hash: %q
