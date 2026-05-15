@@ -204,9 +204,9 @@ server:
     groupsClaim: "cognito:groups"  # default is "groups"
 ```
 
-### Backward Compatibility
+### Required Groups Claim
 
-If the JWT does not contain the configured groups claim, GroupBinding evaluation is skipped entirely. The request is authenticated normally and proceeds without restriction. Existing OIDC deployments that do not emit a groups claim require no changes.
+The groups claim is **required** when OIDC is enabled. A valid JWT that does not carry the configured claim is denied with **403 Forbidden** — there is no bypass path. Configure your IdP connector in Dex to emit the claim before enabling OIDC in production.
 
 See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) for a complete guide, including expression syntax, glob pattern reference, and example manifests.
 
