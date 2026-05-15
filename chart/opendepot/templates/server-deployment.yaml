@@ -47,14 +47,34 @@ spec:
         {{- if .Values.server.useBearerToken }}
         - --use-bearer-token
         {{- end }}
+        {{- if .Values.server.oidc.enabled }}
+        - --oidc-client-id={{ .Values.server.oidc.clientId }}
+        {{- if .Values.server.oidc.issuerUrl }}
+        - --oidc-issuer-url={{ .Values.server.oidc.issuerUrl }}
+        {{- else if .Values.dex.enabled }}
+        - --oidc-issuer-url=http://{{ .Release.Name }}-dex.{{ .Values.global.namespace }}.svc.cluster.local:5556/dex
+        {{- end }}
+        {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}
         - --tls-cert-key={{ .Values.server.tls.keyPath }}
         {{- end }}
-        {{- if .Values.server.gpg.secretName }}
+        {{- if or .Values.server.gpg.secretName .Values.server.oidc.enabled }}
         envFrom:
+        {{- if .Values.server.gpg.secretName }}
         - secretRef:
             name: {{ .Values.server.gpg.secretName }}
+        {{- end }}
+        {{- if .Values.server.oidc.enabled }}
+        {{- if .Values.server.oidc.clientSecretName }}
+        - secretRef:
+            name: {{ .Values.server.oidc.clientSecretName }}
+        {{- else if .Values.dex.enabled }}
+        - secretRef:
+            name: opendepot-dex-client-secret
+            optional: true
+        {{- end }}
+        {{- end }}
         {{- end }}
         ports:
         - name: http

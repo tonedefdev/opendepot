@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	gooidc "github.com/coreos/go-oidc/v3/oidc"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -35,6 +37,15 @@ var (
 	logger                  *slog.Logger
 	opendepotAnonymousAuth  *bool
 	opendepotUseBearerToken *bool
+	opendepotOIDCIssuerURL  *string
+	opendepotOIDCClientID   *string
+
+	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
+	// are both provided. It is used to validate OIDC JWTs on every request.
+	oidcVerifier *gooidc.IDTokenVerifier
+	// oidcProvider is the discovered OIDC provider; its Endpoint() is used to
+	// populate the login.v1 service discovery response.
+	oidcProvider *gooidc.Provider
 )
 
 func init() {
@@ -45,9 +56,28 @@ func init() {
 func main() {
 	opendepotAnonymousAuth = flag.Bool("anonymous-auth", false, "when true use the server's service account to serve modules and versions without requiring client authentication")
 	opendepotUseBearerToken = flag.Bool("use-bearer-token", false, "when true use a bearer token instead of a base64 encoded kubeconfig to authenticate with the kubernetes API server")
+	opendepotOIDCIssuerURL = flag.String("oidc-issuer-url", "", "OIDC issuer URL (e.g. https://dex.example.com/dex); when set together with --oidc-client-id the server validates OIDC JWTs and uses its own service account for Kubernetes API calls")
+	opendepotOIDCClientID = flag.String("oidc-client-id", "", "OIDC client ID; must be set together with --oidc-issuer-url")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
+
+	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
+		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")
+		os.Exit(1)
+	}
+
+	if *opendepotOIDCIssuerURL != "" {
+		ctx := context.Background()
+		provider, err := gooidc.NewProvider(ctx, *opendepotOIDCIssuerURL)
+		if err != nil {
+			logger.Error("failed to discover OIDC provider", "issuerUrl", *opendepotOIDCIssuerURL, "error", err)
+			os.Exit(1)
+		}
+		oidcProvider = provider
+		oidcVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
+		logger.Info("OIDC auth mode enabled", "issuerUrl", *opendepotOIDCIssuerURL, "clientId", *opendepotOIDCClientID)
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -77,8 +107,20 @@ func main() {
 }
 
 type ServiceDiscoveryResponse struct {
-	ModulesURL   string `json:"modules.v1"`
-	ProvidersURL string `json:"providers.v1"`
+	ModulesURL   string       `json:"modules.v1"`
+	ProvidersURL string       `json:"providers.v1"`
+	LoginV1      *LoginV1Info `json:"login.v1,omitempty"`
+}
+
+// LoginV1Info carries the OIDC authorization endpoints advertised to tofu CLI
+// clients via the service-discovery document. When OIDC is not enabled this
+// field is nil and omitted from the JSON response, preserving existing behaviour.
+type LoginV1Info struct {
+	Client     string   `json:"client"`
+	GrantTypes []string `json:"grant_types"`
+	Authz      string   `json:"authz"`
+	Token      string   `json:"token"`
+	Ports      []int    `json:"ports"`
 }
 
 type ModuleVersionsResponse struct {
@@ -132,6 +174,18 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 		ModulesURL:   "/opendepot/modules/v1/",
 		ProvidersURL: "/opendepot/providers/v1/",
 	}
+
+	if oidcProvider != nil {
+		endpoints := oidcProvider.Endpoint()
+		response.LoginV1 = &LoginV1Info{
+			Client:     *opendepotOIDCClientID,
+			GrantTypes: []string{"authz_code", "device_code"},
+			Authz:      endpoints.AuthURL,
+			Token:      endpoints.TokenURL,
+			Ports:      []int{10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010},
+		}
+	}
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -606,10 +660,25 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 
 // getKubeClientFromRequest creates a Kubernetes clientset based on the configured auth mode.
 // When anonymous auth is enabled, uses the server's in-cluster service account.
+// When OIDC mode is enabled, validates the Bearer JWT and uses the server's SA.
 // When bearer token mode is enabled, extracts the token from the Authorization header.
 // Otherwise, extracts a base64-encoded kubeconfig from the Authorization header.
 func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, error) {
 	if *opendepotAnonymousAuth {
+		return generateKubeClient(nil, nil, false)
+	}
+
+	if oidcVerifier != nil {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
+			return nil, fmt.Errorf("missing Authorization header")
+		}
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		if _, err := oidcVerifier.Verify(r.Context(), rawToken); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return nil, fmt.Errorf("OIDC token verification failed: %w", err)
+		}
 		return generateKubeClient(nil, nil, false)
 	}
 

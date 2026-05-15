@@ -2,8 +2,8 @@ apiVersion: v2
 name: opendepot
 description: A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry
 type: application
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.4.0
+appVersion: "0.4.0"
 keywords:
   - terraform
   - opentofu
@@ -13,3 +13,8 @@ keywords:
 maintainers:
   - name: Tony Owens
     email: tony.owens@defdev.io
+dependencies:
+  - name: dex
+    version: "0.19.1"
+    repository: https://charts.dexidp.io
+    condition: dex.enabled

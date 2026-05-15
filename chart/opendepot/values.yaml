@@ -86,6 +86,27 @@ server:
   replicaCount: 1
   anonymousAuth: false
   useBearerToken: true
+  # OIDC authentication settings. When enabled, the server validates OIDC JWTs
+  # issued by Dex (or any compatible OIDC provider) before proxying requests to
+  # the Kubernetes API. This is the recommended auth mode for production; it
+  # enables `tofu login <host>` without distributing kubeconfigs or SA tokens.
+  oidc:
+    # enabled toggles OIDC JWT validation. Requires dex.enabled=true (or an
+    # external OIDC provider configured via issuerUrl below).
+    enabled: false
+    # issuerUrl is the OIDC issuer URL. When blank and dex.enabled=true, the
+    # Helm template auto-derives the in-cluster Dex service URL.
+    issuerUrl: ""
+    # clientId must match the id field of the Dex static client configured below.
+    clientId: "opendepot"
+    # clientSecretName is the name of the Kubernetes Secret that holds the
+    # clientSecret key. When blank, the chart creates the Secret automatically
+    # from the clientSecret value below (only if dex.enabled=true).
+    clientSecretName: ""
+    # clientSecret is used to create the Dex client Secret when clientSecretName
+    # is blank. This value is written to a Secret — do not store it in plain text
+    # in production; use an external secret operator instead.
+    clientSecret: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set
@@ -199,3 +220,61 @@ scanning:
     image:
       repository: aquasec/trivy
       tag: "0.70.0"
+
+## Dex OIDC provider (subchart)
+# When dex.enabled=true, Dex is deployed as an OIDC identity broker. It
+# federates upstream IdPs (Entra ID, Okta, GitHub, LDAP, etc.) and issues
+# standard OIDC JWTs that the OpenDepot server validates locally.
+#
+# NOTE: staticPasswords is provided here only for automated e2e testing. It
+# MUST NOT be used in production — disable it by leaving staticPasswords.enabled
+# as false and configure a real connector instead.
+dex:
+  enabled: false
+  config:
+    # issuer is the public URL of the Dex service. Clients redirect here for
+    # authorization. Change this to the external URL of your Dex deployment.
+    issuer: ""
+    storage:
+      type: memory
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+      skipApprovalScreen: true
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10001
+          - http://localhost:10002
+          - http://localhost:10003
+          - http://localhost:10004
+          - http://localhost:10005
+          - http://localhost:10006
+          - http://localhost:10007
+          - http://localhost:10008
+          - http://localhost:10009
+          - http://localhost:10010
+    # connectors is where operators add upstream IdP connector configuration.
+    # Example GitHub connector:
+    #   connectors:
+    #     - type: github
+    #       id: github
+    #       name: GitHub
+    #       config:
+    #         clientID: <github-app-client-id>
+    #         clientSecret: <github-app-client-secret>
+    #         redirectURI: https://<dex-host>/dex/callback
+    connectors: []
+    # staticPasswords is for e2e testing only — NEVER enable in production.
+    enablePasswordDB: false
+    staticPasswords: []
+  envFrom:
+    - secretRef:
+        name: opendepot-dex-client-secret
+        optional: true
