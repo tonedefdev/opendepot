@@ -839,18 +839,20 @@ func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, grou
 
 // isResourceAllowed reports whether resourceName is permitted by the given GroupBinding.
 // For modules, patterns in ModuleResources are matched using path.Match (* wildcard).
-// For providers, patterns in ProviderResources are matched using path.Match.
+// For providers, entries in ProviderResources are exact names or the literal "*" to allow all.
 func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, resourceName string) bool {
-	var patterns []string
 	switch resourceType {
 	case "module":
-		patterns = binding.Spec.ModuleResources
+		for _, pattern := range binding.Spec.ModuleResources {
+			if matched, _ := path.Match(pattern, resourceName); matched {
+				return true
+			}
+		}
 	case "provider":
-		patterns = binding.Spec.ProviderResources
-	}
-	for _, pattern := range patterns {
-		if matched, _ := path.Match(pattern, resourceName); matched {
-			return true
+		for _, name := range binding.Spec.ProviderResources {
+			if name == "*" || name == resourceName {
+				return true
+			}
 		}
 	}
 	return false

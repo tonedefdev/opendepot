@@ -1086,6 +1086,27 @@ server:
 				"provider type matching providerResources must not produce a 401")
 		})
 
+		It("should allow all provider access when providerResources contains \"*\"", func() {
+			applyGroupBinding(groupBindingName,
+				fmt.Sprintf(`"%s" in groups`, gbTestUserEmail),
+				[]string{},
+				[]string{"*"},
+			)
+
+			providerURL := fmt.Sprintf("http://localhost:%d/opendepot/providers/v1/%s/aws/versions",
+				serverLocalPort, namespace)
+			req, err := http.NewRequest(http.MethodGet, providerURL, nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"providerResources [\"*\"] must allow all provider types without producing a 403")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"providerResources [\"*\"] must not produce a 401")
+		})
+
 		// First-match semantics: when multiple GroupBindings match the JWT groups,
 		// the first one in alphabetical-name order wins. If that binding denies the
 		// resource, the request is 403 even if a later binding would allow it.

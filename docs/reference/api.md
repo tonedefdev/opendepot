@@ -228,7 +228,7 @@ See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
 |---|---|---|---|
 | `expression` | `string` | Yes | An [expr-lang](https://expr-lang.org/) boolean expression evaluated against the user's groups. The evaluation environment exposes `groups []string`. Must return `true` or `false`. Example: `'"platform-team" in groups'` |
 | `moduleResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for module names the group may access. Empty list denies access to all modules. Example: `["aws-*", "gcp-networking"]` |
-| `providerResources` | `[]string` | No | Glob patterns for provider type names the group may access. Empty list denies access to all providers. Example: `["aws", "google"]` |
+| `providerResources` | `[]string` | No | Exact provider type names the group may access, or `["*"]` to allow all providers. Empty list denies access to all providers. Example: `["aws", "google"]` |
 
 **Example manifest:**
 

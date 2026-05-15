@@ -12,7 +12,7 @@ tags:
 
 ## How It Works
 
-When a user authenticates via OIDC, the server extracts the configured groups claim from their JWT and evaluates all `GroupBinding` resources in the server namespace in alphabetical order by name. The first `GroupBinding` whose `expression` evaluates to `true` for the user's groups is applied. The user may then access only the module and provider names that match the `moduleResources` and `providerResources` glob patterns on that `GroupBinding`.
+When a user authenticates via OIDC, the server extracts the configured groups claim from their JWT and evaluates all `GroupBinding` resources in the server namespace in alphabetical order by name. The first `GroupBinding` whose `expression` evaluates to `true` for the user's groups is applied. The user may then access only the modules whose names match the `moduleResources` glob patterns and the providers whose type names are listed in `providerResources` on that `GroupBinding`.
 
 ```mermaid
 flowchart TD
@@ -63,7 +63,7 @@ spec:
 |-------|------|----------|-------------|
 | `expression` | `string` | Yes | An [expr-lang](https://expr-lang.org/) boolean expression evaluated against the user's groups. Must return `true` or `false`. |
 | `moduleResources` | `[]string` | No | Glob patterns for module names the group may access. Empty list denies access to all modules. |
-| `providerResources` | `[]string` | No | Glob patterns for provider type names the group may access. Empty list denies access to all providers. |
+| `providerResources` | `[]string` | No | Exact provider type names the group may access, or `["*"]` to allow all providers. Empty list denies access to all providers. |
 
 ### Expression Syntax
 
@@ -84,18 +84,20 @@ len(groups) > 0
 !!! warning "Invalid expressions are skipped"
     A `GroupBinding` with an unparseable expression is skipped with a `WARN` log entry. The next binding in alphabetical order is then evaluated. Check server logs to diagnose expression errors.
 
-### Resource Glob Patterns
+### Module Resource Glob Patterns
 
-`moduleResources` and `providerResources` use [`path.Match`](https://pkg.go.dev/path#Match) semantics, supporting the `*` wildcard:
+`moduleResources` uses [`path.Match`](https://pkg.go.dev/path#Match) semantics, supporting the `*` wildcard:
 
 | Pattern | Matches | Does not match |
 |---------|---------|----------------|
 | `aws-*` | `aws-vpc`, `aws-eks`, `aws-s3-bucket` | `gcp-gke` |
 | `terraform-aws-*` | `terraform-aws-eks`, `terraform-aws-vpc` | `terraform-google-gke` |
-| `*` | every module or provider name | — |
-| `aws` | exactly `aws` | `aws-vpc` |
+| `*` | every module name | — |
+| `my-module` | exactly `my-module` | `my-module-v2` |
 
-An empty `moduleResources` or `providerResources` list denies access to all resources of that type. To allow access to everything, use `["*"]`.
+`providerResources` takes exact provider type names (e.g., `aws`, `google`, `azurerm`) or the literal `"*"` to allow all providers. No partial wildcard matching is applied to provider names.
+
+An empty `moduleResources` or `providerResources` list denies access to all resources of that type. To allow access to all modules, use `["*"]`; to allow access to all providers, use `["*"]`.
 
 ## Configuring the Groups Claim Name
 
@@ -173,7 +175,7 @@ The server emits structured JSON log entries for every authorization decision. T
 | GroupBinding matched | `INFO` | `subject`, `groups`, `binding_name`, `expression` |
 | No GroupBinding matched | `WARN` | `subject`, `groups` |
 | Resource access allowed | `INFO` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
-| Resource access denied (glob) | `WARN` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
+| Resource access denied (pattern) | `WARN` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
 | GroupBinding expression invalid | `WARN` | `binding_name`, `expression`, `error` |
 
 View server logs:
