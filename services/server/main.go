@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -810,6 +811,10 @@ func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, grou
 	if err := json.Unmarshal(result, &list); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal GroupBindingList: %w", err)
 	}
+
+	sort.Slice(list.Items, func(i, j int) bool {
+		return list.Items[i].Name < list.Items[j].Name
+	})
 
 	env := opendepotv1alpha1.GroupBindingExprEnv{Groups: groups}
 	for i := range list.Items {
