@@ -216,6 +216,38 @@ Holds Trivy IaC scan (`trivy fs`) results for a module archive. Stored in `Versi
 | `scannedAt` | `string` | RFC3339 timestamp at which the IaC scan completed |
 | `findings` | `[]SecurityFinding` | Misconfigurations found in the module's HCL source. `vulnerabilityID` contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE. |
 
+### GroupBinding
+
+`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules and providers. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. Requires OIDC authentication to be enabled.
+
+See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
+
+**GroupBindingSpec fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expression` | `string` | Yes | An [expr-lang](https://expr-lang.org/) boolean expression evaluated against the user's groups. The evaluation environment exposes `groups []string`. Must return `true` or `false`. Example: `'"platform-team" in groups'` |
+| `moduleResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for module names the group may access. Empty list denies access to all modules. Example: `["aws-*", "gcp-networking"]` |
+| `providerResources` | `[]string` | No | Glob patterns for provider type names the group may access. Empty list denies access to all providers. Example: `["aws", "google"]` |
+
+**Example manifest:**
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: platform-team-binding
+  namespace: opendepot-system
+spec:
+  expression: '"platform-team" in groups'
+  moduleResources:
+    - "aws-*"
+    - "gcp-networking"
+  providerResources:
+    - "aws"
+    - "google"
+```
+
 ### PresignConfig fields
 
 Controls pre-signed URL generation for provider downloads. Set on `StorageConfig.presign`.

@@ -75,6 +75,7 @@ nav:
     - Consuming Modules: guides/modules.md
     - Consuming Providers: guides/providers.md
     - Migrating to OpenDepot: guides/migration.md
+    - GroupBinding Access Control: guides/groupbinding.md
   - Authentication: authentication.md
   - Kubernetes RBAC: rbac.md
   - Reference:

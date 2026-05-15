@@ -703,7 +703,11 @@ server:
 				"an expired JWT must produce a 401")
 		})
 
-		It("should return a non-401 response with a valid Dex JWT", func() {
+		// Dex static passwords do not emit a "groups" claim. With the groups claim
+		// required, a valid JWT that lacks it must be denied with 403 — not 401.
+		// 401 = authentication failure (bad/missing token); 403 = authorization
+		// failure (valid token, access not permitted).
+		It("should return 403 with a valid Dex JWT that has no groups claim", func() {
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -713,25 +717,21 @@ server:
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
 
-			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
-				"a valid Dex JWT must not produce a 401")
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a valid JWT with no groups claim must be denied with 403")
 		})
 
-		// The server is deployed with --oidc-groups-claim=groups (default). Dex static
-		// passwords do not emit a "groups" claim, so every JWT from this context has no
-		// groups claim. The expected behavior is backward-compatible: the request is
-		// authenticated via OIDC token verification alone — no GroupBinding is required.
-		It("should remain authenticated when the configured groups claim is absent from the JWT", func() {
+		// The groups claim is required when OIDC is enabled. A JWT that does not carry
+		// the configured claim is denied with 403 — there is no bypass path.
+		It("should return 403 when the configured groups claim is absent from the JWT", func() {
 			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Authorization", "Bearer "+oidcJWT)
 			resp, err := http.DefaultClient.Do(req)
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
-			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
-				"JWT with no groups claim must still be authenticated (backward-compatible OIDC mode)")
-			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
-				"JWT with no groups claim must not produce a 403 (no GroupBinding enforcement when claim absent)")
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"JWT missing the groups claim must be denied with 403 (groups claim is required)")
 		})
 
 		It("service discovery should include login.v1 when OIDC is enabled", func() {

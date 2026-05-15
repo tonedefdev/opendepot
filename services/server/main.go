@@ -724,12 +724,12 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 			return nil, nil, "", err
 		}
 
-		// GroupBinding enforcement is only active when the JWT carries a groups claim.
-		// If the claim is absent the request is still authenticated via OIDC but no
-		// fine-grained resource access control is applied (backward-compatible mode).
+		// The groups claim is required when OIDC is enabled. A JWT that does not carry
+		// the configured claim is denied — there is no bypass path.
 		if len(groups) == 0 {
-			logger.Debug("JWT verified (no groups claim)", "subject", idToken.Subject)
-			return cs, nil, idToken.Subject, nil
+			logger.Warn("JWT missing required groups claim, denying access", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return nil, nil, "", fmt.Errorf("JWT missing required groups claim %q", *opendepotOIDCGroupsClaim)
 		}
 
 		logger.Debug("JWT verified", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim, "groups", groups)

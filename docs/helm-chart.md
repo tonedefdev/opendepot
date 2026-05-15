@@ -30,6 +30,7 @@ The `server.oidc` section enables OIDC JWT validation for production-ready singl
 | `server.oidc.clientId` | string | OIDC client ID. Must match the Dex static client `id`. Default: `"opendepot"` |
 | `server.oidc.clientSecretName` | string | Name of a Kubernetes Secret containing the `clientSecret` key. When blank, the chart creates a Secret from `server.oidc.clientSecret`. |
 | `server.oidc.clientSecret` | string | Dex client secret (only used if `clientSecretName` is blank). In production, use an external secret operator instead of storing plaintext here. |
+| `server.oidc.groupsClaim` | string | JWT claim name containing the user's groups, used for [GroupBinding](guides/groupbinding.md) evaluation. When blank, defaults to `groups`. Set to `cognito:groups`, `roles`, etc. for non-standard IdPs. |
 
 **Example:**
 

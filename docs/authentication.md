@@ -197,6 +197,21 @@ host "registry.terraform.io" {
 }
 ```
 
+#### GroupBinding Access Control
+
+When [GroupBinding](../guides/groupbinding.md) resources are deployed, the server enforces fine-grained access control after OIDC authentication. The user's groups claim is extracted from the JWT and matched against GroupBinding expressions to determine which modules and providers the user may access.
+
+The groups claim is **required** — the three possible outcomes are:
+
+- **Groups claim absent** — request is **denied with 403 Forbidden**. The claim must be present.
+- **Groups claim present, no GroupBinding matches** — request is **denied with 403 Forbidden**.
+- **Groups claim present, a GroupBinding matches** — access is governed by that binding's `moduleResources` and `providerResources` patterns.
+
+!!! warning
+    If no `GroupBinding` resources exist in the server namespace, **all** OIDC-authenticated users are denied regardless of their groups. Deploy at least one `GroupBinding` before enabling OIDC in production.
+
+To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm values. See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) for full setup instructions.
+
 #### Security Notes
 
 - **HTTPS required**: In production, issuer URLs must use HTTPS. HTTP is allowed only for localhost (127.0.0.1) and testing.

@@ -190,6 +190,26 @@ The chart manages the secret in two ways:
 !!! warning
     The client secret is injected only into the Dex deployment via `envFrom`. The OpenDepot server container never receives it.
 
+## Fine-Grained Access Control (GroupBinding)
+
+After OIDC is enabled, you can deploy `GroupBinding` resources to restrict which modules and providers each group of users may access. The server extracts the groups claim from the JWT and evaluates GroupBindings in alphabetical order by name. The first matching binding determines the allowed resources.
+
+### Groups Claim Name
+
+By default the server reads the `groups` JWT claim. If your IdP uses a different name, set `server.oidc.groupsClaim`:
+
+```yaml
+server:
+  oidc:
+    groupsClaim: "cognito:groups"  # default is "groups"
+```
+
+### Backward Compatibility
+
+If the JWT does not contain the configured groups claim, GroupBinding evaluation is skipped entirely. The request is authenticated normally and proceeds without restriction. Existing OIDC deployments that do not emit a groups claim require no changes.
+
+See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) for a complete guide, including expression syntax, glob pattern reference, and example manifests.
+
 ## Security Notes
 
 - **HTTPS required in production**: The Dex `issuer` URL must use HTTPS. HTTP is accepted only for `127.0.0.1` and in-cluster addresses.
