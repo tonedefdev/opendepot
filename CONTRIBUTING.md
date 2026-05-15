@@ -12,6 +12,8 @@ Thank you for your interest in contributing to OpenDepot! This guide covers ever
   - [Provider Controller](#provider-controller)
   - [Depot Controller](#depot-controller)
   - [Version Controller](#version-controller)
+- [Manual Tests](#manual-tests)
+  - [OIDC Login Flow (`tofu login`)](#oidc-login-flow-tofu-login)
 - [Regenerating CRDs](#regenerating-crds)
 - [Building Images Manually](#building-images-manually)
 - [Adding a Storage Backend](#adding-a-storage-backend)
@@ -285,3 +287,235 @@ Each controller's e2e suite follows the same pattern:
 3. **AfterSuite** — reverts the Helm release back to production image references so the cluster is left in a clean state.
 
 The Helm release name is `opendepot` and the namespace is `opendepot-system` for all suites. Because suites share the same cluster and Helm release, **do not run multiple suites concurrently** — run them one at a time.
+
+---
+
+## Manual Tests
+
+### OIDC Login Flow (`tofu login`)
+
+The automated e2e suite validates service discovery correctness, OIDC JWT acceptance, and `tofu init` with stored credentials. It drives authentication via ROPC rather than the interactive browser flow. This section describes how to verify the full `tofu login` authorization code flow manually.
+
+#### Why this can't be automated
+
+`tofu login` uses the OAuth2 authorization code + PKCE flow: it opens a browser to the IdP authorization URL, the user logs in, and the IdP redirects back to a `localhost` callback that `tofu` is listening on. For this to work from a developer's machine, Dex must be accessible at a URL that resolves from the **browser** — not just from inside the cluster. The default chart configuration auto-derives the Dex issuer as the in-cluster service URL (`http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`), which the browser cannot reach. This makes `tofu login` impractical to automate against a standard Kind setup without significant extra network wiring.
+
+#### Prerequisites
+
+- A Kubernetes cluster where both the OpenDepot server and Dex are reachable from your browser — a cloud cluster with Ingress, minikube with `minikube tunnel`, or **Kind with `kubectl port-forward`** (see [Using Kind for this test](#using-kind-for-this-test) at the end of this section)
+- External DNS names for the server and Dex, e.g. `opendepot.example.com` and `dex.example.com` (not required for the Kind/port-forward path)
+- TLS certificates for both hostnames — self-signed is acceptable (not required for the Kind/port-forward path)
+- `tofu` v1.6+ on your `PATH`
+- `htpasswd` (Apache tools) or Python `bcrypt` to generate a password hash
+
+#### Step 1 — Generate a bcrypt password hash
+
+```bash
+# Using htpasswd (Apache tools):
+htpasswd -bnBC 10 "" "yourpassword" | tr -d ':\n'
+
+# Or using Python:
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt(10)).decode())"
+```
+
+#### Step 2 — Deploy with OIDC and Dex enabled
+
+Create `manual-test-values.yaml`.
+
+> [!IMPORTANT]
+> `server.oidc.issuerUrl` and `dex.config.issuer` must both be set to the **same external Dex URL**. If `server.oidc.issuerUrl` is left blank the chart auto-derives the in-cluster service URL, and `login.v1.authz` in the service discovery response will point to an address the browser cannot reach.
+
+```yaml
+dex:
+  enabled: true
+  config:
+    issuer: https://dex.example.com/dex   # must be reachable from the browser
+    storage:
+      type: memory
+    enablePasswordDB: true                # dev/test only — NEVER in production
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+      skipApprovalScreen: true
+    staticPasswords:
+      - email: "dev@example.com"
+        hash: "<bcrypt hash from Step 1>"
+        username: devuser
+        userID: "manual-test-user"
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10001
+          - http://localhost:10002
+          - http://localhost:10003
+          - http://localhost:10004
+          - http://localhost:10005
+          - http://localhost:10006
+          - http://localhost:10007
+          - http://localhost:10008
+          - http://localhost:10009
+          - http://localhost:10010
+    connectors: []
+
+server:
+  oidc:
+    enabled: true
+    issuerUrl: "https://dex.example.com/dex"   # must match dex.config.issuer exactly
+    clientSecret: "your-client-secret"
+```
+
+```bash
+helm upgrade opendepot ./chart/opendepot \
+  --install --namespace opendepot-system --create-namespace \
+  -f manual-test-values.yaml
+```
+
+#### Step 3 — Verify service discovery
+
+```bash
+curl -s https://opendepot.example.com/.well-known/terraform.json | jq .
+```
+
+`login.v1.authz` and `login.v1.token` must use the external Dex hostname. If they show the in-cluster service URL, `server.oidc.issuerUrl` was not set correctly.
+
+```json
+{
+  "modules.v1": "/opendepot/modules/v1/",
+  "providers.v1": "/opendepot/providers/v1/",
+  "login.v1": {
+    "client": "opendepot",
+    "grant_types": ["authz_code", "device_code"],
+    "authz": "https://dex.example.com/dex/auth",
+    "token": "https://dex.example.com/dex/token",
+    "ports": [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]
+  }
+}
+```
+
+#### Step 4 — Run `tofu login`
+
+```bash
+tofu login opendepot.example.com
+```
+
+Expected flow:
+1. `tofu` fetches `/.well-known/terraform.json` from the server and reads `login.v1.authz` to find the Dex authorization URL.
+2. A browser window opens to `https://dex.example.com/dex/auth?...`. Dex serves a built-in HTML sign-in page at this URL — the user sees an email and password form rendered by Dex itself (not the OpenDepot server).
+3. Enter `dev@example.com` and your test password. Submitting the form posts credentials to Dex, which validates them against `staticPasswords`.
+4. On success, Dex issues an authorization code and redirects the browser to `http://localhost:1000x/...` — `tofu` is listening on that local port and intercepts the redirect.
+5. `tofu` exchanges the authorization code for a JWT at Dex's token endpoint. The terminal prints `Successfully retrieved token.`
+6. Credentials are stored in `~/.terraform.d/credentials.tfrc.json`.
+
+Verify the stored entry:
+
+```bash
+jq '.credentials["opendepot.example.com"]' ~/.terraform.d/credentials.tfrc.json
+```
+
+#### Step 5 — Verify `tofu init` uses the stored token
+
+Create a minimal `main.tf` (the module does not need to exist):
+
+```hcl
+module "test" {
+  source  = "opendepot.example.com/opendepot-system/nonexistent/aws"
+  version = "~> 1.0"
+}
+```
+
+```bash
+mkdir -p /tmp/tofu-login-test && cd /tmp/tofu-login-test
+# write main.tf as above, then:
+tofu init
+```
+
+**Pass**: a `500` or `404` response — `tofu` reached the server and the server attempted to look up the module. A `401` means the stored token was not sent or was rejected.
+
+#### Using Kind for this test
+
+Kind works well here without an Ingress controller. `kubectl port-forward` exposes the server and Dex on `localhost`, which is the one hostname both OpenTofu and Dex accept over plain HTTP — no TLS or DNS required.
+
+**1. Start port-forwards in the background (two separate terminals or background jobs):**
+
+```bash
+kubectl port-forward -n opendepot-system svc/server 8080:80 &
+kubectl port-forward -n opendepot-system svc/opendepot-dex 5556:5556 &
+```
+
+The Dex service is named `opendepot-dex` when deployed as part of the `opendepot` Helm release. Confirm with `kubectl get svc -n opendepot-system` if needed.
+
+**2. Use these values instead of `manual-test-values.yaml` from Step 2:**
+
+The only structural difference from the cloud cluster values is `issuer` and `issuerUrl` both pointing to `http://localhost:5556/dex`:
+
+```yaml
+dex:
+  enabled: true
+  config:
+    issuer: http://localhost:5556/dex
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+      skipApprovalScreen: true
+    staticPasswords:
+      - email: "dev@example.com"
+        hash: "<bcrypt hash from Step 1>"
+        username: devuser
+        userID: "manual-test-user"
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10001
+          - http://localhost:10002
+          - http://localhost:10003
+          - http://localhost:10004
+          - http://localhost:10005
+          - http://localhost:10006
+          - http://localhost:10007
+          - http://localhost:10008
+          - http://localhost:10009
+          - http://localhost:10010
+    connectors: []
+
+server:
+  oidc:
+    enabled: true
+    issuerUrl: "http://localhost:5556/dex"
+    clientSecret: "your-client-secret"
+```
+
+**3. For Step 3, check service discovery against localhost:**
+
+```bash
+curl -s http://localhost:8080/.well-known/terraform.json | jq .
+```
+
+`login.v1.authz` must show `http://localhost:5556/dex/auth`.
+
+**4. For Step 4, run `tofu login` against `localhost:8080`:**
+
+```bash
+tofu login localhost:8080
+```
+
+The flow is identical to the cloud path: `tofu` reads `login.v1.authz` from service discovery (`http://localhost:5556/dex/auth`), opens the browser to that URL, and Dex serves its built-in sign-in page on `localhost:5556`. After submitting credentials, Dex redirects back to `tofu`'s local callback and the token is stored.
+
+For Steps 5 onwards substitute `localhost:8080` for `opendepot.example.com`.
+
+> [!NOTE]
+> Keep both port-forward processes running for the duration of the test. Stop them with `kill %1 %2` (or `fg` and Ctrl-C) when done.

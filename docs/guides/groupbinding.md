@@ -21,7 +21,7 @@ flowchart TD
     B -- Yes --> D[Evaluate GroupBindings in alphabetical order]
     D --> E{Expression matches?}
     E -- No more bindings --> F[403 Forbidden]
-    E -- Yes --> G[Check resource name against glob patterns]
+    E -- Yes --> G[Check resource name against allowed list]
     G --> H{Name matches?}
     H -- Yes --> I[200 OK]
     H -- No --> J[403 Forbidden]

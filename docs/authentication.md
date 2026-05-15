@@ -131,7 +131,9 @@ server:
 !!! warning
     Never commit `clientSecret` in plain text. Use an external secret operator (e.g., Sealed Secrets, External Secrets) to manage the value in production.
 
-When `issuerUrl` is blank and `dex.enabled: true`, the chart automatically derives the in-cluster Dex service URL.
+When `issuerUrl` is blank and `dex.enabled: true`, the chart automatically derives the in-cluster Dex service URL (`http://opendepot-dex.<namespace>.svc.cluster.local:5556/dex`). **This is not reachable from a browser.** The server derives the `login.v1.authz` and `login.v1.token` URLs in service discovery directly from the issuer URL, so if the in-cluster address is used, `tofu login` will attempt to open a browser tab to a URL that cannot be resolved from the user's machine.
+
+**Always set both `dex.config.issuer` and `server.oidc.issuerUrl` to the same URL that is reachable from the user's browser** when `tofu login` is required. Options include an Ingress hostname, a LoadBalancer Service address, minikube tunnel, or `kubectl port-forward` to `localhost` (both Dex and OpenTofu accept `http://localhost` natively, so no TLS is needed for local development).
 
 #### Connector Examples
 
@@ -180,7 +182,15 @@ After Dex and OIDC are configured, users authenticate once and obtain a JWT:
 tofu login opendepot.defdev.io
 ```
 
-The server advertises the `login.v1` service discovery endpoint with authorization and token URLs pointing to Dex. Clients redirect to Dex for authentication (or device flow on headless systems), then exchange the authorization code for a JWT. Subsequent `tofu` commands use the JWT as the bearer token.
+The server advertises the `login.v1` service discovery endpoint with authorization and token URLs derived from `server.oidc.issuerUrl`. `tofu login` uses the OAuth2 authorization code + PKCE flow: it opens a browser to Dex's authorization URL and listens on a local port (`10000`–`10010`) for the redirect. **Dex must therefore be reachable from the user's browser** — not just from inside the cluster. Verify that `login.v1.authz` in the service discovery response resolves to an externally accessible hostname before asking users to run `tofu login`:
+
+```bash
+curl -s https://opendepot.defdev.io/.well-known/terraform.json | jq '."login.v1".authz'
+```
+
+If the output contains an in-cluster service name rather than a public hostname, `server.oidc.issuerUrl` was not set or was set incorrectly. Correct it and redeploy before proceeding.
+
+Once confirmed, subsequent `tofu` commands use the JWT as the bearer token.
 
 **Example `.tofurc` configuration:**
 
@@ -205,7 +215,7 @@ The groups claim is **required** — the three possible outcomes are:
 
 - **Groups claim absent** — request is **denied with 403 Forbidden**. The claim must be present.
 - **Groups claim present, no GroupBinding matches** — request is **denied with 403 Forbidden**.
-- **Groups claim present, a GroupBinding matches** — access is governed by that binding's `moduleResources` and `providerResources` patterns.
+- **Groups claim present, a GroupBinding matches** — access is governed by that binding's `moduleResources` glob patterns and `providerResources` exact-name list.
 
 !!! warning
     If no `GroupBinding` resources exist in the server namespace, **all** OIDC-authenticated users are denied regardless of their groups. Deploy at least one `GroupBinding` before enabling OIDC in production.
@@ -227,6 +237,7 @@ To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm val
 | `missing Authorization header` | `.tofurc` missing `credentials` block | Add `credentials "host" { token = "..." }` block |
 | `unauthorized` | JWT expired or invalid | Re-run `tofu login` to obtain a fresh JWT |
 | `CrashLoopBackOff` on server pod | `server.oidc.issuerUrl` not set or misconfigured | Verify OIDC is enabled and issuer URL is correct; check pod logs |
+| Browser opens to an in-cluster hostname (e.g. `opendepot-dex.opendepot-system.svc...`) | `server.oidc.issuerUrl` was left blank; chart derived the in-cluster service URL | Set both `dex.config.issuer` and `server.oidc.issuerUrl` to the external Dex URL and redeploy |
 | Browser redirects to localhost but connection fails | Dex `redirectURI` not included in client config | Add all expected localhost ports (10000-10010) to Dex client redirectURIs |
 
 ### Authentication Comparison
