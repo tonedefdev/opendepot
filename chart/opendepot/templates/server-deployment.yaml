@@ -61,20 +61,10 @@ spec:
         - --tls-cert-path={{ .Values.server.tls.certPath }}
         - --tls-cert-key={{ .Values.server.tls.keyPath }}
         {{- end }}
-        {{- if or .Values.server.gpg.secretName (and .Values.server.oidc.enabled (or .Values.server.oidc.clientSecretName .Values.dex.enabled)) }}
-        envFrom:
         {{- if .Values.server.gpg.secretName }}
+        envFrom:
         - secretRef:
             name: {{ .Values.server.gpg.secretName }}
-        {{- end }}
-        {{- if and .Values.server.oidc.enabled .Values.server.oidc.clientSecretName }}
-        - secretRef:
-            name: {{ .Values.server.oidc.clientSecretName }}
-        {{- else if and .Values.server.oidc.enabled .Values.dex.enabled }}
-        - secretRef:
-            name: opendepot-dex-client-secret
-            optional: true
-        {{- end }}
         {{- end }}
         ports:
         - name: http
