@@ -53,27 +53,27 @@ spec:
         - --oidc-issuer-url={{ .Values.server.oidc.issuerUrl }}
         {{- else if .Values.dex.enabled }}
         - --oidc-issuer-url=http://{{ .Release.Name }}-dex.{{ .Values.global.namespace }}.svc.cluster.local:5556/dex
+        {{- else }}
+        {{- required "server.oidc.issuerUrl is required when server.oidc.enabled=true and dex.enabled=false" nil }}
         {{- end }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}
         - --tls-cert-key={{ .Values.server.tls.keyPath }}
         {{- end }}
-        {{- if or .Values.server.gpg.secretName .Values.server.oidc.enabled }}
+        {{- if or .Values.server.gpg.secretName (and .Values.server.oidc.enabled (or .Values.server.oidc.clientSecretName .Values.dex.enabled)) }}
         envFrom:
         {{- if .Values.server.gpg.secretName }}
         - secretRef:
             name: {{ .Values.server.gpg.secretName }}
         {{- end }}
-        {{- if .Values.server.oidc.enabled }}
-        {{- if .Values.server.oidc.clientSecretName }}
+        {{- if and .Values.server.oidc.enabled .Values.server.oidc.clientSecretName }}
         - secretRef:
             name: {{ .Values.server.oidc.clientSecretName }}
-        {{- else if .Values.dex.enabled }}
+        {{- else if and .Values.server.oidc.enabled .Values.dex.enabled }}
         - secretRef:
             name: opendepot-dex-client-secret
             optional: true
-        {{- end }}
         {{- end }}
         {{- end }}
         ports:
