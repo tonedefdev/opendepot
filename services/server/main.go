@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -24,6 +25,7 @@ var (
 	opendepotOIDCAuthzURL               *string
 	opendepotOIDCTokenURL               *string
 	opendepotServerNamespace            *string
+	opendepotFilesystemMountPath        *string
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -53,6 +55,7 @@ func main() {
 	opendepotOIDCAuthzURL = flag.String("oidc-authz-url", "", "override the authorization URL advertised in /.well-known/terraform.json login.v1; when blank uses the authz URL from the OIDC provider discovery document")
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
+	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
@@ -60,6 +63,20 @@ func main() {
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")
 		os.Exit(1)
+	}
+
+	for flagName, rawURL := range map[string]string{
+		"--oidc-authz-url": *opendepotOIDCAuthzURL,
+		"--oidc-token-url": *opendepotOIDCTokenURL,
+	} {
+		if rawURL == "" {
+			continue
+		}
+		parsed, err := url.ParseRequestURI(rawURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			logger.Error("flag must be a well-formed http or https URL", "flag", flagName, "value", rawURL)
+			os.Exit(1)
+		}
 	}
 
 	if *opendepotOIDCIssuerURL != "" {

@@ -254,7 +254,7 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("terraform-get") == "1" {
 		scheme := "https"
 		if r.TLS == nil {
-			if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
+			if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto == "http" || fwdProto == "https" {
 				scheme = fwdProto
 			} else {
 				scheme = "http"
@@ -290,13 +290,15 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := string(dirBytes)
 
-	logger.Info("filesystem download", "dir", dir, "module", moduleName, "file", fileName)
+	filePath := path.Join(dir, moduleName, fileName)
+	allowedRoot := path.Clean(*opendepotFilesystemMountPath)
+	if !strings.HasPrefix(path.Clean(filePath)+"/", allowedRoot+"/") {
+		logger.Error("filesystem download path escapes allowed root", "path", filePath, "allowedRoot", allowedRoot)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
-	filePath := path.Join(
-		dir,
-		moduleName,
-		fileName,
-	)
+	logger.Info("filesystem download", "dir", dir, "module", moduleName, "file", fileName)
 
 	fsStorage := &storage.FileSystem{}
 	soi := &storageTypes.StorageObjectInput{

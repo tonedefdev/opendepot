@@ -52,11 +52,12 @@ func normalizeVersion(versionString string) string {
 
 // requestBaseURL derives the scheme and host of the incoming request. It honours
 // TLS termination at the server, and falls back to the X-Forwarded-Proto header
-// set by a reverse proxy, before defaulting to http.
+// set by a reverse proxy, before defaulting to http. Only "http" and "https" are
+// accepted from the header; any other value is ignored.
 func requestBaseURL(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil {
-		if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
+		if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto == "http" || fwdProto == "https" {
 			scheme = fwdProto
 		} else {
 			scheme = "http"

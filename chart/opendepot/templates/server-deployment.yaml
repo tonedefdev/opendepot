@@ -18,9 +18,7 @@ spec:
     spec:
       serviceAccountName: server
       securityContext:
-        {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
         runAsNonRoot: true
-        {{- end }}
         runAsUser: 65532
         {{- if .Values.storage.filesystem.enabled }}
         fsGroup: 65532
@@ -32,6 +30,7 @@ spec:
         command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
         securityContext:
           runAsUser: 0
+          runAsNonRoot: false
         volumeMounts:
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
@@ -72,6 +71,9 @@ spec:
         - --oidc-token-url={{ .Values.server.oidc.tokenUrl }}
         {{- end }}
         - --namespace={{ .Values.global.namespace }}
+        {{- end }}
+        {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.mountPath }}
+        - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}
