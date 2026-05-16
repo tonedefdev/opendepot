@@ -30,6 +30,14 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - groupbindings
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ if .Values.rbac.scopeToNamespace }}RoleBinding{{ else }}ClusterRoleBinding{{ end }}

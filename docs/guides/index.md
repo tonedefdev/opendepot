@@ -48,4 +48,10 @@ End-to-end workflows for the most common OpenDepot use cases.
 
     Move existing modules and providers from the public registry or another self-hosted registry to OpenDepot.
 
+- :material-shield-lock: &nbsp;[__GroupBinding Access Control__](groupbinding.md)
+
+    ---
+
+    Restrict which modules and providers each OIDC group may access using `GroupBinding` resources and expr-lang expressions.
+
 </div>

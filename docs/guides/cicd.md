@@ -85,6 +85,213 @@ jobs:
 
 The Module controller creates the `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage — no manual archive upload needed.
 
+## Registry Reads: SA Fallback with OIDC
+
+!!! warning "Last resort — exhaust other options first"
+    SA fallback **bypasses GroupBinding entirely**. When a ServiceAccount token is used, the SA's Kubernetes RBAC governs access instead of the centralized GroupBinding model your OIDC setup provides. This means:
+
+    - Human users and pipeline tokens follow different access control paths, which increases audit surface.
+    - A leaked pipeline token grants direct cluster API access, not just registry access.
+    - SA-token access is invisible to GroupBinding audit logs.
+
+    Before enabling SA fallback, consider whether one of these fits your use case instead:
+
+    - **Publishing modules only?** → Use the [GitOps approach](gitops.md). No pipeline credentials needed at all — Argo CD handles cluster auth, developers push to Git.
+    - **Reading the registry from pipelines without cluster access?** → Use [Dex Client Credentials](#dex-client-credentials). Pipelines get a Dex-issued token scoped to GroupBinding, with no Kubernetes API exposure.
+
+    SA fallback is appropriate when your pipeline must interact with the Kubernetes API directly for reasons beyond registry access and you have already ruled out the above options.
+
+When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
+
+### Enable SA fallback in your Helm values
+
+```yaml
+server:
+  oidc:
+    enabled: true
+    allowServiceAccountFallback: true
+```
+
+This lets K8s SA tokens authenticate alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on Kubernetes RBAC directly.
+
+### Create an SA and bind registry-reader RBAC
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-registry-reader
+  namespace: my-ci-namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opendepot-registry-reader
+  namespace: opendepot-system
+rules:
+- apiGroups: ["opendepot.defdev.io"]
+  resources: ["modules", "versions", "providers"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opendepot-registry-reader-binding
+  namespace: opendepot-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opendepot-registry-reader
+subjects:
+- kind: ServiceAccount
+  name: ci-registry-reader
+  namespace: my-ci-namespace
+```
+
+### GitHub Actions example
+
+```yaml
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # required for OIDC to your cloud provider
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT>:role/my-role
+          aws-region: us-west-2
+
+      - name: Configure kubeconfig for EKS
+        run: aws eks update-kubeconfig --name my-cluster --region us-west-2
+
+      - name: Get SA token for OpenDepot registry
+        id: opendepot-token
+        run: |
+          TOKEN=$(kubectl create token ci-registry-reader \
+            -n my-ci-namespace \
+            --duration=15m)
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Write .tofurc
+        run: |
+          cat > ~/.tofurc <<EOF
+          credentials "opendepot.example.com" {
+            token = "${{ steps.opendepot-token.outputs.token }}"
+          }
+          host "opendepot.example.com" {
+            services = {
+              "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
+              "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
+            }
+          }
+          EOF
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - run: tofu init
+```
+
+The SA token is short-lived (15 minutes) and scoped to read-only registry operations via the RBAC defined above. No Dex client credentials are needed.
+
+This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication.md#method-2-managed-cluster-tokens)).
+
+## Dex Client Credentials
+
+If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach when your pipeline does not already have cluster API access.
+
+Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
+
+```yaml
+dex:
+  config:
+    oauth2:
+      grantTypes:
+        - authorization_code
+        - client_credentials
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - https://opendepot.example.com/...
+      - id: ci-pipeline
+        name: CI Pipeline
+        secretEnv: OPENDEPOT_CC_CLIENT_SECRET
+        grantTypes:
+          - client_credentials
+server:
+  oidc:
+    enabled: true
+    allowClientCredentials: true
+```
+
+Create a `GroupBinding` to authorize the pipeline client:
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: ci-pipeline-binding
+  namespace: opendepot-system
+spec:
+  expression: '"client:ci-pipeline" in groups'
+  moduleResources:
+    - "*"
+  providerResources:
+    - "*"
+```
+
+### GitHub Actions example
+
+```yaml
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Dex CC token for OpenDepot registry
+        id: opendepot-token
+        env:
+          CC_CLIENT_SECRET: ${{ secrets.OPENDEPOT_CC_CLIENT_SECRET }}
+        run: |
+          TOKEN=$(curl -sf -X POST https://dex.example.com/dex/token \
+            -d grant_type=client_credentials \
+            -d client_id=ci-pipeline \
+            -d "client_secret=${CC_CLIENT_SECRET}" \
+            -d scope=openid \
+            | jq -r '.access_token')
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Write .tofurc
+        run: |
+          cat > ~/.tofurc <<EOF
+          credentials "opendepot.example.com" {
+            token = "${{ steps.opendepot-token.outputs.token }}"
+          }
+          host "opendepot.example.com" {
+            services = {
+              "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
+              "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
+            }
+          }
+          EOF
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - run: tofu init
+```
+
+The CC token is short-lived (TTL controlled by Dex) and scoped to read-only operations via the `GroupBinding`. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
+
+For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine). For a side-by-side comparison of all supported authentication methods and their access-control mechanisms, see the [Authentication Comparison](../authentication.md#authentication-comparison) table.
+
 ## Adding Versions to an Existing Module
 
 To publish a new version of a module that already exists in OpenDepot, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.

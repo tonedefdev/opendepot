@@ -18,9 +18,7 @@ spec:
     spec:
       serviceAccountName: server
       securityContext:
-        {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
         runAsNonRoot: true
-        {{- end }}
         runAsUser: 65532
         {{- if .Values.storage.filesystem.enabled }}
         fsGroup: 65532
@@ -32,6 +30,7 @@ spec:
         command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
         securityContext:
           runAsUser: 0
+          runAsNonRoot: false
         volumeMounts:
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
@@ -46,6 +45,35 @@ spec:
         {{- end }}
         {{- if .Values.server.useBearerToken }}
         - --use-bearer-token
+        {{- end }}
+        {{- if .Values.server.oidc.enabled }}
+        - --oidc-client-id={{ .Values.server.oidc.clientId }}
+        {{- if .Values.server.oidc.issuerUrl }}
+        - --oidc-issuer-url={{ .Values.server.oidc.issuerUrl }}
+        {{- else if .Values.dex.enabled }}
+        - --oidc-issuer-url=http://{{ .Release.Name }}-dex.{{ .Values.global.namespace }}.svc.cluster.local:5556/dex
+        {{- else }}
+        {{- required "server.oidc.issuerUrl is required when server.oidc.enabled=true and dex.enabled=false" nil }}
+        {{- end }}
+        {{- if .Values.server.oidc.groupsClaim }}
+        - --oidc-groups-claim={{ .Values.server.oidc.groupsClaim }}
+        {{- end }}
+        {{- if .Values.server.oidc.allowServiceAccountFallback }}
+        - --oidc-allow-sa-fallback
+        {{- end }}
+        {{- if .Values.server.oidc.allowClientCredentials }}
+        - --oidc-allow-client-credentials
+        {{- end }}
+        {{- if .Values.server.oidc.authzUrl }}
+        - --oidc-authz-url={{ .Values.server.oidc.authzUrl }}
+        {{- end }}
+        {{- if .Values.server.oidc.tokenUrl }}
+        - --oidc-token-url={{ .Values.server.oidc.tokenUrl }}
+        {{- end }}
+        - --namespace={{ .Values.global.namespace }}
+        {{- end }}
+        {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.mountPath }}
+        - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}

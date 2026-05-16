@@ -15,11 +15,17 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
 <div class="grid cards" markdown>
 
+- :material-login: &nbsp;__OIDC Support__
+
+    ---
+
+    First-class support for the OpenTofu login flow via the bundled [Dex](https://dexidp.io/) subchart. Connect any OIDC-compatible identity provider — GitHub, Entra ID, Okta, or static passwords — and let `tofu login` handle credential acquisition automatically.
+
 - :material-shield-check: &nbsp;__Security First__
 
     ---
 
-    Kubernetes bearer tokens and RBAC — no proprietary tokens, no user database, no extra identity store. Works with IRSA, Workload Identity, and any OIDC provider out of the box.
+    Kubernetes bearer tokens and RBAC used to create resources — no proprietary tokens, no user database, no extra identity store. Works with IRSA, Workload Identity, and any OIDC provider out of the box.
 
 - :material-refresh: &nbsp;__Self-Healing__
 
@@ -70,7 +76,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 | Feature                  | OpenDepot (OSS)         | HCP Terraform Registry      | JFrog Artifactory         | GitLab Terraform Registry | Harbor / OCI Registry      | Terrarium / Tapir / Hermit (OSS) |
 |--------------------------|-------------------------|----------------------------|---------------------------|--------------------------|----------------------------|-----------------------------------|
 | **License**              | Apache 2.0 (Free, OSS)  | Commercial SaaS/Enterprise | Commercial (Paid)         | GitLab EE/CE (Mixed)     | Apache 2.0 (OSS)           | OSS (varies)                      |
-| **Auth**                 | Kubernetes RBAC         | HCP tokens, SSO            | Artifactory tokens, SSO   | GitLab users             | Registry users/OIDC         | API keys, basic auth              |
+| **Auth**                 | K8s RBAC + OIDC (Dex)   | HCP tokens, SSO            | Artifactory tokens, SSO   | GitLab users             | Registry users/OIDC         | API keys, basic auth              |
 | **Database Required**    | No (K8s API)            | SaaS-managed/PostgreSQL    | Yes (external DB)         | Yes                      | Yes                         | Yes                               |
 | **Deployment**           | Helm chart, K8s-native  | SaaS / Enterprise on-prem  | Docker/K8s/VM             | SaaS or self-hosted      | Docker/K8s                  | Docker/K8s                        |
 | **Self-healing**         | Yes (controller loop)   | Partial (SaaS-managed)     | No                        | No                       | No                          | No                                |
@@ -81,6 +87,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 | **Vuln Scanning**        | Built-in (Trivy)        | No                         | Paid add-on (Xray)        | No                       | No                          | No                                |
 | **Pre-signed URLs**      | Yes (S3, GCS, Azure)    | No                         | Yes (CDN)                 | No                       | No                          | No                                |
 | **Provider Support**     | Yes                     | Yes                        | Yes                       | No                       | No                          | No (modules only)                 |
+| **`tofu login` Flow**    | Yes (Dex, `login.v1`)   | Yes                        | Yes                       | No                       | No                          | No                                |
 | **Open Source**          | Yes                     | No                         | No                        | Partial                  | Yes                         | Yes                               |
 
 
@@ -95,6 +102,9 @@ graph TD
 
     Server["Server — Registry Protocol API\nService Discovery · List Versions\nDownload Redirect · GPG-signed SHA256SUMS"]
 
+    Dex["Dex\nOIDC Identity Broker"]
+    IdP["Upstream IdP\nGitHub · Entra ID · Okta"]
+
     Depot["Depot\nController"]
     Module["Module\nController"]
     Version["Version\nController"]
@@ -105,7 +115,11 @@ graph TD
     GitHub["GitHub\nReleases API"]
     HashiCorp["HashiCorp\nReleases API"]
 
-    CLI -->|HTTP requests| Server
+    CLI -->|"tofu login (authz / device code)"| Dex
+    Dex -->|"federates auth"| IdP
+    Server -.->|"JWKS fetch at startup"| Dex
+
+    CLI -->|"HTTP requests (JWT bearer)"| Server
     Server -->|"reads Module + Provider"| Module & Provider
 
     Depot -->|queries| GitHub

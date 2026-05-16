@@ -15,7 +15,7 @@ Technical reference documentation for OpenDepot APIs and version constraint synt
 
     ---
 
-    Complete reference for all OpenDepot Kubernetes custom resources: `Module`, `Provider`, `Version`, and `Depot`.
+    HTTP endpoints (service discovery, OIDC auth flows, module and provider download), authentication modes, Kubernetes custom resource types (`Module`, `Provider`, `Version`, `Depot`, `GroupBinding`), and scan result types.
 
 - :material-tag-multiple: &nbsp;[__Version Constraints__](version-constraints.md)
 

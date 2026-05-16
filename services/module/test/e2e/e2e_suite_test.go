@@ -223,5 +223,3 @@ var _ = AfterSuite(func() {
 	)
 	_, _ = utils.Run(cmd)
 })
-
-

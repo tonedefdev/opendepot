@@ -17,9 +17,92 @@ GET /.well-known/terraform.json
 ```json
 {
   "modules.v1": "/opendepot/modules/v1/",
-  "providers.v1": "/opendepot/providers/v1/"
+  "providers.v1": "/opendepot/providers/v1/",
+  "login.v1": {
+    "client": "opentofu-cli",
+    "grant_types": ["authz_code", "device_code"],
+    "authz": "https://dex.example.com/dex/auth",
+    "token": "https://dex.example.com/dex/token",
+    "ports": [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]
+  }
 }
 ```
+
+The `login.v1` field is only present when OIDC authentication is enabled. It advertises the OIDC endpoints and ports that the `tofu login` command uses to obtain a JWT.
+
+## OIDC Device Authorization
+
+```
+POST {login.v1.authz}
+```
+
+Initiates the OAuth 2.0 device authorization grant flow. Used by `tofu login` on headless systems (servers, CI runners) to obtain a device code and user code.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `client_id` | From `login.v1.client` |
+| `scope` | Space-separated scopes (e.g. `openid profile email groups`) |
+
+**Response:**
+
+```json
+{
+  "device_code": "AQABAGF...",
+  "user_code": "WXYZ-ABCD",
+  "verification_uri": "https://dex.example.com/device",
+  "expires_in": 300,
+  "interval": 5
+}
+```
+
+## OIDC Token Exchange
+
+```
+POST {login.v1.token}
+```
+
+Exchanges an authorization code (authz_code flow) or device code (device_code flow) for a JWT. Used by `tofu login` to obtain the bearer token returned to the client.
+
+**Request (authz_code grant):**
+
+```
+POST /dex/token
+grant_type=authorization_code&code=<AUTH_CODE>&client_id=<CLIENT_ID>&redirect_uri=http://localhost:10000
+```
+
+**Request (device_code grant):**
+
+```
+POST /dex/token
+grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=<DEVICE_CODE>&client_id=<CLIENT_ID>
+```
+
+**Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "id_token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+The `id_token` (JWT) is returned to `tofu login` and subsequently passed to OpenDepot as a bearer token in the `Authorization: Bearer <id_token>` header.
+
+## Authentication Modes
+
+All endpoints that require authentication accept the `Authorization: Bearer <token>` header. The server operates in one of the following modes, configured at startup:
+
+| Mode | Value | Token accepted | K8s calls use |
+|---|---|---|---|
+| Anonymous | `--anonymous-auth` | None | Server SA |
+| Kubeconfig | (default) | Base64-encoded kubeconfig | Caller's kubeconfig identity |
+| Bearer token | `--use-bearer-token` | SA bearer token | Caller's SA RBAC |
+| OIDC | `--oidc-issuer-url` + `--oidc-client-id` | Dex JWT | Server SA (GroupBinding controls access) |
+| OIDC + SA fallback | above + `--oidc-allow-sa-fallback` | Dex JWT **or** SA token | Dex JWT → Server SA; SA token → Caller's SA RBAC |
 
 ## List Module Versions
 
@@ -215,6 +298,38 @@ Holds Trivy IaC scan (`trivy fs`) results for a module archive. Stored in `Versi
 |---|---|---|
 | `scannedAt` | `string` | RFC3339 timestamp at which the IaC scan completed |
 | `findings` | `[]SecurityFinding` | Misconfigurations found in the module's HCL source. `vulnerabilityID` contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE. |
+
+### GroupBinding
+
+`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules and providers. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.
+
+See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
+
+**GroupBindingSpec fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expression` | `string` | Yes | An [expr-lang](https://expr-lang.org/) boolean expression evaluated against the user's groups. The evaluation environment exposes `groups []string`. Must return `true` or `false`. Example: `'"platform-team" in groups'` |
+| `moduleResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for module names the group may access. Empty list denies access to all modules. Example: `["aws-*", "gcp-networking"]` |
+| `providerResources` | `[]string` | No | Exact provider type names the group may access, or `["*"]` to allow all providers. Empty list denies access to all providers. Example: `["aws", "google"]` |
+
+**Example manifest:**
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: platform-team-binding
+  namespace: opendepot-system
+spec:
+  expression: '"platform-team" in groups'
+  moduleResources:
+    - "aws-*"
+    - "gcp-networking"
+  providerResources:
+    - "aws"
+    - "google"
+```
 
 ### PresignConfig fields
 

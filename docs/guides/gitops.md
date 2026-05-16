@@ -7,6 +7,9 @@ tags:
 
 # GitOps with Argo CD
 
+!!! tip "Recommended for OIDC organizations"
+    If your organization has OIDC enabled, this is the **recommended approach** for publishing modules. Developers push to Git; no pipeline ever holds cluster credentials, no ServiceAccount token bypasses GroupBinding, and every module version published maps to an approved pull request. This is the least-privilege publishing model and the most defensible posture in regulated or security-sensitive environments.
+
 For teams that manage infrastructure declaratively through Git, OpenDepot fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
 
 **How it works:**
@@ -89,3 +92,15 @@ spec:
 - **No cluster credentials in CI** — Argo CD handles authentication to the cluster; developers only push to Git
 - **Immutable audit trail** — Git history records exactly who added each version and when
 - **Declarative all the way down** — Git declares the desired state, Argo CD syncs it, and OpenDepot reconciles it to storage
+- **GroupBinding fully enforced** — all human access still flows through OIDC and GroupBinding; no bypass path is introduced
+- **Blast radius is Git, not the cluster** — a compromised pipeline runner can push a PR at worst; it cannot directly modify Kubernetes resources or reach the cluster API
+
+## Least Privilege in Regulated Environments
+
+When OIDC is enabled, the alternative to GitOps is enabling [ServiceAccount fallback](cicd.md#registry-reads-sa-fallback-with-oidc) so pipelines can authenticate alongside human users. That approach has a material trade-off: **SA tokens bypass GroupBinding entirely**. The SA's Kubernetes RBAC governs its access instead of the centralized, identity-aware GroupBinding model. In practice this means:
+
+- You operate two separate access control systems — OIDC + GroupBinding for humans, RBAC for pipelines — which increases audit surface and operational overhead.
+- A compromised pipeline token grants direct cluster API access, not just registry access.
+- Access granted to an SA does not appear in GroupBinding audit logs.
+
+For organizations subject to SOC 2, PCI DSS, FedRAMP, or similar frameworks where principle of least privilege and separation of duties are mandatory controls, GitOps removes these concerns entirely. The pipeline has no cluster credentials to compromise.

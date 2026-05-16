@@ -259,5 +259,3 @@ var _ = AfterSuite(func() {
 		os.RemoveAll(gpgHome)
 	}
 })
-
-

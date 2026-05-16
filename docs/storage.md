@@ -153,7 +153,11 @@ helm install opendepot opendepot/opendepot \
   --set storage.filesystem.hostPath=/tmp/opendepot-modules
 ```
 
-When using `hostPath`, the chart adds an `initContainer` that runs as root to set ownership of the volume to uid `65532` (the non-root user the containers run as).
+When using `hostPath`, the chart adds an `initContainer` that runs as root to set ownership of the volume to uid `65532` (the non-root user the containers run as). The pod-level `runAsNonRoot: true` setting is preserved — only the `initContainer` carries a container-level override (`runAsNonRoot: false`, `runAsUser: 0`). This setup is intended for local development only and is **not recommended for production**.
+
+**Download path enforcement:**
+
+The server enforces that every filesystem download request resolves to a path within the configured mount directory. Any request for a path outside this root is rejected with HTTP 403. The mount path is controlled by `storage.filesystem.mountPath` (default `/data/modules`) and passed to the server via the `--filesystem-mount-path` flag. When `storage.filesystem.enabled` is `true` and `mountPath` is set, the chart passes this flag automatically — no manual server configuration is required.
 
 **Production with PVC (ReadWriteMany):**
 
