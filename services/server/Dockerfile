@@ -28,10 +28,10 @@ RUN cd services/server && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/github/ pkg/github/
-COPY services/server/main.go services/server/main.go
+COPY services/server/ services/server/
 
 # Build
-RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server main.go
+RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
