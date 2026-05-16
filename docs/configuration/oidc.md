@@ -206,7 +206,9 @@ server:
 
 ### Required Groups Claim
 
-The groups claim is **required** when OIDC is enabled. A valid JWT that does not carry the configured claim is denied with **403 Forbidden** — there is no bypass path. Configure your IdP connector in Dex to emit the claim before enabling OIDC in production.
+The groups claim is **required** for interactive OIDC users. A valid JWT that does not carry the configured claim is denied with **403 Forbidden**. Configure your IdP connector in Dex to emit the claim before enabling OIDC in production.
+
+The one exception is [client credentials](#client-credentials-machine-to-machine) tokens. When `server.oidc.allowClientCredentials` is enabled, the server synthesizes a virtual group from the token's `sub` claim (`"client:<sub>"`), so a groups claim is not required in the JWT itself.
 
 See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) for a complete guide, including expression syntax, glob pattern reference, and example manifests.
 

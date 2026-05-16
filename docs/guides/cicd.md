@@ -89,8 +89,6 @@ The Module controller creates the `Version` resource, and the Version controller
 
 When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
 
-If your pipeline already uses managed-cluster auth on EKS, AKS, or GKE, you can also follow the Kubernetes auth patterns in [Authenticating with OpenDepot](/authentication.md/) instead of SA fallback.
-
 ### Enable SA fallback in your Helm values
 
 ```yaml
@@ -184,7 +182,9 @@ jobs:
       - run: tofu init
 ```
 
-The SA token is short-lived (15 minutes) and scoped to read-only registry operations. No Dex client credentials are needed for the CI pipeline.
+The SA token is short-lived (15 minutes) and scoped to read-only registry operations via the RBAC defined above. No Dex client credentials are needed.
+
+This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication.md#method-2-managed-cluster-tokens)).
 
 ## Dex Client Credentials
 

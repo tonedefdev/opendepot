@@ -102,6 +102,9 @@ graph TD
 
     Server["Server — Registry Protocol API\nService Discovery · List Versions\nDownload Redirect · GPG-signed SHA256SUMS"]
 
+    Dex["Dex\nOIDC Identity Broker"]
+    IdP["Upstream IdP\nGitHub · Entra ID · Okta"]
+
     Depot["Depot\nController"]
     Module["Module\nController"]
     Version["Version\nController"]
@@ -112,7 +115,11 @@ graph TD
     GitHub["GitHub\nReleases API"]
     HashiCorp["HashiCorp\nReleases API"]
 
-    CLI -->|HTTP requests| Server
+    CLI -->|"tofu login (authz / device code)"| Dex
+    Dex -->|"federates auth"| IdP
+    Server -.->|"JWKS fetch at startup"| Dex
+
+    CLI -->|"HTTP requests (JWT bearer)"| Server
     Server -->|"reads Module + Provider"| Module & Provider
 
     Depot -->|queries| GitHub

@@ -33,7 +33,9 @@ Only the first binding (alphabetically by name) whose expression is `true` is ap
 
 ### Required Groups Claim
 
-The groups claim is **required** when OIDC is enabled. A valid JWT that does not carry the configured claim is denied with **403 Forbidden** — there is no bypass path. Every OIDC user must have a groups claim in their JWT and match a `GroupBinding` to access any resource.
+The groups claim is **required** for interactive OIDC users. A valid JWT that does not carry the configured claim is denied with **403 Forbidden**. Every OIDC user must have a groups claim in their JWT and match a `GroupBinding` to access any resource.
+
+The one exception is [client credentials](../configuration/oidc.md#client-credentials-machine-to-machine) tokens. When `server.oidc.allowClientCredentials` is enabled, the server synthesizes a virtual group from the token's `sub` claim (`"client:<sub>"`), so a groups claim is not required in the JWT itself.
 
 Ensure your IdP connector in Dex is configured to emit a groups claim. Common connectors that do this by default include Microsoft (Entra ID) and GitHub (when `org` is set). See your IdP's Dex connector documentation for the correct scope or claim configuration.
 

@@ -171,6 +171,14 @@ With this flag, K8s SA tokens (identified by a non-OIDC `iss` claim) are routed 
 
 ### Method 2: Managed Cluster Tokens
 
+!!! note "Required server configuration"
+    This method requires one of the following:
+
+    - **`server.useBearerToken: true`** — server operates in pure bearer-token mode (no OIDC).
+    - **`server.oidc.allowServiceAccountFallback: true`** — OIDC is the primary auth mode, but tokens whose `iss` claim does not match the OIDC issuer are forwarded to Kubernetes as bearer tokens.
+
+    If OIDC is enabled without `allowServiceAccountFallback`, managed-cluster tokens are rejected because they are not Dex-issued JWTs.
+
 Use the token issued by your cluster's native auth flow when the CI job already has access to the Kubernetes API. OpenDepot forwards that token to Kubernetes; if the API server accepts it, registry reads and module downloads work without Dex credentials.
 
 The variable name is derived from the registry hostname: replace dots with underscores and convert to uppercase.

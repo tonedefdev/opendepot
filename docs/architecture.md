@@ -112,7 +112,17 @@ Automates module and provider discovery. The Depot controller:
 
 ### Server
 
-Implements both the Module Registry Protocol and the Provider Registry Protocol as an HTTP API. The server authenticates requests using either Kubernetes bearer tokens or base64-encoded kubeconfigs, then queries the Kubernetes API for module, provider, and version data.
+Implements both the Module Registry Protocol and the Provider Registry Protocol as an HTTP API. The server supports three authentication modes:
+
+- **Bearer token** — Kubernetes ServiceAccount tokens or kubeconfig credentials forwarded directly to the Kubernetes API.
+- **OIDC** — JWTs issued by the bundled [Dex](https://dexidp.io/) identity broker (or any compatible OIDC provider). The server fetches JWKS from the issuer at startup and validates tokens locally on every request — no round-trip to Dex per call. Fine-grained access control is applied via `GroupBinding` resources evaluated against the groups claim in the JWT.
+- **Anonymous** — No authentication required. Intended for local development only.
+
+When OIDC is enabled, the service discovery endpoint (`/.well-known/terraform.json`) advertises a `login.v1` block, enabling `tofu login` to drive the authorization code or device code flow through Dex. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and more) so users authenticate with their existing organizational identity.
+
+The server also accepts [client credentials](configuration/oidc.md#client-credentials-machine-to-machine) tokens from Dex machine clients when `allowClientCredentials` is enabled. The token's `sub` claim is mapped to a virtual group (`"client:<sub>"`) and evaluated against GroupBinding resources, giving machine identities the same scoped access model as human users.
+
+After authenticating, the server queries the Kubernetes API for `Module`, `Provider`, and `Version` resources to serve registry protocol responses.
 
 Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) are served using the server's own ServiceAccount per the [Terraform Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol) — OpenTofu fetches these URLs without forwarding client credentials, so authentication is provided at the metadata tier rather than the artifact tier.
 
