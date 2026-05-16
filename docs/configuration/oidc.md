@@ -275,3 +275,107 @@ subjects:
 ```
 
 For guidance on using this in a CI/CD pipeline, see [Registry Reads: SA Fallback with OIDC](../guides/cicd.md#registry-reads-sa-fallback-with-oidc).
+
+## Client Credentials (Machine-to-Machine)
+
+When your organization uses OIDC for human users and you need CI/CD pipelines or automated services to authenticate **without** distributing kubeconfigs or SA tokens, enable the Dex client credentials flow.
+
+A service obtains a short-lived Dex access token using the [OAuth2 client credentials grant](https://www.rfc-editor.org/rfc/rfc6749#section-4.4) and presents it as a bearer token. Access is controlled through the standard `GroupBinding` mechanism — the token's `sub` claim (the Dex client ID) is mapped to a virtual group `"client:<sub>"` which GroupBinding expressions can match.
+
+!!! note
+    Client credentials tokens are issued with `aud=<client-id>` (e.g. `aud=ci-pipeline`), not `aud=opendepot`. A secondary verifier that skips the audience check (but still validates the Dex signature and expiry) is used to accept them. User tokens that pass the primary audience check are **not** affected by this setting.
+
+### Step 1: Register a CC client in Dex
+
+Add a `staticClient` entry with `grantTypes: ["client_credentials"]` to your Dex config. The `id` becomes the identity of the machine client — use a descriptive name for your pipeline or service.
+
+```yaml
+dex:
+  config:
+    oauth2:
+      grantTypes:
+        - authorization_code
+        - client_credentials  # add this
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - https://opendepot.example.com/...
+      - id: ci-pipeline          # machine client
+        name: CI Pipeline
+        secret: <strong-random-secret>
+        grantTypes:
+          - client_credentials
+```
+
+!!! warning
+    Manage the CC client secret as you would any other credential. Use an external secret operator or inject it from a secrets manager rather than committing it in plain text.
+
+### Step 2: Enable CC auth on the server
+
+```yaml
+server:
+  oidc:
+    enabled: true
+    allowClientCredentials: true
+```
+
+### Step 3: Create a GroupBinding for the CC client
+
+The CC client's Dex `id` (e.g. `ci-pipeline`) is exposed as `"client:ci-pipeline"` in the virtual groups list. Write a `GroupBinding` that matches it:
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: ci-pipeline-binding
+  namespace: opendepot-system
+spec:
+  expression: '"client:ci-pipeline" in groups'
+  moduleResources:
+    - "*"
+  providerResources:
+    - "*"
+```
+
+### Step 4: Obtain and use a token
+
+Exchange the client credentials for an access token:
+
+```bash
+TOKEN=$(curl -s -X POST https://dex.example.com/dex/token \
+  -d grant_type=client_credentials \
+  -d client_id=ci-pipeline \
+  -d client_secret=<secret> \
+  -d scope=openid \
+  | jq -r '.access_token')
+```
+
+Use the token in `.tofurc`:
+
+```hcl
+credentials "opendepot.example.com" {
+  token = "<access_token>"
+}
+host "opendepot.example.com" {
+  services = {
+    "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
+    "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
+  }
+}
+```
+
+No `tofu login` is required — the access token is used directly.
+
+### Comparison with SA Fallback
+
+| | SA Fallback | Client Credentials |
+|---|---|---|
+| Token source | `kubectl create token` | Dex `client_credentials` grant |
+| Requires cluster API access | Yes (to mint SA token) | No |
+| Access control | Kubernetes RBAC | `GroupBinding` |
+| Works without `kubectl` | No | Yes |
+| Short-lived tokens | Yes (configurable) | Yes (Dex-controlled TTL) |
+
+For CI/CD usage examples see [Client Credentials in CI/CD](../guides/cicd.md#dex-client-credentials).

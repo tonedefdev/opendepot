@@ -117,6 +117,13 @@ server:
     # Only enable this when CI/CD pipelines need registry read access using their
     # existing SA credentials.
     allowServiceAccountFallback: false
+    # allowClientCredentials, when true, enables Dex client credentials tokens as a
+    # valid authentication method alongside OIDC JWTs. Verified Dex tokens whose
+    # audience does not match the primary oidc-client-id are accepted; the token's
+    # sub claim is mapped to a virtual group "client:<sub>" and evaluated against
+    # GroupBinding resources. Requires a Dex staticClient with
+    # grantTypes: ["client_credentials"]. See the OIDC configuration guide for setup.
+    allowClientCredentials: false
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set

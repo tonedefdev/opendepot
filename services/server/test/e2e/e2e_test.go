@@ -740,7 +740,7 @@ server:
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			var discovery map[string]interface{}
+			var discovery map[string]any
 			Expect(json.NewDecoder(resp.Body).Decode(&discovery)).To(Succeed())
 
 			Expect(discovery).To(HaveKey("login.v1"),
@@ -1240,19 +1240,24 @@ server:
 				return "", fmt.Errorf("token request failed: %w", err)
 			}
 			defer resp.Body.Close()
+
 			if resp.StatusCode != http.StatusOK {
 				body, _ := io.ReadAll(resp.Body)
 				return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
 			}
+
 			var tokenResp struct {
 				IDToken string `json:"id_token"`
 			}
+
 			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 				return "", fmt.Errorf("failed to decode token response: %w", err)
 			}
+
 			if tokenResp.IDToken == "" {
 				return "", fmt.Errorf("token response contained empty id_token")
 			}
+
 			return tokenResp.IDToken, nil
 		}
 
@@ -1426,6 +1431,362 @@ server:
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
 				"a garbage non-JWT token must produce a 401 even when SA fallback is enabled")
+		})
+	})
+
+	// Context: OIDC auth mode with client credentials
+	//
+	// These specs verify that tokens with a non-opendepot audience issued by Dex are
+	// accepted when --oidc-allow-client-credentials is set. We simulate this using
+	// ROPC on the "ci-pipeline" Dex client: the resulting id_token has aud=ci-pipeline
+	// (not aud=opendepot), so the primary oidcVerifier rejects it and the secondary
+	// oidcCCVerifier (SkipClientIDCheck=true) accepts it. The server then maps the
+	// token's sub claim to the virtual group "client:<sub>" for GroupBinding evaluation.
+	//
+	// Note: Dex's local password connector does not support the OAuth2 client_credentials
+	// grant (it requires a connector implementing TokenIdentity). ROPC with a non-opendepot
+	// client is equivalent for e2e purposes: it produces the same aud-mismatch token
+	// that exercises the exact same server code path.
+	Context("OIDC auth mode with client credentials", Ordered, func() {
+		var (
+			pfCancelServer context.CancelFunc
+			pfCancelDex    context.CancelFunc
+			ccToken        string
+			ccSub          string
+			dexJWT         string
+		)
+
+		const (
+			// ccDexLocalPort must not collide with sfDexLocalPort (15558) or gbDexLocalPort (15557).
+			ccDexLocalPort     = 15559
+			ccTestClientSecret = "test-cc-client-secret-e2e"
+			ccOIDCClientSecret = "test-cc-oidc-client-secret-e2e"
+			ccClientID         = "ci-pipeline"
+			ccUserEmail        = "cc-test@example.com"
+			ccUserPassword     = "cctestpassword"
+			ccUserID           = "cc-test-user-oidc-e2e"
+			ccGroupBindingName = "e2e-test-cc-groupbinding"
+		)
+
+		ccStartDexPortForward := func(localPort int) context.CancelFunc {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+						"-n", namespace,
+						"svc/opendepot-dex",
+						fmt.Sprintf("%d:5556", localPort),
+					)
+					cmd.Stdout = GinkgoWriter
+					cmd.Stderr = GinkgoWriter
+					_ = cmd.Run()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}()
+			Eventually(func() error {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", localPort))
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				return nil
+			}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for Dex port-forward (CC context)")
+			return cancel
+		}
+
+		// acquireCCSimToken performs ROPC using the ci-pipeline Dex client. The resulting
+		// id_token has aud=ci-pipeline (not aud=opendepot), causing the primary OIDC
+		// verifier to reject it and the CC verifier (SkipClientIDCheck=true) to accept it.
+		// This exercises the same server code path as a real OAuth2 client_credentials token.
+		acquireCCSimToken := func(localPort int, email, password, clientID, clientSecret string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", localPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {email},
+				"password":      {password},
+				"scope":         {"openid"},
+				"client_id":     {clientID},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("CC-sim token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("CC-sim token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode CC-sim token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("CC-sim token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		// parseJWTSub decodes the JWT payload without signature verification and returns
+		// the sub claim. Used to discover the Dex-assigned sub at test runtime.
+		parseJWTSub := func(token string) (string, error) {
+			parts := strings.Split(token, ".")
+			if len(parts) != 3 {
+				return "", fmt.Errorf("invalid JWT: expected 3 parts, got %d", len(parts))
+			}
+			payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+			if err != nil {
+				return "", fmt.Errorf("failed to decode JWT payload: %w", err)
+			}
+			var claims struct {
+				Sub string `json:"sub"`
+			}
+			if err := json.Unmarshal(payload, &claims); err != nil {
+				return "", fmt.Errorf("failed to unmarshal JWT claims: %w", err)
+			}
+			if claims.Sub == "" {
+				return "", fmt.Errorf("sub claim is empty in JWT")
+			}
+			return claims.Sub, nil
+		}
+
+		// ccAcquireDexToken acquires a user JWT via ROPC on the primary opendepot client.
+		// This token has aud=opendepot and verifies that user JWTs still take the primary
+		// OIDC path rather than being routed through the CC fallback.
+		ccAcquireDexToken := func(localPort int, clientSecret, username, password string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", localPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {username},
+				"password":      {password},
+				"scope":         {"openid"},
+				"client_id":     {"opendepot"},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("user token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("user token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode user token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("user token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		ccApplyGroupBinding := func(name, expression string, moduleResources, providerResources []string) {
+			mrYAML := ""
+			for _, m := range moduleResources {
+				mrYAML += fmt.Sprintf("    - %q\n", m)
+			}
+			prYAML := ""
+			for _, p := range providerResources {
+				prYAML += fmt.Sprintf("    - %q\n", p)
+			}
+			manifest := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  expression: %q
+  moduleResources:
+%s  providerResources:
+%s`, name, namespace, expression, mrYAML, prYAML)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err := utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "failed to apply GroupBinding %s", name)
+		}
+
+		ccDeleteGroupBinding := func(name string) {
+			cmd := exec.Command("kubectl", "delete", "groupbinding", name, "-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		}
+
+		BeforeAll(func() {
+			By("uninstalling previous Helm release to avoid Dex server-side apply conflicts")
+			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
+				"--namespace", namespace, "--ignore-not-found")
+			_, _ = utils.Run(uninstallCmd)
+
+			By("generating bcrypt hash for the test password")
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(ccUserPassword), 10)
+			Expect(err).NotTo(HaveOccurred())
+			passwordHash := string(hashBytes)
+
+			By("writing Dex + CC e2e values file")
+			// The ci-pipeline staticClient is a normal ROPC client (not a CC client).
+			// ROPC with client_id=ci-pipeline produces id_token with aud=ci-pipeline,
+			// which the primary verifier rejects and the CC verifier accepts.
+			dexValues := fmt.Sprintf(`
+dex:
+  enabled: true
+  config:
+    issuer: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+        - password
+      skipApprovalScreen: true
+      passwordConnector: local
+    staticPasswords:
+      - email: %q
+        hash: %q
+        username: cctestuser
+        userID: %q
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10010
+      - id: %s
+        name: CI Pipeline
+        secret: %q
+        redirectURIs:
+          - http://localhost:10000
+    connectors: []
+server:
+  oidc:
+    enabled: true
+    clientSecret: %q
+    allowClientCredentials: true
+`, ccUserEmail, passwordHash, ccUserID, ccClientID, ccTestClientSecret, ccOIDCClientSecret)
+
+			valuesFile := filepath.Join(GinkgoT().TempDir(), "cc-dex-e2e-values.yaml")
+			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
+
+			By("deploying server with OIDC + client credentials enabled")
+			deployServer(
+				"--set", "server.anonymousAuth=false",
+				"--set", "server.useBearerToken=false",
+				"-f", valuesFile,
+				"--timeout", "10m",
+			)
+
+			pfCancelServer = startPortForward()
+			pfCancelDex = ccStartDexPortForward(ccDexLocalPort)
+
+			By("acquiring a CC-simulated token for ci-pipeline (aud=ci-pipeline via ROPC)")
+			Eventually(func() error {
+				token, err := acquireCCSimToken(ccDexLocalPort, ccUserEmail, ccUserPassword, ccClientID, ccTestClientSecret)
+				if err != nil {
+					return err
+				}
+				ccToken = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire CC-sim token from Dex")
+
+			By("parsing sub from the CC token to build GroupBinding expression")
+			var subErr error
+			ccSub, subErr = parseJWTSub(ccToken)
+			Expect(subErr).NotTo(HaveOccurred(), "failed to parse sub from CC token")
+			Expect(ccSub).NotTo(BeEmpty(), "sub claim must not be empty in CC token")
+			_, _ = fmt.Fprintf(GinkgoWriter, "CC token sub: %q -> virtual group: %q\n", ccSub, "client:"+ccSub)
+
+			By("acquiring a user JWT via ROPC (opendepot client) for the negative OIDC-path test")
+			Eventually(func() error {
+				token, err := ccAcquireDexToken(ccDexLocalPort, ccOIDCClientSecret, ccUserEmail, ccUserPassword)
+				if err != nil {
+					return err
+				}
+				dexJWT = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire user JWT via ROPC (CC context)")
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancelServer)
+			stopPortForward(pfCancelDex)
+			ccDeleteGroupBinding(ccGroupBindingName)
+		})
+
+		It("should return 403 when no GroupBinding matches the CC token's virtual group", func() {
+			// No GroupBinding exists yet — CC token maps to ["client:<sub>"]
+			// which matches nothing → 403.
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+ccToken)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"CC token with no matching GroupBinding must produce a 403")
+		})
+
+		It("should return non-403 when a GroupBinding matches the CC token's virtual group", func() {
+			ccApplyGroupBinding(ccGroupBindingName,
+				fmt.Sprintf(`"client:%s" in groups`, ccSub),
+				[]string{"*"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+ccToken)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusForbidden),
+				"CC token with a matching GroupBinding must not produce a 403")
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"CC token with a matching GroupBinding must not produce a 401")
+		})
+
+		It("should return 403 when the GroupBinding denies the specific module", func() {
+			ccApplyGroupBinding(ccGroupBindingName,
+				fmt.Sprintf(`"client:%s" in groups`, ccSub),
+				[]string{"only-this-exact-module"},
+				[]string{},
+			)
+
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+ccToken)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"CC token with a GroupBinding that does not match the module must produce a 403")
+		})
+
+		// A valid user Dex JWT (aud=opendepot) must still take the primary OIDC path
+		// even when CC mode is enabled. Static password users have no groups claim,
+		// so the result must be 403 (not 401, and not silently routed through CC path).
+		It("should still route valid user Dex JWTs through the primary OIDC path", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+dexJWT)
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a valid user Dex JWT must take the primary OIDC path and be denied with 403 (no groups claim); CC mode must not intercept it")
 		})
 	})
 })

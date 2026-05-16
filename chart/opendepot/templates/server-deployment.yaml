@@ -62,6 +62,9 @@ spec:
         {{- if .Values.server.oidc.allowServiceAccountFallback }}
         - --oidc-allow-sa-fallback
         {{- end }}
+        {{- if .Values.server.oidc.allowClientCredentials }}
+        - --oidc-allow-client-credentials
+        {{- end }}
         - --namespace={{ .Values.global.namespace }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}

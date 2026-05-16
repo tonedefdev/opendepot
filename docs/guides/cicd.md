@@ -89,6 +89,8 @@ The Module controller creates the `Version` resource, and the Version controller
 
 When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
 
+If your pipeline already uses managed-cluster auth on EKS, AKS, or GKE, you can also follow the Kubernetes auth patterns in [Authenticating with OpenDepot](/authentication.md/) instead of SA fallback.
+
 ### Enable SA fallback in your Helm values
 
 ```yaml
@@ -151,6 +153,9 @@ jobs:
           role-to-assume: arn:aws:iam::<ACCOUNT>:role/my-role
           aws-region: us-west-2
 
+      - name: Configure kubeconfig for EKS
+        run: aws eks update-kubeconfig --name my-cluster --region us-west-2
+
       - name: Get SA token for OpenDepot registry
         id: opendepot-token
         run: |
@@ -180,6 +185,98 @@ jobs:
 ```
 
 The SA token is short-lived (15 minutes) and scoped to read-only registry operations. No Dex client credentials are needed for the CI pipeline.
+
+## Dex Client Credentials
+
+If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach when your pipeline does not already have cluster API access.
+
+Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
+
+```yaml
+dex:
+  config:
+    oauth2:
+      grantTypes:
+        - authorization_code
+        - client_credentials
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - https://opendepot.example.com/...
+      - id: ci-pipeline
+        name: CI Pipeline
+        secret: <strong-random-secret>
+        grantTypes:
+          - client_credentials
+server:
+  oidc:
+    enabled: true
+    allowClientCredentials: true
+```
+
+Create a `GroupBinding` to authorize the pipeline client:
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: ci-pipeline-binding
+  namespace: opendepot-system
+spec:
+  expression: '"client:ci-pipeline" in groups'
+  moduleResources:
+    - "*"
+  providerResources:
+    - "*"
+```
+
+### GitHub Actions example
+
+```yaml
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Dex CC token for OpenDepot registry
+        id: opendepot-token
+        env:
+          CC_CLIENT_SECRET: ${{ secrets.OPENDEPOT_CC_CLIENT_SECRET }}
+        run: |
+          TOKEN=$(curl -sf -X POST https://dex.example.com/dex/token \
+            -d grant_type=client_credentials \
+            -d client_id=ci-pipeline \
+            -d "client_secret=${CC_CLIENT_SECRET}" \
+            -d scope=openid \
+            | jq -r '.access_token')
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Write .tofurc
+        run: |
+          cat > ~/.tofurc <<EOF
+          credentials "opendepot.example.com" {
+            token = "${{ steps.opendepot-token.outputs.token }}"
+          }
+          host "opendepot.example.com" {
+            services = {
+              "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
+              "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
+            }
+          }
+          EOF
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - run: tofu init
+```
+
+The CC token is short-lived (TTL controlled by Dex) and scoped to read-only operations via the `GroupBinding`. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
+
+For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine).
 
 ## Adding Versions to an Existing Module
 

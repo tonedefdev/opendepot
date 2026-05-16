@@ -169,9 +169,9 @@ With this flag, K8s SA tokens (identified by a non-OIDC `iss` claim) are routed 
 | Browser opens to an in-cluster hostname (e.g. `opendepot-dex.opendepot-system.svc...`) | `server.oidc.issuerUrl` was left blank; chart derived the in-cluster service URL | Set both `dex.config.issuer` and `server.oidc.issuerUrl` to the external Dex URL and redeploy |
 | Browser redirects to localhost but connection fails | Dex `redirectURI` not included in client config | Add all expected localhost ports (10000-10010) to Dex client redirectURIs |
 
-### Method 2: Environment Variables (Recommended for CI/CD)
+### Method 2: Managed Cluster Tokens
 
-Use an environment variable to pass a Kubernetes access token. OpenTofu (all versions) and Terraform (v1.2+) support this method.
+Use the token issued by your cluster's native auth flow when the CI job already has access to the Kubernetes API. OpenDepot forwards that token to Kubernetes; if the API server accepts it, registry reads and module downloads work without Dex credentials.
 
 The variable name is derived from the registry hostname: replace dots with underscores and convert to uppercase.
 
@@ -189,15 +189,6 @@ The variable name is derived from the registry hostname: replace dots with under
     tofu plan
     ```
 
-=== "Google GKE"
-
-    ```bash
-    export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(gcloud auth print-access-token)
-
-    tofu init
-    tofu plan
-    ```
-
 === "Azure AKS"
 
     ```bash
@@ -209,21 +200,18 @@ The variable name is derived from the registry hostname: replace dots with under
     tofu plan
     ```
 
-=== "Generic OIDC"
+=== "Google GKE"
 
     ```bash
-    # Any cluster using kubelogin or exec credentials
-    export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(kubectl get secret \
-      -n opendepot-system my-sa-token \
-      -o jsonpath='{.data.token}' | base64 -d)
+    export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(gcloud auth print-access-token)
 
     tofu init
     tofu plan
     ```
 
-Tokens are short-lived and automatically rotate, making this the most secure option for CI/CD jobs.
+Tokens are short-lived and automatically rotate, making this the preferred option for CI/CD jobs when the cluster accepts the provider-issued token.
 
-### CI/CD Example
+#### CI/CD Example
 
 ```yaml
 name: Apply Infrastructure

@@ -36,18 +36,23 @@ import (
 )
 
 var (
-	logger                       *slog.Logger
-	opendepotAnonymousAuth       *bool
-	opendepotUseBearerToken      *bool
-	opendepotOIDCIssuerURL       *string
-	opendepotOIDCClientID        *string
-	opendepotOIDCGroupsClaim     *string
-	opendepotOIDCAllowSAFallback *bool
-	opendepotServerNamespace     *string
+	logger                              *slog.Logger
+	opendepotAnonymousAuth              *bool
+	opendepotUseBearerToken             *bool
+	opendepotOIDCIssuerURL              *string
+	opendepotOIDCClientID               *string
+	opendepotOIDCGroupsClaim            *string
+	opendepotOIDCAllowSAFallback        *bool
+	opendepotOIDCAllowClientCredentials *bool
+	opendepotServerNamespace            *string
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
 	oidcVerifier *gooidc.IDTokenVerifier
+	// oidcCCVerifier is like oidcVerifier but skips the audience check. It is
+	// used only for the client credentials path when --oidc-allow-client-credentials
+	// is set, to accept tokens issued for a different client ID by the same Dex.
+	oidcCCVerifier *gooidc.IDTokenVerifier
 	// oidcProvider is the discovered OIDC provider; its Endpoint() is used to
 	// populate the login.v1 service discovery response.
 	oidcProvider *gooidc.Provider
@@ -65,6 +70,7 @@ func main() {
 	opendepotOIDCClientID = flag.String("oidc-client-id", "", "OIDC client ID; must be set together with --oidc-issuer-url")
 	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
 	opendepotOIDCAllowSAFallback = flag.Bool("oidc-allow-sa-fallback", false, "when true and OIDC mode is active, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer token path using the caller's own RBAC; GroupBinding is bypassed for SA tokens")
+	opendepotOIDCAllowClientCredentials = flag.Bool("oidc-allow-client-credentials", false, "when true and OIDC mode is active, Dex client credentials tokens (audience != oidc-client-id) are accepted; the token's sub claim is mapped to a virtual group \"client:<sub>\" and evaluated against GroupBinding resources")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
@@ -84,6 +90,9 @@ func main() {
 		}
 		oidcProvider = provider
 		oidcVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
+		if *opendepotOIDCAllowClientCredentials {
+			oidcCCVerifier = provider.Verifier(&gooidc.Config{SkipClientIDCheck: true})
+		}
 		logger.Info("OIDC auth mode enabled", "issuerUrl", *opendepotOIDCIssuerURL, "clientId", *opendepotOIDCClientID)
 	}
 
@@ -724,11 +733,25 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 					return cs, nil, "", nil
 				}
 			}
+			// Client credentials fallback: accept Dex-issued tokens that failed the
+			// primary audience check (aud != oidc-client-id). The secondary verifier
+			// still enforces signature validity, expiry, and issuer. The token's sub
+			// claim is mapped to a virtual group "client:<sub>" for GroupBinding evaluation.
+			if *opendepotOIDCAllowClientCredentials && oidcCCVerifier != nil {
+				cs, binding, sub, ccErr := handleClientCredentialsToken(w, r, rawToken)
+				if ccErr != nil {
+					return nil, nil, "", ccErr
+				}
+				if cs != nil {
+					return cs, binding, sub, nil
+				}
+			}
+
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return nil, nil, "", fmt.Errorf("OIDC token verification failed: %w", err)
 		}
 
-		var claims map[string]interface{}
+		var claims map[string]any
 		if err := idToken.Claims(&claims); err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return nil, nil, "", fmt.Errorf("failed to extract JWT claims: %w", err)
@@ -786,6 +809,51 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 	return cs, nil, "", err
 }
 
+// handleClientCredentialsToken attempts to verify a Dex client-credentials token using the
+// secondary audience-skipping verifier. It returns (nil, nil, "", nil) when the token does
+// not match the CC path (caller should fall through). On success it returns the clientset,
+// binding, and subject. On failure it writes an HTTP error and returns a non-nil error.
+func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawToken string) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, string, error) {
+	iss, parseErr := parseUnsignedJWTIssuer(rawToken)
+	if parseErr != nil || iss != *opendepotOIDCIssuerURL {
+		return nil, nil, "", nil
+	}
+
+	ccToken, ccErr := oidcCCVerifier.Verify(r.Context(), rawToken)
+	if ccErr != nil {
+		return nil, nil, "", nil
+	}
+
+	var ccClaims map[string]any
+	if claimsErr := ccToken.Claims(&ccClaims); claimsErr != nil {
+		return nil, nil, "", nil
+	}
+
+	sub, _ := ccClaims["sub"].(string)
+	if sub == "" {
+		return nil, nil, "", nil
+	}
+
+	cs, csErr := generateKubeClient(nil, nil, false)
+	if csErr != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, nil, "", csErr
+	}
+
+	ccGroups := []string{"client:" + sub}
+	logger.Debug("client credentials token accepted; mapped sub to virtual group", "subject", sub)
+
+	binding, bindErr := findGroupBinding(r.Context(), cs, ccGroups)
+	if bindErr != nil {
+		logger.Warn("GroupBinding evaluation failed for client credentials token", "subject", sub, "error", bindErr)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return nil, nil, "", bindErr
+	}
+
+	logger.Info("GroupBinding matched for client credentials token", "subject", sub, "binding_name", binding.Name, "expression", binding.Spec.Expression)
+	return cs, binding, sub, nil
+}
+
 // parseUnsignedJWTIssuer decodes the payload segment of a JWT without verifying the signature
 // and returns the "iss" claim. Used only for SA fallback routing — signature validity is
 // irrelevant here; the Kubernetes API server validates the token itself.
@@ -794,6 +862,7 @@ func parseUnsignedJWTIssuer(rawToken string) (string, error) {
 	if len(parts) != 3 {
 		return "", fmt.Errorf("malformed JWT: expected 3 parts, got %d", len(parts))
 	}
+
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return "", fmt.Errorf("failed to base64-decode JWT payload: %w", err)
@@ -808,14 +877,14 @@ func parseUnsignedJWTIssuer(rawToken string) (string, error) {
 }
 
 // extractGroupsClaim reads the named claim from a JWT claims map and returns it as a []string.
-// Handles both []interface{} (array claim) and string (single-value claim) representations.
-func extractGroupsClaim(claims map[string]interface{}, claimName string) ([]string, error) {
+// Handles both []any (array claim) and string (single-value claim) representations.
+func extractGroupsClaim(claims map[string]any, claimName string) ([]string, error) {
 	raw, ok := claims[claimName]
 	if !ok {
 		return nil, fmt.Errorf("claim %q not present", claimName)
 	}
 	switch v := raw.(type) {
-	case []interface{}:
+	case []any:
 		groups := make([]string, 0, len(v))
 		for _, item := range v {
 			s, ok := item.(string)

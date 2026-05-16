@@ -58,17 +58,31 @@ var _ = BeforeSuite(func() {
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
-		By("building the server image")
-		buildCmd := exec.Command("docker", "build",
-			"-t", serverImage,
-			"-f", "services/server/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(buildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+	if os.Getenv("SKIP_IMAGE_BUILD") != "true" {
+		serverHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/server",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to compute server build hash")
+
+		if utils.NeedsRebuild(serverImage, serverHash) {
+			By("building the server image (context changed or image absent)")
+			buildCmd := exec.Command("docker", "build",
+				"-t", serverImage,
+				"--label", "opendepot.build.hash="+serverHash,
+				"-f", "services/server/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(buildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+		} else {
+			By("server image up-to-date, skipping build")
+		}
 	} else {
-		By("server image already present, skipping build")
+		By("SKIP_IMAGE_BUILD=true: skipping image build, using pre-built image")
 	}
 
 	By("loading the server image on Kind")

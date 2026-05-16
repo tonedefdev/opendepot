@@ -81,6 +81,13 @@ The `expression` field uses [expr-lang](https://expr-lang.org/) syntax. The eval
 len(groups) > 0
 ```
 
+!!! tip "Client credentials identities"
+    When `server.oidc.allowClientCredentials` is enabled, the Dex CC client's `id` (e.g. `ci-pipeline`) is exposed as the virtual group `"client:ci-pipeline"`. Use this in expressions to grant machine clients scoped access:
+    ```
+    "client:ci-pipeline" in groups
+    ```
+    See [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine) for full setup details.
+
 !!! warning
     A `GroupBinding` with an unparsable expression fails closed. The server logs a `WARN` entry and denies the request with `403 Forbidden` instead of skipping to the next binding. Check server logs to diagnose expression errors.
 
