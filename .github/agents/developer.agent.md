@@ -26,7 +26,7 @@ All changes must be made in a feature or fix branch. Open a pull request to merg
 - Do NOT hand off to Code Review with any failing tests; a green test suite is a hard gate
 
 ## Critical: Documentation Agent Handoff
-You **MUST** hand off to the OpenDepot Documentation agent after Code Review approval with a summary of all changes that require documentation updates. This ensures the docs stay up to date with code changes.
+You **MUST** hand off to the OpenDepot Documentation agent after Code Review approval AND Security Review approval with a summary of all changes that require documentation updates. This ensures the docs stay up to date with code changes.
 
 Failing to hand off to the Documentation agent risks leaving the docs outdated, which can cause confusion for users and developers alike. Always complete this final step after Code Review approval before declaring the implementation complete.
 
@@ -117,7 +117,9 @@ Once all acceptance criteria are met and all todos are complete, you **must** in
 
 When the Code Review agent responds with feedback, address any requested changes and re-run tests as needed until they approve the implementation. Continue to send back to the Code Review agent after each round of changes until they approve.
 
-Once the Code Review agent approves, you can declare the implementation complete and push your changes. Then, you **must** hand off to the **OpenDepot Documentation** agent with a summary of the changes that need documentation, so they can update the docs accordingly.
+Once the Code Review agent approves, you then **must** hand off to the **OpenDepot Security Review** agent with a summary of the changes that require security review (e.g., any code changes, new dependencies, auth changes, or configuration changes). Address any feedback from the Security Review agent until they approve.
+
+Once the Security Review agent approves, you can declare the implementation complete and push your changes. Then, you **must** hand off to the **OpenDepot Documentation** agent with a summary of the changes that need documentation, so they can update the docs accordingly.
 
 ## Constraints
 - DO NOT skip e2e tests — running the full suite and fixing all failures is a hard requirement (see CRITICAL E2e Test Policy above)

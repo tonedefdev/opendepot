@@ -15,17 +15,17 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
 <div class="grid cards" markdown>
 
-- :material-shield-check: &nbsp;__Security First__
-
-    ---
-
-    Kubernetes bearer tokens and RBAC — no proprietary tokens, no user database, no extra identity store. Works with IRSA, Workload Identity, and any OIDC provider out of the box.
-
-- :material-login: &nbsp;__`tofu login` Support__
+- :material-login: &nbsp;__OIDC Support__
 
     ---
 
     First-class support for the OpenTofu login flow via the bundled [Dex](https://dexidp.io/) subchart. Connect any OIDC-compatible identity provider — GitHub, Entra ID, Okta, or static passwords — and let `tofu login` handle credential acquisition automatically.
+
+- :material-shield-check: &nbsp;__Security First__
+
+    ---
+
+    Kubernetes bearer tokens and RBAC used to create resources — no proprietary tokens, no user database, no extra identity store. Works with IRSA, Workload Identity, and any OIDC provider out of the box.
 
 - :material-refresh: &nbsp;__Self-Healing__
 
@@ -87,7 +87,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 | **Vuln Scanning**        | Built-in (Trivy)        | No                         | Paid add-on (Xray)        | No                       | No                          | No                                |
 | **Pre-signed URLs**      | Yes (S3, GCS, Azure)    | No                         | Yes (CDN)                 | No                       | No                          | No                                |
 | **Provider Support**     | Yes                     | Yes                        | Yes                       | No                       | No                          | No (modules only)                 |
-| **`tofu login` Flow**    | Yes (Dex, `login.v1`)   | Yes                        | No                        | No                       | No                          | No                                |
+| **`tofu login` Flow**    | Yes (Dex, `login.v1`)   | Yes                        | Yes                       | No                       | No                          | No                                |
 | **Open Source**          | Yes                     | No                         | No                        | Partial                  | Yes                         | Yes                               |
 
 

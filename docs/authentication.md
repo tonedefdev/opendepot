@@ -141,6 +141,14 @@ To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm val
 
 #### CI/CD with ServiceAccount Fallback
 
+!!! danger "GroupBinding is bypassed for SA tokens"
+    When SA fallback is enabled, ServiceAccount tokens skip GroupBinding entirely. The SA's Kubernetes RBAC is the only access control applied. This introduces a second, separate access control path alongside your OIDC + GroupBinding model — increasing audit surface and the blast radius of a compromised token.
+
+    **This is a last resort.** Before enabling it, consider:
+
+    - If pipelines only need to **publish** modules, use the [GitOps workflow](guides/gitops.md) — no pipeline credentials required at all.
+    - If pipelines need to **read** the registry without cluster access, use [Dex Client Credentials](guides/cicd.md#dex-client-credentials) — pipelines get a Dex-issued token that respects GroupBinding.
+
 By default, OIDC and bearer-token modes are mutually exclusive. If you need CI/CD pipelines to authenticate using a Kubernetes ServiceAccount while human users authenticate via OIDC, enable the SA fallback:
 
 ```yaml
@@ -291,7 +299,7 @@ chmod 600 ~/.terraform.d/credentials.tfrc.json
 | Security | High | Good | Highest | High |
 | Setup Complexity | Low | Low | Medium | Medium |
 | Credential Distribution | Via env var or shell | File-based | No distribution (SSO) | No distribution |
-| Best For | Production, CI/CD | Development | Enterprise production (SSO) | OIDC orgs with CI/CD pipelines |
+| Best For | Production, CI/CD | Development | Enterprise production (SSO) | OIDC orgs where pipelines must have direct cluster API access; prefer [GitOps](guides/gitops.md) or [Dex CC](guides/cicd.md#dex-client-credentials) first |
 | `tofu login` Support | No | No | Yes | Yes (human users) |
 | OpenTofu Support | All versions | All versions | All versions | All versions |
 | Terraform Support | v1.2+ | All versions | v1.3+ | v1.3+ |

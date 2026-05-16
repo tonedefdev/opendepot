@@ -87,6 +87,20 @@ The Module controller creates the `Version` resource, and the Version controller
 
 ## Registry Reads: SA Fallback with OIDC
 
+!!! warning "Last resort — exhaust other options first"
+    SA fallback **bypasses GroupBinding entirely**. When a ServiceAccount token is used, the SA's Kubernetes RBAC governs access instead of the centralized GroupBinding model your OIDC setup provides. This means:
+
+    - Human users and pipeline tokens follow different access control paths, which increases audit surface.
+    - A leaked pipeline token grants direct cluster API access, not just registry access.
+    - SA-token access is invisible to GroupBinding audit logs.
+
+    Before enabling SA fallback, consider whether one of these fits your use case instead:
+
+    - **Publishing modules only?** → Use the [GitOps approach](gitops.md). No pipeline credentials needed at all — Argo CD handles cluster auth, developers push to Git.
+    - **Reading the registry from pipelines without cluster access?** → Use [Dex Client Credentials](#dex-client-credentials). Pipelines get a Dex-issued token scoped to GroupBinding, with no Kubernetes API exposure.
+
+    SA fallback is appropriate when your pipeline must interact with the Kubernetes API directly for reasons beyond registry access and you have already ruled out the above options.
+
 When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
 
 ### Enable SA fallback in your Helm values

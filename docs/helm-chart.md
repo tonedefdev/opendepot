@@ -32,6 +32,9 @@ The `server.oidc` section enables OIDC JWT validation for production-ready singl
 | `server.oidc.clientSecret` | string | Dex client secret (only used if `clientSecretName` is blank). In production, use an external secret operator instead of storing plaintext here. |
 | `server.oidc.groupsClaim` | string | JWT claim name containing the user's groups, used for [GroupBinding](guides/groupbinding.md) evaluation. When blank, defaults to `groups`. Set to `cognito:groups`, `roles`, etc. for non-standard IdPs. |
 | `server.oidc.allowServiceAccountFallback` | bool | When true, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer-token path using the SA's own RBAC. GroupBinding is bypassed for SA tokens. Requires `server.oidc.enabled: true`. Default: `false` |
+| `server.oidc.allowClientCredentials` | bool | When true, Dex tokens whose audience does not match the primary client ID are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against `GroupBinding` resources. Requires a Dex `staticClient` with `grantTypes: ["client_credentials"]`. Default: `false` |
+| `server.oidc.authzUrl` | string | Overrides the authorization URL advertised in `login.v1` of `/.well-known/terraform.json`. Leave blank to use the URL from the OIDC provider discovery document. Use this when the server discovers Dex via an in-cluster address but CLI clients must reach Dex at a different address (e.g. a port-forwarded URL during local Kind testing). |
+| `server.oidc.tokenUrl` | string | Overrides the token URL advertised in `login.v1` of `/.well-known/terraform.json`. Same use-case as `authzUrl`. |
 
 **Example:**
 
@@ -44,6 +47,9 @@ server:
     clientSecret: $(openssl rand -base64 32)
     clientSecretName: ""  # Use the above value; or set to "my-secret" to use external secret
 ```
+
+!!! warning
+    When both `dex.enabled` and `server.oidc.enabled` are `true`, the Helm render fails if neither `server.oidc.clientSecret` nor `server.oidc.clientSecretName` is set. For production, pre-create a Kubernetes Secret and reference it via `server.oidc.clientSecretName`.
 
 ## Dex Configuration
 

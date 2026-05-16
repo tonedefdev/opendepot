@@ -491,4 +491,41 @@ kubectl port-forward svc/server 8080:80 -n opendepot-system
 kind delete cluster --name opendepot
 ```
 
+## Local OIDC Testing with `make` Targets
+
+If you want to test the full OIDC login flow (`tofu login`) against a local Kind cluster without any cloud infrastructure, the repository includes a set of `make` targets that automate the setup.
+
+!!! note "Prerequisites"
+    [mkcert](https://github.com/FiloSottile/mkcert) (`brew install mkcert`) and either `htpasswd` (from `brew install httpd`) or the Python `bcrypt` package are required in addition to the standard quickstart prerequisites.
+
+The hostname `registry.local` is used instead of `opendepot.localtest.me` because TLS requires a locally-trusted certificate pinned to a known hostname, and the `make` targets generate one with mkcert. OpenTofu rejects single-label hostnames (like `localhost`) as registry addresses, so `registry.local` is added to `/etc/hosts` to resolve to `127.0.0.1`.
+
+**Full setup from a freshly created Kind cluster:**
+
+```bash
+# Install mkcert CA (one-time)
+mkcert -install
+
+# Create the Kind cluster
+kind create cluster --name opendepot
+
+# Build + load images, set up /etc/hosts, generate TLS cert, deploy with Dex, and start port-forwards
+make oidc-setup PASS=mysecretpassword
+```
+
+**Login and verify the auth flow:**
+
+```bash
+# Open tofu login in the browser — authenticate with the static test user
+make oidc-login
+
+# Create a test Module and GroupBinding for the static user's group
+make oidc-test-resources
+
+# Confirm authenticated access returns module versions
+make oidc-verify-module
+```
+
+For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC Testing (make targets)](../configuration/oidc.md#local-oidc-testing-make-targets).
+
 
