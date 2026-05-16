@@ -43,3 +43,6 @@ examples/internal-developer-portal/.vite/*
 site/*
 .cache/*
 .session-memory/*
+test/local/.terraform/
+test/local/terraform.tfstate
+test/local/terraform.tfstate.backup

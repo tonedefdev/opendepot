@@ -124,6 +124,15 @@ server:
     # GroupBinding resources. Requires a Dex staticClient with
     # grantTypes: ["client_credentials"]. See the OIDC configuration guide for setup.
     allowClientCredentials: false
+    # authzUrl overrides the authorization URL advertised in the login.v1 block of
+    # /.well-known/terraform.json. When blank the URL comes from the OIDC provider
+    # discovery document. Set this when the server discovers Dex via an in-cluster
+    # address but clients (tofu login) must reach Dex at a different address
+    # (e.g. a port-forwarded localhost URL during local Kind testing).
+    authzUrl: ""
+    # tokenUrl overrides the token URL advertised in the login.v1 block of
+    # /.well-known/terraform.json. Same use-case as authzUrl above.
+    tokenUrl: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set

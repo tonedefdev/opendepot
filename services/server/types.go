@@ -19,6 +19,7 @@ type LoginV1Info struct {
 	GrantTypes []string `json:"grant_types"`
 	Authz      string   `json:"authz"`
 	Token      string   `json:"token"`
+	Scopes     []string `json:"scopes"`
 	Ports      []int    `json:"ports"`
 }
 

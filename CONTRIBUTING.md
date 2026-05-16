@@ -308,75 +308,35 @@ The automated e2e suite validates service discovery correctness, OIDC JWT accept
 - `tofu` v1.6+ on your `PATH`
 - `htpasswd` (Apache tools) or Python `bcrypt` to generate a password hash
 
-#### Step 1 — Generate a bcrypt password hash
-
-```bash
-# Using htpasswd (Apache tools):
-htpasswd -bnBC 10 "" "yourpassword" | tr -d ':\n'
-
-# Or using Python:
-python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt(10)).decode())"
-```
-
-#### Step 2 — Deploy with OIDC and Dex enabled
-
-Create `manual-test-values.yaml`.
+#### Step 1 — Deploy with OIDC and Dex enabled
 
 > [!IMPORTANT]
 > `server.oidc.issuerUrl` and `dex.config.issuer` must both be set to the **same external Dex URL**. If `server.oidc.issuerUrl` is left blank the chart auto-derives the in-cluster service URL, and `login.v1.authz` in the service discovery response will point to an address the browser cannot reach.
 
-```yaml
-dex:
-  enabled: true
-  config:
-    issuer: https://dex.example.com/dex   # must be reachable from the browser
-    storage:
-      type: memory
-    enablePasswordDB: true                # dev/test only — NEVER in production
-    oauth2:
-      responseTypes:
-        - code
-      grantTypes:
-        - authorization_code
-        - "urn:ietf:params:oauth:grant-type:device_code"
-      skipApprovalScreen: true
-    staticPasswords:
-      - email: "dev@example.com"
-        hash: "<bcrypt hash from Step 1>"
-        username: devuser
-        userID: "manual-test-user"
-    staticClients:
-      - id: opendepot
-        name: OpenDepot
-        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
-        redirectURIs:
-          - http://localhost:10000
-          - http://localhost:10001
-          - http://localhost:10002
-          - http://localhost:10003
-          - http://localhost:10004
-          - http://localhost:10005
-          - http://localhost:10006
-          - http://localhost:10007
-          - http://localhost:10008
-          - http://localhost:10009
-          - http://localhost:10010
-    connectors: []
-
-server:
-  oidc:
-    enabled: true
-    issuerUrl: "https://dex.example.com/dex"   # must match dex.config.issuer exactly
-    clientSecret: "your-client-secret"
+```bash
+make oidc-deploy PASS=yourpassword
 ```
+
+`oidc-deploy` generates the bcrypt hash from `PASS` internally (using `htpasswd` if available, otherwise `python3 bcrypt`), so the `$` characters in the hash are never exposed to Make variable expansion.
+
+To override defaults (email, user, client secret, issuer URL) pass them as Make variables:
 
 ```bash
-helm upgrade opendepot ./chart/opendepot \
-  --install --namespace opendepot-system --create-namespace \
-  -f manual-test-values.yaml
+make oidc-deploy \
+  PASS=yourpassword \
+  OIDC_EMAIL=you@example.com \
+  OIDC_USER=yourname \
+  OIDC_DEX_URL=https://dex.example.com/dex \
+  OIDC_SECRET=my-strong-secret
 ```
 
-#### Step 3 — Verify service discovery
+#### Step 2 — Verify service discovery
+
+```bash
+make oidc-verify
+```
+
+Or manually if the server is not on `localhost:8080`:
 
 ```bash
 curl -s https://opendepot.example.com/.well-known/terraform.json | jq .
@@ -398,7 +358,7 @@ curl -s https://opendepot.example.com/.well-known/terraform.json | jq .
 }
 ```
 
-#### Step 4 — Run `tofu login`
+#### Step 3 — Run `tofu login`
 
 ```bash
 tofu login opendepot.example.com
@@ -418,7 +378,7 @@ Verify the stored entry:
 jq '.credentials["opendepot.example.com"]' ~/.terraform.d/credentials.tfrc.json
 ```
 
-#### Step 5 — Verify `tofu init` uses the stored token
+#### Step 4 — Verify `tofu init` uses the stored token
 
 Create a minimal `main.tf` (the module does not need to exist):
 
@@ -441,68 +401,26 @@ tofu init
 
 Kind works well here without an Ingress controller. `kubectl port-forward` exposes the server and Dex on `localhost`, which is the one hostname both OpenTofu and Dex accept over plain HTTP — no TLS or DNS required.
 
-**1. Start port-forwards in the background (two separate terminals or background jobs):**
+**1. Start port-forwards in the background:**
 
 ```bash
-kubectl port-forward -n opendepot-system svc/server 8080:80 &
-kubectl port-forward -n opendepot-system svc/opendepot-dex 5556:5556 &
+make oidc-forward
 ```
 
-The Dex service is named `opendepot-dex` when deployed as part of the `opendepot` Helm release. Confirm with `kubectl get svc -n opendepot-system` if needed.
+This forwards the server to `localhost:8080` and Dex to `localhost:5556`. Stop both with `make oidc-stop`. The Dex service is named `opendepot-dex` when deployed as part of the `opendepot` Helm release — confirm with `kubectl get svc -n opendepot-system` if needed.
 
-**2. Use these values instead of `manual-test-values.yaml` from Step 2:**
-
-The only structural difference from the cloud cluster values is `issuer` and `issuerUrl` both pointing to `http://localhost:5556/dex`:
-
-```yaml
-dex:
-  enabled: true
-  config:
-    issuer: http://localhost:5556/dex
-    storage:
-      type: memory
-    enablePasswordDB: true
-    oauth2:
-      responseTypes:
-        - code
-      grantTypes:
-        - authorization_code
-        - "urn:ietf:params:oauth:grant-type:device_code"
-      skipApprovalScreen: true
-    staticPasswords:
-      - email: "dev@example.com"
-        hash: "<bcrypt hash from Step 1>"
-        username: devuser
-        userID: "manual-test-user"
-    staticClients:
-      - id: opendepot
-        name: OpenDepot
-        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
-        redirectURIs:
-          - http://localhost:10000
-          - http://localhost:10001
-          - http://localhost:10002
-          - http://localhost:10003
-          - http://localhost:10004
-          - http://localhost:10005
-          - http://localhost:10006
-          - http://localhost:10007
-          - http://localhost:10008
-          - http://localhost:10009
-          - http://localhost:10010
-    connectors: []
-
-server:
-  oidc:
-    enabled: true
-    issuerUrl: "http://localhost:5556/dex"
-    clientSecret: "your-client-secret"
-```
-
-**3. For Step 3, check service discovery against localhost:**
+**2. Deploy with the Kind-specific values (issuer pointing to `localhost`):**
 
 ```bash
-curl -s http://localhost:8080/.well-known/terraform.json | jq .
+make oidc-deploy PASS=yourpassword
+```
+
+The default `OIDC_DEX_URL` is already `http://localhost:5556/dex`, so no extra flags are needed for a standard Kind setup. The chart configures both `dex.config.issuer` and `server.oidc.issuerUrl` from that single variable.
+
+**3. Check service discovery:**
+
+```bash
+make oidc-verify
 ```
 
 `login.v1.authz` must show `http://localhost:5556/dex/auth`.
@@ -518,4 +436,4 @@ The flow is identical to the cloud path: `tofu` reads `login.v1.authz` from serv
 For Steps 5 onwards substitute `localhost:8080` for `opendepot.example.com`.
 
 > [!NOTE]
-> Keep both port-forward processes running for the duration of the test. Stop them with `kill %1 %2` (or `fg` and Ctrl-C) when done.
+> Keep both port-forward processes running for the duration of the test. Stop them with `make oidc-stop` when done.

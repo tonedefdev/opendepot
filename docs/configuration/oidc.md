@@ -24,7 +24,7 @@ When OIDC is enabled the server advertises the `login.v1` block in its service d
 
 ## Step 1: Enable Dex
 
-Set `dex.enabled: true` and configure the `issuer` and at least one connector in your Helm values:
+Set `dex.enabled: true` and configure the `issuer` and at least one connector in your Helm values. Dex expands `$ENV_VAR` references in its config at startup, so **never write connector secrets as plain string literals** — reference an environment variable instead and expose the value via `dex.envFrom`:
 
 ```yaml
 dex:
@@ -37,10 +37,24 @@ dex:
         name: GitHub
         config:
           clientID: <github-oauth-app-client-id>
-          clientSecret: <github-oauth-app-secret>
+          clientSecret: $GITHUB_CLIENT_SECRET  # (1)!
           redirectURI: https://dex.example.com/dex/callback
           org: my-org  # (optional) restrict to an organization
+  envFrom:
+    - secretRef:
+        name: dex-connector-secrets  # (2)!
 ```
+
+1. Dex substitutes `$GITHUB_CLIENT_SECRET` from the pod's environment at startup. The literal secret value never appears in the Helm values file or in-cluster ConfigMap.
+2. A Kubernetes Secret that contains the environment variable(s) referenced in the connector config. Create it before deploying:
+   ```bash
+   kubectl create secret generic dex-connector-secrets \
+     --from-literal=GITHUB_CLIENT_SECRET=<github-oauth-app-secret> \
+     -n opendepot-system
+   ```
+
+!!! warning
+    Do not write connector `clientSecret` values as plain strings in Helm values files. Those values are rendered into a Kubernetes ConfigMap and are visible to anyone with `kubectl get configmap` access on the namespace.
 
 See [Connector Examples](#connector-examples) below for Entra ID (Azure AD) and other IdP configurations.
 
@@ -55,8 +69,10 @@ server:
     enabled: true
     issuerUrl: https://dex.example.com/dex  # omit to auto-derive in-cluster Dex URL
     clientId: opendepot
-    clientSecret: <strong-random-value>
+    clientSecret: $STRONG_RANDOM_VALUE  # (1)!
 ```
+
+1. Dex substitutes `$STRONG_RANDOM_VALUE` from the pod's environment at startup. The literal secret value never appears in the Helm values file or in-cluster ConfigMap.
 
 !!! warning
     Do not commit `clientSecret` in plain text. Use an external secret operator (e.g., Sealed Secrets, External Secrets Operator) to inject the value in production. Alternatively, create the Secret manually and set `server.oidc.clientSecretName` to its name.
@@ -133,9 +149,18 @@ On headless systems (CI, servers), the device code flow is used instead — Open
             name: "Azure AD"
             config:
               clientID: <azure-app-id>
-              clientSecret: <azure-app-secret>
+              clientSecret: $AZURE_CLIENT_SECRET
               redirectURI: https://dex.example.com/dex/callback
               tenant: <azure-tenant-id>
+      envFrom:
+        - secretRef:
+            name: dex-connector-secrets
+    ```
+
+    ```bash
+    kubectl create secret generic dex-connector-secrets \
+      --from-literal=AZURE_CLIENT_SECRET=<azure-app-secret> \
+      -n opendepot-system
     ```
 
 === "GitHub"
@@ -151,9 +176,18 @@ On headless systems (CI, servers), the device code flow is used instead — Open
             name: GitHub
             config:
               clientID: <github-oauth-app-client-id>
-              clientSecret: <github-oauth-app-secret>
+              clientSecret: $GITHUB_CLIENT_SECRET
               redirectURI: https://dex.example.com/dex/callback
               org: my-org
+      envFrom:
+        - secretRef:
+            name: dex-connector-secrets
+    ```
+
+    ```bash
+    kubectl create secret generic dex-connector-secrets \
+      --from-literal=GITHUB_CLIENT_SECRET=<github-oauth-app-secret> \
+      -n opendepot-system
     ```
 
 === "Okta"
@@ -170,8 +204,17 @@ On headless systems (CI, servers), the device code flow is used instead — Open
             config:
               issuer: https://<okta-domain>/oauth2/default
               clientID: <okta-client-id>
-              clientSecret: <okta-client-secret>
+              clientSecret: $OKTA_CLIENT_SECRET
               redirectURI: https://dex.example.com/dex/callback
+      envFrom:
+        - secretRef:
+            name: dex-connector-secrets
+    ```
+
+    ```bash
+    kubectl create secret generic dex-connector-secrets \
+      --from-literal=OKTA_CLIENT_SECRET=<okta-client-secret> \
+      -n opendepot-system
     ```
 
 For the full list of supported connectors and their configuration options, see the [Dex Connector Documentation](https://dexidp.io/docs/connectors/).
@@ -189,6 +232,28 @@ The chart manages the secret in two ways:
 
 !!! warning
     The client secret is injected only into the Dex deployment via `envFrom`. The OpenDepot server container never receives it.
+
+### Connector Secrets
+
+Connector `clientSecret` values (GitHub, Entra ID, Okta, etc.) are separate from the OpenDepot client secret above. Dex expands `$ENV_VAR` references in its config YAML at startup, so the recommended pattern is:
+
+1. Store the IdP secret in a Kubernetes Secret
+2. Reference it with `$ENV_VAR` in the connector config
+3. Mount the Secret into the Dex pod using `dex.envFrom`
+
+The chart's default `dex.envFrom` already mounts `opendepot-dex-client-secret`. To add connector secrets, append your own `secretRef` entries:
+
+```yaml
+dex:
+  envFrom:
+    - secretRef:
+        name: opendepot-dex-client-secret  # chart default — do not remove
+        optional: true
+    - secretRef:
+        name: dex-connector-secrets  # your connector IdP secrets
+```
+
+This keeps all secret values out of Helm values files and in-cluster ConfigMaps, where they would be visible to anyone with `kubectl get configmap` access on the namespace.
 
 ## Fine-Grained Access Control (GroupBinding)
 

@@ -21,6 +21,8 @@ var (
 	opendepotOIDCGroupsClaim            *string
 	opendepotOIDCAllowSAFallback        *bool
 	opendepotOIDCAllowClientCredentials *bool
+	opendepotOIDCAuthzURL               *string
+	opendepotOIDCTokenURL               *string
 	opendepotServerNamespace            *string
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
@@ -48,6 +50,8 @@ func main() {
 	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
 	opendepotOIDCAllowSAFallback = flag.Bool("oidc-allow-sa-fallback", false, "when true and OIDC mode is active, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer token path using the caller's own RBAC; GroupBinding is bypassed for SA tokens")
 	opendepotOIDCAllowClientCredentials = flag.Bool("oidc-allow-client-credentials", false, "when true and OIDC mode is active, Dex client credentials tokens (audience != oidc-client-id) are accepted; the token's sub claim is mapped to a virtual group \"client:<sub>\" and evaluated against GroupBinding resources")
+	opendepotOIDCAuthzURL = flag.String("oidc-authz-url", "", "override the authorization URL advertised in /.well-known/terraform.json login.v1; when blank uses the authz URL from the OIDC provider discovery document")
+	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
@@ -65,11 +69,13 @@ func main() {
 			logger.Error("failed to discover OIDC provider", "issuerUrl", *opendepotOIDCIssuerURL, "error", err)
 			os.Exit(1)
 		}
+
 		oidcProvider = provider
 		oidcVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
 		if *opendepotOIDCAllowClientCredentials {
 			oidcCCVerifier = provider.Verifier(&gooidc.Config{SkipClientIDCheck: true})
 		}
+
 		logger.Info("OIDC auth mode enabled", "issuerUrl", *opendepotOIDCIssuerURL, "clientId", *opendepotOIDCClientID)
 	}
 
@@ -90,7 +96,8 @@ func main() {
 	r.Get("/opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
 
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
-		if err := http.ListenAndServeTLS(":8443", *opendepotCertPath, *opendepotCertKey, r); err != nil {
+		logger.Info("Server started and listening on port 8080 with TLS")
+		if err := http.ListenAndServeTLS(":8080", *opendepotCertPath, *opendepotCertKey, r); err != nil {
 			logger.Error("Failed to start server with TLS", "error", err)
 		}
 	} else {

@@ -20,12 +20,24 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 
 	if oidcProvider != nil {
 		endpoints := oidcProvider.Endpoint()
+		authzURL := endpoints.AuthURL
+		tokenURL := endpoints.TokenURL
+
+		if *opendepotOIDCAuthzURL != "" {
+			authzURL = *opendepotOIDCAuthzURL
+		}
+
+		if *opendepotOIDCTokenURL != "" {
+			tokenURL = *opendepotOIDCTokenURL
+		}
+
 		response.LoginV1 = &LoginV1Info{
 			Client:     *opendepotOIDCClientID,
 			GrantTypes: []string{"authz_code", "device_code"},
-			Authz:      endpoints.AuthURL,
-			Token:      endpoints.TokenURL,
-			Ports:      []int{10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010},
+			Authz:      authzURL,
+			Token:      tokenURL,
+			Scopes:     []string{"openid", "profile", "email", "groups"},
+			Ports:      []int{10000, 10010},
 		}
 	}
 

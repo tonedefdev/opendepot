@@ -65,6 +65,12 @@ spec:
         {{- if .Values.server.oidc.allowClientCredentials }}
         - --oidc-allow-client-credentials
         {{- end }}
+        {{- if .Values.server.oidc.authzUrl }}
+        - --oidc-authz-url={{ .Values.server.oidc.authzUrl }}
+        {{- end }}
+        {{- if .Values.server.oidc.tokenUrl }}
+        - --oidc-token-url={{ .Values.server.oidc.tokenUrl }}
+        {{- end }}
         - --namespace={{ .Values.global.namespace }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}
