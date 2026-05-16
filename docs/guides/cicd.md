@@ -207,7 +207,7 @@ dex:
           - https://opendepot.example.com/...
       - id: ci-pipeline
         name: CI Pipeline
-        secret: <strong-random-secret>
+        secretEnv: OPENDEPOT_CC_CLIENT_SECRET
         grantTypes:
           - client_credentials
 server:
@@ -276,7 +276,7 @@ jobs:
 
 The CC token is short-lived (TTL controlled by Dex) and scoped to read-only operations via the `GroupBinding`. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
 
-For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine).
+For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine). For a side-by-side comparison of all supported authentication methods and their access-control mechanisms, see the [Authentication Comparison](../authentication.md#authentication-comparison) table.
 
 ## Adding Versions to an Existing Module
 

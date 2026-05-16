@@ -82,10 +82,12 @@ len(groups) > 0
 ```
 
 !!! tip "Client credentials identities"
-    When `server.oidc.allowClientCredentials` is enabled, the Dex CC client's `id` (e.g. `ci-pipeline`) is exposed as the virtual group `"client:ci-pipeline"`. Use this in expressions to grant machine clients scoped access:
+    When `server.oidc.allowClientCredentials` is enabled, the token's `sub` claim is mapped to the virtual group `"client:<sub>"`. For Dex client credentials tokens the `sub` equals the Dex client `id` (e.g. `ci-pipeline` → `"client:ci-pipeline"`). Use this in expressions to grant machine clients scoped access:
     ```
     "client:ci-pipeline" in groups
     ```
+    The same path also applies to ROPC tokens from other Dex clients whose audience does not match the primary client ID. For those flows the `sub` may be a Dex-internal identifier rather than a human-readable name — inspect the JWT to confirm the exact value before writing the expression.
+
     See [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine) for full setup details.
 
 !!! warning

@@ -285,6 +285,9 @@ A service obtains a short-lived Dex access token using the [OAuth2 client creden
 !!! note
     Client credentials tokens are issued with `aud=<client-id>` (e.g. `aud=ci-pipeline`), not `aud=opendepot`. A secondary verifier that skips the audience check (but still validates the Dex signature and expiry) is used to accept them. User tokens that pass the primary audience check are **not** affected by this setting.
 
+!!! note "ROPC tokens and other Dex clients"
+    The CC path is triggered for **any** Dex-issued token whose audience does not match the primary OpenDepot client ID — not only tokens obtained via `grant_type=client_credentials`. This includes tokens issued to separate Dex clients using the Resource Owner Password Credentials (ROPC) grant. Those tokens are routed through the same secondary verifier and their `sub` claim is mapped to a `"client:<sub>"` virtual group in exactly the same way. If you have ROPC clients in your Dex configuration, ensure each has a dedicated `GroupBinding` with a specific expression so their access scope is intentional.
+
 ### Step 1: Register a CC client in Dex
 
 Add a `staticClient` entry with `grantTypes: ["client_credentials"]` to your Dex config. The `id` becomes the identity of the machine client — use a descriptive name for your pipeline or service.
@@ -338,6 +341,9 @@ spec:
   providerResources:
     - "*"
 ```
+
+!!! warning "Use specific `client:` expressions — avoid broad patterns"
+    Always match a precise `"client:<sub>"` value in your expression rather than a pattern that accepts any `client:`-prefixed group. An expression such as `'filter(groups, {# startsWith("client:")}) != []'` would grant access to **every** machine client registered in Dex, including any added in the future. Define one `GroupBinding` per machine client and pin the exact `sub` value (which equals the Dex client `id` for CC flows).
 
 ### Step 4: Obtain and use a token
 
