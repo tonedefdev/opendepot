@@ -12,7 +12,7 @@ tags:
 
 ## How It Works
 
-When a user authenticates via OIDC, the server extracts the configured groups claim from their JWT and evaluates all `GroupBinding` resources in the server namespace in alphabetical order by name. The first `GroupBinding` whose `expression` evaluates to `true` for the user's groups is applied. The user may then access only the modules whose names match the `moduleResources` glob patterns and the providers whose type names are listed in `providerResources` on that `GroupBinding`.
+When a user authenticates via OIDC, the server extracts the configured groups claim from their JWT and evaluates all `GroupBinding` resources in the server namespace in alphabetical order by name. The first `GroupBinding` whose `expression` evaluates to `true` for the user's groups is applied. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden` rather than skipping to the next binding. The user may then access only the modules whose names match the `moduleResources` glob patterns and the providers whose type names are listed in `providerResources` on that `GroupBinding`.
 
 ```mermaid
 flowchart TD
@@ -81,8 +81,8 @@ The `expression` field uses [expr-lang](https://expr-lang.org/) syntax. The eval
 len(groups) > 0
 ```
 
-!!! warning "Invalid expressions are skipped"
-    A `GroupBinding` with an unparseable expression is skipped with a `WARN` log entry. The next binding in alphabetical order is then evaluated. Check server logs to diagnose expression errors.
+!!! warning
+    A `GroupBinding` with an unparsable expression fails closed. The server logs a `WARN` entry and denies the request with `403 Forbidden` instead of skipping to the next binding. Check server logs to diagnose expression errors.
 
 ### Module Resource Glob Patterns
 

@@ -59,6 +59,9 @@ spec:
         {{- if .Values.server.oidc.groupsClaim }}
         - --oidc-groups-claim={{ .Values.server.oidc.groupsClaim }}
         {{- end }}
+        {{- if .Values.server.oidc.allowServiceAccountFallback }}
+        - --oidc-allow-sa-fallback
+        {{- end }}
         - --namespace={{ .Values.global.namespace }}
         {{- end }}
         {{- if .Values.server.tls.enabled }}

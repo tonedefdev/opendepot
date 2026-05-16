@@ -14,7 +14,7 @@ OpenDepot ships Dex as a bundled Helm subchart that acts as an OIDC identity bro
 When OIDC is enabled the server advertises the `login.v1` block in its service discovery response, which allows users to authenticate with `tofu login` instead of distributing kubeconfigs or service account tokens.
 
 !!! note
-    OIDC authentication and bearer-token authentication are mutually exclusive server modes. Set `server.oidc.enabled: true` and `server.useBearerToken: false` when switching to OIDC.
+    OIDC and bearer-token modes are mutually exclusive by default. Set `server.oidc.enabled: true` and `server.useBearerToken: false` when switching to OIDC. If you also need CI/CD pipelines to authenticate with a Kubernetes ServiceAccount, see [CI/CD with ServiceAccount Fallback](#cicd-with-serviceaccount-fallback) below.
 
 ## Prerequisites
 
@@ -192,7 +192,7 @@ The chart manages the secret in two ways:
 
 ## Fine-Grained Access Control (GroupBinding)
 
-After OIDC is enabled, you can deploy `GroupBinding` resources to restrict which modules and providers each group of users may access. The server extracts the groups claim from the JWT and evaluates GroupBindings in alphabetical order by name. The first matching binding determines the allowed resources.
+After OIDC is enabled, you can deploy `GroupBinding` resources to restrict which modules and providers each group of users may access. The server extracts the groups claim from the JWT and evaluates GroupBindings in alphabetical order by name. The first matching binding determines the allowed resources. If a binding expression fails to compile or evaluate, the request is denied with `403 Forbidden`.
 
 ### Groups Claim Name
 
@@ -218,3 +218,60 @@ See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) f
 - **No `staticPasswords` in production**: The `dex.config.enablePasswordDB` and `dex.config.staticPasswords` options exist for automated e2e testing only. Never enable them in production environments.
 
 For a full comparison of all authentication methods, see [Authenticating with OpenDepot](../authentication.md).
+
+## CI/CD with ServiceAccount Fallback
+
+By default, when OIDC is enabled every token must be a valid Dex JWT. This blocks CI/CD pipelines that use a Kubernetes ServiceAccount to authenticate — the SA token has a different issuer and will be rejected with `401 Unauthorized`.
+
+Set `server.oidc.allowServiceAccountFallback: true` to opt in to mixed-mode authentication:
+
+```yaml
+server:
+  oidc:
+    enabled: true
+    allowServiceAccountFallback: true
+```
+
+With this flag, the server inspects the `iss` claim of any token that fails OIDC verification. If the issuer does not match the configured OIDC issuer URL, the token is forwarded to the Kubernetes API as a bearer token and the SA's own RBAC determines access. GroupBinding is not evaluated for SA tokens — it is an OIDC-layer concern only.
+
+| Token | Behaviour |
+|---|---|
+| Valid Dex JWT | OIDC path → GroupBinding → server SA for K8s calls |
+| Bad/expired Dex JWT | `401 Unauthorized` (issuer matches, not a fallback candidate) |
+| K8s SA token | Bearer token path → SA's own RBAC controls access |
+| Garbage non-JWT | `401 Unauthorized` |
+
+!!! note
+    Tokens that claim the OIDC issuer but fail signature or expiry checks are **never** routed to the SA fallback path. Only tokens from a clearly different issuer fall back.
+
+### Required RBAC for SA tokens
+
+The SA must have `get` and `list` verbs on the resources it needs to access. For a pipeline that downloads modules and providers:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opendepot-registry-reader
+  namespace: opendepot-system
+rules:
+- apiGroups: ["opendepot.defdev.io"]
+  resources: ["modules", "versions", "providers"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opendepot-registry-reader-binding
+  namespace: opendepot-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opendepot-registry-reader
+subjects:
+- kind: ServiceAccount
+  name: my-ci-sa
+  namespace: my-ci-namespace
+```
+
+For guidance on using this in a CI/CD pipeline, see [Registry Reads: SA Fallback with OIDC](../guides/cicd.md#registry-reads-sa-fallback-with-oidc).

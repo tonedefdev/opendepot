@@ -36,13 +36,14 @@ import (
 )
 
 var (
-	logger                   *slog.Logger
-	opendepotAnonymousAuth   *bool
-	opendepotUseBearerToken  *bool
-	opendepotOIDCIssuerURL   *string
-	opendepotOIDCClientID    *string
-	opendepotOIDCGroupsClaim *string
-	opendepotServerNamespace *string
+	logger                       *slog.Logger
+	opendepotAnonymousAuth       *bool
+	opendepotUseBearerToken      *bool
+	opendepotOIDCIssuerURL       *string
+	opendepotOIDCClientID        *string
+	opendepotOIDCGroupsClaim     *string
+	opendepotOIDCAllowSAFallback *bool
+	opendepotServerNamespace     *string
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -63,6 +64,7 @@ func main() {
 	opendepotOIDCIssuerURL = flag.String("oidc-issuer-url", "", "OIDC issuer URL (e.g. https://dex.example.com/dex); when set together with --oidc-client-id the server validates OIDC JWTs and uses its own service account for Kubernetes API calls")
 	opendepotOIDCClientID = flag.String("oidc-client-id", "", "OIDC client ID; must be set together with --oidc-issuer-url")
 	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
+	opendepotOIDCAllowSAFallback = flag.Bool("oidc-allow-sa-fallback", false, "when true and OIDC mode is active, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer token path using the caller's own RBAC; GroupBinding is bypassed for SA tokens")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
@@ -706,6 +708,22 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
 		if err != nil {
+			if *opendepotOIDCAllowSAFallback {
+				iss, parseErr := parseUnsignedJWTIssuer(rawToken)
+				// Only fall back to the SA bearer path when the token clearly comes from a
+				// different issuer. A token that claims to be from the OIDC issuer but
+				// failed verification (expired, bad signature, wrong audience) still gets
+				// a 401 — we never fall back for bad Dex tokens.
+				if parseErr == nil && iss != *opendepotOIDCIssuerURL {
+					cs, saErr := generateKubeClient(nil, &rawToken, true)
+					if saErr != nil {
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return nil, nil, "", saErr
+					}
+					logger.Debug("SA fallback auth accepted", "issuer", iss)
+					return cs, nil, "", nil
+				}
+			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return nil, nil, "", fmt.Errorf("OIDC token verification failed: %w", err)
 		}
@@ -766,6 +784,27 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
 	return cs, nil, "", err
+}
+
+// parseUnsignedJWTIssuer decodes the payload segment of a JWT without verifying the signature
+// and returns the "iss" claim. Used only for SA fallback routing — signature validity is
+// irrelevant here; the Kubernetes API server validates the token itself.
+func parseUnsignedJWTIssuer(rawToken string) (string, error) {
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("malformed JWT: expected 3 parts, got %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("failed to base64-decode JWT payload: %w", err)
+	}
+	var claims struct {
+		Issuer string `json:"iss"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("failed to unmarshal JWT payload: %w", err)
+	}
+	return claims.Issuer, nil
 }
 
 // extractGroupsClaim reads the named claim from a JWT claims map and returns it as a []string.

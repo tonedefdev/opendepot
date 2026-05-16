@@ -85,6 +85,102 @@ jobs:
 
 The Module controller creates the `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage — no manual archive upload needed.
 
+## Registry Reads: SA Fallback with OIDC
+
+When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
+
+### Enable SA fallback in your Helm values
+
+```yaml
+server:
+  oidc:
+    enabled: true
+    allowServiceAccountFallback: true
+```
+
+This lets K8s SA tokens authenticate alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on Kubernetes RBAC directly.
+
+### Create an SA and bind registry-reader RBAC
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-registry-reader
+  namespace: my-ci-namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opendepot-registry-reader
+  namespace: opendepot-system
+rules:
+- apiGroups: ["opendepot.defdev.io"]
+  resources: ["modules", "versions", "providers"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opendepot-registry-reader-binding
+  namespace: opendepot-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opendepot-registry-reader
+subjects:
+- kind: ServiceAccount
+  name: ci-registry-reader
+  namespace: my-ci-namespace
+```
+
+### GitHub Actions example
+
+```yaml
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # required for OIDC to your cloud provider
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT>:role/my-role
+          aws-region: us-west-2
+
+      - name: Get SA token for OpenDepot registry
+        id: opendepot-token
+        run: |
+          TOKEN=$(kubectl create token ci-registry-reader \
+            -n my-ci-namespace \
+            --duration=15m)
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Write .tofurc
+        run: |
+          cat > ~/.tofurc <<EOF
+          credentials "opendepot.example.com" {
+            token = "${{ steps.opendepot-token.outputs.token }}"
+          }
+          host "opendepot.example.com" {
+            services = {
+              "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
+              "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
+            }
+          }
+          EOF
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - run: tofu init
+```
+
+The SA token is short-lived (15 minutes) and scoped to read-only registry operations. No Dex client credentials are needed for the CI pipeline.
+
 ## Adding Versions to an Existing Module
 
 To publish a new version of a module that already exists in OpenDepot, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.

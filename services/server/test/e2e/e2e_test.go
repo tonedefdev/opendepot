@@ -1165,4 +1165,267 @@ server:
 			deleteGroupBinding("zzz-e2e-groupbinding")
 		})
 	})
+
+	// Context: OIDC auth mode with ServiceAccount fallback
+	//
+	// These specs verify that when --oidc-allow-sa-fallback is set, Kubernetes
+	// ServiceAccount bearer tokens are accepted alongside OIDC JWTs. SA tokens
+	// bypass GroupBinding and use the caller's own RBAC for access control.
+	// The specs also confirm that the OIDC path still fires for Dex-issued JWTs
+	// (i.e. SA fallback does not accidentally swallow bad Dex tokens or tokens
+	// whose issuer matches the configured OIDC issuer).
+	Context("OIDC auth mode with SA fallback", Ordered, func() {
+		var (
+			pfCancelServer context.CancelFunc
+			pfCancelDex    context.CancelFunc
+			dexJWT         string
+			saToken        string
+			deniedSAToken  string
+		)
+
+		const (
+			sfDexLocalPort     = 15558
+			sfTestClientSecret = "test-client-secret-sf-e2e"
+			sfTestUserEmail    = "sf-test@example.com"
+			sfTestUserPassword = "sftestpassword"
+			sfTestUserID       = "sf-test-user-oidc-e2e"
+		)
+
+		// sfStartDexPortForward starts a self-restarting kubectl port-forward to the Dex
+		// service and blocks until the OIDC discovery endpoint is reachable.
+		sfStartDexPortForward := func(localPort int) context.CancelFunc {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+						"-n", namespace,
+						"svc/opendepot-dex",
+						fmt.Sprintf("%d:5556", localPort),
+					)
+					cmd.Stdout = GinkgoWriter
+					cmd.Stderr = GinkgoWriter
+					_ = cmd.Run()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}()
+			Eventually(func() error {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", localPort))
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				return nil
+			}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for Dex port-forward to be ready")
+			return cancel
+		}
+
+		// sfAcquireDexToken performs an ROPC grant against Dex and returns the raw ID token.
+		sfAcquireDexToken := func(localPort int, clientSecret, username, password string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", localPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {username},
+				"password":      {password},
+				"scope":         {"openid"},
+				"client_id":     {"opendepot"},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		BeforeAll(func() {
+			By("generating bcrypt hash for the test password")
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(sfTestUserPassword), 10)
+			Expect(err).NotTo(HaveOccurred())
+			passwordHash := string(hashBytes)
+
+			By("writing Dex e2e values file with SA fallback enabled")
+			dexValues := fmt.Sprintf(`
+dex:
+  enabled: true
+  config:
+    issuer: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+        - password
+      skipApprovalScreen: true
+      passwordConnector: local
+    staticPasswords:
+      - email: %q
+        hash: %q
+        username: sftestuser
+        userID: %q
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10010
+    connectors: []
+server:
+  oidc:
+    enabled: true
+    clientSecret: %q
+    allowServiceAccountFallback: true
+`, sfTestUserEmail, passwordHash, sfTestUserID, sfTestClientSecret)
+
+			valuesFile := filepath.Join(GinkgoT().TempDir(), "sf-dex-e2e-values.yaml")
+			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
+
+			By("deploying server with OIDC + SA fallback enabled")
+			deployServer(
+				"--set", "server.anonymousAuth=false",
+				"--set", "server.useBearerToken=false",
+				"-f", valuesFile,
+				"--timeout", "10m",
+			)
+
+			pfCancelServer = startPortForward()
+			pfCancelDex = sfStartDexPortForward(sfDexLocalPort)
+
+			By("acquiring a valid Dex JWT via ROPC")
+			Eventually(func() error {
+				token, err := sfAcquireDexToken(sfDexLocalPort, sfTestClientSecret, sfTestUserEmail, sfTestUserPassword)
+				if err != nil {
+					return err
+				}
+				dexJWT = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire Dex JWT via ROPC")
+
+			By("creating a ServiceAccount with RBAC to list modules (SA fallback)")
+			saCmd := exec.Command("kubectl", "create", "serviceaccount", "test-safallback-sa",
+				"-n", namespace)
+			_, _ = utils.Run(saCmd)
+
+			roleCmd := exec.Command("kubectl", "create", "role", "test-safallback-role",
+				"--verb=get,list",
+				"--resource=modules.opendepot.defdev.io",
+				"-n", namespace)
+			_, _ = utils.Run(roleCmd)
+
+			rbCmd := exec.Command("kubectl", "create", "rolebinding", "test-safallback-rb",
+				"--role=test-safallback-role",
+				"--serviceaccount="+namespace+":test-safallback-sa",
+				"-n", namespace)
+			_, _ = utils.Run(rbCmd)
+
+			By("generating a short-lived token for test-safallback-sa")
+			tokenCmd := exec.Command("kubectl", "create", "token", "test-safallback-sa",
+				"-n", namespace, "--duration=10m")
+			token, err := utils.Run(tokenCmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create SA token for fallback test")
+			saToken = strings.TrimSpace(token)
+
+			By("creating a ServiceAccount with no RBAC for the denied case")
+			denyCmd := exec.Command("kubectl", "create", "serviceaccount", "test-safallback-denied-sa",
+				"-n", namespace)
+			_, _ = utils.Run(denyCmd)
+
+			By("generating a short-lived token for the denied SA")
+			deniedTokenCmd := exec.Command("kubectl", "create", "token", "test-safallback-denied-sa",
+				"-n", namespace, "--duration=10m")
+			deniedToken, err := utils.Run(deniedTokenCmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create denied SA token")
+			deniedSAToken = strings.TrimSpace(deniedToken)
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancelServer)
+			stopPortForward(pfCancelDex)
+
+			for _, res := range [][]string{
+				{"delete", "rolebinding", "test-safallback-rb", "-n", namespace, "--ignore-not-found"},
+				{"delete", "role", "test-safallback-role", "-n", namespace, "--ignore-not-found"},
+				{"delete", "serviceaccount", "test-safallback-sa", "-n", namespace, "--ignore-not-found"},
+				{"delete", "serviceaccount", "test-safallback-denied-sa", "-n", namespace, "--ignore-not-found"},
+			} {
+				cmd := exec.Command("kubectl", res...)
+				_, _ = utils.Run(cmd)
+			}
+		})
+
+		It("should accept a K8s SA token and return a non-401 response", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+saToken)
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"SA token must not produce a 401 when SA fallback is enabled")
+		})
+
+		It("should return 403 for an SA token with no RBAC", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+deniedSAToken)
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"SA token with no RBAC must produce a 403 (Kubernetes RBAC denial propagated)")
+		})
+
+		// A valid Dex JWT must still take the OIDC path even when SA fallback is
+		// enabled. Dex static passwords do not emit a groups claim, so the OIDC
+		// path will deny with 403. This confirms that SA fallback does not
+		// accidentally route Dex JWTs to the bearer token path.
+		It("should still route valid Dex JWTs through the OIDC path (403, no groups claim)", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+dexJWT)
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a valid Dex JWT must still go through the OIDC path and be denied with 403 (no groups claim)")
+		})
+
+		It("should return 401 for a garbage non-JWT token", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer this-is-not-a-jwt")
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
+				"a garbage non-JWT token must produce a 401 even when SA fallback is enabled")
+		})
+	})
 })

@@ -111,6 +111,12 @@ server:
     # Only used when GroupBinding resources are deployed. Defaults to "groups".
     # Change to "cognito:groups", "roles", etc. when using a non-standard IdP.
     groupsClaim: ""
+    # allowServiceAccountFallback, when true, permits Kubernetes ServiceAccount bearer
+    # tokens to authenticate alongside OIDC JWTs when OIDC mode is enabled. SA tokens
+    # bypass GroupBinding and rely on Kubernetes RBAC directly for access control.
+    # Only enable this when CI/CD pipelines need registry read access using their
+    # existing SA credentials.
+    allowServiceAccountFallback: false
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set
