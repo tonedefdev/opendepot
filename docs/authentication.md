@@ -151,6 +151,8 @@ server:
 
 With this flag, K8s SA tokens (identified by a non-OIDC `iss` claim) are routed to the bearer-token path, and the SA's own RBAC controls access. GroupBinding is not evaluated for SA tokens. See [CI/CD with ServiceAccount Fallback](configuration/oidc.md#cicd-with-serviceaccount-fallback) for full setup details.
 
+#### Security Notes
+
 - **HTTPS required**: In production, issuer URLs must use HTTPS. HTTP is allowed only for localhost (127.0.0.1) and testing.
 - **No credential distribution**: Users authenticate directly with Dex; the server never sees or stores user passwords.
 - **JWT validation**: JWTs are validated locally using the issuer's JWKS. No call to Dex is made on every request.
