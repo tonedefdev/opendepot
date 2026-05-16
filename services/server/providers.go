@@ -21,6 +21,10 @@ import (
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
+// getProviderVersionResource scans all Version resources in the given namespace and
+// returns the first one whose ProviderConfigRef matches providerType and whose
+// normalized version matches requestedVersion. Returns nil, nil when no match is found.
+// ctxName is included in error messages for caller-specific context.
 func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, providerType, requestedVersion string, ctxName string, ctxReq *http.Request) (*opendepotv1alpha1.Version, error) {
 	result, err := clientset.RESTClient().
 		Get().
@@ -57,6 +61,10 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 	return nil, nil
 }
 
+// getProviderSigningKeysFromEnv reads the provider GPG signing key material from
+// the OPENDEPOT_PROVIDER_GPG_KEY_ID, OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR, and
+// OPENDEPOT_PROVIDER_GPG_SOURCE_URL environment variables and returns them as a
+// ProviderSigningKeys value for inclusion in package metadata responses.
 func getProviderSigningKeysFromEnv() (*ProviderSigningKeys, error) {
 	keyID := strings.TrimSpace(os.Getenv("OPENDEPOT_PROVIDER_GPG_KEY_ID"))
 	asciiArmor := os.Getenv("OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR")
@@ -77,6 +85,9 @@ func getProviderSigningKeysFromEnv() (*ProviderSigningKeys, error) {
 	return keys, nil
 }
 
+// decodeSHA256Checksum converts a base64-encoded SHA-256 digest (as stored in a
+// Version resource's status) to its lowercase hex representation expected by the
+// Terraform provider registry protocol.
 func decodeSHA256Checksum(base64Checksum string) (string, error) {
 	decoded, err := base64.StdEncoding.DecodeString(base64Checksum)
 	if err != nil {
@@ -86,6 +97,8 @@ func decodeSHA256Checksum(base64Checksum string) (string, error) {
 	return hex.EncodeToString(decoded), nil
 }
 
+// getProviderVersions returns the list of available versions for a provider type,
+// as required by the Terraform provider registry protocol.
 func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -175,6 +188,9 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// getProviderPackageMetadata returns the download URL, checksum, and signing-key
+// metadata for a specific provider version/OS/arch tuple, as required by the
+// Terraform provider registry protocol.
 func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -249,6 +265,12 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// serveProviderPackageDownload handles provider binary downloads. When the Version
+// resource has presigning enabled and a compatible storage backend, it issues a
+// temporary redirect to a presigned URL so the client downloads directly from the
+// storage backend. Otherwise it falls back to proxying the binary through the server.
+// This endpoint is accessed by OpenTofu without credentials per the provider registry
+// protocol spec; the server's own service account is used for Kubernetes API calls.
 func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	// Provider artifact download endpoints are accessed by OpenTofu without
 	// credentials (per the Terraform Provider Registry Protocol spec). Use the
@@ -343,6 +365,9 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
 }
 
+// getProviderPackageSHA256SUMS serves the SHA256SUMS file for a provider package.
+// The URL for this endpoint is returned in the package metadata response and is
+// fetched by OpenTofu without credentials per the provider registry protocol spec.
 func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
@@ -382,6 +407,9 @@ func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(fmt.Sprintf("%s  %s\n", checksumHex, *versionResource.Spec.FileName)))
 }
 
+// getProviderPackageSHA256SUMSSignature serves the detached GPG signature of the
+// SHA256SUMS file for a provider package. The private key is read from the
+// OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64 environment variable at request time.
 func getProviderPackageSHA256SUMSSignature(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 

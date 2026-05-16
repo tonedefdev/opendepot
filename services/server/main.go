@@ -90,12 +90,13 @@ func main() {
 	r.Get("/opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
 
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
-		http.ListenAndServeTLS("", *opendepotCertPath, *opendepotCertKey, r)
+		if err := http.ListenAndServeTLS(":8443", *opendepotCertPath, *opendepotCertKey, r); err != nil {
+			logger.Error("Failed to start server with TLS", "error", err)
+		}
 	} else {
 		logger.Info("Server started and listening on default port: 8080 without TLS. For secure communication, provide paths to TLS certificate and key using --tls-cert-path and --tls-cert-key flags.")
 		if err := http.ListenAndServe(":8080", r); err != nil {
 			logger.Error("Failed to start server", "error", err)
 		}
 	}
-
 }

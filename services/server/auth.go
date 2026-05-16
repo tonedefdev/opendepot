@@ -344,6 +344,8 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 	return false
 }
 
+// extractKubeconfig reads the Authorization header and base64-decodes the kubeconfig
+// that the caller is expected to supply as a Bearer token value.
 func extractKubeconfig(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {

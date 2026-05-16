@@ -19,6 +19,9 @@ import (
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
+// sanitizeModuleVersionForLookup normalizes a module version string into the form
+// used as the Version resource name suffix: strips a leading "v", lowercases, and
+// replaces dots and underscores with hyphens (e.g. "v1.2.3" → "1-2-3").
 func sanitizeModuleVersionForLookup(version string) string {
 	if len(version) > 0 && version[0] == 'v' {
 		version = version[1:]
@@ -29,6 +32,8 @@ func sanitizeModuleVersionForLookup(version string) string {
 	return version
 }
 
+// getModuleVersion fetches the Version resource for the module name and version
+// encoded in the request URL parameters.
 func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r *http.Request) (*opendepotv1alpha1.Version, error) {
 	name := chi.URLParam(r, "name")
 	namespace := chi.URLParam(r, "namespace")
@@ -55,6 +60,10 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 	return &moduleVersion, nil
 }
 
+// getDownloadModuleUrl handles the Terraform module download redirect endpoint.
+// It resolves the caller's identity, enforces GroupBinding access control, looks up
+// the Version resource, and responds with an X-Terraform-Get header that directs
+// the Terraform client to the storage-backend-specific download URL.
 func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -129,6 +138,8 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// getModuleVersions returns the list of available versions for a module, as required
+// by the Terraform module registry protocol.
 func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -183,6 +194,7 @@ func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// serveModuleFromAzureBlob proxies a module archive download from Azure Blob Storage.
 func serveModuleFromAzureBlob(w http.ResponseWriter, r *http.Request) {
 	accountName := chi.URLParam(r, "account")
 	accountUrl := chi.URLParam(r, "accountUrl")
@@ -224,6 +236,10 @@ func serveModuleFromAzureBlob(w http.ResponseWriter, r *http.Request) {
 	getObjectFromStorageSystem(w, r, azureStorage, soi, checksum)
 }
 
+// serveModuleFromFileSystem serves a module archive from the local filesystem.
+// When the request carries terraform-get=1 (go-getter source detection), the handler
+// returns an X-Terraform-Get header pointing to the actual download URL with the
+// correct archive type rather than streaming the file directly.
 func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 	encodedDir := chi.URLParam(r, "directory")
 	moduleName := chi.URLParam(r, "name")
@@ -291,6 +307,7 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 	getObjectFromStorageSystem(w, r, fsStorage, soi, checksum)
 }
 
+// serveModuleFromGCS proxies a module archive download from Google Cloud Storage.
 func serveModuleFromGCS(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	name := chi.URLParam(r, "name")
@@ -317,6 +334,7 @@ func serveModuleFromGCS(w http.ResponseWriter, r *http.Request) {
 	getObjectFromStorageSystem(w, r, gcsStorage, soi, checksum)
 }
 
+// serveModuleFromS3 proxies a module archive download from Amazon S3.
 func serveModuleFromS3(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	region := chi.URLParam(r, "region")

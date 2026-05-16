@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// serviceDiscoveryHandler serves the Terraform service-discovery document at
+// /.well-known/terraform.json. It advertises the module and provider registry
+// base URLs and, when OIDC is configured, the login.v1 endpoints required by
+// the OpenTofu CLI login flow.
 func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	response := ServiceDiscoveryResponse{
@@ -28,10 +32,15 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// normalizeVersion strips a leading "v" prefix and surrounding whitespace from a
+// version string so that "v1.2.3" and "1.2.3" compare as equal.
 func normalizeVersion(versionString string) string {
 	return strings.TrimPrefix(strings.TrimSpace(versionString), "v")
 }
 
+// requestBaseURL derives the scheme and host of the incoming request. It honours
+// TLS termination at the server, and falls back to the X-Forwarded-Proto header
+// set by a reverse proxy, before defaulting to http.
 func requestBaseURL(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil {
