@@ -146,7 +146,7 @@ server:
 When either value is blank the URL comes from the Dex OIDC discovery document. Both values are validated at server startup — the server exits immediately if either URL is not a well-formed `http` or `https` URL.
 
 !!! note "Local Kind testing"
-    When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC Testing (make targets)](#local-oidc-testing-make-targets) below.
+  When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
 
 ## Step 5: Authenticate with `tofu login`
 
@@ -413,18 +413,24 @@ dex:
     oauth2:
       grantTypes:
         - authorization_code
-        - client_credentials  # add this
+        - client_credentials # add this
     staticClients:
       - id: opendepot
         name: OpenDepot
         secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
         redirectURIs:
           - https://opendepot.example.com/...
-      - id: ci-pipeline          # machine client
+      - id: ci-pipeline # machine client
         name: CI Pipeline
-        secret: <strong-random-secret>
+        secretEnv: OPENDEPOT_CC_CLIENT_SECRET
         grantTypes:
           - client_credentials
+  envFrom:
+    - secretRef:
+      name: opendepot-dex-client-secret # chart default — do not remove
+      optional: true
+    - secretRef:
+        name: opendepot-cc-client-secret
 ```
 
 !!! warning
@@ -499,49 +505,10 @@ No `tofu login` is required — the access token is used directly.
 | Works without `kubectl` | No | Yes |
 | Short-lived tokens | Yes (configurable) | Yes (Dex-controlled TTL) |
 
-For CI/CD usage examples see [Client Credentials in CI/CD](../guides/cicd.md#dex-client-credentials).
+For CI/CD usage examples see [Client Credentials in CI/CD](../guides/cicd.md#registry-reads-with-dex-client-credentials).
 
-## Local OIDC Testing (make targets)
+## Local OIDC Testing
 
-The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.
+Local OIDC end-to-end testing via repository `make` targets is contributor-focused developer workflow documentation.
 
-!!! note
-    The hostname `registry.local` is used instead of `localhost` because OpenTofu rejects single-label hostnames as registry addresses. `make oidc-hosts` adds a `/etc/hosts` entry that resolves `registry.local` to `127.0.0.1`.
-
-| Target | Purpose |
-|--------|---------|
-| `make oidc-hosts` | Adds `registry.local → 127.0.0.1` to `/etc/hosts` (requires `sudo`) |
-| `make oidc-tls` | Generates a locally-trusted mkcert TLS cert for `registry.local`, `localhost`, and `127.0.0.1` and creates the `opendepot-tls` Kubernetes Secret |
-| `make oidc-deploy PASS=<password>` | Deploys OpenDepot + Dex v2.45.0 with filesystem storage and a static OIDC test user |
-| `make oidc-forward` | Port-forwards the server (`localhost:8080`) and Dex (`localhost:5556`) |
-| `make oidc-login` | Runs `tofu login registry.local:8080` |
-| `make oidc-test-resources` | Creates a sample Module and a GroupBinding for the test user's group |
-| `make oidc-verify-module` | Runs an authenticated request against the test module to verify the full auth flow |
-| `make oidc-test-clean` | Removes the test Module and GroupBinding |
-| `make oidc-stop` | Stops all port-forwards |
-| `make oidc-setup PASS=<password>` | Runs all setup steps (`deploy`, `oidc-hosts`, `oidc-tls`, `oidc-deploy`, `oidc-forward`) in sequence |
-
-**Prerequisites:** [kind](https://kind.sigs.k8s.io/), [kubectl](https://kubernetes.io/docs/tasks/tools/), [Helm 3](https://helm.sh/docs/intro/install/), [mkcert](https://github.com/FiloSottile/mkcert), [OpenTofu](https://opentofu.org/docs/intro/install/), and either `htpasswd` (from `httpd`) or the Python `bcrypt` package for hashing the test user password.
-
-**Full setup from a freshly created Kind cluster:**
-
-```bash
-# One-time: install mkcert CA into the system trust store
-mkcert -install
-
-# Create a kind cluster (if you don't have one already)
-kind create cluster --name opendepot
-
-# Build and load images, set up /etc/hosts, generate TLS, deploy, and port-forward
-make oidc-setup PASS=mysecretpassword
-```
-
-**Login and test:**
-
-```bash
-make oidc-login           # opens tofu login — authenticate in the browser
-make oidc-test-resources  # create test Module and GroupBinding
-make oidc-verify-module   # verify authenticated access
-```
-
-The `oidc-deploy` target configures `authzUrl` and `tokenUrl` to point at the local port-forward (`http://localhost:5556/dex/auth` and `/token`). This is the split-network pattern described in [Split-Network OIDC](#split-network-oidc-authzurl-tokenurl) — the server pod reaches Dex via the in-cluster service URL for token validation, while `tofu login` redirects the browser through the port-forward.
+See [Contributing](../contributing.md#local-oidc-e2e-testing) for the full local Kind + Dex test setup and command reference.

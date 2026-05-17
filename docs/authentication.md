@@ -147,7 +147,7 @@ To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm val
     **This is a last resort.** Before enabling it, consider:
 
     - If pipelines only need to **publish** modules, use the [GitOps workflow](guides/gitops.md) — no pipeline credentials required at all.
-    - If pipelines need to **read** the registry without cluster access, use [Dex Client Credentials](guides/cicd.md#dex-client-credentials) — pipelines get a Dex-issued token that respects GroupBinding.
+    - If pipelines need to **read** the registry without cluster access, use [Dex Client Credentials](guides/cicd.md#registry-reads-with-dex-client-credentials) — pipelines get a Dex-issued token that respects GroupBinding.
 
 By default, OIDC and bearer-token modes are mutually exclusive. If you need CI/CD pipelines to authenticate using a Kubernetes ServiceAccount while human users authenticate via OIDC, enable the SA fallback:
 
@@ -264,7 +264,7 @@ jobs:
 
 ### Method 3: Base64-Encoded Kubeconfig (Local Development)
 
-For development or environments where environment variables are not practical, encode your kubeconfig and store it in a credentials file.
+For development or environments where environment variables are not practical or OIDC is overkill, encode your kubeconfig and store it in a credentials file.
 
 !!! note
     This method requires `server.useBearerToken: false` in your Helm values.
@@ -299,7 +299,7 @@ chmod 600 ~/.terraform.d/credentials.tfrc.json
 | Security | High | Good | Highest | High |
 | Setup Complexity | Low | Low | Medium | Medium |
 | Credential Distribution | Via env var or shell | File-based | No distribution (SSO) | No distribution |
-| Best For | Production, CI/CD | Development | Enterprise production (SSO) | OIDC orgs where pipelines must have direct cluster API access; prefer [GitOps](guides/gitops.md) or [Dex CC](guides/cicd.md#dex-client-credentials) first |
+| Best For | Production, CI/CD | Development | Enterprise production (SSO) | OIDC orgs where pipelines must have direct cluster API access; prefer [GitOps](guides/gitops.md) or [Dex CC](guides/cicd.md#registry-reads-with-dex-client-credentials) first |
 | `tofu login` Support | No | No | Yes | Yes (human users) |
 | OpenTofu Support | All versions | All versions | All versions | All versions |
 | Terraform Support | v1.2+ | All versions | v1.3+ | v1.3+ |

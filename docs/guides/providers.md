@@ -38,7 +38,28 @@ host "opendepot.defdev.io" {
 }
 ```
 
-With authentication (recommended for production):
+Authenticate with OIDC (recommended):
+
+```bash
+tofu login opendepot.defdev.io
+tofu init
+```
+
+Or if you already have an OIDC access token, use the `.tofurc` config approach:
+
+```hcl
+credentials "opendepot.defdev.io" {
+  token = "<oidc-access-token>"
+}
+
+host "opendepot.defdev.io" {
+  services = {
+    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
+  }
+}
+```
+
+Kubernetes bearer token fallback (use only when OIDC is not available):
 
 ```bash
 export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(aws eks get-token \
@@ -49,168 +70,13 @@ export TF_TOKEN_OPENDEPOT_DEFDEV_IO=$(aws eks get-token \
 tofu init
 ```
 
-
-Or using the `.tofurc` config approach:
-```
-credentials "opendepot.defdev.io" {
-  token = "<kubernetes-bearer-token>"
-}
-
-host "opendepot.defdev.io" {
-  services = {
-    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
-  }
-}
-```
-
 !!! note
     Provider artifact downloads (the binary, `SHA256SUMS`, and `SHA256SUMS.sig`) do not require client authentication. OpenTofu fetches these URLs after receiving the download metadata from the auth-protected `download` endpoint, and the Terraform Provider Registry Protocol does not forward credentials to artifact URLs. The server uses its own ServiceAccount for these requests. Security is enforced at the metadata tier where the download URL is issued.
 
-**Adding a new provider version**
+## Next Steps for Admins
 
-To publish a new version, append it to `spec.versions`:
+For provider publishing and lifecycle operations (adding versions, force re-sync, source repository overrides), use [Registry Operations](operations.md).
 
-```bash
-kubectl patch provider aws -n opendepot-system \
-  --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"5.81.0"}}]'
-```
+For scan configuration and policy controls, see [Vulnerability Scanning](../configuration/scanning.md).
 
-The Provider controller creates new `Version` resources for every OS/architecture combination, and the Version controller fetches and stores the binaries automatically.
-
-**Force re-sync**
-
-```bash
-kubectl patch provider aws -n opendepot-system \
-  --type merge -p '{"spec":{"forceSync":true}}'
-```
-
-**Force re-sync a specific provider version**
-
-`Version` resources also support `forceSync`. Use it to force a re-download and re-scan of a specific OS/architecture binary — for example, when `status.binaryScan` is empty because scanning was enabled after the version was first synced.
-
-```bash
-kubectl patch version <version-name> -n <namespace> \
-  --type merge -p '{"spec":{"forceSync":true}}'
-```
-
-The `<version-name>` follows the pattern `<provider>-<version-dashes>-<os>-<arch>` — for example, `aws-5-80-0-linux-amd64`.
-
-The controller bypasses the provider fast-path, re-downloads the artifact, runs the binary scan, and resets `forceSync` to `false` once reconciliation completes.
-
-!!! note
-    The Version controller does **not** automatically re-scan provider binaries on restart. Provider binaries are ~700 MB each; re-downloading every cached binary on startup would exhaust memory and I/O in clusters with many provider versions. Use `forceSync: true` on a specific `Version` resource to trigger a targeted one-time re-download and re-scan.
-
-## Vulnerability Scanning
-
-When [scanning is enabled](../configuration/scanning.md), the Version controller runs Trivy against each provider artifact and stores findings on the Kubernetes resources.
-
-**Binary scan results** are stored per `Version` resource in `status.binaryScan`:
-
-```bash
-kubectl get version aws-5.81.0-linux-amd64 -n opendepot-system -o jsonpath='{.status.binaryScan}' | jq .
-```
-
-```json
-{
-  "scannedAt": "2026-05-03T02:10:00Z",
-  "findings": [
-    {
-      "vulnerabilityID": "CVE-2024-12345",
-      "pkgName": "golang.org/x/net",
-      "installedVersion": "0.20.0",
-      "fixedVersion": "0.23.0",
-      "severity": "HIGH",
-      "title": "HTTP/2 CONTINUATION flood vulnerability"
-    }
-  ]
-}
-```
-
-**Source scan results** (go.mod dependencies) are stored on the `Provider` resource in `status.sourceScan` and are deduplicated across OS/architecture variants:
-
-```bash
-kubectl get provider aws -n opendepot-system -o jsonpath='{.status.sourceScan}' | jq .
-```
-
-```json
-{
-  "scannedAt": "2026-05-03T02:10:05Z",
-  "version": "5.81.0",
-  "findings": []
-}
-```
-
-Each `SecurityFinding` contains the following fields:
-
-| Field | Description |
-|---|---|
-| `vulnerabilityID` | CVE or GHSA identifier |
-| `pkgName` | Package containing the vulnerability |
-| `installedVersion` | Version of the package currently in use |
-| `fixedVersion` | Minimum version that resolves the vulnerability, if known |
-| `severity` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `UNKNOWN` |
-| `title` | Short description of the vulnerability |
-
-**Provider source repository**
-
-OpenDepot automatically resolves the provider's GitHub repository for source scanning using the OpenTofu registry (`api.opentofu.org`). This works for any provider published in the registry regardless of its owning organisation.
-
-For providers not published under the `hashicorp` organisation, set the `namespace` field to match the registry namespace:
-
-```yaml
-spec:
-  providerConfig:
-    name: github
-    namespace: integrations
-```
-
-Use `sourceRepository` to pin a specific URL when the registry lookup returns the wrong repository or is unreachable:
-
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    sourceRepository: "https://github.com/my-org/terraform-provider-myprovider"
-```
-
-**Authenticated source scanning**
-
-For private provider source repositories or high-volume environments where unauthenticated GitHub requests hit API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller will use the same `opendepot-github-application-secret` Secret that modules use, so no additional Secret is required if GitHub App auth is already configured in the namespace.
-
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    githubClientConfig:
-      useAuthenticatedClient: true
-```
-
-See [GitHub Authentication](../configuration/github-auth.md) and [Authenticated Source Scanning](../configuration/scanning.md#authenticated-source-scanning) for setup details.
-
-See [Vulnerability Scanning](../configuration/scanning.md) for full configuration details including policy enforcement and Helm values.
-
-## Pre-signed URL Redirects
-
-By default, provider binary downloads are proxied through the OpenDepot server. Enabling pre-signed URLs causes the server to redirect OpenTofu directly to the storage backend with a time-limited signed URL, eliminating server-side bandwidth costs for large provider binaries.
-
-Add a `presign` block to the `storageConfig` on the provider's `Version` resources (or on the backing `Depot.spec.global.storageConfig` to apply it globally):
-
-```yaml
-spec:
-  providerConfig:
-    name: aws
-  storageConfig:
-    s3:
-      bucket: opendepot-providers
-      region: us-east-1
-    presign:
-      enabled: true
-      ttl: "15m"
-      fallbackToProxy: true
-```
-
-When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required — any failure returns `502 Bad Gateway`.
-
-Pre-signed URLs are supported on **S3**, **GCS**, and **Azure Blob Storage**. See [Pre-signed URL Redirects](../storage.md#pre-signed-url-redirects) for per-backend IAM requirements and field reference.
+For pre-signed redirects and storage backends, see [Storage Backends](../storage.md#pre-signed-url-redirects).

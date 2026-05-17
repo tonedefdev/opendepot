@@ -32,7 +32,7 @@ For each provider version, the Version controller performs two scans:
 
     The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/providers.md#consuming-providers) for the full `Version` name pattern.
 
-See [Consuming Providers](../guides/providers.md#vulnerability-scanning) for examples of reading scan results.
+See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
 ## Module IaC Scanning
 
@@ -42,7 +42,7 @@ For each module version, the Version controller runs an IaC scan on the extracte
 
 Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE identifier.
 
-See [Consuming Modules](../guides/modules.md#vulnerability-scanning) for examples of reading scan results.
+See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
 ## Scanning Image Variant
 

@@ -14,8 +14,19 @@ search:
 - Kubernetes v1.16+
 - Helm 3.0+
 - `kubectl` configured to access your cluster
-- A supported storage backend (S3 bucket, Azure Storage Account, or local filesystem)
+- A supported storage backend (S3 bucket, Azure Storage Account, GCS bucket, or local filesystem)
 - *(Optional)* A GitHub App for authenticated API access
+
+### Optional OIDC Prerequisites (Recommended)
+
+If you plan to use OIDC authentication and `tofu login`, also prepare:
+
+- An OIDC issuer (Dex via Helm subchart or an external OIDC provider)
+- A registered OIDC client for OpenDepot (client ID/secret)
+- Externally reachable OIDC auth/token endpoints advertised in service discovery (`login.v1`)
+- *(Optional)* `GroupBinding` resources for fine-grained module/provider access control
+
+See [OIDC Configuration](../configuration/oidc.md) for full setup details and examples.
 
 ## Install with Helm
 
@@ -68,7 +79,7 @@ helm install opendepot opendepot/opendepot \
 |-------|---------|-------------|
 | `global.namespace` | `opendepot-system` | Namespace for all resources |
 | `global.imagePullPolicy` | `IfNotPresent` | Image pull policy |
-| `global.image.tag` | `dev` | Image tag for all services |
+| `global.image.tag` | `""` | Image tag for all services (defaults to `Chart.AppVersion` when empty) |
 
 ## Server
 
@@ -86,20 +97,34 @@ helm install opendepot opendepot/opendepot \
 | `server.tls.certPath` | `/etc/tls/tls.crt` | Path to TLS certificate |
 | `server.tls.keyPath` | `/etc/tls/tls.key` | Path to TLS key |
 | `server.ingress.enabled` | `false` | Enable Kubernetes Ingress |
-| `server.ingress.istio.enabled` | `true` | Enable Istio VirtualService |
+| `server.ingress.istio.enabled` | `false` | Enable Istio VirtualService |
 | `server.ingress.istio.hosts` | `[opendepot.defdev.io]` | Istio VirtualService hosts |
 | `server.resources.requests.cpu` | `100m` | CPU request |
 | `server.resources.requests.memory` | `128Mi` | Memory request |
-| `server.resources.limits.cpu` | `500m` | CPU limit |
+| `server.resources.limits.cpu` | not set | CPU limit |
 | `server.resources.limits.memory` | `512Mi` | Memory limit |
 | `server.nodeSelector` | `{}` | Node selector |
 | `server.tolerations` | `[]` | Tolerations |
 | `server.affinity` | `{}` | Affinity rules |
 | `server.podDisruptionBudget.enabled` | `false` | Enable PDB |
 | `server.podDisruptionBudget.minAvailable` | `2` | Minimum available pods |
-| `server.ingress.enabled` | `false` | Enable Kubernetes Ingress |
 | `server.ingress.hosts` | see values.yaml | Standard Ingress host/path rules |
 | `server.ingress.tls` | `[]` | Standard Ingress TLS configuration |
+
+### Server OIDC
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `server.oidc.enabled` | `false` | Enable OIDC token validation for registry requests |
+| `server.oidc.issuerUrl` | `""` | OIDC issuer URL (auto-derived from Dex when blank and `dex.enabled=true`) |
+| `server.oidc.clientId` | `opendepot` | OIDC client ID used by `tofu login` |
+| `server.oidc.clientSecretName` | `""` | Existing Secret name containing OIDC client secret |
+| `server.oidc.clientSecret` | `""` | OIDC client secret used to create chart-managed Secret when `clientSecretName` is blank |
+| `server.oidc.groupsClaim` | `""` | JWT claim name containing groups (defaults to `groups` in server flag behavior) |
+| `server.oidc.allowServiceAccountFallback` | `false` | Allow Kubernetes SA bearer tokens when OIDC is enabled |
+| `server.oidc.allowClientCredentials` | `false` | Allow Dex client-credentials tokens and map `sub` to `client:<sub>` for GroupBinding evaluation |
+| `server.oidc.authzUrl` | `""` | Override `login.v1.authz` URL advertised in service discovery |
+| `server.oidc.tokenUrl` | `""` | Override `login.v1.token` URL advertised in service discovery |
 
 ## Controllers
 
@@ -112,9 +137,9 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 | `<service>.image.repository` | `ghcr.io/tonedefdev/opendepot/<service>-controller` | Image repository |
 | `<service>.image.tag` | `""` | Overrides `global.image.tag` when set |
 | `<service>.resources.requests.cpu` | `100m` | CPU request |
-| `<service>.resources.requests.memory` | `128Mi` | Memory request |
-| `<service>.resources.limits.cpu` | `500m` | CPU limit |
-| `<service>.resources.limits.memory` | `512Mi` | Memory limit |
+| `<service>.resources.requests.memory` | `version: 512Mi`, others `128Mi` | Memory request |
+| `<service>.resources.limits.cpu` | not set | CPU limit |
+| `<service>.resources.limits.memory` | `version: 4Gi`, others `512Mi` | Memory limit |
 | `<service>.nodeSelector` | `{}` | Node selector |
 | `<service>.tolerations` | `[]` | Tolerations |
 | `<service>.affinity` | `{}` | Affinity rules |
@@ -156,6 +181,23 @@ See [GPG Signing for Providers](../configuration/gpg.md) in the Configuration se
 | `storage.filesystem.hostPath` | `""` | Use a hostPath volume (for local dev with kind) |
 | `storage.filesystem.storageClassName` | `""` | StorageClass for PVC (requires `ReadWriteMany`) |
 | `storage.filesystem.size` | `10Gi` | PVC storage size |
+
+## Scanning
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `scanning.enabled` | `false` | Enable Trivy-based scanning (module IaC scanning and scanning image variant) |
+| `scanning.providerScanning` | `false` | Enable provider binary/source scanning (requires `scanning.enabled=true`) |
+| `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path for Trivy DB cache |
+| `scanning.offline` | `true` | Run Trivy with offline scan mode |
+| `scanning.blockOnCritical` | `false` | Block reconciliation when CRITICAL findings exist |
+| `scanning.blockOnHigh` | `false` | Block reconciliation when HIGH findings exist |
+| `scanning.cache.storageClassName` | `""` | StorageClass for Trivy DB PVC |
+| `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for Trivy DB PVC |
+| `scanning.cache.size` | `1Gi` | Trivy DB PVC size |
+| `scanning.dbUpdater.schedule` | `0 2 * * *` | Cron schedule for DB refresh job |
+| `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Trivy DB updater image repository |
+| `scanning.dbUpdater.image.tag` | `0.70.0` | Trivy DB updater image tag |
 
 ## Build from Source (Alternative)
 
