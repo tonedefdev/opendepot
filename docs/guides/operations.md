@@ -195,7 +195,7 @@ kubectl get version terraform-aws-key-pair-2-0-0 -n opendepot-system \
 Provider binary scan results (`Version.status.binaryScan`):
 
 ```bash
-kubectl get version aws-5.81.0-linux-amd64 -n opendepot-system -o jsonpath='{.status.binaryScan}' | jq .
+kubectl get version aws-5-81-0-linux-amd64 -n opendepot-system -o jsonpath='{.status.binaryScan}' | jq .
 ```
 
 Provider source scan results (`Provider.status.sourceScan`):
