@@ -10,25 +10,11 @@ tags:
 
 End-to-end workflows for the most common OpenDepot use cases.
 
+## For Users
+
+Guides for teams consuming modules and providers from OpenDepot.
+
 <div class="grid cards" markdown>
-
-- :material-source-branch: &nbsp;[__GitOps with Argo CD__](gitops.md)
-
-    ---
-
-    Manage `Module` manifests in Git and let Argo CD sync them to the cluster. Every published version maps to an approved, merged pull request.
-
-- :material-download-circle: &nbsp;[__Depot (Pull-Based)__](depot.md)
-
-    ---
-
-    Automatically discover and sync module and provider versions from GitHub and HashiCorp without writing any `kubectl apply` commands.
-
-- :material-upload-circle: &nbsp;[__CI/CD (Push-Based)__](cicd.md)
-
-    ---
-
-    Create `Module` resources directly from your CI/CD pipeline for private modules you control.
 
 - :material-package: &nbsp;[__Consuming Modules__](modules.md)
 
@@ -41,6 +27,38 @@ End-to-end workflows for the most common OpenDepot use cases.
     ---
 
     Use OpenDepot as a private provider mirror, including GPG-verified downloads for air-gapped environments.
+
+</div>
+
+## For Admins
+
+Guides for platform and infrastructure teams operating OpenDepot.
+
+<div class="grid cards" markdown>
+
+- :material-source-branch: &nbsp;[__GitOps with Argo CD__](gitops.md)
+
+    ---
+
+    Manage `Module` manifests in Git and let Argo CD sync them to the cluster. Every published version maps to an approved, merged pull request.
+
+- :material-download-circle: &nbsp;[__Depot (Pull-Based)__](depot.md)
+
+    ---
+
+    Automatically discover and sync module and provider versions from GitHub and HashiCorp without writing any `kubectl apply` commands or configuring direct pipeline authentication.
+
+- :material-upload-circle: &nbsp;[__CI/CD Pipelines__](cicd.md)
+
+    ---
+
+    Pipeline-focused workflows for CI/CD registry reads (OIDC or token-based auth) and push-based publishing of `Module` resources.
+
+- :material-wrench-cog: &nbsp;[__Registry Operations__](operations.md)
+
+    ---
+
+    Day-2 admin runbooks for force re-sync, module/provider lifecycle operations, scanning checks, and pre-signed URL tuning.
 
 - :material-transfer: &nbsp;[__Migrating to OpenDepot__](migration.md)
 

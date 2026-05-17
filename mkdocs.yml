@@ -69,13 +69,16 @@ nav:
     - OIDC Authentication: configuration/oidc.md
   - Guides:
     - guides/index.md
-    - GitOps with Argo CD: guides/gitops.md
-    - Depot (Pull-Based): guides/depot.md
-    - CI/CD (Push-Based): guides/cicd.md
-    - Consuming Modules: guides/modules.md
-    - Consuming Providers: guides/providers.md
-    - Migrating to OpenDepot: guides/migration.md
-    - GroupBinding Access Control: guides/groupbinding.md
+    - Users:
+      - Consuming Modules: guides/modules.md
+      - Consuming Providers: guides/providers.md
+    - Admins:
+      - GitOps with Argo CD: guides/gitops.md
+      - Depot (Pull-Based): guides/depot.md
+      - CI/CD Pipelines: guides/cicd.md
+      - Registry Operations: guides/operations.md
+      - Migrating to OpenDepot: guides/migration.md
+      - GroupBinding Access Control: guides/groupbinding.md
   - Authentication: authentication.md
   - Kubernetes RBAC: rbac.md
   - Reference:
@@ -136,4 +139,4 @@ extra:
       name: OpenDepot on GitHub
   generator: false
 
-copyright: Copyright &copy; 2025 OpenDepot Contributors
+copyright: Copyright &copy; 2026 DefDev LLC. All rights reserved.

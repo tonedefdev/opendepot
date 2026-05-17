@@ -526,6 +526,6 @@ make oidc-test-resources
 make oidc-verify-module
 ```
 
-For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC Testing (make targets)](../configuration/oidc.md#local-oidc-testing-make-targets).
+For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).
 
 

@@ -22,10 +22,10 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Module | `modules` | create, delete, get, list, patch, update, watch |
 | Module | `modules/finalizers` | update |
 | Module | `modules/status` | get, patch, update |
-| Module | `versions` | create, get, list, patch, update, watch |
+| Module | `versions` | create, delete, get, list, patch, update, watch |
 | Version | `modules` | get, list, watch |
 | Version | `modules/status` | get, patch, update |
-| Version | `providers` | get |
+| Version | `providers` | get, list, watch |
 | Version | `providers/status` | get, patch, update |
 | Version | `versions` | create, delete, get, list, patch, update, watch |
 | Version | `versions/finalizers` | update |
@@ -37,10 +37,13 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Provider | `versions` | create, delete, get, list, patch, update, watch |
 | Server | `versions` | get, list, watch |
 | Server | `modules` | get, list |
+| Server | `providers` | get, list, watch |
+| Server | `groupbindings` | get, list, watch |
 
-## CI/CD ServiceAccount
+## Pipeline Publisher Role Example
 
-For CI/CD pipelines that need to create or update `Module` resources:
+This is a least-privilege RBAC example for pipelines that need to create or update `Module` resources.
+For end-to-end pipeline workflow setup, see [CI/CD Pipelines](guides/cicd.md).
 
 ```yaml
 apiVersion: v1

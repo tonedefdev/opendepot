@@ -14,8 +14,8 @@ OpenDepot consists of four Kubernetes controllers and a server, all deployed via
 1. **Depot controller** watches `Depot` resources, queries the GitHub Releases API for modules matching version constraints, queries the HashiCorp Releases API for providers matching version constraints, and creates or updates `Module` and `Provider` resources
 2. **Module controller** watches `Module` resources, creates a `Version` resource for each version listed in `spec.versions`, generates unique filenames, and tracks the latest version
 3. **Provider controller** watches `Provider` resources, creates a `Version` resource for each version and OS/architecture combination in `spec.versions`, and tracks the latest version
-4. **Version controller** watches `Version` resources, fetches module source from GitHub or provider binaries from the HashiCorp Releases API, computes SHA256 checksums, generates GPG signatures (for providers), and uploads archives to the configured storage backend
-5. **Server** handles OpenTofu/Terraform requests, queries Kubernetes for `Module`, `Provider`, and `Version` resources, and redirects downloads to the storage backend
+4. **Version controller** watches `Version` resources, fetches module source from GitHub or provider binaries via the OpenTofu registry download API, computes SHA256 checksums, generates GPG signatures (for providers), and uploads archives to the configured storage backend
+5. **Server** handles OpenTofu/Terraform read requests, queries Kubernetes for `Module`, `Provider`, `Version`, and (when OIDC is enabled) `GroupBinding` resources, and serves or redirects artifact downloads
 
 ## Services
 
@@ -97,7 +97,7 @@ spec:
     - version: "5.81.0"
 ```
 
-This produces eight `Version` resources (`5.80.0-linux-amd64`, `5.80.0-linux-arm64`, `5.80.0-darwin-amd64`, `5.80.0-darwin-arm64`, and the same four for `5.81.0`). The Version controller then fetches each binary from the HashiCorp Releases API and stores it in S3 under a UUID7 filename.
+This produces eight `Version` resources with normalized names (`aws-5-80-0-linux-amd64`, `aws-5-80-0-linux-arm64`, `aws-5-80-0-darwin-amd64`, `aws-5-80-0-darwin-arm64`, and the same four for `5.81.0`). Version resource names are lowercased and replace `.`, `_`, and `/` with `-`. The Version controller then resolves each binary through the OpenTofu registry API and stores it in S3 under a UUID7 filename.
 
 ### Depot Controller
 
@@ -112,10 +112,10 @@ Automates module and provider discovery. The Depot controller:
 
 ### Server
 
-Implements both the Module Registry Protocol and the Provider Registry Protocol as an HTTP API. The server supports three authentication modes:
+Implements both the Module Registry Protocol and the Provider Registry Protocol as an HTTP API. The server is read-only by design: it serves registry metadata and artifacts, but does not create, update, or delete OpenDepot CRs. The server supports three authentication modes:
 
+- **OIDC** — JWTs issued by the bundled [Dex](https://dexidp.io/) identity broker (or any compatible OIDC provider). The server fetches JWKS from the issuer at startup and validates tokens locally on every request — no round-trip to Dex per call. Fine-grained access control is applied via `GroupBinding` resources evaluated against the groups claim in the JWT (first matching binding in alphabetical order).
 - **Bearer token** — Kubernetes ServiceAccount tokens or kubeconfig credentials forwarded directly to the Kubernetes API.
-- **OIDC** — JWTs issued by the bundled [Dex](https://dexidp.io/) identity broker (or any compatible OIDC provider). The server fetches JWKS from the issuer at startup and validates tokens locally on every request — no round-trip to Dex per call. Fine-grained access control is applied via `GroupBinding` resources evaluated against the groups claim in the JWT.
 - **Anonymous** — No authentication required. Intended for local development only.
 
 When OIDC is enabled, the service discovery endpoint (`/.well-known/terraform.json`) advertises a `login.v1` block, enabling `tofu login` to drive the authorization code or device code flow through Dex. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and more) so users authenticate with their existing organizational identity.
@@ -124,7 +124,7 @@ The server also accepts [client credentials](configuration/oidc.md#client-creden
 
 After authenticating, the server queries the Kubernetes API for `Module`, `Provider`, and `Version` resources to serve registry protocol responses.
 
-Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) are served using the server's own ServiceAccount per the [Terraform Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol) — OpenTofu fetches these URLs without forwarding client credentials, so authentication is provided at the metadata tier rather than the artifact tier.
+Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) are served using the server's own ServiceAccount per the [Terraform Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol) — OpenTofu fetches these URLs without forwarding client credentials, so authentication is provided at the metadata tier rather than the artifact tier. When pre-signing is enabled on provider storage config, the server can return a `307 Temporary Redirect` to a backend-native signed URL; otherwise it proxies the artifact response directly.
 
 !!! warning
-    To prevent unauthenticated users from easily enumerating provider artifacts, provider files are stored with UUID7-based filenames.
+    To prevent unauthenticated users from easily enumerating provider and module artifacts, files are stored with UUID7-based filenames.

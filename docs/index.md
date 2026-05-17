@@ -11,11 +11,11 @@ tags:
 
 Enterprise registries like JFrog Artifactory and HCP Terraform charge for features that should come standard — vulnerability scanning, automatic version discovery, and secure auth. They also bring heavyweight operational baggage: external databases, proprietary identity stores, and infrastructure your team has to maintain.
 
-OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those features out of the box, delegates auth entirely to Kubernetes RBAC, and requires nothing beyond a Helm chart and a storage backend.
+OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those features out of the box, is designed around OIDC as the preferred authentication path, and keeps the server read-only by design. Kubernetes RBAC remains the authorization layer for create, update, and delete operations, and deployment still requires nothing beyond a Helm chart and a storage backend.
 
 <div class="grid cards" markdown>
 
-- :material-login: &nbsp;__OIDC Support__
+- :material-login: &nbsp;__OIDC Single Sign-On (SSO)__
 
     ---
 
@@ -25,7 +25,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
     ---
 
-    Kubernetes bearer tokens and RBAC used to create resources — no proprietary tokens, no user database, no extra identity store. Works with IRSA, Workload Identity, and any OIDC provider out of the box.
+    OIDC is the preferred authentication path (via Dex and your upstream IdP), while the server stays read-only by design. Kubernetes RBAC authorizes create, update, and delete operations — no proprietary tokens, no user database, no extra identity store.
 
 - :material-refresh: &nbsp;__Self-Healing__
 
@@ -97,6 +97,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 ## How It Works
 
 ```mermaid
+%%{init: {'flowchart': {'defaultRenderer': 'elk'}} }%%
 graph TD
     CLI["OpenTofu / Terraform CLI"]
 
@@ -106,9 +107,10 @@ graph TD
     IdP["Upstream IdP\nGitHub · Entra ID · Okta"]
 
     Depot["Depot\nController"]
+    SyncBus[" "]:::hidden
     Module["Module\nController"]
-    Version["Version\nController"]
     Provider["Provider\nController"]
+    Version["Version\nController"]
 
     Storage[("Storage Backend\nS3 · Azure · GCS · Filesystem")]
 
@@ -124,8 +126,9 @@ graph TD
 
     Depot -->|queries| GitHub
     Depot -->|queries| HashiCorp
-    Depot -->|creates / updates| Module
-    Depot -->|creates / updates| Provider
+    Depot -->|creates / updates| SyncBus
+    SyncBus --> Module
+    SyncBus --> Provider
 
     Module -->|creates Version resources| Version
     Provider -->|creates Version resources| Version
@@ -133,6 +136,8 @@ graph TD
     Version -->|fetches archives| GitHub
     Version -->|fetches binaries| HashiCorp
     Version -->|uploads to| Storage
+
+    classDef hidden fill:none,stroke:none,color:transparent;
 ```
 
 See [Architecture](architecture.md) for a detailed description of each controller and the full reconciliation event flow.

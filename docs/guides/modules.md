@@ -23,63 +23,29 @@ module "aks" {
 
 The source format is `<registry-host>/<namespace>/<name>/<provider>`, where `<namespace>` is the Kubernetes namespace where the `Module` resource lives.
 
-## Inline Module Configuration
+## Authenticate with tofu login (Recommended)
 
-`moduleConfigRef.name` is optional on a `Version` CR. When `name` is omitted, or when no `Module` CR with that name exists in the namespace, the Version controller treats all fields on `moduleConfigRef` as fully inline. A UUID-based filename is generated automatically so the archive has a stable storage key, and the download proceeds using the GitHub and storage config set directly on the `Version` CR.
-
-This is useful when running the version controller standalone (without the module controller), or for one-off version testing where creating a full `Module` CR is unnecessary.
-
-```yaml
-apiVersion: opendepot.defdev.io/v1alpha1
-kind: Version
-metadata:
-  name: terraform-aws-s3-bucket-4-3-0
-  namespace: opendepot-system
-spec:
-  type: Module
-  version: "4.3.0"
-  moduleConfigRef:
-    repoOwner: terraform-aws-modules
-    repoUrl: "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
-    githubClientConfig:
-      useAuthenticatedClient: false
-    storageConfig:
-      fileSystem:
-        directoryPath: /data/modules
-```
-
-!!! note
-    When `name` is omitted the `Version` CR is completely self-contained. No `Module` CR needs to exist in the namespace.
-
-## Vulnerability Scanning
-
-When [scanning is enabled](../configuration/scanning.md), the Version controller runs a Trivy IaC scan on the extracted module archive and stores findings on the `Version` resource.
-
-Read IaC scan results from `Version.status.sourceScan`:
-
-!!! note
-    Module `Version` resource names use hyphens throughout — dots (`.`) and underscores (`_`) in the version component are replaced with hyphens (`-`) and the version is lowercased. For example, version `2.0.0` becomes `2-0-0` in the resource name. This matches the naming convention already used for provider `Version` resources (e.g. `aws-5-80-0-linux-amd64`). Clients using `tofu init` / `terraform init` are unaffected — the server normalises the version in the URL before the Kubernetes lookup.
+OpenDepot is designed around OIDC for client authentication. For module consumption, the preferred workflow is:
 
 ```bash
-kubectl get version terraform-aws-key-pair-2-0-0 -n opendepot-system \
-  -o jsonpath='{.status.sourceScan}' | jq .
+tofu login opendepot.defdev.io
+tofu init
 ```
 
-```json
-{
-  "scannedAt": "2026-05-03T02:11:00Z",
-  "findings": [
-    {
-      "vulnerabilityID": "AWS-0057",
-      "pkgName": "aws_key_pair",
-      "installedVersion": "",
-      "severity": "LOW",
-      "title": "Key pair does not use a modern key algorithm"
-    }
-  ]
+If you have not configured a host mapping yet, add this to your `.tofurc` (or `.terraformrc`) so OpenTofu can find the module registry API:
+
+```hcl
+host "opendepot.defdev.io" {
+  services = {
+    "modules.v1" = "https://opendepot.defdev.io/opendepot/modules/v1/"
+  }
 }
 ```
 
-Module IaC findings detect HCL misconfigurations (e.g. insecure resource defaults, overly permissive policies). The `vulnerabilityID` field contains a Trivy rule ID such as `AWS-0057` rather than a CVE identifier. If no misconfigurations are found, `findings` will be an empty array.
+`tofu login` stores credentials for subsequent `tofu init` runs, so you do not need to inject bearer tokens into your shell for normal module reads.
 
-See [Vulnerability Scanning](../configuration/scanning.md) for configuration details and policy enforcement options.
+## Next Steps for Admins
+
+For module publishing and lifecycle operations (creating `Module` resources, inline `Version` config, force re-sync), use [Registry Operations](operations.md).
+
+For scan configuration and policy controls, see [Vulnerability Scanning](../configuration/scanning.md).
