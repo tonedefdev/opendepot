@@ -124,8 +124,9 @@ OIDC_NAMESPACE       ?= opendepot-system
 # Group assigned to the test user in Dex and matched by the test GroupBinding expression.
 OIDC_GROUP           ?= local-test-group
 # Hostname used as the registry address in module sources. Must contain at least one dot
-# (OpenTofu requirement). Resolves to 127.0.0.1 via /etc/hosts — see oidc-hosts target.
-OIDC_REGISTRY_HOST   ?= registry.local
+# (OpenTofu requirement). opendepot.localtest.me resolves to 127.0.0.1 via public DNS —
+# no /etc/hosts editing required. Override to use a different local hostname.
+OIDC_REGISTRY_HOST   ?= opendepot.localtest.me
 # In-cluster Dex URL — used by the server pod for OIDC discovery and JWKS.
 # Must match dex.config.issuer so that go-oidc accepts the discovery document.
 # This is the correct value for local Kind testing where there is no ingress.
@@ -141,11 +142,9 @@ OIDC_DEX_TOKEN_URL = http://localhost:$(OIDC_DEX_PORT)/dex/token
 
 .PHONY: oidc-hash oidc-hosts oidc-login oidc-tls oidc-deploy oidc-forward oidc-stop oidc-verify oidc-setup oidc-test-resources oidc-test-clean oidc-verify-module
 
-## Install a locally-trusted TLS cert for localhost into the Kind cluster.
-## Creates the opendepot-tls Kubernetes Secret used by the server when TLS is enabled.
-## Requires mkcert (brew install mkcert). Run once per cluster before oidc-deploy.
-## Add $(OIDC_REGISTRY_HOST) → 127.0.0.1 to /etc/hosts (one-time, requires sudo).
-## This lets OpenTofu resolve a dotted hostname to the local port-forward.
+## Add $(OIDC_REGISTRY_HOST) → 127.0.0.1 to /etc/hosts (requires sudo).
+## Only needed when OIDC_REGISTRY_HOST is overridden to a custom hostname that
+## does not resolve via public DNS. Not required for the default opendepot.localtest.me.
 oidc-hosts:
 	@if grep -q "$(OIDC_REGISTRY_HOST)" /etc/hosts; then \
 	  echo "$(OIDC_REGISTRY_HOST) already in /etc/hosts — skipping"; \
@@ -290,7 +289,7 @@ oidc-verify:
 
 ## Deploy and start port-forwards in one step (builds and loads images first).
 ## Usage: make oidc-setup PASS=yourpassword
-oidc-setup: deploy oidc-hosts oidc-tls oidc-deploy oidc-forward
+oidc-setup: deploy oidc-tls oidc-deploy oidc-forward
 
 ## Apply a sample Module (terraform-aws-key-pair) and a GroupBinding that grants
 ## access to OIDC users in $(OIDC_GROUP). Run after oidc-deploy to set up e2e test resources.
@@ -339,16 +338,16 @@ oidc-test-clean:
 	kubectl delete groupbinding local-test-access -n $(OIDC_NAMESPACE) --ignore-not-found
 
 ## Verify that the stored tofu token grants access to the test module.
-## Requires: tofu login localhost:$(OIDC_SERVER_PORT) has been run and port-forwards are active.
+## Requires: tofu login $(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT) has been run and port-forwards are active.
 oidc-verify-module:
 	@TOKEN=$$(python3 -c "\
 	import json, sys; \
 	d = json.load(open('$(HOME)/.terraform.d/credentials.tfrc.json')); \
 	creds = d.get('credentials', {}); \
-	key = next((k for k in creds if 'localhost' in k), None); \
+	key = next((k for k in creds if '$(OIDC_REGISTRY_HOST)' in k), None); \
 	print(creds[key]['token'] if key else '')" 2>/dev/null); \
 	if [ -z "$$TOKEN" ]; then \
-	  echo "No token found. Run: tofu login localhost:$(OIDC_SERVER_PORT)" >&2; exit 1; \
+	  echo "No token found. Run: tofu login $(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT)" >&2; exit 1; \
 	fi; \
 	echo "=== Testing authenticated access to module versions ==="; \
 	curl -sf --cacert "$$(mkcert -CAROOT)/rootCA.pem" \

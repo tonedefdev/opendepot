@@ -498,7 +498,7 @@ If you want to test the full OIDC login flow (`tofu login`) against a local Kind
 !!! note "Prerequisites"
     [mkcert](https://github.com/FiloSottile/mkcert) (`brew install mkcert`) and either `htpasswd` (from `brew install httpd`) or the Python `bcrypt` package are required in addition to the standard quickstart prerequisites.
 
-The hostname `registry.local` is used instead of `opendepot.localtest.me` because TLS requires a locally-trusted certificate pinned to a known hostname, and the `make` targets generate one with mkcert. OpenTofu rejects single-label hostnames (like `localhost`) as registry addresses, so `registry.local` is added to `/etc/hosts` to resolve to `127.0.0.1`.
+These `make` targets use `opendepot.localtest.me` as the default test hostname, which resolves to `127.0.0.1` via public DNS — no `/etc/hosts` editing required.
 
 **Full setup from a freshly created Kind cluster:**
 
@@ -509,7 +509,7 @@ mkcert -install
 # Create the Kind cluster
 kind create cluster --name opendepot
 
-# Build + load images, set up /etc/hosts, generate TLS cert, deploy with Dex, and start port-forwards
+# Build + load images, generate TLS cert, deploy with Dex, and start port-forwards
 make oidc-setup PASS=mysecretpassword
 ```
 

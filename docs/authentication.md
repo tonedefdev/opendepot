@@ -115,13 +115,6 @@ Once confirmed, subsequent `tofu` commands use the JWT as the bearer token.
 credentials "opendepot.defdev.io" {
   token = "<jwt-from-tofu-login>"
 }
-
-host "registry.terraform.io" {
-  client_id     = "opendepot"
-  client_secret = "<dex-client-secret>"
-  login_uri     = "https://opendepot.defdev.io/v1/login"
-  token_uri     = "https://dex.example.com/dex/token"
-}
 ```
 
 #### GroupBinding Access Control

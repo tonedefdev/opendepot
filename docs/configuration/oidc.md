@@ -146,7 +146,7 @@ server:
 When either value is blank the URL comes from the Dex OIDC discovery document. Both values are validated at server startup — the server exits immediately if either URL is not a well-formed `http` or `https` URL.
 
 !!! note "Local Kind testing"
-  When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
+    When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
 
 ## Step 5: Authenticate with `tofu login`
 
