@@ -14,20 +14,20 @@ Pull requests also run the e2e workflow, which builds the service images and sca
 The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.
 
 !!! note
-  The hostname `registry.local` is used instead of `localhost` because OpenTofu rejects single-label hostnames as registry addresses. `make oidc-hosts` adds a `/etc/hosts` entry that resolves `registry.local` to `127.0.0.1`.
+  The `make` targets use `opendepot.localtest.me` as the default registry hostname. This hostname resolves to `127.0.0.1` via public DNS — no `/etc/hosts` editing required. You can override it with `OIDC_REGISTRY_HOST=<hostname>` if you need a custom local name, in which case `make oidc-hosts` will add the entry to `/etc/hosts`.
 
 | Target | Purpose |
 |--------|---------|
-| `make oidc-hosts` | Adds `registry.local → 127.0.0.1` to `/etc/hosts` (requires `sudo`) |
-| `make oidc-tls` | Generates a locally-trusted mkcert TLS cert for `registry.local`, `localhost`, and `127.0.0.1` and creates the `opendepot-tls` Kubernetes Secret |
+| `make oidc-hosts` | Adds `$(OIDC_REGISTRY_HOST) → 127.0.0.1` to `/etc/hosts` (requires `sudo`). Only needed when using a custom `OIDC_REGISTRY_HOST` that does not resolve via public DNS |
+| `make oidc-tls` | Generates a locally-trusted mkcert TLS cert for `opendepot.localtest.me`, `localhost`, and `127.0.0.1` and creates the `opendepot-tls` Kubernetes Secret |
 | `make oidc-deploy PASS=<password>` | Deploys OpenDepot + Dex v2.45.0 with filesystem storage and a static OIDC test user |
 | `make oidc-forward` | Port-forwards the server (`localhost:8080`) and Dex (`localhost:5556`) |
-| `make oidc-login` | Runs `tofu login registry.local:8080` |
+| `make oidc-login` | Runs `tofu login opendepot.localtest.me:8080` |
 | `make oidc-test-resources` | Creates a sample Module and a GroupBinding for the test user's group |
 | `make oidc-verify-module` | Runs an authenticated request against the test module to verify the full auth flow |
 | `make oidc-test-clean` | Removes the test Module and GroupBinding |
 | `make oidc-stop` | Stops all port-forwards |
-| `make oidc-setup PASS=<password>` | Runs all setup steps (`deploy`, `oidc-hosts`, `oidc-tls`, `oidc-deploy`, `oidc-forward`) in sequence |
+| `make oidc-setup PASS=<password>` | Runs all setup steps (`deploy`, `oidc-tls`, `oidc-deploy`, `oidc-forward`) in sequence |
 
 **Prerequisites:** [kind](https://kind.sigs.k8s.io/), [kubectl](https://kubernetes.io/docs/tasks/tools/), [Helm 3](https://helm.sh/docs/intro/install/), [mkcert](https://github.com/FiloSottile/mkcert), [OpenTofu](https://opentofu.org/docs/intro/install/), and either `htpasswd` (from `httpd`) or the Python `bcrypt` package for hashing the test user password.
 
@@ -40,7 +40,7 @@ mkcert -install
 # Create a kind cluster (if you don't have one already)
 kind create cluster --name opendepot
 
-# Build and load images, set up /etc/hosts, generate TLS, deploy, and port-forward
+# Build and load images, generate TLS cert, deploy, and port-forward
 make oidc-setup PASS=mysecretpassword
 ```
 
