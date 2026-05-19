@@ -509,7 +509,7 @@ mkcert -install
 # Create the Kind cluster
 kind create cluster --name opendepot
 
-# Build + load images, add /etc/hosts entry, generate TLS cert, deploy with Dex, and start port-forwards
+# Build + load images, generate TLS cert, deploy with Dex, and start port-forwards
 make oidc-setup PASS=mysecretpassword
 ```
 
