@@ -1,6 +1,6 @@
 REGISTRY ?= ghcr.io/tonedefdev/opendepot
 PLATFORM ?= linux/arm64
-KIND_CLUSTER ?= kind
+KIND_CLUSTER ?= opendepot
 TAG ?= dev
 
 SERVICES := server depot-controller module-controller version-controller
@@ -140,7 +140,7 @@ OIDC_DEX_INCLUSTER_URL = http://$(OIDC_RELEASE_NAME)-dex.$(OIDC_NAMESPACE).svc.c
 OIDC_DEX_AUTHZ_URL = http://localhost:$(OIDC_DEX_PORT)/dex/auth
 OIDC_DEX_TOKEN_URL = http://localhost:$(OIDC_DEX_PORT)/dex/token
 
-.PHONY: oidc-hash oidc-hosts oidc-login oidc-tls oidc-deploy oidc-forward oidc-stop oidc-verify oidc-setup oidc-test-resources oidc-test-clean oidc-verify-module
+.PHONY: oidc-hash oidc-hosts oidc-login oidc-tls oidc-deploy oidc-forward oidc-stop oidc-verify oidc-setup oidc-test-resources oidc-test-clean
 
 ## Add $(OIDC_REGISTRY_HOST) → 127.0.0.1 to /etc/hosts (requires sudo).
 ## Only needed when OIDC_REGISTRY_HOST is overridden to a custom hostname that
@@ -294,7 +294,6 @@ oidc-setup: deploy oidc-tls oidc-deploy oidc-forward
 ## Apply a sample Module (terraform-aws-key-pair) and a GroupBinding that grants
 ## access to OIDC users in $(OIDC_GROUP). Run after oidc-deploy to set up e2e test resources.
 ## The module controller will sync from GitHub (public, no auth required).
-## Use oidc-verify-module to confirm the auth flow after running tofu login.
 oidc-test-resources:
 	@echo "=== Creating test Module and GroupBinding ==="
 	@tmpfile=$$(mktemp /tmp/opendepot-test-XXXXXX.yaml); \
@@ -336,27 +335,6 @@ oidc-test-resources:
 oidc-test-clean:
 	kubectl delete module terraform-aws-key-pair -n $(OIDC_NAMESPACE) --ignore-not-found
 	kubectl delete groupbinding local-test-access -n $(OIDC_NAMESPACE) --ignore-not-found
-
-## Verify that the stored tofu token grants access to the test module.
-## Requires: tofu login $(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT) has been run and port-forwards are active.
-oidc-verify-module:
-	@TOKEN=$$(python3 -c "\
-	import json, sys; \
-	d = json.load(open('$(HOME)/.terraform.d/credentials.tfrc.json')); \
-	creds = d.get('credentials', {}); \
-	key = next((k for k in creds if '$(OIDC_REGISTRY_HOST)' in k), None); \
-	print(creds[key]['token'] if key else '')" 2>/dev/null); \
-	if [ -z "$$TOKEN" ]; then \
-	  echo "No token found. Run: tofu login $(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT)" >&2; exit 1; \
-	fi; \
-	echo "=== Testing authenticated access to module versions ==="; \
-	curl -sf --cacert "$$(mkcert -CAROOT)/rootCA.pem" \
-	  -H "Authorization: Bearer $$TOKEN" \
-	  "https://$(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT)/opendepot/modules/v1/$(OIDC_NAMESPACE)/terraform-aws-key-pair/aws/versions" \
-	  | python3 -m json.tool \
-	  && echo "=== Access granted — GroupBinding is working ==="
-
-## ─────────────────────────────────────────────────────────────────────────────
 
 ## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
