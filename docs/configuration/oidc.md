@@ -22,6 +22,36 @@ When OIDC is enabled the server advertises the `login.v1` block in its service d
 - A publicly reachable hostname for the Dex issuer URL (HTTPS required in production)
 - An upstream IdP OAuth application (GitHub App, Azure App Registration, Okta app, etc.)
 
+## How Authentication Works
+
+Dex acts as a broker between your upstream IdP and OpenDepot. There are two distinct registrations involved, and understanding them avoids the most common configuration mistakes.
+
+**Connector (upstream registration)**
+A connector tells Dex how to authenticate users against an external IdP such as Entra ID, Okta, or GitHub. You create an OAuth application in the IdP (e.g. an Azure App Registration), and configure Dex with the client credentials. The redirect URI on that application points to **Dex's callback URL** — never directly to OpenDepot.
+
+**Static client (downstream registration)**
+A static client registers OpenDepot as an application that *receives tokens from Dex*. The server's `clientId` must match a `staticClient` entry in the Dex config, and the redirect URIs on that client are the `localhost` ports used by `tofu login`.
+
+These two registrations are entirely independent. Swapping or reconfiguring the upstream IdP (connector) does not affect the static client configuration, and vice versa.
+
+```mermaid
+sequenceDiagram
+    participant U as User / tofu login
+    participant OD as OpenDepot Server
+    participant Dex as Dex
+    participant IdP as Upstream IdP
+
+    U->>OD: GET /.well-known/terraform.json
+    OD-->>U: login.v1 (authz URL, client ID)
+    U->>Dex: Authorization request<br/>(staticClient redirect URI)
+    Dex->>IdP: Connector — redirect to IdP login
+    Note right of IdP: App Registration redirect URI<br/>points back to Dex /callback
+    IdP-->>Dex: Authentication callback
+    Dex-->>U: Dex-issued JWT
+    U->>OD: API request with JWT
+    OD->>OD: Validate JWT locally via JWKS
+```
+
 ## Step 1: Enable Dex
 
 Set `dex.enabled: true` and configure the `issuer` and at least one connector in your Helm values. Dex expands `$ENV_VAR` references in its config at startup, so **never write connector secrets as plain string literals** — reference an environment variable instead and expose the value via `dex.envFrom`:
@@ -126,7 +156,7 @@ The `scopes` array tells the OpenTofu CLI which scopes to request during the OID
 
 If `login.v1` is absent, OIDC is not enabled or the server has not restarted after the Helm upgrade.
 
-## Split-Network OIDC (authzUrl / tokenUrl)
+### Split-Network OIDC (authzUrl / tokenUrl)
 
 In some deployments the server must discover Dex via an in-cluster URL (for JWKS fetching and token validation), but the `login.v1` endpoints advertised to CLI clients must be reachable from outside the cluster — for example, through an ingress or a port-forward.
 
@@ -147,6 +177,66 @@ When either value is blank the URL comes from the Dex OIDC discovery document. B
 
 !!! note "Local Kind testing"
     When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
+
+### Shared / External Dex (Multi-Tenant)
+
+Use this pattern when multiple OpenDepot releases share a cluster and you want a single Dex instance to manage identity for all of them, rather than deploying one Dex pod per registry.
+
+When `server.oidc.issuerUrl` is set explicitly the chart uses it directly — `dex.enabled` controls only whether the bundled Dex subchart is deployed. Set `dex.enabled: false` to skip the subchart entirely and point the server at any OIDC-compliant issuer:
+
+```yaml
+dex:
+  enabled: false  # do not deploy the bundled Dex subchart
+
+server:
+  oidc:
+    enabled: true
+    issuerUrl: "https://dex.example.com/dex"
+    clientId: "opendepot-team-a"  # must match a staticClient id in the shared Dex
+```
+
+!!! note
+    `server.oidc.clientSecret` and `server.oidc.clientSecretName` are ignored when `dex.enabled: false`. The chart creates no Kubernetes Secret and the server binary never reads the client secret — JWT validation uses the issuer's public JWKS endpoint. Client registration in the shared Dex is an out-of-band operator responsibility.
+
+#### Registering Clients in the Shared Dex
+
+Each OpenDepot instance requires its own `staticClient` entry in the shared Dex config. Add a client block for each release, including all redirect URIs that `tofu login` may use:
+
+```yaml
+staticClients:
+  - id: opendepot-team-a
+    name: OpenDepot Team A
+    public: true
+    redirectURIs:
+      - http://localhost:10000/login
+      - http://localhost:10001/login
+      - http://localhost:10002/login
+      - http://localhost:10003/login
+      - http://localhost:10004/login
+      - http://localhost:10005/login
+      - http://localhost:10006/login
+      - http://localhost:10007/login
+      - http://localhost:10008/login
+      - http://localhost:10009/login
+      - http://localhost:10010/login
+  - id: opendepot-team-b
+    name: OpenDepot Team B
+    public: true
+    redirectURIs:
+      - http://localhost:10000/login
+      # ... same redirect URIs as above
+```
+
+#### Client ID Uniqueness
+
+Each OpenDepot release should use a distinct `server.oidc.clientId` registered in the shared Dex. Two releases sharing the same client ID share an OIDC client — access is still scoped per-instance through `GroupBinding`, but there is no Dex-level isolation between the instances. Distinct IDs are strongly recommended.
+
+| Release | Namespace | `server.oidc.clientId` | `server.oidc.issuerUrl` |
+|---------|-----------|------------------------|-------------------------|
+| `opendepot-team-a` | `team-a` | `opendepot-team-a` | `https://dex.example.com/dex` |
+| `opendepot-team-b` | `team-b` | `opendepot-team-b` | `https://dex.example.com/dex` |
+
+If the shared Dex is reachable in-cluster at a different address than external `tofu login` clients need, combine `issuerUrl` with `authzUrl` and `tokenUrl` as described in [Split-Network OIDC](#split-network-oidc-authzurl--tokenurl) above.
 
 ## Step 5: Authenticate with `tofu login`
 
