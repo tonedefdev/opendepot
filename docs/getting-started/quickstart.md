@@ -519,11 +519,54 @@ make oidc-setup PASS=mysecretpassword
 # Open tofu login in the browser — authenticate with the static test user
 make oidc-login
 
-# Create a test Module and GroupBinding for the static user's group
+# Username: dev@example.com
+# Password: Set during `make oidc-setup PASS=<PASSWORD>`
+
+# Change to test/local directory in the project repo and run `tofu init`
+cd test/local && tofu init
+```
+
+Since no `GroupBinding` resources have been applied, a 403 Forbidden response is expected:
+
+```txt
+Initializing the backend...
+Initializing modules...
+╷
+│ Error: Error accessing remote module registry
+│ 
+│   on main.tf line 1:
+│    1: module "key_pair" {
+│ 
+│ Failed to retrieve available versions for module "key_pair" (main.tf:1) from opendepot.localtest.me:8080: error looking up module versions: 403 Forbidden.
+```
+
+```bash
+# Now create a test Module and GroupBinding for the static user's group
 make oidc-test-resources
 
-# Confirm authenticated access returns module versions
-make oidc-verify-module
+# Re-run `tofu init`
+tofu init
+```
+
+Now that we have added the `GroupBinding` that allows `dev@example.com` access to this module we are successfully able to access the registry to download it:
+
+```txt
+Initializing the backend...
+Initializing modules...
+Downloading opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws 2.0.3 for key_pair...
+- key_pair in .terraform/modules/key_pair
+
+Initializing provider plugins...
+
+OpenTofu has been successfully initialized!
+
+You may now begin working with OpenTofu. Try running "tofu plan" to see
+any changes that are required for your infrastructure. All OpenTofu commands
+should now work.
+
+If you ever set or change modules or backend configuration for OpenTofu,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
 ```
 
 For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).

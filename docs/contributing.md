@@ -14,7 +14,7 @@ Pull requests also run the e2e workflow, which builds the service images and sca
 The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.
 
 !!! note
-  The `make` targets use `opendepot.localtest.me` as the default registry hostname. This hostname resolves to `127.0.0.1` via public DNS — no `/etc/hosts` editing required. You can override it with `OIDC_REGISTRY_HOST=<hostname>` if you need a custom local name, in which case `make oidc-hosts` will add the entry to `/etc/hosts`.
+    The `make` targets use `opendepot.localtest.me` as the default registry hostname. This hostname resolves to `127.0.0.1` via public DNS — no `/etc/hosts` editing required. You can override it with `OIDC_REGISTRY_HOST=<hostname>` if you need a custom local name, in which case `make oidc-hosts` will add the entry to `/etc/hosts`.
 
 | Target | Purpose |
 |--------|---------|
@@ -47,9 +47,39 @@ make oidc-setup PASS=mysecretpassword
 **Login and test:**
 
 ```bash
-make oidc-login           # opens tofu login - authenticate in the browser
-make oidc-test-resources  # create test Module and GroupBinding
-make oidc-verify-module   # verify authenticated access
+# Opens tofu login - authenticate in the browser
+make oidc-login 
+
+# Username: dev@example.com
+# Password: Set during `make oidc-setup PASS=<PASSWORD>`
+
+# Now create a test Module and GroupBinding for the static user's group
+make oidc-test-resources
+
+# Change to test/local in the OpenDepot project repo and run `tofu init`
+cd test/local && tofu init
 ```
+
+If successful you should see:
+
+```txt
+Initializing the backend...
+Initializing modules...
+Downloading opendepot.localtest.me:8080/opendepot-system/terraform-aws-key-pair/aws 2.0.3 for key_pair...
+- key_pair in .terraform/modules/key_pair
+
+Initializing provider plugins...
+
+OpenTofu has been successfully initialized!
+
+You may now begin working with OpenTofu. Try running "tofu plan" to see
+any changes that are required for your infrastructure. All OpenTofu commands
+should now work.
+
+If you ever set or change modules or backend configuration for OpenTofu,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+```
+
 
 The `oidc-deploy` target configures `authzUrl` and `tokenUrl` to point at the local port-forward (`http://localhost:5556/dex/auth` and `/token`). This is the split-network pattern described in [Split-Network OIDC](configuration/oidc.md#split-network-oidc-authzurl-tokenurl) - the server pod reaches Dex via the in-cluster service URL for token validation, while `tofu login` redirects the browser through the port-forward.
