@@ -53,6 +53,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Blog: blog/index.md
   - Getting Started:
     - getting-started/index.md
     - Installation: getting-started/installation.md
@@ -98,6 +99,17 @@ plugins:
       fallback_to_build_date: true
   - minify:
       minify_html: true
+  - blog:
+      blog_dir: blog
+      post_date_format: long
+      archive_date_format: MMMM yyyy
+      categories_allowed:
+        - OpenDepot
+        - Kubernetes
+        - OpenTofu
+        - Terraform
+        - IaC
+        - Open Source
   - tags
 
 markdown_extensions:
