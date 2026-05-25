@@ -14,9 +14,12 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   }
 
   // Fetch OIDC discovery document to get the authorization endpoint.
-  const discoveryRes = await fetch(
-    `${issuer}/.well-known/openid-configuration`,
-  );
+  let discoveryRes: Response;
+  try {
+    discoveryRes = await fetch(`${issuer}/.well-known/openid-configuration`);
+  } catch {
+    return new NextResponse("OIDC provider is unreachable", { status: 503 });
+  }
   if (!discoveryRes.ok) {
     return new NextResponse("Failed to fetch OIDC discovery document", {
       status: 502,

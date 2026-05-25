@@ -204,6 +204,9 @@ export interface BrowseGraphDepot {
   namespace: string;
   name: string;
   storageBackend?: string;
+  pollingIntervalMinutes?: number;
+  managedModuleNames?: string[];
+  managedProviderNames?: string[];
 }
 
 export interface BrowseGraphModule {
@@ -212,6 +215,11 @@ export interface BrowseGraphModule {
   name: string;
   provider?: string;
   synced: boolean;
+  syncStatus?: string;
+  repoURL?: string;
+  latestVersion?: string;
+  depotID?: string;
+  scanCounts?: BrowseScanCounts;
 }
 
 export interface BrowseGraphProvider {
@@ -240,8 +248,10 @@ export interface BrowseDepotGraph {
   providers: BrowseGraphProvider[];
   edges: BrowseGraphEdge[];
   summary: BrowseGraphSummary;
+  generatedAt: string;
 }
 
-export async function getDepotsGraph(token?: string): Promise<BrowseDepotGraph> {
-  return apiFetch<BrowseDepotGraph>("/opendepot/ui/v1/depots/graph", token);
+export async function getDepotsGraph(namespace?: string, token?: string): Promise<BrowseDepotGraph> {
+  const params = namespace ? `?namespace=${encodeURIComponent(namespace)}` : "";
+  return apiFetch<BrowseDepotGraph>(`/opendepot/ui/v1/depots/graph${params}`, token);
 }

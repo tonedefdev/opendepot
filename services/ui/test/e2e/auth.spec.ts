@@ -19,8 +19,9 @@ test.describe("login route", () => {
     const response = await request.get("/auth/login", {
       maxRedirects: 0,
     });
-    // Acceptable outcomes: redirect (OIDC configured) or 503 (OIDC not configured).
-    expect([302, 307, 308, 503]).toContain(response.status());
+    // Acceptable outcomes: redirect (OIDC configured), 503 (OIDC not configured
+    // or provider unreachable), or 502 (provider returned non-200).
+    expect([302, 307, 308, 502, 503]).toContain(response.status());
 
     if ([302, 307, 308].includes(response.status())) {
       const location = response.headers()["location"] ?? "";

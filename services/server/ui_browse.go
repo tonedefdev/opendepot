@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -1210,6 +1211,8 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ns := r.URL.Query().Get("namespace")
+
 	// Fetch depots, modules and providers in parallel using goroutines.
 	type depotResult struct {
 		list opendepotv1alpha1.DepotList
@@ -1229,31 +1232,55 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 	providerCh := make(chan providerResult, 1)
 
 	go func() {
-		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("depots").DoRaw(r.Context())
+		req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("depots")
+		if ns != "" {
+			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("depots")
+		}
+		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			depotCh <- depotResult{err: err}
 			return
 		}
 		var list opendepotv1alpha1.DepotList
-		depotCh <- depotResult{list: list, err: json.Unmarshal(raw, &list)}
+		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
+			depotCh <- depotResult{err: unmarshalErr}
+			return
+		}
+		depotCh <- depotResult{list: list}
 	}()
 	go func() {
-		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("modules").DoRaw(r.Context())
+		req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("modules")
+		if ns != "" {
+			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("modules")
+		}
+		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			moduleCh <- moduleResult{err: err}
 			return
 		}
 		var list opendepotv1alpha1.ModuleList
-		moduleCh <- moduleResult{list: list, err: json.Unmarshal(raw, &list)}
+		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
+			moduleCh <- moduleResult{err: unmarshalErr}
+			return
+		}
+		moduleCh <- moduleResult{list: list}
 	}()
 	go func() {
-		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("providers").DoRaw(r.Context())
+		req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("providers")
+		if ns != "" {
+			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("providers")
+		}
+		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			providerCh <- providerResult{err: err}
 			return
 		}
 		var list opendepotv1alpha1.ProviderList
-		providerCh <- providerResult{list: list, err: json.Unmarshal(raw, &list)}
+		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
+			providerCh <- providerResult{err: unmarshalErr}
+			return
+		}
+		providerCh <- providerResult{list: list}
 	}()
 
 	dr := <-depotCh
@@ -1277,20 +1304,24 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	graph := BrowseDepotGraph{
-		Depots:    []BrowseGraphDepot{},
-		Modules:   []BrowseGraphModule{},
-		Providers: []BrowseGraphProvider{},
-		Edges:     []BrowseGraphEdge{},
+		Depots:      []BrowseGraphDepot{},
+		Modules:     []BrowseGraphModule{},
+		Providers:   []BrowseGraphProvider{},
+		Edges:       []BrowseGraphEdge{},
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Build depot nodes.
 	for _, d := range dr.list.Items {
 		depotID := fmt.Sprintf("depot/%s/%s", d.Namespace, d.Name)
 		node := BrowseGraphDepot{
-			ID:        depotID,
-			Namespace: d.Namespace,
-			Name:      d.Name,
+			ID:                   depotID,
+			Namespace:            d.Namespace,
+			Name:                 d.Name,
+			ManagedModuleNames:   d.Status.Modules,
+			ManagedProviderNames: d.Status.Providers,
 		}
+		node.PollingIntervalMinutes = d.Spec.PollingIntervalMinutes
 		if d.Spec.GlobalConfig != nil && d.Spec.GlobalConfig.StorageConfig != nil {
 			sc := storageConfigToBrowse(d.Spec.GlobalConfig.StorageConfig)
 			if sc != nil {
@@ -1332,13 +1363,21 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 	for _, m := range mr.list.Items {
 		moduleID := fmt.Sprintf("module/%s/%s", m.Namespace, m.Name)
 		synced := m.Status.SyncStatus == "Synced"
-		graph.Modules = append(graph.Modules, BrowseGraphModule{
-			ID:        moduleID,
-			Namespace: m.Namespace,
-			Name:      m.Name,
-			Provider:  m.Spec.ModuleConfig.Provider,
-			Synced:    synced,
-		})
+		node := BrowseGraphModule{
+			ID:         moduleID,
+			Namespace:  m.Namespace,
+			Name:       m.Name,
+			Provider:   m.Spec.ModuleConfig.Provider,
+			Synced:     synced,
+			SyncStatus: m.Status.SyncStatus,
+		}
+		if m.Spec.ModuleConfig.RepoUrl != nil {
+			node.RepoURL = *m.Spec.ModuleConfig.RepoUrl
+		}
+		if m.Status.LatestVersion != nil {
+			node.LatestVersion = *m.Status.LatestVersion
+		}
+		graph.Modules = append(graph.Modules, node)
 	}
 
 	// Build provider nodes.

@@ -204,19 +204,27 @@ type BrowseResourceDetail struct {
 
 // BrowseGraphDepot is a depot node in the depots relationship graph.
 type BrowseGraphDepot struct {
-	ID             string `json:"id"`
-	Namespace      string `json:"namespace"`
-	Name           string `json:"name"`
-	StorageBackend string `json:"storageBackend,omitempty"`
+	ID                     string   `json:"id"`
+	Namespace              string   `json:"namespace"`
+	Name                   string   `json:"name"`
+	StorageBackend         string   `json:"storageBackend,omitempty"`
+	PollingIntervalMinutes *int     `json:"pollingIntervalMinutes,omitempty"`
+	ManagedModuleNames     []string `json:"managedModuleNames,omitempty"`
+	ManagedProviderNames   []string `json:"managedProviderNames,omitempty"`
 }
 
 // BrowseGraphModule is a module node in the depots relationship graph.
 type BrowseGraphModule struct {
-	ID        string `json:"id"`
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-	Provider  string `json:"provider,omitempty"`
-	Synced    bool   `json:"synced"`
+	ID            string            `json:"id"`
+	Namespace     string            `json:"namespace"`
+	Name          string            `json:"name"`
+	Provider      string            `json:"provider,omitempty"`
+	Synced        bool              `json:"synced"`
+	SyncStatus    string            `json:"syncStatus,omitempty"`
+	RepoURL       string            `json:"repoURL,omitempty"`
+	LatestVersion string            `json:"latestVersion,omitempty"`
+	DepotID       string            `json:"depotID,omitempty"`
+	ScanCounts    *BrowseScanCounts `json:"scanCounts,omitempty"`
 }
 
 // BrowseGraphProvider is a provider node in the depots relationship graph.
@@ -245,9 +253,10 @@ type BrowseGraphSummary struct {
 
 // BrowseDepotGraph is the full graph payload for the depot relationship view.
 type BrowseDepotGraph struct {
-	Depots    []BrowseGraphDepot    `json:"depots"`
-	Modules   []BrowseGraphModule   `json:"modules"`
-	Providers []BrowseGraphProvider `json:"providers"`
-	Edges     []BrowseGraphEdge     `json:"edges"`
-	Summary   BrowseGraphSummary    `json:"summary"`
+	Depots      []BrowseGraphDepot    `json:"depots"`
+	Modules     []BrowseGraphModule   `json:"modules"`
+	Providers   []BrowseGraphProvider `json:"providers"`
+	Edges       []BrowseGraphEdge     `json:"edges"`
+	Summary     BrowseGraphSummary    `json:"summary"`
+	GeneratedAt string                `json:"generatedAt"`
 }

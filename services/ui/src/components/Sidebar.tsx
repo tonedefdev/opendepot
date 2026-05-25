@@ -28,6 +28,9 @@ import HubIcon from "@mui/icons-material/Hub";
 import GridViewIcon from "@mui/icons-material/GridView";
 import Image from "next/image";
 import Link from "next/link";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import MenuIcon from "@mui/icons-material/Menu";
+import { useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 
@@ -133,6 +136,10 @@ export default function Sidebar({
     }
   };
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   const isOnHome = pathname === "/";
 
   // Derive avatar initials from name or email
@@ -146,19 +153,8 @@ export default function Sidebar({
       : (userInfo.email[0] ?? "").toUpperCase()
     : "";
 
-  return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        "& .MuiDrawer-paper": {
-          width: DRAWER_WIDTH,
-          boxSizing: "border-box",
-          overflowX: "hidden",
-        },
-      }}
-    >
+  const drawerContent = (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Logo + Branding */}
       <Box
         component={Link}
@@ -537,7 +533,60 @@ export default function Sidebar({
           )}
         </Box>
       </Box>
-    </Drawer>
+    </Box>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger toggle — fixed top-left, only visible on xs */}
+      {isMobile && (
+        <IconButton
+          onClick={() => setMobileOpen((prev) => !prev)}
+          aria-label="open sidebar"
+          sx={{
+            position: "fixed",
+            top: 8,
+            left: 8,
+            zIndex: 1300,
+            bgcolor: "background.paper",
+            border: "1px solid rgba(240,246,252,0.12)",
+            "&:hover": { bgcolor: "rgba(4,125,241,0.1)" },
+          }}
+        >
+          <MenuIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      )}
+      {/* Temporary drawer for mobile */}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: "block", sm: "none" },
+          "& .MuiDrawer-paper": { width: DRAWER_WIDTH, boxSizing: "border-box" },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+      {/* Permanent drawer for desktop */}
+      <Drawer
+        variant="permanent"
+        sx={{
+          display: { xs: "none", sm: "block" },
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          "& .MuiDrawer-paper": {
+            width: DRAWER_WIDTH,
+            boxSizing: "border-box",
+            overflowX: "hidden",
+          },
+        }}
+        open
+      >
+        {drawerContent}
+      </Drawer>
+    </>
   );
 }
 

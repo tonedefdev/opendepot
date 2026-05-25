@@ -15,7 +15,7 @@ export default async function DepotsPage() {
   let fetchError: string | null = null;
 
   try {
-    graph = await getDepotsGraph(token);
+    graph = await getDepotsGraph(undefined, token);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("unauthorized")) {
@@ -28,7 +28,7 @@ export default async function DepotsPage() {
       );
     }
     fetchError = msg;
-    graph = { depots: [], modules: [], providers: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0 } };
+    graph = { depots: [], modules: [], providers: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0 }, generatedAt: "" };
   }
 
   return (

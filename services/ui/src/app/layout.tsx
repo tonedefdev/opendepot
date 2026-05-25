@@ -60,7 +60,7 @@ export default async function RootLayout({
               component="main"
               sx={{
                 flexGrow: 1,
-                ml: `${DRAWER_WIDTH}px`,
+                ml: { xs: 0, sm: `${DRAWER_WIDTH}px` },
                 minHeight: "100vh",
                 overflow: "auto",
               }}
