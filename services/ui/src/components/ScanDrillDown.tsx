@@ -38,6 +38,7 @@ function FindingsTable({ findings }: { findings: SecurityFinding[] }) {
           <TableCell>ID</TableCell>
           <TableCell>Severity</TableCell>
           <TableCell>Title</TableCell>
+          <TableCell>Message</TableCell>
           <TableCell>Resolution</TableCell>
         </TableRow>
       </TableHead>
@@ -63,6 +64,7 @@ function FindingsTable({ findings }: { findings: SecurityFinding[] }) {
               />
             </TableCell>
             <TableCell>{f.title}</TableCell>
+            <TableCell sx={{ maxWidth: 200, whiteSpace: "normal", wordBreak: "break-word" }}>{f.message}</TableCell>
             <TableCell>{f.resolution}</TableCell>
           </TableRow>
         ))}

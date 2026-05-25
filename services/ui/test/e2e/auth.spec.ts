@@ -80,3 +80,16 @@ test.describe("logout route", () => {
     expect([200, 302, 307, 308]).toContain(response.status());
   });
 });
+
+test.describe("dev-token route", () => {
+  test("POST /auth/dev-token returns 403 when DEV_TOKEN_INPUT_ENABLED is not true", async ({
+    request,
+  }) => {
+    // In production (DEV_TOKEN_INPUT_ENABLED != 'true'), the route must be closed.
+    const response = await request.post("/auth/dev-token", {
+      data: { token: "test-token" },
+    });
+    // 403 when disabled; the route must not accept tokens in production mode.
+    expect([403]).toContain(response.status());
+  });
+});

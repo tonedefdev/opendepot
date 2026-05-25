@@ -47,3 +47,20 @@ test.describe("unauthorized-to-public fallback", () => {
     expect(response.status()).toBe(200);
   });
 });
+
+test.describe("depots page", () => {
+  test("GET /depots returns HTTP 200", async ({ request }) => {
+    const response = await request.get("/depots");
+    expect(response.status()).toBe(200);
+  });
+
+  test("/depots page renders without JavaScript errors", async ({ page }) => {
+    const jsErrors: string[] = [];
+    page.on("pageerror", (err) => jsErrors.push(err.message));
+
+    await page.goto("/depots");
+    await page.waitForLoadState("domcontentloaded");
+
+    expect(jsErrors).toHaveLength(0);
+  });
+});

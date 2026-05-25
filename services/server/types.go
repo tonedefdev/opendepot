@@ -138,6 +138,49 @@ type BrowseVersionSummary struct {
 	Arch        string            `json:"arch,omitempty"`
 	ScanCounts  *BrowseScanCounts `json:"scanCounts,omitempty"`
 	LastScanned string            `json:"lastScanned,omitempty"`
+	FileName    *string           `json:"fileName,omitempty"`
+	Checksum    *string           `json:"checksum,omitempty"`
+}
+
+// BrowseStorageConfig is a display-ready summary of a StorageConfig.
+type BrowseStorageConfig struct {
+	Backend        string  `json:"backend"`
+	Bucket         string  `json:"bucket,omitempty"`
+	Region         string  `json:"region,omitempty"`
+	Key            *string `json:"key,omitempty"`
+	DirectoryPath  *string `json:"directoryPath,omitempty"`
+	AccountName    string  `json:"accountName,omitempty"`
+	AccountUrl     string  `json:"accountUrl,omitempty"`
+	SubscriptionID string  `json:"subscriptionID,omitempty"`
+	ResourceGroup  string  `json:"resourceGroup,omitempty"`
+	PresignEnabled *bool   `json:"presignEnabled,omitempty"`
+	PresignTTL     string  `json:"presignTTL,omitempty"`
+}
+
+// BrowseGithubConfig summarises the GitHub client configuration for display.
+type BrowseGithubConfig struct {
+	UseAuthenticatedClient bool `json:"useAuthenticatedClient"`
+}
+
+// BrowseDepotRef links a resource to the Depot that manages it.
+type BrowseDepotRef struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+// BrowseDepot is a summary of a Depot resource for the depot list endpoint.
+type BrowseDepot struct {
+	Namespace              string   `json:"namespace"`
+	Name                   string   `json:"name"`
+	Modules                []string `json:"modules,omitempty"`
+	Providers              []string `json:"providers,omitempty"`
+	PollingIntervalMinutes *int     `json:"pollingIntervalMinutes,omitempty"`
+	StorageBackend         string   `json:"storageBackend,omitempty"`
+}
+
+// BrowseDepotList is the JSON body returned by the depot list endpoint.
+type BrowseDepotList struct {
+	Items []BrowseDepot `json:"items"`
 }
 
 // BrowseResourceDetail is the full drill-down payload for a single resource.
@@ -149,5 +192,62 @@ type BrowseResourceDetail struct {
 	SourceScanFindings []opendepotv1alpha1.SecurityFinding `json:"sourceScanFindings,omitempty"`
 	// BinaryScanFindings are per-artifact (os/arch) provider binary vulnerability findings.
 	// Keys are in the form "os/arch".
-	BinaryScanFindings map[string][]opendepotv1alpha1.SecurityFinding `json:"binaryScanFindings,omitempty"`
+	BinaryScanFindings  map[string][]opendepotv1alpha1.SecurityFinding `json:"binaryScanFindings,omitempty"`
+	StorageConfig       *BrowseStorageConfig                           `json:"storageConfig,omitempty"`
+	GithubConfig        *BrowseGithubConfig                            `json:"githubConfig,omitempty"`
+	DepotRef            *BrowseDepotRef                                `json:"depotRef,omitempty"`
+	RepoOwner           string                                         `json:"repoOwner,omitempty"`
+	VersionHistoryLimit *int                                           `json:"versionHistoryLimit,omitempty"`
+	VersionConstraints  string                                         `json:"versionConstraints,omitempty"`
+	SourceRepository    string                                         `json:"sourceRepository,omitempty"`
+}
+
+// BrowseGraphDepot is a depot node in the depots relationship graph.
+type BrowseGraphDepot struct {
+	ID             string `json:"id"`
+	Namespace      string `json:"namespace"`
+	Name           string `json:"name"`
+	StorageBackend string `json:"storageBackend,omitempty"`
+}
+
+// BrowseGraphModule is a module node in the depots relationship graph.
+type BrowseGraphModule struct {
+	ID        string `json:"id"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider,omitempty"`
+	Synced    bool   `json:"synced"`
+}
+
+// BrowseGraphProvider is a provider node in the depots relationship graph.
+type BrowseGraphProvider struct {
+	ID                string `json:"id"`
+	Namespace         string `json:"namespace"`
+	Name              string `json:"name"`
+	ProviderNamespace string `json:"providerNamespace,omitempty"`
+	Synced            bool   `json:"synced"`
+}
+
+// BrowseGraphEdge is a directed edge in the depots relationship graph.
+// Source and Target are node IDs.
+type BrowseGraphEdge struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+// BrowseGraphSummary contains aggregate counts for the graph.
+type BrowseGraphSummary struct {
+	TotalDepots    int `json:"totalDepots"`
+	TotalModules   int `json:"totalModules"`
+	TotalProviders int `json:"totalProviders"`
+}
+
+// BrowseDepotGraph is the full graph payload for the depot relationship view.
+type BrowseDepotGraph struct {
+	Depots    []BrowseGraphDepot    `json:"depots"`
+	Modules   []BrowseGraphModule   `json:"modules"`
+	Providers []BrowseGraphProvider `json:"providers"`
+	Edges     []BrowseGraphEdge     `json:"edges"`
+	Summary   BrowseGraphSummary    `json:"summary"`
 }

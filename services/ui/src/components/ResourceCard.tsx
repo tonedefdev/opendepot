@@ -10,63 +10,91 @@ import Chip from "@mui/material/Chip";
 import LockIcon from "@mui/icons-material/Lock";
 import PublicIcon from "@mui/icons-material/Public";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ErrorIcon from "@mui/icons-material/Error";
+import SyncProblemIcon from "@mui/icons-material/SyncProblem";
 import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
+import ProviderLogo from "./ProviderLogo";
 import type { BrowseResource } from "@/lib/api";
 
 interface Props {
   resource: BrowseResource;
 }
 
+function displayVersion(v: string): string {
+  if (!v) return "";
+  return v.startsWith("v") ? v : `v${v}`;
+}
+
 export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
 
   return (
-    <Card data-testid="resource-card" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <CardActionArea component={Link} href={href} sx={{ flexGrow: 1 }}>
-        <CardContent>
-          <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+    <Card
+      data-testid="resource-card"
+      sx={{ height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
+        <CardContent sx={{ pb: "12px !important" }}>
+          {/* Header row: namespace + visibility */}
+          <Box display="flex" alignItems="center" gap={0.75} mb={0.75}>
             {resource.public ? (
-              <PublicIcon sx={{ fontSize: 16, color: "info.main" }} />
+              <PublicIcon sx={{ fontSize: 13, color: "info.main" }} />
             ) : (
-              <LockIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+              <LockIcon sx={{ fontSize: 13, color: "text.secondary" }} />
             )}
-            <Typography variant="caption" color="text.secondary">
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.72rem" }}
+            >
               {resource.namespace}
             </Typography>
           </Box>
 
-          <Typography variant="h6" component="div" gutterBottom noWrap>
+          {/* Name */}
+          <Typography
+            variant="h6"
+            component="div"
+            gutterBottom
+            noWrap
+            sx={{ fontSize: "0.9375rem", fontWeight: 700, lineHeight: 1.3, mb: 1 }}
+          >
             {resource.name}
           </Typography>
 
-          <Box display="flex" alignItems="center" gap={1} mb={1}>
+          {/* Provider logo + kind + version */}
+          <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
+            {resource.provider && (
+              <ProviderLogo provider={resource.provider} size={22} />
+            )}
             <Chip
               size="small"
               label={resource.kind}
               variant="outlined"
               color="primary"
+              sx={{ textTransform: "capitalize" }}
             />
-            {resource.provider && (
-              <Chip size="small" label={resource.provider} variant="outlined" />
-            )}
             {resource.latestVersion && (
-              <Chip size="small" label={`v${resource.latestVersion}`} />
+              <Chip
+                size="small"
+                label={displayVersion(resource.latestVersion)}
+                sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
+              />
             )}
           </Box>
 
+          {/* Sync status */}
           <Box display="flex" alignItems="center" gap={0.5} mb={1}>
             {resource.synced ? (
-              <CheckCircleIcon sx={{ fontSize: 14, color: "success.main" }} />
+              <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
             ) : (
-              <ErrorIcon sx={{ fontSize: 14, color: "warning.main" }} />
+              <SyncProblemIcon sx={{ fontSize: 13, color: "warning.main" }} />
             )}
             <Typography variant="caption" color="text.secondary">
               {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}
             </Typography>
           </Box>
 
+          {/* Scan counts */}
           {resource.scanCounts && (
             <Box display="flex" flexWrap="wrap" gap={0.5}>
               <SeverityBadge counts={resource.scanCounts} />

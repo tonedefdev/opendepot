@@ -5,8 +5,10 @@ import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import ResourceCard from "@/components/ResourceCard";
+import ResourceListControls from "@/components/ResourceListControls";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
+import { getServerSessionToken } from "@/lib/session";
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -18,6 +20,8 @@ function sp(v: string | string[] | undefined): string | undefined {
 
 export default async function HomePage({ searchParams }: PageProps) {
   const params = await (searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>));
+  const token = await getServerSessionToken();
+  const authError = sp(params["auth_error"]);
 
   const listParams: ListResourcesParams = {
     namespace: sp(params["namespace"]),
@@ -35,8 +39,8 @@ export default async function HomePage({ searchParams }: PageProps) {
 
   try {
     [resourceList, namespaceList] = await Promise.all([
-      listResources(listParams),
-      listNamespaces(),
+      listResources(listParams, token),
+      listNamespaces(token),
     ]);
   } catch (err) {
     fetchError =
@@ -44,6 +48,15 @@ export default async function HomePage({ searchParams }: PageProps) {
     resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
     namespaceList = { items: [] };
   }
+
+  // Build a clean search-params string for pagination controls (exclude page/page_size).
+  const cleanParams = new URLSearchParams();
+  if (listParams.namespace) cleanParams.set("namespace", listParams.namespace);
+  if (listParams.kind) cleanParams.set("kind", listParams.kind);
+  if (listParams.q) cleanParams.set("q", listParams.q);
+  if (listParams.sortBy) cleanParams.set("sort_by", listParams.sortBy);
+  if (listParams.sortDir) cleanParams.set("sort_dir", listParams.sortDir);
+  const baseParams = cleanParams.toString();
 
   return (
     <main>
@@ -57,18 +70,17 @@ export default async function HomePage({ searchParams }: PageProps) {
         </Typography>
       </Box>
 
+      {authError && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          Authentication error: {decodeURIComponent(authError)}
+        </Alert>
+      )}
+
       {fetchError && (
         <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
           {fetchError}
         </Alert>
       )}
-
-      <Box mb={2}>
-        <Typography variant="body2" color="text.secondary">
-          {resourceList.totalCount} resource{resourceList.totalCount !== 1 ? "s" : ""}
-          {listParams.namespace ? ` in ${listParams.namespace}` : ""}
-        </Typography>
-      </Box>
 
       {resourceList.items.length === 0 && !fetchError ? (
         <Alert severity="info" data-testid="empty-state">
@@ -77,16 +89,25 @@ export default async function HomePage({ searchParams }: PageProps) {
           sign in to see resources allowed by your GroupBinding.
         </Alert>
       ) : (
-        <Grid container spacing={2}>
-          {resourceList.items.map((r) => (
-            <Grid
-              key={`${r.namespace}/${r.kind}/${r.name}`}
-              size={{ xs: 12, sm: 6, md: 4, lg: 3 }}
-            >
-              <ResourceCard resource={r} />
-            </Grid>
-          ))}
-        </Grid>
+        <>
+          <Grid container spacing={2}>
+            {resourceList.items.map((r) => (
+              <Grid
+                key={`${r.namespace}/${r.kind}/${r.name}`}
+                size={{ xs: 12, sm: 6, md: 4, lg: 3 }}
+              >
+                <ResourceCard resource={r} />
+              </Grid>
+            ))}
+          </Grid>
+
+          <ResourceListControls
+            totalCount={resourceList.totalCount}
+            page={listParams.page ?? 1}
+            pageSize={listParams.pageSize ?? 24}
+            baseParams={baseParams}
+          />
+        </>
       )}
     </Container>
     </main>

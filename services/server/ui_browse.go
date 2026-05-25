@@ -44,6 +44,100 @@ func isPublicResource(labels map[string]string) bool {
 	return labels[labelPublic] == "true"
 }
 
+// storageConfigToBrowse converts a StorageConfig to a BrowseStorageConfig for display.
+func storageConfigToBrowse(sc *opendepotv1alpha1.StorageConfig) *BrowseStorageConfig {
+	if sc == nil {
+		return nil
+	}
+
+	result := &BrowseStorageConfig{}
+
+	switch {
+	case sc.S3 != nil:
+		result.Backend = "s3"
+		result.Bucket = sc.S3.Bucket
+		result.Region = sc.S3.Region
+		result.Key = sc.S3.Key
+	case sc.AzureStorage != nil:
+		result.Backend = "azureStorage"
+		result.AccountName = sc.AzureStorage.AccountName
+		result.AccountUrl = sc.AzureStorage.AccountUrl
+		result.SubscriptionID = sc.AzureStorage.SubscriptionID
+		result.ResourceGroup = sc.AzureStorage.ResourceGroup
+	case sc.GCS != nil:
+		result.Backend = "gcs"
+		result.Bucket = sc.GCS.Bucket
+	case sc.FileSystem != nil:
+		result.Backend = "fileSystem"
+		result.DirectoryPath = sc.FileSystem.DirectoryPath
+	}
+
+	if sc.Presign != nil {
+		result.PresignEnabled = sc.Presign.Enabled
+		if sc.Presign.TTL != nil {
+			result.PresignTTL = sc.Presign.TTL.Duration.String()
+		}
+	}
+
+	return result
+}
+
+// browseDepotForModule finds the first Depot in the given namespace whose status lists the module.
+func browseDepotForModule(cs *kubernetes.Clientset, r *http.Request, namespace, moduleName string) *BrowseDepotRef {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("depots").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil
+	}
+
+	var list opendepotv1alpha1.DepotList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil
+	}
+
+	for _, d := range list.Items {
+		for _, m := range d.Status.Modules {
+			if m == moduleName {
+				return &BrowseDepotRef{Namespace: d.Namespace, Name: d.Name}
+			}
+		}
+	}
+
+	return nil
+}
+
+// browseDepotForProvider finds the first Depot in the given namespace whose status lists the provider.
+func browseDepotForProvider(cs *kubernetes.Clientset, r *http.Request, namespace, providerName string) *BrowseDepotRef {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("depots").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil
+	}
+
+	var list opendepotv1alpha1.DepotList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil
+	}
+
+	for _, d := range list.Items {
+		for _, p := range d.Status.Providers {
+			if p == providerName {
+				return &BrowseDepotRef{Namespace: d.Namespace, Name: d.Name}
+			}
+		}
+	}
+
+	return nil
+}
+
 // browseScanCounts tallies SecurityFindings by severity into a BrowseScanCounts.
 func browseScanCounts(findings []opendepotv1alpha1.SecurityFinding) *BrowseScanCounts {
 	if len(findings) == 0 {
@@ -585,6 +679,18 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = moduleVersionSummaries(versions)
 		detail.SourceScanFindings = collectModuleSourceFindings(versions)
+		detail.StorageConfig = storageConfigToBrowse(m.Spec.ModuleConfig.StorageConfig)
+		detail.RepoOwner = m.Spec.ModuleConfig.RepoOwner
+		detail.VersionHistoryLimit = m.Spec.ModuleConfig.VersionHistoryLimit
+		detail.VersionConstraints = m.Spec.ModuleConfig.VersionConstraints
+
+		if m.Spec.ModuleConfig.GithubClientConfig != nil {
+			detail.GithubConfig = &BrowseGithubConfig{
+				UseAuthenticatedClient: m.Spec.ModuleConfig.GithubClientConfig.UseAuthenticatedClient,
+			}
+		}
+
+		detail.DepotRef = browseDepotForModule(cs, r, namespace, name)
 		json.NewEncoder(w).Encode(detail)
 
 	case "provider":
@@ -627,8 +733,21 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		if p.Status.SourceScan != nil {
 			detail.SourceScanFindings = p.Status.SourceScan.Findings
 		}
-
 		detail.BinaryScanFindings = collectBinaryFindings(versions)
+		detail.StorageConfig = storageConfigToBrowse(p.Spec.ProviderConfig.StorageConfig)
+		detail.VersionHistoryLimit = p.Spec.ProviderConfig.VersionHistoryLimit
+		detail.VersionConstraints = p.Spec.ProviderConfig.VersionConstraints
+
+		if p.Spec.ProviderConfig.SourceRepository != nil {
+			detail.SourceRepository = *p.Spec.ProviderConfig.SourceRepository
+		}
+
+		if p.Spec.ProviderConfig.GithubClientConfig != nil {
+			detail.GithubConfig = &BrowseGithubConfig{
+				UseAuthenticatedClient: p.Spec.ProviderConfig.GithubClientConfig.UseAuthenticatedClient,
+			}
+		}
+		detail.DepotRef = browseDepotForProvider(cs, r, namespace, name)
 		json.NewEncoder(w).Encode(detail)
 
 	default:
@@ -820,6 +939,8 @@ func moduleVersionSummaries(versions []opendepotv1alpha1.Version) []BrowseVersio
 			Version:    v.Spec.Version,
 			Synced:     v.Status.Synced,
 			SyncStatus: v.Status.SyncStatus,
+			FileName:   v.Spec.FileName,
+			Checksum:   v.Status.Checksum,
 		}
 
 		if v.Status.SourceScan != nil {
@@ -851,6 +972,8 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 			SyncStatus: v.Status.SyncStatus,
 			OS:         v.Spec.OperatingSystem,
 			Arch:       v.Spec.Architecture,
+			FileName:   v.Spec.FileName,
+			Checksum:   v.Status.Checksum,
 		}
 
 		if v.Status.BinaryScan != nil {
@@ -1006,4 +1129,236 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// handleBrowseDepots returns a list of all Depot resources visible to the caller.
+// GET /opendepot/ui/v1/depots
+func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	binding, allAccess := browseAuthState(r)
+
+	cs, err := browseSAClient()
+	if err != nil {
+		logger.Error("browse: failed to create SA client", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource("depots").
+		DoRaw(r.Context())
+	if err != nil {
+		logger.Error("browse: failed to list depots", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var list opendepotv1alpha1.DepotList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		logger.Error("browse: failed to unmarshal depot list", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	result := BrowseDepotList{Items: []BrowseDepot{}}
+	for _, d := range list.Items {
+		// Allow access when: anonymous-auth mode (allAccess), or authenticated user
+		// with a resolved GroupBinding.
+		if !allAccess && binding == nil {
+			continue
+		}
+
+		item := BrowseDepot{
+			Namespace:              d.Namespace,
+			Name:                   d.Name,
+			Modules:                d.Status.Modules,
+			Providers:              d.Status.Providers,
+			PollingIntervalMinutes: d.Spec.PollingIntervalMinutes,
+		}
+
+		if d.Spec.GlobalConfig != nil && d.Spec.GlobalConfig.StorageConfig != nil {
+			sc := storageConfigToBrowse(d.Spec.GlobalConfig.StorageConfig)
+			if sc != nil {
+				item.StorageBackend = sc.Backend
+			}
+		}
+
+		result.Items = append(result.Items, item)
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleBrowseDepotsGraph builds and returns the depot relationship graph.
+// GET /opendepot/ui/v1/depots/graph
+func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	binding, allAccess := browseAuthState(r)
+	if !allAccess && binding == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	cs, err := browseSAClient()
+	if err != nil {
+		logger.Error("browse: graph: failed to create SA client", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch depots, modules and providers in parallel using goroutines.
+	type depotResult struct {
+		list opendepotv1alpha1.DepotList
+		err  error
+	}
+	type moduleResult struct {
+		list opendepotv1alpha1.ModuleList
+		err  error
+	}
+	type providerResult struct {
+		list opendepotv1alpha1.ProviderList
+		err  error
+	}
+
+	depotCh := make(chan depotResult, 1)
+	moduleCh := make(chan moduleResult, 1)
+	providerCh := make(chan providerResult, 1)
+
+	go func() {
+		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("depots").DoRaw(r.Context())
+		if err != nil {
+			depotCh <- depotResult{err: err}
+			return
+		}
+		var list opendepotv1alpha1.DepotList
+		depotCh <- depotResult{list: list, err: json.Unmarshal(raw, &list)}
+	}()
+	go func() {
+		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("modules").DoRaw(r.Context())
+		if err != nil {
+			moduleCh <- moduleResult{err: err}
+			return
+		}
+		var list opendepotv1alpha1.ModuleList
+		moduleCh <- moduleResult{list: list, err: json.Unmarshal(raw, &list)}
+	}()
+	go func() {
+		raw, err := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("providers").DoRaw(r.Context())
+		if err != nil {
+			providerCh <- providerResult{err: err}
+			return
+		}
+		var list opendepotv1alpha1.ProviderList
+		providerCh <- providerResult{list: list, err: json.Unmarshal(raw, &list)}
+	}()
+
+	dr := <-depotCh
+	mr := <-moduleCh
+	pr := <-providerCh
+
+	if dr.err != nil {
+		logger.Error("browse: graph: failed to list depots", "error", dr.err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if mr.err != nil {
+		logger.Error("browse: graph: failed to list modules", "error", mr.err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if pr.err != nil {
+		logger.Error("browse: graph: failed to list providers", "error", pr.err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	graph := BrowseDepotGraph{
+		Depots:    []BrowseGraphDepot{},
+		Modules:   []BrowseGraphModule{},
+		Providers: []BrowseGraphProvider{},
+		Edges:     []BrowseGraphEdge{},
+	}
+
+	// Build depot nodes.
+	for _, d := range dr.list.Items {
+		depotID := fmt.Sprintf("depot/%s/%s", d.Namespace, d.Name)
+		node := BrowseGraphDepot{
+			ID:        depotID,
+			Namespace: d.Namespace,
+			Name:      d.Name,
+		}
+		if d.Spec.GlobalConfig != nil && d.Spec.GlobalConfig.StorageConfig != nil {
+			sc := storageConfigToBrowse(d.Spec.GlobalConfig.StorageConfig)
+			if sc != nil {
+				node.StorageBackend = sc.Backend
+			}
+		}
+		graph.Depots = append(graph.Depots, node)
+
+		// Edges: depot → module
+		for _, mRef := range d.Status.Modules {
+			parts := strings.SplitN(mRef, "/", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			targetID := fmt.Sprintf("module/%s/%s", parts[0], parts[1])
+			graph.Edges = append(graph.Edges, BrowseGraphEdge{
+				ID:     fmt.Sprintf("edge/%s/%s", depotID, targetID),
+				Source: depotID,
+				Target: targetID,
+			})
+		}
+
+		// Edges: depot → provider
+		for _, pRef := range d.Status.Providers {
+			parts := strings.SplitN(pRef, "/", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			targetID := fmt.Sprintf("provider/%s/%s", parts[0], parts[1])
+			graph.Edges = append(graph.Edges, BrowseGraphEdge{
+				ID:     fmt.Sprintf("edge/%s/%s", depotID, targetID),
+				Source: depotID,
+				Target: targetID,
+			})
+		}
+	}
+
+	// Build module nodes.
+	for _, m := range mr.list.Items {
+		moduleID := fmt.Sprintf("module/%s/%s", m.Namespace, m.Name)
+		synced := m.Status.SyncStatus == "Synced"
+		graph.Modules = append(graph.Modules, BrowseGraphModule{
+			ID:        moduleID,
+			Namespace: m.Namespace,
+			Name:      m.Name,
+			Provider:  m.Spec.ModuleConfig.Provider,
+			Synced:    synced,
+		})
+	}
+
+	// Build provider nodes.
+	for _, p := range pr.list.Items {
+		providerID := fmt.Sprintf("provider/%s/%s", p.Namespace, p.Name)
+		synced := p.Status.SyncStatus == "Synced"
+		graph.Providers = append(graph.Providers, BrowseGraphProvider{
+			ID:                providerID,
+			Namespace:         p.Namespace,
+			Name:              p.Name,
+			ProviderNamespace: derefString(p.Spec.ProviderConfig.Namespace),
+			Synced:            synced,
+		})
+	}
+
+	graph.Summary = BrowseGraphSummary{
+		TotalDepots:    len(graph.Depots),
+		TotalModules:   len(graph.Modules),
+		TotalProviders: len(graph.Providers),
+	}
+
+	json.NewEncoder(w).Encode(graph)
 }

@@ -58,6 +58,8 @@ export interface BrowseVersionSummary {
   lastScanned: string;
   synced: boolean;
   scanCounts: BrowseScanCounts | null;
+  fileName?: string;
+  checksum?: string;
 }
 
 export interface SecurityFinding {
@@ -68,10 +70,53 @@ export interface SecurityFinding {
   resolution: string;
 }
 
+export interface BrowseStorageConfig {
+  backend: string;
+  bucket?: string;
+  region?: string;
+  key?: string;
+  directoryPath?: string;
+  accountName?: string;
+  accountUrl?: string;
+  subscriptionID?: string;
+  resourceGroup?: string;
+  presignEnabled?: boolean;
+  presignTTL?: string;
+}
+
+export interface BrowseGithubConfig {
+  useAuthenticatedClient: boolean;
+}
+
+export interface BrowseDepotRef {
+  namespace: string;
+  name: string;
+}
+
 export interface BrowseResourceDetail extends BrowseResource {
   versions: BrowseVersionSummary[];
   sourceScanFindings: SecurityFinding[];
   binaryScanFindings: Record<string, SecurityFinding[]>;
+  storageConfig?: BrowseStorageConfig;
+  githubConfig?: BrowseGithubConfig;
+  depotRef?: BrowseDepotRef;
+  repoOwner?: string;
+  versionHistoryLimit?: number;
+  versionConstraints?: string;
+  sourceRepository?: string;
+}
+
+export interface BrowseDepot {
+  namespace: string;
+  name: string;
+  modules: string[];
+  providers: string[];
+  pollingIntervalMinutes?: number;
+  storageBackend: string;
+}
+
+export interface BrowseDepotList {
+  items: BrowseDepot[];
 }
 
 export interface ListResourcesParams {
@@ -146,4 +191,57 @@ export async function getResourceDetail(
     `/opendepot/ui/v1/resources/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
     token,
   );
+}
+
+export async function listDepots(token?: string): Promise<BrowseDepotList> {
+  return apiFetch<BrowseDepotList>("/opendepot/ui/v1/depots", token);
+}
+
+// ── Graph types ────────────────────────────────────────────────────────────
+
+export interface BrowseGraphDepot {
+  id: string;
+  namespace: string;
+  name: string;
+  storageBackend?: string;
+}
+
+export interface BrowseGraphModule {
+  id: string;
+  namespace: string;
+  name: string;
+  provider?: string;
+  synced: boolean;
+}
+
+export interface BrowseGraphProvider {
+  id: string;
+  namespace: string;
+  name: string;
+  providerNamespace?: string;
+  synced: boolean;
+}
+
+export interface BrowseGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface BrowseGraphSummary {
+  totalDepots: number;
+  totalModules: number;
+  totalProviders: number;
+}
+
+export interface BrowseDepotGraph {
+  depots: BrowseGraphDepot[];
+  modules: BrowseGraphModule[];
+  providers: BrowseGraphProvider[];
+  edges: BrowseGraphEdge[];
+  summary: BrowseGraphSummary;
+}
+
+export async function getDepotsGraph(token?: string): Promise<BrowseDepotGraph> {
+  return apiFetch<BrowseDepotGraph>("/opendepot/ui/v1/depots/graph", token);
 }
