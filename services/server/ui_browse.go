@@ -169,9 +169,10 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 // browseAuthState determines the authentication level for a browse request without
 // requiring auth (browse is public-accessible). Returns:
 //   - binding != nil: OIDC-authenticated caller; visibility = public ∪ GroupBinding-allowed
-//   - binding == nil, authenticated == true: authenticated but no matching GroupBinding
-//   - binding == nil, authenticated == false: unauthenticated; visibility = public only
-func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, authenticated bool) {
+//   - binding == nil, allAccess == true: anonymous-auth mode; all resources visible
+//   - binding == nil, allAccess == false: unauthenticated or authenticated without GroupBinding;
+//     visibility = public only
+func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, allAccess bool) {
 	if *opendepotAnonymousAuth {
 		// Anonymous auth mode: everyone sees all resources.
 		return nil, true
@@ -206,21 +207,22 @@ func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, 
 	groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
 	if len(groups) == 0 {
 		// JWT present and valid but missing groups — authenticated without GroupBinding.
-		return nil, true
+		// Public-only visibility.
+		return nil, false
 	}
 
 	cs, err := browseSAClient()
 	if err != nil {
-		return nil, true
+		return nil, false
 	}
 
 	b, err := findGroupBinding(r.Context(), cs, groups)
 	if err != nil {
 		// Authenticated but no matching GroupBinding → public-only visibility.
-		return nil, true
+		return nil, false
 	}
 
-	return b, true
+	return b, false
 }
 
 // browseListNamespaces returns all Kubernetes namespace objects via the server SA.
@@ -260,12 +262,27 @@ func browseGetNamespaceLabels(cs *kubernetes.Clientset, r *http.Request, namespa
 }
 
 // isBrowseVisible reports whether a resource should be included in browse results.
-func isBrowseVisible(pub, publicOnly bool, binding *opendepotv1alpha1.GroupBinding, authenticated bool, kind, name string) bool {
-	if !pub && !authenticated {
-		return false
+//
+// Visibility rules:
+//   - allAccess (anonymous-auth mode): all resources visible; publicOnly still applies.
+//   - pub true: public resource, always visible unless publicOnly with !pub (noop).
+//   - pub false, binding nil: hidden (no GroupBinding → public-only).
+//   - pub false, binding not nil: visible only if isResourceAllowed grants access.
+func isBrowseVisible(pub, publicOnly, allAccess bool, binding *opendepotv1alpha1.GroupBinding, kind, name string) bool {
+	if allAccess {
+		if publicOnly && !pub {
+			return false
+		}
+		return true
 	}
-	if !pub && binding != nil && !isResourceAllowed(binding, kind, name) {
-		return false
+	if !pub {
+		// Non-public resource: requires a matching GroupBinding.
+		if binding == nil {
+			return false
+		}
+		if !isResourceAllowed(binding, kind, name) {
+			return false
+		}
 	}
 	if publicOnly && !pub {
 		return false
@@ -274,7 +291,7 @@ func isBrowseVisible(pub, publicOnly bool, binding *opendepotv1alpha1.GroupBindi
 }
 
 // browseCollectModules fetches and filters Module resources for the browse endpoint.
-func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, authenticated, publicOnly bool) ([]BrowseResource, error) {
+func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool) ([]BrowseResource, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -296,7 +313,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 			continue
 		}
 		pub := nsPublic[ns] && isPublicResource(m.Labels)
-		if !isBrowseVisible(pub, publicOnly, binding, authenticated, "module", m.Name) {
+		if !isBrowseVisible(pub, publicOnly, allAccess, binding, "module", m.Name) {
 			continue
 		}
 		resource := moduleToCard(m, pub)
@@ -308,7 +325,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 }
 
 // browseCollectProviders fetches and filters Provider resources for the browse endpoint.
-func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, authenticated, publicOnly bool, filterOS, filterArch string) ([]BrowseResource, error) {
+func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, filterOS, filterArch string) ([]BrowseResource, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -330,7 +347,7 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 			continue
 		}
 		pub := nsPublic[ns] && isPublicResource(p.Labels)
-		if !isBrowseVisible(pub, publicOnly, binding, authenticated, "provider", p.Name) {
+		if !isBrowseVisible(pub, publicOnly, allAccess, binding, "provider", p.Name) {
 			continue
 		}
 		resource := providerToCard(p, pub)
@@ -342,12 +359,16 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 }
 
 // handleBrowseNamespaces returns the list of namespaces visible to the caller.
-// Anonymous callers see only public namespaces; authenticated callers see all namespaces.
+// Unauthenticated callers see only public namespaces; anonymous-auth mode and
+// authenticated callers (with or without GroupBinding) see all namespaces.
 // GET /opendepot/ui/v1/namespaces
 func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	_, authenticated := browseAuthState(r)
+	binding, allAccess := browseAuthState(r)
+	// Show all namespaces when in anonymous-auth mode or when the caller has a
+	// GroupBinding (they may have access to resources in non-public namespaces).
+	showAll := allAccess || binding != nil
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -366,7 +387,7 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 	result := BrowseNamespaceList{Items: []BrowseNamespace{}}
 	for _, ns := range namespaces {
 		public := isPublicNamespace(ns.Metadata.Labels)
-		if !public && !authenticated {
+		if !public && !showAll {
 			continue
 		}
 		result.Items = append(result.Items, BrowseNamespace{
@@ -398,7 +419,7 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	binding, authenticated := browseAuthState(r)
+	binding, allAccess := browseAuthState(r)
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -460,7 +481,7 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 	var items []BrowseResource
 
 	if filterKind == "" || filterKind == "module" {
-		modules, err := browseCollectModules(cs, r, nsFilter, nsPublic, binding, authenticated, publicOnly)
+		modules, err := browseCollectModules(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly)
 		if err != nil {
 			logger.Error("browse: failed to collect modules", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -471,7 +492,7 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if filterKind == "" || filterKind == "provider" {
-		providers, err := browseCollectProviders(cs, r, nsFilter, nsPublic, binding, authenticated, publicOnly, filterOS, filterArch)
+		providers, err := browseCollectProviders(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, filterOS, filterArch)
 		if err != nil {
 			logger.Error("browse: failed to collect providers", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -511,7 +532,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(chi.URLParam(r, "kind"))
 	name := chi.URLParam(r, "name")
 
-	binding, authenticated := browseAuthState(r)
+	binding, allAccess := browseAuthState(r)
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -550,15 +571,9 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pub := nsPublic && isPublicResource(m.Labels)
-		if !pub {
-			if !authenticated {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			if binding != nil && !isResourceAllowed(binding, "module", m.Name) {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
+		if !isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
 		}
 
 		card := moduleToCard(m, pub)
@@ -596,15 +611,9 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pub := nsPublic && isPublicResource(p.Labels)
-		if !pub {
-			if !authenticated {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			if binding != nil && !isResourceAllowed(binding, "provider", p.Name) {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
+		if !isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
 		}
 
 		card := providerToCard(p, pub)
