@@ -33,7 +33,7 @@ spec:
         - name: OPENDEPOT_SERVER_HOST
           value: "{{ default (printf "server.%s.svc.cluster.local:80" .Values.global.namespace) .Values.ui.serverHost }}"
         - name: NEXT_PUBLIC_BASE_URL
-          value: ""
+          value: {{ .Values.ui.baseUrl | quote }}
         {{- if .Values.ui.oidc.enabled }}
         - name: OIDC_ISSUER_URL
           value: {{ .Values.ui.oidc.issuerUrl | quote }}
@@ -43,6 +43,10 @@ spec:
           value: {{ .Values.ui.oidc.scopes | quote }}
         - name: OIDC_CALLBACK_PATH
           value: {{ .Values.ui.oidc.callbackPath | quote }}
+        {{- if .Values.ui.oidc.authzUrl }}
+        - name: OIDC_AUTHZ_URL
+          value: {{ .Values.ui.oidc.authzUrl | quote }}
+        {{- end }}
         {{- if .Values.ui.oidc.clientSecretName }}
         - name: OIDC_CLIENT_SECRET
           valueFrom:

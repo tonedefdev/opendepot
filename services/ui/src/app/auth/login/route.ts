@@ -37,7 +37,11 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   const nonce = crypto.randomBytes(16).toString("hex");
 
   const redirectUri = `${baseUrl}${callbackPath}`;
-  const authUrl = new URL(discovery.authorization_endpoint);
+  // OIDC_AUTHZ_URL overrides the authorization endpoint from discovery.
+  // Use this in local Kind environments where the issuerUrl is an in-cluster
+  // address that is unreachable from browsers (e.g. port-forward dev setups).
+  const authzUrlOverride = process.env.OIDC_AUTHZ_URL;
+  const authUrl = new URL(authzUrlOverride ?? discovery.authorization_endpoint);
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");

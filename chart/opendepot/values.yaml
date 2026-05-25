@@ -322,8 +322,16 @@ ui:
   oidc:
     # enabled toggles OIDC login support in the UI.
     enabled: false
-    # issuerUrl is the public OIDC issuer URL (must be reachable from browsers).
+    # issuerUrl is the OIDC issuer URL used by the UI server for OIDC discovery
+    # and token exchange. When running in-cluster this should be the in-cluster
+    # Dex service URL (e.g. http://opendepot-dex.<namespace>.svc.cluster.local:5556/dex).
     issuerUrl: ""
+    # authzUrl overrides the authorization endpoint from OIDC discovery.
+    # Use this in local Kind environments where issuerUrl is an in-cluster address
+    # that browsers cannot reach. Set to the port-forwarded Dex authz URL
+    # (e.g. http://localhost:5556/dex/auth) so browsers can complete the PKCE flow.
+    # Ignored when empty — the authorization_endpoint from discovery is used.
+    authzUrl: ""
     # clientId is the OIDC client ID for the UI (separate from the tofu login client).
     clientId: "opendepot-ui"
     # clientSecretName is the name of the Kubernetes Secret holding the
@@ -338,6 +346,10 @@ ui:
       # enabled shows a developer token input field in the UI.
       # Must be false in production.
       enabled: false
+  # baseUrl is the externally reachable base URL of the UI (e.g. https://opendepot.example.com).
+  # Used to construct OIDC callback redirect URIs. When empty, the UI infers the base URL
+  # from the request host. Must be set when ui.oidc.enabled=true.
+  baseUrl: ""
   # sessionPassword is the secret used to encrypt iron-session cookies.
   # Must be at least 32 characters. Provide via a Secret reference in production.
   sessionPasswordSecretName: ""

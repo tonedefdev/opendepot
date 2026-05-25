@@ -10,6 +10,58 @@ tags:
 
 The Registry Explorer is a browsable, searchable frontend for OpenDepot. Enable it by setting `ui.enabled: true` in the Helm chart.
 
+## Local Quick Start (Kind)
+
+The fastest way to try the UI is with a local [Kind](https://kind.sigs.k8s.io/) cluster using the anonymous-auth mode — no OIDC configuration required.
+
+**Prerequisites**: Docker, Kind, kubectl, Helm, and `make` installed.
+
+```bash
+# Build all container images, deploy the UI in anonymous-auth mode,
+# and start the port-forward in one step.
+make ui-setup
+```
+
+Once complete, open **http://opendepot.localtest.me:8080** in your browser.
+`opendepot.localtest.me` resolves to `127.0.0.1` via public DNS — no `/etc/hosts` editing needed.
+
+In anonymous-auth mode every visitor sees all resources. This is fine for local exploration but should never be used in production.
+
+### Testing with OIDC login
+
+To test the full OIDC login flow locally (user accounts, GroupBinding visibility rules), run:
+
+```bash
+# Build images, generate a TLS cert, deploy Dex + server OIDC + UI OIDC, and start port-forwards.
+make ui-setup-oidc PASS=yourpassword
+```
+
+This registers two Dex static clients:
+
+| Client | Purpose | Redirect URI |
+|--------|---------|--------------|
+| `opendepot-ui` | Browser PKCE login | `http://opendepot.localtest.me:8080/auth/callback` |
+| `opendepot` | `tofu login` CLI flow | `http://localhost:1000{0-10}/login` |
+
+The default test user is `dev@example.com` / `PASS` and belongs to the group `local-test-group`. Override defaults via Makefile variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OIDC_EMAIL` | `dev@example.com` | Test user email |
+| `OIDC_USER` | `devuser` | Test user display name |
+| `OIDC_GROUP` | `local-test-group` | Group name for GroupBinding tests |
+| `UI_PORT` | `8080` | Host port for the UI port-forward |
+| `OIDC_DEX_PORT` | `5556` | Host port for the Dex port-forward |
+
+Stop all port-forwards when done:
+
+```bash
+make ui-stop
+```
+
+!!! note "How the OIDC split-URL works"
+    The server pod discovers Dex at its in-cluster address (`http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`), which is not reachable from your browser. OpenDepot solves this with `ui.oidc.authzUrl`: the UI overrides the `authorization_endpoint` from OIDC discovery with the port-forwarded address (`http://localhost:5556/dex/auth`), so the browser can complete the PKCE redirect while the server still validates tokens using the in-cluster issuer URL.
+
 ## Enabling the UI
 
 ### 1. Create the session secret
