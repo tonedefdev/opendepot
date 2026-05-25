@@ -3,19 +3,21 @@ PLATFORM ?= linux/arm64
 KIND_CLUSTER ?= opendepot
 TAG ?= dev
 
-SERVICES := server depot-controller module-controller version-controller
+SERVICES := server depot-controller module-controller version-controller ui
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
 module-controller_PATH := services/module
 version-controller_PATH := services/version
+ui_PATH := services/ui
 
 # Map service names to their Docker build context (repo root for services that use local packages)
 server_CONTEXT := .
 depot-controller_CONTEXT := .
 module-controller_CONTEXT := .
 version-controller_CONTEXT := .
+ui_CONTEXT := services/ui
 
 .PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES))
 

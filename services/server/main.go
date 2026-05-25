@@ -112,6 +112,10 @@ func main() {
 	r.Get("/opendepot/modules/v1/download/gcs/{bucket}/{name}/{fileName}", serveModuleFromGCS)
 	r.Get("/opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
 
+	r.Get("/opendepot/ui/v1/namespaces", handleBrowseNamespaces)
+	r.Get("/opendepot/ui/v1/resources", handleBrowseResources)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}", handleBrowseResourceDetail)
+
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
 		logger.Info("Server started and listening on port 8080 with TLS")
 		if err := http.ListenAndServeTLS(":8080", *opendepotCertPath, *opendepotCertKey, r); err != nil {

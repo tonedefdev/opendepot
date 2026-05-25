@@ -304,3 +304,53 @@ dex:
     - secretRef:
         name: opendepot-dex-client-secret
         optional: true
+
+## UI Service (Registry Explorer)
+# Set ui.enabled=true to deploy the registry explorer frontend alongside the server.
+# Requires server.enabled=true. Routing: NGINX fronts the UI container; the
+# /opendepot/* and /.well-known/terraform.json paths are proxied to the server service.
+ui:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/ui
+    tag: ""  # Overrides global.image.tag when set
+  # serverHost is the upstream address (host:port) that NGINX inside the UI
+  # container will proxy registry protocol requests to.
+  # Defaults to server.<global.namespace>.svc.cluster.local:80 when empty.
+  serverHost: ""
+  oidc:
+    # enabled toggles OIDC login support in the UI.
+    enabled: false
+    # issuerUrl is the public OIDC issuer URL (must be reachable from browsers).
+    issuerUrl: ""
+    # clientId is the OIDC client ID for the UI (separate from the tofu login client).
+    clientId: "opendepot-ui"
+    # clientSecretName is the name of the Kubernetes Secret holding the
+    # OIDC_CLIENT_SECRET key for the UI's confidential client flow.
+    clientSecretName: ""
+    # scopes is the space-separated list of scopes to request.
+    scopes: "openid profile email groups"
+    # callbackPath is the OIDC redirect URI path registered with the identity provider.
+    callbackPath: "/auth/callback"
+  auth:
+    devTokenInput:
+      # enabled shows a developer token input field in the UI.
+      # Must be false in production.
+      enabled: false
+  # sessionPassword is the secret used to encrypt iron-session cookies.
+  # Must be at least 32 characters. Provide via a Secret reference in production.
+  sessionPasswordSecretName: ""
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

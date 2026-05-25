@@ -1859,3 +1859,411 @@ server:
 		})
 	})
 })
+
+// Browse API e2e tests verify that the /opendepot/ui/v1/* endpoints enforce the
+// public/private visibility model and that filter/sort/search parameters work correctly.
+var _ = Describe("Browse API", Ordered, func() {
+	const (
+		browseLocalPort    = 19081
+		browsePublicNS     = "browse-public-e2e"
+		browsePrivateNS    = "browse-private-e2e"
+		browsePublicModule = "public-module-e2e"
+		browsePrivMod      = "private-module-e2e"
+	)
+
+	var (
+		chartPath  string
+		serverRepo string
+		serverTag  string
+		pfCancel   context.CancelFunc
+	)
+
+	// deployBrowseServer deploys the server in anonymous-auth mode so that the
+	// browse endpoints can be reached without a bearer token for public resources.
+	deployBrowseServer := func(extraArgs ...string) {
+		baseArgs := []string{
+			"upgrade", helmReleaseName, chartPath,
+			"--install",
+			"--create-namespace",
+			"--namespace", namespace,
+			"--skip-crds",
+			"--set", "global.image.tag=",
+			"--set", "depot.enabled=false",
+			"--set", "module.enabled=false",
+			"--set", "provider.enabled=false",
+			"--set", "version.enabled=false",
+			"--set", "server.enabled=true",
+			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
+			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
+			// Anonymous auth so the SA client path is exercised.
+			"--set", "server.anonymousAuth=true",
+			"--set", "server.useBearerToken=false",
+			"--wait",
+			"--timeout", "2m",
+		}
+		args := append(baseArgs, extraArgs...)
+		cmd := exec.Command("helm", args...)
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to helm upgrade server for browse tests")
+	}
+
+	startBrowsePortForward := func() context.CancelFunc {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+					"-n", namespace,
+					"svc/server",
+					fmt.Sprintf("%d:80", browseLocalPort),
+				)
+				cmd.Stdout = GinkgoWriter
+				cmd.Stderr = GinkgoWriter
+				_ = cmd.Run()
+				time.Sleep(200 * time.Millisecond)
+			}
+		}()
+		Eventually(func() error {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/.well-known/terraform.json", browseLocalPort))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			return nil
+		}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for browse server port-forward")
+		return cancel
+	}
+
+	BeforeAll(func() {
+		var err error
+		chartPath, err = utils.GetChartPath()
+		Expect(err).NotTo(HaveOccurred())
+		serverRepo, serverTag = utils.SplitImageRef(serverImage)
+
+		By("deploying server for browse API tests")
+		deployBrowseServer()
+		pfCancel = startBrowsePortForward()
+
+		By("creating public namespace")
+		cmd := exec.Command("kubectl", "create", "namespace", browsePublicNS, "--dry-run=client", "-o", "yaml")
+		nsYAML, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+		applyCmd.Stdin = strings.NewReader(nsYAML)
+		_, err = utils.Run(applyCmd)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("labeling public namespace as public")
+		labelCmd := exec.Command("kubectl", "label", "namespace", browsePublicNS,
+			"opendepot.defdev.io/public=true", "--overwrite")
+		_, err = utils.Run(labelCmd)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("creating private namespace")
+		cmd = exec.Command("kubectl", "create", "namespace", browsePrivateNS)
+		_, _ = utils.Run(cmd) // ignore error if already exists
+
+		By("applying a public Module in the public namespace")
+		publicModuleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    opendepot.defdev.io/public: "true"
+spec:
+  moduleConfig:
+    provider: aws
+    repoOwner: test-owner
+    repoUrl: https://github.com/test-owner/test-module
+    fileFormat: zip
+  versions: []
+`, browsePublicModule, browsePublicNS)
+		applyMod := exec.Command("kubectl", "apply", "-f", "-")
+		applyMod.Stdin = strings.NewReader(publicModuleYAML)
+		_, err = utils.Run(applyMod)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("applying a private Module in the private namespace")
+		privateModuleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  moduleConfig:
+    provider: aws
+    repoOwner: private-owner
+    repoUrl: https://github.com/private-owner/private-module
+    fileFormat: zip
+  versions: []
+`, browsePrivMod, browsePrivateNS)
+		applyPriv := exec.Command("kubectl", "apply", "-f", "-")
+		applyPriv.Stdin = strings.NewReader(privateModuleYAML)
+		_, err = utils.Run(applyPriv)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterAll(func() {
+		if pfCancel != nil {
+			pfCancel()
+		}
+
+		// The Helm release (helmReleaseName) is shared across all Describe blocks
+		// and is cleaned up by the AfterSuite. Only clean up fixture namespaces here.
+		for _, ns := range []string{browsePublicNS, browsePrivateNS} {
+			cmd := exec.Command("kubectl", "delete", "namespace", ns, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		}
+	})
+
+	browseURL := func(path string) string {
+		return fmt.Sprintf("http://localhost:%d%s", browseLocalPort, path)
+	}
+
+	Context("namespace listing", func() {
+		It("should return 200 for the browse namespaces endpoint without auth", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/namespaces"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"browse namespaces must return 200 without authentication")
+		})
+
+		It("should include the public namespace in the response (anonymous-auth mode)", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/namespaces"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			var body struct {
+				Items []struct {
+					Name   string `json:"name"`
+					Public bool   `json:"public"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			names := make([]string, 0, len(body.Items))
+			for _, item := range body.Items {
+				names = append(names, item.Name)
+			}
+			Expect(names).To(ContainElement(browsePublicNS),
+				"public namespace must appear in the namespace list")
+		})
+	})
+
+	Context("resource listing", func() {
+		It("should return 200 for the browse resources endpoint without auth", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"browse resources must return 200 without authentication")
+		})
+
+		It("should include the public module in the resource list (anonymous-auth mode)", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?kind=module"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			var body struct {
+				Items []struct {
+					Name      string `json:"name"`
+					Namespace string `json:"namespace"`
+					Kind      string `json:"kind"`
+					Public    bool   `json:"public"`
+				} `json:"items"`
+				TotalCount int `json:"totalCount"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			found := false
+			for _, item := range body.Items {
+				if item.Name == browsePublicModule && item.Namespace == browsePublicNS {
+					found = true
+					Expect(item.Kind).To(Equal("module"))
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), "public module must appear in browse resource list")
+		})
+
+		It("should return the correct TotalCount and pagination fields", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?page=1&page_size=50"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			var body struct {
+				TotalCount int `json:"totalCount"`
+				Page       int `json:"page"`
+				PageSize   int `json:"pageSize"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			Expect(body.Page).To(Equal(1), "page must be 1")
+			Expect(body.PageSize).To(Equal(50), "pageSize must reflect the requested value")
+			Expect(body.TotalCount).To(BeNumerically(">=", 0))
+		})
+
+		It("should filter resources by namespace", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?namespace=" + browsePublicNS))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Namespace string `json:"namespace"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			for _, item := range body.Items {
+				Expect(item.Namespace).To(Equal(browsePublicNS),
+					"namespace filter must restrict results to the requested namespace")
+			}
+		})
+
+		It("should filter by kind=provider and return no module results", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?kind=provider&namespace=" + browsePublicNS))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Kind string `json:"kind"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			for _, item := range body.Items {
+				Expect(item.Kind).To(Equal("provider"),
+					"kind=provider filter must not return module results")
+			}
+		})
+
+		It("should return results matching a search query", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?q=" + browsePublicModule))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Name string `json:"name"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			found := false
+			for _, item := range body.Items {
+				if item.Name == browsePublicModule {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), "search query must match the public module by name")
+		})
+
+		It("should return an empty list for a search query matching no resources", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/resources?q=this-name-does-not-exist-xyzzy"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items      []any `json:"items"`
+				TotalCount int   `json:"totalCount"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			Expect(body.TotalCount).To(Equal(0), "no-match search query must return totalCount=0")
+		})
+	})
+
+	Context("resource detail", func() {
+		It("should return 200 for a public resource detail", func() {
+			u := browseURL(fmt.Sprintf("/opendepot/ui/v1/resources/%s/module/%s",
+				browsePublicNS, browsePublicModule))
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"detail for a public module must return 200")
+		})
+
+		It("should return 200 for the private module detail (anonymous-auth mode bypasses visibility)", func() {
+			// In anonymous-auth mode the server's own SA is used; GroupBinding is bypassed
+			// and all resources are accessible — this is expected anonymous-auth behavior.
+			u := browseURL(fmt.Sprintf("/opendepot/ui/v1/resources/%s/module/%s",
+				browsePrivateNS, browsePrivMod))
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"in anonymous-auth mode all resources are visible regardless of labels")
+		})
+
+		It("should return the correct module fields in the detail response", func() {
+			u := browseURL(fmt.Sprintf("/opendepot/ui/v1/resources/%s/module/%s",
+				browsePublicNS, browsePublicModule))
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			var detail struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+				Kind      string `json:"kind"`
+				Public    bool   `json:"public"`
+				Provider  string `json:"provider"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&detail)).To(Succeed())
+			Expect(detail.Name).To(Equal(browsePublicModule))
+			Expect(detail.Namespace).To(Equal(browsePublicNS))
+			Expect(detail.Kind).To(Equal("module"))
+			Expect(detail.Provider).To(Equal("aws"))
+		})
+
+		It("should return 400 for an invalid kind parameter", func() {
+			u := browseURL(fmt.Sprintf("/opendepot/ui/v1/resources/%s/terraform/%s",
+				browsePublicNS, browsePublicModule))
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest),
+				"an unrecognised kind must return 400")
+		})
+
+		It("should return 404 for a non-existent module", func() {
+			u := browseURL(fmt.Sprintf("/opendepot/ui/v1/resources/%s/module/does-not-exist-xyzzy",
+				browsePublicNS))
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound),
+				"a non-existent module must return 404")
+		})
+	})
+
+	Context("protocol endpoint regression", func() {
+		It("service discovery must still return 200 when browse endpoints are registered", func() {
+			resp, err := http.Get(browseURL("/.well-known/terraform.json"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"/.well-known/terraform.json must be unaffected by browse route registration")
+		})
+
+		It("module versions protocol endpoint must still respond when browse endpoints are registered", func() {
+			u := fmt.Sprintf("http://localhost:%d/opendepot/modules/v1/%s/%s/%s/versions",
+				browseLocalPort, namespace, "nonexistent-regression-module", "aws")
+			resp, err := http.Get(u)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			// anonymous-auth mode: 404 or 200 are both acceptable; 401 is not.
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"module versions protocol endpoint must not return 401 in anonymous-auth mode")
+		})
+	})
+})

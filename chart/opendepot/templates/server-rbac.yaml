@@ -8,6 +8,14 @@ metadata:
   {{- end }}
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - opendepot.defdev.io
   resources:
   - versions
