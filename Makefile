@@ -368,12 +368,12 @@ ui-deploy-anon: ui-session-secret
 	  -n $(OIDC_NAMESPACE) --create-namespace --skip-crds \
 	  --set global.image.tag=$(TAG) \
 	  --set server.enabled=true \
-	  --set server.image.repository=server \
+	  --set server.image.repository=$(REGISTRY)/server \
 	  --set server.image.tag=$(TAG) \
 	  --set server.anonymousAuth=true \
 	  --set server.useBearerToken=false \
 	  --set ui.enabled=true \
-	  --set ui.image.repository=ui \
+	  --set ui.image.repository=$(REGISTRY)/ui \
 	  --set ui.image.tag=$(TAG) \
 	  --set ui.sessionPasswordSecretName=ui-session-secret \
 	  --wait
@@ -444,7 +444,7 @@ endif
 	  '          - http://localhost:10010/login' \
 	  'server:' \
 	  '  image:' \
-	  '    repository: server' \
+	  '    repository: $(REGISTRY)/server' \
 	  "    tag: \"$(TAG)\"" \
 	  '  oidc:' \
 	  '    enabled: true' \
@@ -462,7 +462,7 @@ endif
 	  'ui:' \
 	  '  enabled: true' \
 	  '  image:' \
-	  '    repository: ui' \
+	  '    repository: $(REGISTRY)/ui' \
 	  "    tag: \"$(TAG)\"" \
 	  "  baseUrl: \"http://opendepot.localtest.me:$(UI_PORT)\"" \
 	  '  sessionPasswordSecretName: ui-session-secret' \

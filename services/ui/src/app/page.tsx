@@ -46,6 +46,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   }
 
   return (
+    <main>
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box mb={4}>
         <Typography variant="h4" component="h1" gutterBottom>
@@ -57,7 +58,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       </Box>
 
       {fetchError && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
           {fetchError}
         </Alert>
       )}
@@ -70,7 +71,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       </Box>
 
       {resourceList.items.length === 0 && !fetchError ? (
-        <Alert severity="info">
+        <Alert severity="info" data-testid="empty-state">
           No resources found. Label namespaces and resources with{" "}
           <code>opendepot.defdev.io/public=true</code> to make them visible, or
           sign in to see resources allowed by your GroupBinding.
@@ -88,5 +89,6 @@ export default async function HomePage({ searchParams }: PageProps) {
         </Grid>
       )}
     </Container>
+    </main>
   );
 }

@@ -23,7 +23,7 @@ export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
 
   return (
-    <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <Card data-testid="resource-card" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1 }}>
         <CardContent>
           <Box display="flex" alignItems="center" gap={1} mb={0.5}>

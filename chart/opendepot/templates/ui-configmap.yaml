@@ -34,7 +34,7 @@ data:
         }
 
         server {
-            listen 80;
+            listen 8080;
             server_name _;
 
             add_header X-Content-Type-Options nosniff;

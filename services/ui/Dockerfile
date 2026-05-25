@@ -18,6 +18,17 @@ FROM nginx:1.27-alpine AS runner
 # Install Node.js for the Next.js standalone server.
 RUN apk add --no-cache nodejs
 
+# Pre-create nginx writable directories for non-root (UID 101) operation.
+RUN mkdir -p /var/cache/nginx/client_temp \
+              /var/cache/nginx/proxy_temp \
+              /var/cache/nginx/fastcgi_temp \
+              /var/cache/nginx/uwsgi_temp \
+              /var/cache/nginx/scgi_temp \
+              /var/log/nginx \
+              /var/run && \
+    chown -R 101:101 /var/cache/nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && chown 101:101 /var/run/nginx.pid
+
 WORKDIR /app
 
 # Copy nginx configuration (template; OPENDEPOT_SERVER_HOST is substituted at

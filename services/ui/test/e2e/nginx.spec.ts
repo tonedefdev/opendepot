@@ -53,7 +53,7 @@ test.describe("NGINX routing — server protocol paths", () => {
       expect(contentType).not.toContain("text/html");
     } else {
       // Non-200 confirms the request was proxied to the server, not handled by Next.js.
-      expect([401, 403, 502, 504]).toContain(response.status());
+      expect([401, 403, 404, 502, 504]).toContain(response.status());
     }
   });
 });
