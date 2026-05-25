@@ -236,6 +236,122 @@ GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{ar
 
 Returns the detached GPG signature over the `SHA256SUMS` file, signed with the key configured in `server.gpg.secretName`. Does **not** require client authentication.
 
+## Browse API
+
+The browse endpoints power the [Registry Explorer UI](../guides/registry-explorer.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer.md#browse-visibility-rules).
+
+### List Namespaces
+
+```
+GET /opendepot/ui/v1/namespaces
+```
+
+Returns the namespaces visible to the caller.
+
+**Response:**
+
+```json
+{
+  "items": [
+    { "name": "opendepot-system", "public": true }
+  ]
+}
+```
+
+### List Resources
+
+```
+GET /opendepot/ui/v1/resources
+```
+
+Returns a paginated, filtered list of visible `Module` and `Provider` resources.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string (repeatable) | Filter by one or more namespaces |
+| `kind` | string | `module` or `provider` |
+| `q` | string | Search string matched against resource name |
+| `synced` | bool | Filter to synced (`true`) or unsynced (`false`) resources |
+| `os` | string | Filter providers by operating system |
+| `arch` | string | Filter providers by CPU architecture |
+| `severity` | string | Filter to resources with findings at or above this level (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) |
+| `public_only` | bool | When `true`, return only publicly-labelled resources |
+| `sort_by` | string | Sort field |
+| `sort_dir` | string | `asc` or `desc` |
+| `page` | int | Page number (1-based) |
+| `page_size` | int | Results per page |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "kind": "module",
+      "namespace": "opendepot-system",
+      "name": "terraform-aws-vpc",
+      "latestVersion": "3.19.0",
+      "synced": true,
+      "provider": "aws",
+      "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "public": true
+    }
+  ],
+  "totalCount": 1,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+### Resource Detail
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}
+```
+
+Returns full detail for a single resource including all versions and scan findings.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Response:**
+
+```json
+{
+  "kind": "module",
+  "namespace": "opendepot-system",
+  "name": "terraform-aws-vpc",
+  "latestVersion": "3.19.0",
+  "synced": true,
+  "public": true,
+  "versions": [
+    { "version": "3.19.0", "synced": true },
+    { "version": "3.18.0", "synced": true }
+  ],
+  "sourceScanFindings": [
+    {
+      "vulnerabilityID": "CVE-2024-12345",
+      "pkgName": "some-dep",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "severity": "HIGH",
+      "title": "Example vulnerability"
+    }
+  ],
+  "binaryScanFindings": {
+    "linux/amd64": []
+  }
+}
+```
+
 ## Kubernetes Resource Types
 
 ### SecurityFinding

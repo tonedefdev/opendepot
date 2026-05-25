@@ -104,6 +104,31 @@ For connector configuration details, refer to the [Dex Connector Documentation](
 !!! warning
     Never set `enablePasswordDB: true` or `staticPasswords` in production. Use real IdP connectors instead.
 
+## UI Configuration
+
+The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](configuration/ui.md) for setup details and the [Registry Explorer guide](guides/registry-explorer.md) for enabling public visibility and browse access.
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `ui.enabled` | bool | When true, deploys the Registry Explorer UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
+| `ui.replicaCount` | int | Number of UI pod replicas. Default: `1` |
+| `ui.image.repository` | string | UI container image repository. Default: `ghcr.io/tonedefdev/opendepot/ui` |
+| `ui.image.tag` | string | Image tag. Defaults to `global.image.tag`, then the chart `appVersion`. |
+| `ui.serverHost` | string | Upstream `host:port` that NGINX proxies registry requests to. Defaults to `server.<namespace>.svc.cluster.local:80` when blank. |
+| `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
+| `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
+| `ui.oidc.issuerUrl` | string | Public OIDC issuer URL (must be reachable from browsers). |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"` |
+| `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
+| `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
+| `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |
+| `ui.auth.devTokenInput.enabled` | bool | When true, shows a developer bearer-token input in the UI. **Must be `false` in production.** Default: `false` |
+| `ui.ingress.enabled` | bool | Creates a Kubernetes Ingress for the UI with split-path routing rules. Default: `false` |
+| `ui.ingress.className` | string | Ingress class name. |
+| `ui.ingress.annotations` | map | Annotations applied to the Ingress resource. |
+| `ui.ingress.hosts` | list | Host and path rules. |
+| `ui.ingress.tls` | list | TLS configuration for the Ingress. |
+
 ## Scanning Values
 
 The `scanning` section controls Trivy-based provider vulnerability scanning. See [Vulnerability Scanning](configuration/scanning.md) for full details.

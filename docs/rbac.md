@@ -39,6 +39,7 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Server | `modules` | get, list |
 | Server | `providers` | get, list, watch |
 | Server | `groupbindings` | get, list, watch |
+| Server | `namespaces` | get, list, watch |
 
 ## Pipeline Publisher Role Example
 

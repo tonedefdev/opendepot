@@ -67,6 +67,7 @@ nav:
     - GPG Signing: configuration/gpg.md
     - Vulnerability Scanning: configuration/scanning.md
     - OIDC Authentication: configuration/oidc.md
+    - Registry Explorer UI: configuration/ui.md
   - Guides:
     - guides/index.md
     - Users:
@@ -79,6 +80,7 @@ nav:
       - Registry Operations: guides/operations.md
       - Migrating to OpenDepot: guides/migration.md
       - GroupBinding Access Control: guides/groupbinding.md
+      - Registry Explorer UI: guides/registry-explorer.md
   - Authentication: authentication.md
   - Kubernetes RBAC: rbac.md
   - Reference:

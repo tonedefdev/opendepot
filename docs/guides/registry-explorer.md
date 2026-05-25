@@ -1,0 +1,282 @@
+---
+tags:
+  - guides
+  - ui
+  - registry-explorer
+  - browse
+---
+
+# Registry Explorer UI
+
+The Registry Explorer is a browsable, searchable frontend for OpenDepot. Enable it by setting `ui.enabled: true` in the Helm chart.
+
+## Enabling the UI
+
+### 1. Create the session secret
+
+The UI requires an encrypted session cookie secret of at least 32 characters:
+
+```bash
+kubectl create secret generic ui-session-secret \
+  --from-literal=sessionPassword=$(openssl rand -base64 32) \
+  -n opendepot-system
+```
+
+### 2. Set Helm values
+
+At minimum:
+
+```yaml
+ui:
+  enabled: true
+  sessionPasswordSecretName: ui-session-secret
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: opendepot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: opendepot-tls
+        hosts:
+          - opendepot.example.com
+```
+
+!!! warning
+    When `ui.enabled: true`, the server Ingress is automatically disabled. If you were previously routing through `server.ingress`, migrate to `ui.ingress` before upgrading.
+
+### 3. Apply the chart
+
+```bash
+helm upgrade opendepot opendepot/opendepot \
+  --namespace opendepot-system \
+  -f values.yaml
+```
+
+## Public Visibility Labels
+
+By default, the browse endpoints return only resources that have been explicitly marked as public. Two labels control visibility:
+
+| Label | Applied to | Effect |
+|-------|-----------|--------|
+| `opendepot.defdev.io/public: "true"` | Kubernetes Namespace | Marks the namespace as publicly discoverable |
+| `opendepot.defdev.io/public: "true"` | `Module` or `Provider` resource | Marks the individual resource as publicly viewable |
+
+**Both** labels must be present for unauthenticated callers to see a resource. Labelling only the namespace or only the resource is not sufficient.
+
+### Label a namespace
+
+```bash
+kubectl label namespace opendepot-system opendepot.defdev.io/public=true
+```
+
+### Label a Module resource
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: terraform-aws-vpc
+  namespace: opendepot-system
+  labels:
+    opendepot.defdev.io/public: "true"
+spec:
+  # ...
+```
+
+### Label a Provider resource
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: aws
+  namespace: opendepot-system
+  labels:
+    opendepot.defdev.io/public: "true"
+spec:
+  # ...
+```
+
+## Browse Visibility Rules
+
+The browse endpoints apply the following visibility logic based on the caller's authentication state:
+
+| Caller | Resources visible |
+|--------|------------------|
+| Unauthenticated | Public namespace + public resource only |
+| OIDC-authenticated, no matching `GroupBinding` | Public namespace + public resource only |
+| OIDC-authenticated, matching `GroupBinding` | Public resources ∪ resources allowed by the `GroupBinding` |
+| `anonymousAuth: true` mode | All resources (public labels are ignored) |
+| Non-OIDC bearer token (SA or kubeconfig) | Public resources only — `GroupBinding` does not apply |
+
+## GroupBinding for Browse Access
+
+`GroupBinding` resources grant OIDC-authenticated users access to resources beyond the public set. The same `GroupBinding` CRD used for registry protocol access also controls browse visibility.
+
+A `GroupBinding` is evaluated using an [expr-lang](https://expr-lang.org/) expression against the OIDC groups claim. The first matching binding (alphabetically by name) defines the resources the user may see.
+
+### Example
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: platform-team-binding
+  namespace: opendepot-system
+spec:
+  expression: '"platform-team" in groups'
+  moduleResources:
+    - "terraform-aws-*"   # all modules matching this glob
+    - "terraform-gcp-vpc"
+  providerResources:
+    - "aws"
+    - "google"
+```
+
+To grant a group access to all modules and providers:
+
+```yaml
+spec:
+  expression: '"my-org-users" in groups'
+  moduleResources:
+    - "*"
+  providerResources:
+    - "*"
+```
+
+See [GroupBinding Access Control](groupbinding.md) for full expression syntax, client credentials support, and first-match semantics.
+
+## OIDC Login in the UI
+
+To allow users to log in through the browser:
+
+1. Follow the [UI OIDC configuration](../configuration/ui.md#oidc-login) steps to register an OIDC client and create the client secret.
+2. Set `ui.oidc.enabled: true` in your Helm values.
+
+After logging in, users can browse all resources allowed by their `GroupBinding` in addition to the publicly-labelled set.
+
+## Migration: Enabling the UI on an Existing Deployment
+
+Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:
+
+1. Create the session secret (see [Enabling the UI](#1-create-the-session-secret)).
+2. Set `ui.enabled: true` and `ui.sessionPasswordSecretName`.
+3. Move your Ingress configuration from `server.ingress` to `ui.ingress` — the server Ingress is suppressed automatically when the UI is enabled.
+4. Optionally configure `ui.oidc.*` for authenticated browse.
+5. Label namespaces and resources with `opendepot.defdev.io/public=true` for anonymous browse access.
+
+## Browse API
+
+The browse endpoints are used by the Registry Explorer UI and can also be called directly (for integrations or automation). All endpoints are unauthenticated-accessible; optional `Authorization: Bearer <token>` headers extend visibility per the [rules above](#browse-visibility-rules).
+
+### List Namespaces
+
+```
+GET /opendepot/ui/v1/namespaces
+```
+
+Returns the namespaces visible to the caller.
+
+**Response:**
+
+```json
+{
+  "items": [
+    { "name": "opendepot-system", "public": true }
+  ]
+}
+```
+
+### List Resources
+
+```
+GET /opendepot/ui/v1/resources
+```
+
+Returns a paginated, filtered list of visible `Module` and `Provider` resources.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string (repeatable) | Filter by one or more namespaces |
+| `kind` | string | Filter by resource kind: `module` or `provider` |
+| `q` | string | Search string matched against resource name |
+| `synced` | bool | Filter to only synced (`true`) or unsynced (`false`) resources |
+| `os` | string | Filter providers by operating system (e.g., `linux`) |
+| `arch` | string | Filter providers by CPU architecture (e.g., `amd64`) |
+| `severity` | string | Filter to resources with scan findings at or above this severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) |
+| `public_only` | bool | When `true`, return only resources with the public label |
+| `sort_by` | string | Sort field (e.g., `name`, `latestVersion`) |
+| `sort_dir` | string | Sort direction: `asc` or `desc` |
+| `page` | int | Page number (1-based) |
+| `page_size` | int | Results per page |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "kind": "module",
+      "namespace": "opendepot-system",
+      "name": "terraform-aws-vpc",
+      "latestVersion": "3.19.0",
+      "synced": true,
+      "provider": "aws",
+      "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "public": true
+    }
+  ],
+  "totalCount": 1,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+### Resource Detail
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}
+```
+
+Returns full detail for a single resource, including all versions and scan findings.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Response:**
+
+```json
+{
+  "kind": "module",
+  "namespace": "opendepot-system",
+  "name": "terraform-aws-vpc",
+  "latestVersion": "3.19.0",
+  "synced": true,
+  "public": true,
+  "versions": [
+    { "version": "3.19.0", "synced": true },
+    { "version": "3.18.0", "synced": true }
+  ],
+  "sourceScanFindings": [
+    {
+      "vulnerabilityID": "CVE-2024-12345",
+      "pkgName": "some-dep",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "severity": "HIGH",
+      "title": "Example vulnerability"
+    }
+  ]
+}
+```

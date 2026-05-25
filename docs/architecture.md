@@ -7,7 +7,7 @@ tags:
 
 # Architecture
 
-OpenDepot consists of four Kubernetes controllers and a server, all deployed via the Helm chart.
+OpenDepot consists of four Kubernetes controllers, a server, and an optional UI frontend, all deployed via the Helm chart.
 
 ## Event Flow
 
@@ -16,6 +16,7 @@ OpenDepot consists of four Kubernetes controllers and a server, all deployed via
 3. **Provider controller** watches `Provider` resources, creates a `Version` resource for each version and OS/architecture combination in `spec.versions`, and tracks the latest version
 4. **Version controller** watches `Version` resources, fetches module source from GitHub or provider binaries via the OpenTofu registry download API, computes SHA256 checksums, generates GPG signatures (for providers), and uploads archives to the configured storage backend
 5. **Server** handles OpenTofu/Terraform read requests, queries Kubernetes for `Module`, `Provider`, `Version`, and (when OIDC is enabled) `GroupBinding` resources, and serves or redirects artifact downloads
+6. **Registry Explorer UI** (optional, `ui.enabled: true`) — a Next.js frontend with an NGINX sidecar that provides a browsable registry explorer. NGINX splits traffic between the UI and the server using path-based routing
 
 ## Services
 
@@ -128,3 +129,14 @@ Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) ar
 
 !!! warning
     To prevent unauthenticated users from easily enumerating provider and module artifacts, files are stored with UUID7-based filenames.
+
+### Registry Explorer UI
+
+An optional Next.js frontend deployed when `ui.enabled: true`. The UI pod runs two processes:
+
+- **Next.js** (port 3000) — serves the browser application
+- **NGINX** (port 80) — acts as a reverse proxy in front of both Next.js and the server
+
+NGINX applies split-path routing: requests to `/opendepot/*` and `/.well-known/*` are proxied to the server Service; all other requests are forwarded to Next.js on `localhost:3000`. This means the browser never needs to know the server's address — all API calls are same-origin.
+
+The server exposes browse API endpoints (`/opendepot/ui/v1/*`) specifically for the UI. These endpoints apply visibility filtering based on `opendepot.defdev.io/public` labels and, for authenticated callers, `GroupBinding` evaluation. See [Registry Explorer UI](guides/registry-explorer.md) for full details.
