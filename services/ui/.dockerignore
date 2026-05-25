@@ -1,0 +1,7 @@
+node_modules
+.next
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.env*.local

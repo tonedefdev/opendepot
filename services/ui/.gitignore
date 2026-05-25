@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.env*.local
+
+# Yarn Berry cache (not committed)
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
