@@ -2266,4 +2266,385 @@ spec:
 				"module versions protocol endpoint must not return 401 in anonymous-auth mode")
 		})
 	})
+
+	// Context: GroupBinding-authenticated visibility
+	//
+	// These specs verify that browse endpoints respect the public + GroupBinding union
+	// visibility model when OIDC auth is active. The server is deployed with
+	// --oidc-groups-claim=email so that the Dex-issued JWT's "email" claim is treated
+	// as the groups value, avoiding the need for a groups-capable upstream connector
+	// while fully exercising the GroupBinding evaluation path.
+	//
+	// Visibility rules under test:
+	//   - Unauthenticated request → only public namespace/resource pairs returned.
+	//   - Authenticated request with matching GroupBinding → public ∪ GroupBinding-allowed.
+	//   - Authenticated request without any GroupBinding → public only.
+	Context("GroupBinding-authenticated visibility", Ordered, func() {
+		var (
+			gbPFCancel    context.CancelFunc
+			gbDexPFCancel context.CancelFunc
+			gbOIDCJWT     string
+		)
+
+		const (
+			// gbBrowseServerPort is the local port for the server port-forward reused
+			// from the outer Browse API Describe block (startBrowsePortForward → browseLocalPort).
+			gbBrowseServerPort      = browseLocalPort
+			gbBrowseDexPort         = 20082
+			gbBrowseDexClientSecret = "browse-gb-test-secret"
+			gbBrowseUserEmail       = "browse-gb@example.com"
+			gbBrowseUserPassword    = "browsegbtestpassword"
+			gbBrowseUserID          = "browse-gb-user-e2e"
+			gbBrowseGroupBinding    = "browse-gb-e2e"
+		)
+
+		// gbBrowseURL returns the full URL for a browse API path via the shared
+		// server port-forward (browseLocalPort = 19081).
+		gbBrowseURL := func(path string) string {
+			return fmt.Sprintf("http://localhost:%d%s", gbBrowseServerPort, path)
+		}
+
+		// gbStartDexPortForward starts a self-restarting port-forward to the Dex
+		// service and waits until the OIDC discovery endpoint is reachable.
+		gbStartDexPortForward := func(dexPort int) context.CancelFunc {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+						"-n", namespace,
+						"svc/opendepot-dex",
+						fmt.Sprintf("%d:5556", dexPort),
+					)
+					cmd.Stdout = GinkgoWriter
+					cmd.Stderr = GinkgoWriter
+					_ = cmd.Run()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}()
+			Eventually(func() error {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", dexPort))
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				return nil
+			}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for browse Dex port-forward")
+			return cancel
+		}
+
+		// gbAcquireDexToken performs an ROPC grant against Dex and returns the raw ID token.
+		gbAcquireDexToken := func(dexPort int, clientSecret, username, password string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", dexPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {username},
+				"password":      {password},
+				"scope":         {"openid email"},
+				"client_id":     {"opendepot"},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		// gbApplyGroupBinding creates or replaces a GroupBinding for the browse user.
+		gbApplyGroupBinding := func(name, expression string, moduleResources []string) {
+			mrYAML := ""
+			for _, m := range moduleResources {
+				mrYAML += fmt.Sprintf("    - %q\n", m)
+			}
+			manifest := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: GroupBinding
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  expression: %q
+  moduleResources:
+%s  providerResources: []
+`, name, namespace, expression, mrYAML)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err := utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "failed to apply GroupBinding %s", name)
+		}
+
+		// gbDeleteGroupBinding removes the named GroupBinding, ignoring not-found errors.
+		gbDeleteGroupBinding := func(name string) {
+			cmd := exec.Command("kubectl", "delete", "groupbinding", name,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		}
+
+		BeforeAll(func() {
+			By("stopping the outer anonymous-auth port-forward before redeployment")
+			if pfCancel != nil {
+				pfCancel()
+			}
+			pfCancel = nil
+
+			By("uninstalling previous Helm release before OIDC redeployment")
+			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
+				"--namespace", namespace, "--ignore-not-found")
+			_, _ = utils.Run(uninstallCmd)
+
+			By("generating bcrypt hash for the GroupBinding browse test password")
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbBrowseUserPassword), 10)
+			Expect(err).NotTo(HaveOccurred())
+			passwordHash := string(hashBytes)
+
+			By("writing Dex + server OIDC values for GroupBinding browse context")
+			dexValues := fmt.Sprintf(`
+dex:
+  enabled: true
+  config:
+    issuer: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+        - password
+      skipApprovalScreen: true
+      passwordConnector: local
+    staticPasswords:
+      - email: %q
+        hash: %q
+        username: browsegbuser
+        userID: %q
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+    connectors: []
+server:
+  oidc:
+    enabled: true
+    clientSecret: %q
+    groupsClaim: email
+`, gbBrowseUserEmail, passwordHash, gbBrowseUserID, gbBrowseDexClientSecret)
+
+			valuesFile := filepath.Join(GinkgoT().TempDir(), "gb-browse-e2e-values.yaml")
+			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
+
+			By("deploying server with OIDC + Dex for GroupBinding browse tests")
+			baseArgs := []string{
+				"upgrade", helmReleaseName, chartPath,
+				"--install",
+				"--create-namespace",
+				"--namespace", namespace,
+				"--skip-crds",
+				"--set", "global.image.tag=",
+				"--set", "depot.enabled=false",
+				"--set", "module.enabled=false",
+				"--set", "provider.enabled=false",
+				"--set", "version.enabled=false",
+				"--set", "server.enabled=true",
+				"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
+				"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
+				"--set", "server.anonymousAuth=false",
+				"--set", "server.useBearerToken=false",
+				"-f", valuesFile,
+				"--wait",
+				"--timeout", "10m",
+			}
+			cmd := exec.Command("helm", baseArgs...)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "failed to deploy server with OIDC for GroupBinding browse tests")
+
+			// Reapply the browse fixture namespaces and modules — they may have been
+			// removed or the cluster state reset during the Helm uninstall above.
+			By("reapplying public namespace label")
+			labelCmd := exec.Command("kubectl", "label", "namespace", browsePublicNS,
+				"opendepot.defdev.io/public=true", "--overwrite")
+			_, _ = utils.Run(labelCmd)
+
+			By("reapplying public Module fixture")
+			publicModuleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    opendepot.defdev.io/public: "true"
+spec:
+  moduleConfig:
+    provider: aws
+    repoOwner: test-owner
+    repoUrl: https://github.com/test-owner/test-module
+    fileFormat: zip
+  versions: []
+`, browsePublicModule, browsePublicNS)
+			applyMod := exec.Command("kubectl", "apply", "-f", "-")
+			applyMod.Stdin = strings.NewReader(publicModuleYAML)
+			_, _ = utils.Run(applyMod)
+
+			By("reapplying private Module fixture")
+			privateModuleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  moduleConfig:
+    provider: aws
+    repoOwner: private-owner
+    repoUrl: https://github.com/private-owner/private-module
+    fileFormat: zip
+  versions: []
+`, browsePrivMod, browsePrivateNS)
+			applyPriv := exec.Command("kubectl", "apply", "-f", "-")
+			applyPriv.Stdin = strings.NewReader(privateModuleYAML)
+			_, _ = utils.Run(applyPriv)
+
+			// Start port-forwards.
+			gbPFCancel = startBrowsePortForward()
+
+			// Start Dex port-forward on its dedicated port.
+			gbDexPFCancel = gbStartDexPortForward(gbBrowseDexPort)
+
+			By("acquiring a valid Dex JWT for the GroupBinding browse test user")
+			Eventually(func() error {
+				token, err := gbAcquireDexToken(gbBrowseDexPort, gbBrowseDexClientSecret, gbBrowseUserEmail, gbBrowseUserPassword)
+				if err != nil {
+					return err
+				}
+				gbOIDCJWT = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire Dex JWT for GroupBinding browse tests")
+		})
+
+		AfterAll(func() {
+			// gbPFCancel is the new port-forward started in this context's BeforeAll.
+			// Update the outer pfCancel so the top-level AfterAll doesn't double-cancel.
+			pfCancel = gbPFCancel
+			if gbDexPFCancel != nil {
+				gbDexPFCancel()
+			}
+			gbDeleteGroupBinding(gbBrowseGroupBinding)
+		})
+
+		It("should return only public resources for an unauthenticated browse request", func() {
+			resp, err := http.Get(gbBrowseURL("/opendepot/ui/v1/resources?kind=module"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Name      string `json:"name"`
+					Namespace string `json:"namespace"`
+					Public    bool   `json:"public"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			for _, item := range body.Items {
+				// Every item returned without auth must be public.
+				Expect(item.Public).To(BeTrue(),
+					"unauthenticated browse must only return public resources; got non-public item %s/%s",
+					item.Namespace, item.Name)
+			}
+
+			names := make([]string, 0, len(body.Items))
+			for _, item := range body.Items {
+				names = append(names, item.Name)
+			}
+			Expect(names).NotTo(ContainElement(browsePrivMod),
+				"private module must not appear in an unauthenticated browse response")
+		})
+
+		It("should include private resource when authenticated caller has matching GroupBinding", func() {
+			// Apply a GroupBinding that allows the test user's email (used as groups
+			// claim) to see all modules, including the private one.
+			gbApplyGroupBinding(gbBrowseGroupBinding,
+				fmt.Sprintf(`"%s" in groups`, gbBrowseUserEmail),
+				[]string{"*"},
+			)
+
+			req, err := http.NewRequest(http.MethodGet,
+				gbBrowseURL("/opendepot/ui/v1/resources?kind=module"), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+gbOIDCJWT)
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Name      string `json:"name"`
+					Namespace string `json:"namespace"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			names := make([]string, 0, len(body.Items))
+			for _, item := range body.Items {
+				names = append(names, item.Name)
+			}
+			Expect(names).To(ContainElement(browsePrivMod),
+				"authenticated caller with matching GroupBinding must see the private module")
+			Expect(names).To(ContainElement(browsePublicModule),
+				"authenticated caller must also see public modules (union visibility)")
+		})
+
+		It("should hide private resource when no GroupBinding matches the authenticated caller", func() {
+			// Remove the GroupBinding so the user has no binding match → public-only.
+			gbDeleteGroupBinding(gbBrowseGroupBinding)
+
+			req, err := http.NewRequest(http.MethodGet,
+				gbBrowseURL("/opendepot/ui/v1/resources?kind=module"), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+gbOIDCJWT)
+
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					Name string `json:"name"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			names := make([]string, 0, len(body.Items))
+			for _, item := range body.Items {
+				names = append(names, item.Name)
+			}
+			Expect(names).NotTo(ContainElement(browsePrivMod),
+				"authenticated caller with no matching GroupBinding must not see the private module")
+		})
+	})
 })

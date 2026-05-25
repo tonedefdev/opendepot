@@ -18,7 +18,9 @@ spec:
     spec:
       serviceAccountName: ui
       securityContext:
-        runAsNonRoot: false
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
       containers:
       - name: ui
         image: "{{ .Values.ui.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.ui.image.tag }}"
@@ -62,8 +64,17 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf.template
+          subPath: nginx.conf
+          readOnly: true
         resources:
           {{- toYaml .Values.ui.resources | nindent 10 }}
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: ui-nginx-config
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -345,6 +345,16 @@ ui:
     type: ClusterIP
     port: 80
     targetPort: 80
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: opendepot.defdev.io
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
   resources:
     requests:
       cpu: 100m

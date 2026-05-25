@@ -163,7 +163,7 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 		return nil, false
 	}
 
-	return b, true
+	return b, false
 }
 
 // browseAuthState determines the authentication level for a browse request without
@@ -184,9 +184,8 @@ func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, 
 	}
 
 	if oidcVerifier == nil {
-		// Non-OIDC mode: caller provided a token but we treat them as authenticated
-		// without GroupBinding.
-		return nil, true
+		// Non-OIDC mode: no GroupBinding concept applies; public-only visibility.
+		return nil, false
 	}
 
 	if !strings.HasPrefix(authHeader, "Bearer ") {
@@ -275,6 +274,7 @@ func isBrowseVisible(pub, publicOnly, allAccess bool, binding *opendepotv1alpha1
 		}
 		return true
 	}
+
 	if !pub {
 		// Non-public resource: requires a matching GroupBinding.
 		if binding == nil {
@@ -284,9 +284,11 @@ func isBrowseVisible(pub, publicOnly, allAccess bool, binding *opendepotv1alpha1
 			return false
 		}
 	}
+
 	if publicOnly && !pub {
 		return false
 	}
+
 	return true
 }
 

@@ -1,0 +1,56 @@
+{{- if and .Values.ui.enabled .Values.ui.ingress.enabled }}
+{{- $serverPort := .Values.server.service.port }}
+{{- $uiPort := .Values.ui.service.port }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ui
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: ui
+  {{- with .Values.ui.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ui.ingress.className }}
+  ingressClassName: {{ .Values.ui.ingress.className }}
+  {{- end }}
+  {{- if .Values.ui.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ui.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+  {{- range .Values.ui.ingress.hosts }}
+  - host: {{ .host | quote }}
+    http:
+      paths:
+      # Registry protocol and API paths go directly to the server service.
+      - path: /opendepot
+        pathType: Prefix
+        backend:
+          service:
+            name: server
+            port:
+              number: {{ $serverPort }}
+      - path: /.well-known
+        pathType: Prefix
+        backend:
+          service:
+            name: server
+            port:
+              number: {{ $serverPort }}
+      # Root and all remaining paths route to the UI service.
+      # NGINX inside the UI pod re-proxies /opendepot/* and /.well-known/* to
+      # the server service for same-origin API calls from the browser.
+      {{- range .paths }}
+      - path: {{ .path }}
+        pathType: {{ .pathType }}
+        backend:
+          service:
+            name: ui
+            port:
+              number: {{ $uiPort }}
+      {{- end }}
+  {{- end }}
+{{- end }}

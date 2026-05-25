@@ -3,6 +3,27 @@ import { getIronSession } from "iron-session";
 import type { SessionData } from "@/lib/session";
 import { sessionOptions } from "@/lib/session";
 
+/**
+ * parseJWTNonce decodes the payload segment of a JWT and returns the `nonce`
+ * claim, or null if the token is malformed or the claim is absent.
+ * The signature is NOT verified here — that is handled by the server's JWKS
+ * verification. This is solely to read the plaintext nonce claim for CSRF
+ * replay protection at the callback boundary.
+ */
+function parseJWTNonce(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const paddedPayload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(
+      Buffer.from(paddedPayload, "base64").toString("utf-8"),
+    ) as { nonce?: string };
+    return decoded.nonce ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const issuer = process.env.OIDC_ISSUER_URL;
   const clientId = process.env.OIDC_CLIENT_ID;
@@ -76,6 +97,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   if (!tokenSet.id_token) {
     return new NextResponse("No id_token in response", { status: 502 });
+  }
+
+  // Validate the nonce claim inside the id_token to prevent token replay attacks.
+  // The id_token is a signed JWT: header.payload.signature — we only need the payload.
+  const idTokenNonce = parseJWTNonce(tokenSet.id_token);
+  if (!idTokenNonce || idTokenNonce !== storedNonce) {
+    return new NextResponse("Nonce mismatch — possible token replay", { status: 400 });
   }
 
   // Store the token set in the session cookie.
