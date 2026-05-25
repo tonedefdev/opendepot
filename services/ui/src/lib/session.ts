@@ -1,4 +1,4 @@
-import type { IronSessionOptions } from "iron-session";
+import type { SessionOptions } from "iron-session";
 
 export interface SessionData {
   idToken?: string;
@@ -7,7 +7,7 @@ export interface SessionData {
   expiresAt?: string;
 }
 
-export const sessionOptions: IronSessionOptions = {
+export const sessionOptions: SessionOptions = {
   password: process.env.SESSION_PASSWORD as string,
   cookieName: "opendepot_session",
   cookieOptions: {

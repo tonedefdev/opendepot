@@ -1087,6 +1087,29 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mui/material-nextjs@npm:^7.1.1":
+  version: 7.3.10
+  resolution: "@mui/material-nextjs@npm:7.3.10"
+  dependencies:
+    "@babel/runtime": "npm:^7.28.6"
+  peerDependencies:
+    "@emotion/cache": ^11.11.0
+    "@emotion/react": ^11.11.4
+    "@emotion/server": ^11.11.0
+    "@types/react": ^17.0.0 || ^18.0.0 || ^19.0.0
+    next: ^13.0.0 || ^14.0.0 || ^15.0.0 || ^16.0.0
+    react: ^17.0.0 || ^18.0.0 || ^19.0.0
+  peerDependenciesMeta:
+    "@emotion/cache":
+      optional: true
+    "@emotion/server":
+      optional: true
+    "@types/react":
+      optional: true
+  checksum: 10c0/c152ca485671b611eddd89d43f896ac544c8adee0b66a640ab9dc9f020e70babdf7af57673f21dea47bb37bda4e87bb23932919ed11b77c34029e79368d730a1
+  languageName: node
+  linkType: hard
+
 "@mui/material@npm:^7.1.1":
   version: 7.3.11
   resolution: "@mui/material@npm:7.3.11"
@@ -4763,6 +4786,7 @@ __metadata:
     "@emotion/styled": "npm:^11.14.0"
     "@mui/icons-material": "npm:^7.1.1"
     "@mui/material": "npm:^7.1.1"
+    "@mui/material-nextjs": "npm:^7.1.1"
     "@playwright/test": "npm:^1.52.0"
     "@testing-library/jest-dom": "npm:^6.6.3"
     "@testing-library/react": "npm:^16.3.0"

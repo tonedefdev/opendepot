@@ -17,7 +17,7 @@ function sp(v: string | string[] | undefined): string | undefined {
 }
 
 export default async function HomePage({ searchParams }: PageProps) {
-  const params = await (searchParams ?? Promise.resolve({}));
+  const params = await (searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>));
 
   const listParams: ListResourcesParams = {
     namespace: sp(params["namespace"]),
