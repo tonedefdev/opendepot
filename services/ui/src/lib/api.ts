@@ -5,7 +5,10 @@
  * points to the OpenDepot server service and is never exposed to the browser.
  */
 
-const BASE_URL = (process.env.OPENDEPOT_SERVER_URL ?? "").replace(/\/$/, "");
+const serverHost = process.env.OPENDEPOT_SERVER_HOST ?? "localhost:80";
+const BASE_URL = (
+  process.env.OPENDEPOT_SERVER_URL ?? `http://${serverHost}`
+).replace(/\/$/, "");
 
 export interface BrowseScanCounts {
   critical: number;
