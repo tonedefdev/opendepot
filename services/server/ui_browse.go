@@ -1164,11 +1164,28 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allNamespaces, err := browseListNamespaces(cs, r)
+	if err != nil {
+		logger.Error("browse: depots: failed to list namespaces", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	nsPublic := make(map[string]bool, len(allNamespaces))
+	for _, ns := range allNamespaces {
+		nsPublic[ns.Metadata.Name] = isPublicNamespace(ns.Metadata.Labels)
+	}
+
+	// showAll: anonymous-auth mode or authenticated user with a GroupBinding.
+	showAll := allAccess || binding != nil
+
 	result := BrowseDepotList{Items: []BrowseDepot{}}
 	for _, d := range list.Items {
-		// Allow access when: anonymous-auth mode (allAccess), or authenticated user
-		// with a resolved GroupBinding.
-		if !allAccess && binding == nil {
+		pub := nsPublic[d.Namespace] && isPublicResource(d.Labels)
+		// Depots are not directly governed by GroupBinding resource lists; visibility
+		// is determined at the namespace level: public depots are visible to everyone,
+		// non-public depots are visible only in anonymous-auth mode or to authenticated
+		// users with a GroupBinding.
+		if !pub && !showAll {
 			continue
 		}
 
@@ -1210,6 +1227,19 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	allNamespaces, err := browseListNamespaces(cs, r)
+	if err != nil {
+		logger.Error("browse: graph: failed to list namespaces", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	nsPublic := make(map[string]bool, len(allNamespaces))
+	for _, nsObj := range allNamespaces {
+		nsPublic[nsObj.Metadata.Name] = isPublicNamespace(nsObj.Metadata.Labels)
+	}
+
+	showAll := allAccess || binding != nil
 
 	ns := r.URL.Query().Get("namespace")
 
@@ -1313,6 +1343,10 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 
 	// Build depot nodes.
 	for _, d := range dr.list.Items {
+		pub := nsPublic[d.Namespace] && isPublicResource(d.Labels)
+		if !pub && !showAll {
+			continue
+		}
 		depotID := fmt.Sprintf("depot/%s/%s", d.Namespace, d.Name)
 		node := BrowseGraphDepot{
 			ID:                   depotID,
@@ -1361,6 +1395,10 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 
 	// Build module nodes.
 	for _, m := range mr.list.Items {
+		pub := nsPublic[m.Namespace] && isPublicResource(m.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
+			continue
+		}
 		moduleID := fmt.Sprintf("module/%s/%s", m.Namespace, m.Name)
 		synced := m.Status.SyncStatus == "Synced"
 		node := BrowseGraphModule{
@@ -1382,6 +1420,10 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 
 	// Build provider nodes.
 	for _, p := range pr.list.Items {
+		pub := nsPublic[p.Namespace] && isPublicResource(p.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
+			continue
+		}
 		providerID := fmt.Sprintf("provider/%s/%s", p.Namespace, p.Name)
 		synced := p.Status.SyncStatus == "Synced"
 		graph.Providers = append(graph.Providers, BrowseGraphProvider{

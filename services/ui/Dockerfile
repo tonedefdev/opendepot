@@ -46,4 +46,6 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
+USER 101
+
 ENTRYPOINT ["/entrypoint.sh"]
