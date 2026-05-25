@@ -571,4 +571,24 @@ commands will detect it and remind you to do so if necessary.
 
 For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).
 
+## Step 10: (Optional) Try the Registry Explorer UI
+
+The Registry Explorer is a browsable frontend that visualises your modules, providers, and depots. The fastest way to launch it locally is:
+
+```bash
+make ui-setup
+```
+
+This builds all container images, deploys the UI in anonymous-auth mode (no OIDC configuration required), and starts a port-forward. Open **http://opendepot.localtest.me:8080** in your browser.
+
+The **Depots** page (`/depots`) shows an interactive relationship graph of all `Depot` resources and their managed modules and providers.
+
+To test the full OIDC login flow with user accounts and `GroupBinding` visibility rules:
+
+```bash
+make ui-setup-oidc PASS=yourpassword
+```
+
+See the [Registry Explorer UI guide](../guides/registry-explorer.md) for the complete setup, public visibility labels, and `GroupBinding` configuration.
+
 

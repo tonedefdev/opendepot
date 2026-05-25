@@ -1,0 +1,20 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Depot
+metadata:
+  name: ui-demo-depot
+  namespace: opendepot-system
+spec:
+  global:
+    moduleConfig:
+      fileFormat: zip
+      immutable: true
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+  moduleConfigs:
+    - name: terraform-aws-key-pair
+      provider: aws
+      repoOwner: terraform-aws-modules
+      repoUrl: https://github.com/terraform-aws-modules/terraform-aws-key-pair
+      versionConstraints: ">= 2.0.3, < 2.0.4"
+  pollingIntervalMinutes: 60

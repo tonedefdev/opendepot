@@ -3,19 +3,125 @@ import Container from "@mui/material/Container";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
-import Chip from "@mui/material/Chip";
-import { getDepotsGraph } from "@/lib/api";
+import type { BrowseStorageConfig } from "@/lib/api";
+import { getDepotsGraph, getResourceDetail, listResources } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
-import DepotGraph from "@/components/DepotGraph";
+import DepotsGraphClient from "@/components/DepotsGraphClient";
 
 export default async function DepotsPage() {
   const token = await getServerSessionToken();
+  let moduleVersionsByKey: Record<string, string[]> = {};
+  let moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>> = {};
+  let moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }> = {};
 
   let graph;
   let fetchError: string | null = null;
 
   try {
     graph = await getDepotsGraph(undefined, token);
+
+    try {
+      const [moduleResources, providerResources] = await Promise.all([
+        listResources({ kind: "module", page: 1, pageSize: 500 }, token),
+        listResources({ kind: "provider", page: 1, pageSize: 500 }, token),
+      ]);
+
+      const moduleVersionEntries = await Promise.all(
+        graph.modules.map(async (module) => {
+          const key = `${module.namespace}/${module.name}`;
+          try {
+            const detail = await getResourceDetail(module.namespace, "module", module.name, token);
+            const versionMeta = (detail.versions ?? [])
+              .filter((version) => Boolean(version.version))
+              .map((version) => ({
+                version: version.version,
+                fileName: version.fileName,
+                checksum: version.checksum,
+                lastScanned: version.lastScanned,
+              }));
+
+            const moduleDetail = {
+              storageConfig: detail.storageConfig,
+              githubAuthenticated: detail.githubConfig?.useAuthenticatedClient,
+            };
+
+            const dedupedVersionMeta = Array.from(
+              new Map(versionMeta.map((entry) => [entry.version, entry])).values(),
+            );
+
+            const versions = dedupedVersionMeta.map((entry) => entry.version);
+            if (versions.length > 0) {
+              return [key, { versions, versionMeta: dedupedVersionMeta, detail: moduleDetail }] as const;
+            }
+
+            return [key, { versions: [], versionMeta: [], detail: moduleDetail }] as const;
+          } catch {
+            // Keep fallback behavior when detail fetch for a module fails.
+          }
+          const fallbackVersions = module.latestVersion ? [module.latestVersion] : [];
+          return [
+            key,
+            {
+              versions: fallbackVersions,
+              versionMeta: fallbackVersions.map((version) => ({ version })),
+              detail: {},
+            },
+          ] as const;
+        }),
+      );
+      moduleVersionsByKey = Object.fromEntries(
+        moduleVersionEntries.map(([key, value]) => [key, value.versions]),
+      ) as Record<string, string[]>;
+      moduleVersionMetaByKey = Object.fromEntries(
+        moduleVersionEntries.map(([key, value]) => [key, value.versionMeta]),
+      ) as Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
+      moduleDetailByKey = Object.fromEntries(
+        moduleVersionEntries.map(([key, value]) => [key, value.detail]),
+      ) as Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
+
+      const moduleSyncByKey = new Map(
+        moduleResources.items.map((resource) => [
+          `${resource.namespace}/${resource.name}`,
+          { synced: resource.synced, syncStatus: resource.syncStatus },
+        ]),
+      );
+
+      const providerSyncByKey = new Map(
+        providerResources.items.map((resource) => [
+          `${resource.namespace}/${resource.name}`,
+          resource.synced,
+        ]),
+      );
+
+      graph = {
+        ...graph,
+        modules: graph.modules.map((module) => {
+          const key = `${module.namespace}/${module.name}`;
+          const fromResource = moduleSyncByKey.get(key);
+          if (!fromResource) {
+            return module;
+          }
+          return {
+            ...module,
+            synced: fromResource.synced,
+            syncStatus: fromResource.syncStatus,
+          };
+        }),
+        providers: graph.providers.map((provider) => {
+          const key = `${provider.namespace}/${provider.name}`;
+          const fromResource = providerSyncByKey.get(key);
+          if (fromResource === undefined) {
+            return provider;
+          }
+          return {
+            ...provider,
+            synced: fromResource,
+          };
+        }),
+      };
+    } catch {
+      // Keep graph data if sync-enrichment calls fail.
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("unauthorized")) {
@@ -41,19 +147,17 @@ export default async function DepotsPage() {
           <Typography variant="body1" color="text.secondary" mb={2}>
             Visualise the relationships between Depots and their managed Modules and Providers.
           </Typography>
-          {!fetchError && (
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Chip label={`${graph.summary.totalDepots} depots`} size="small" color="primary" variant="outlined" />
-              <Chip label={`${graph.summary.totalModules} modules`} size="small" sx={{ color: "secondary.main", borderColor: "secondary.main" }} variant="outlined" />
-              <Chip label={`${graph.summary.totalProviders} providers`} size="small" sx={{ color: "secondary.light", borderColor: "secondary.light" }} variant="outlined" />
-            </Box>
-          )}
         </Box>
 
         {fetchError ? (
           <Alert severity="error">Failed to load depot graph: {fetchError}</Alert>
         ) : (
-          <DepotGraph graph={graph} />
+          <DepotsGraphClient
+            graph={graph}
+            moduleVersionsByKey={moduleVersionsByKey}
+            moduleVersionMetaByKey={moduleVersionMetaByKey}
+            moduleDetailByKey={moduleDetailByKey}
+          />
         )}
       </Container>
     </main>

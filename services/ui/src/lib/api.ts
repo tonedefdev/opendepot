@@ -68,6 +68,12 @@ export interface SecurityFinding {
   title: string;
   message: string;
   resolution: string;
+  vulnerabilityID?: string;
+  pkgName?: string;
+  installedVersion?: string;
+  fixedVersion?: string;
+  fileName?: string;
+  checksum?: string;
 }
 
 export interface BrowseStorageConfig {

@@ -352,6 +352,103 @@ Returns full detail for a single resource including all versions and scan findin
 }
 ```
 
+### List Depots
+
+```
+GET /opendepot/ui/v1/depots
+```
+
+Returns a flat list of all visible `Depot` resources with their storage backend, polling interval, and managed resource counts.
+
+**Visibility:** public depots are always included. Non-public depots are included when the server is in anonymous-auth mode or when the caller has a matching `GroupBinding`. An optional `?namespace=` query parameter filters results to a single namespace.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Filter by namespace |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "namespace": "opendepot-system",
+      "name": "platform-depot",
+      "modules": ["terraform-aws-vpc", "terraform-aws-s3-bucket"],
+      "providers": ["aws"],
+      "pollingIntervalMinutes": 30,
+      "storageBackend": "s3"
+    }
+  ]
+}
+```
+
+### Depot Relationship Graph
+
+```
+GET /opendepot/ui/v1/depots/graph
+```
+
+Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](#depots-page) in the Registry Explorer UI to render the interactive relationship diagram.
+
+**Visibility:** same rules as [List Depots](#list-depots).
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Filter the graph to a single namespace |
+
+**Response:**
+
+```json
+{
+  "depots": [
+    {
+      "id": "opendepot-system/platform-depot",
+      "namespace": "opendepot-system",
+      "name": "platform-depot",
+      "storageBackend": "s3",
+      "pollingIntervalMinutes": 30,
+      "managedModuleNames": ["terraform-aws-vpc"],
+      "managedProviderNames": ["aws"]
+    }
+  ],
+  "modules": [
+    {
+      "id": "opendepot-system/module/terraform-aws-vpc",
+      "namespace": "opendepot-system",
+      "name": "terraform-aws-vpc",
+      "provider": "aws",
+      "synced": true,
+      "latestVersion": "3.19.0",
+      "depotID": "opendepot-system/platform-depot",
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+    }
+  ],
+  "providers": [
+    {
+      "id": "opendepot-system/provider/aws",
+      "namespace": "opendepot-system",
+      "name": "aws",
+      "synced": true
+    }
+  ],
+  "edges": [
+    { "id": "e-depot-mod-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/module/terraform-aws-vpc" },
+    { "id": "e-depot-prov-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/provider/aws" }
+  ],
+  "summary": {
+    "totalDepots": 1,
+    "totalModules": 1,
+    "totalProviders": 1
+  },
+  "generatedAt": "2026-05-25T12:00:00Z"
+}
+```
+
 ## Kubernetes Resource Types
 
 ### SecurityFinding

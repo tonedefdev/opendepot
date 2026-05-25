@@ -210,6 +210,35 @@ To allow users to log in through the browser:
 
 After logging in, users can browse all resources allowed by their `GroupBinding` in addition to the publicly-labelled set.
 
+## Depots Page
+
+The **Depots** page (`/depots`) renders an interactive relationship graph of all visible `Depot` resources and the `Module` and `Provider` resources each depot manages. It is accessible from the **Depots** entry in the sidebar navigation.
+
+```mermaid
+graph LR
+  D[Depot] -->|manages| M1[Module A]
+  D -->|manages| M2[Module B]
+  D -->|manages| P[Provider]
+```
+
+Each node in the graph is clickable and opens a detail panel showing:
+
+| Node type | Details shown |
+|-----------|---------------|
+| Depot | Storage backend, polling interval, managed resource counts |
+| Module | Latest version, sync status, scan severity counts, link to detail page |
+| Provider | Sync status, provider namespace |
+
+### Namespace filtering
+
+A namespace selector at the top of the page narrows the graph to a single Kubernetes namespace. This is useful in large deployments with many depots spread across multiple namespaces.
+
+### Visibility
+
+The Depots page applies the same visibility rules as the rest of the Registry Explorer. Unauthenticated visitors see only depots and resources in namespaces labelled `opendepot.defdev.io/public=true`. OIDC-authenticated users with a matching `GroupBinding` additionally see the resources allowed by that binding. In anonymous-auth mode all depots and resources are visible.
+
+The graph is powered by the [`GET /opendepot/ui/v1/depots/graph`](../reference/api.md#depot-relationship-graph) browse endpoint.
+
 ## Migration: Enabling the UI on an Existing Deployment
 
 Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:

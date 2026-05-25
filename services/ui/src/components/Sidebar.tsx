@@ -26,7 +26,6 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import LoginIcon from "@mui/icons-material/Login";
 import HubIcon from "@mui/icons-material/Hub";
 import GridViewIcon from "@mui/icons-material/GridView";
-import Image from "next/image";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -35,6 +34,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 
 interface Namespace {
   name: string;
@@ -77,7 +77,7 @@ export default function Sidebar({
   // Fetch namespaces client-side if none passed as props
   useEffect(() => {
     if (initialNamespaces.length > 0) return;
-    fetch("/opendepot/ui/v1/namespaces")
+    fetch(`${API_BASE_URL}/opendepot/ui/v1/namespaces`)
       .then((r) => r.json())
       .then((data: { items: Namespace[] }) => {
         setNamespaces(data.items ?? []);
@@ -162,7 +162,7 @@ export default function Sidebar({
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 1.5,
+          gap: 1,
           px: 2,
           py: 2.5,
           textDecoration: "none",
@@ -170,13 +170,6 @@ export default function Sidebar({
           "&:hover": { opacity: 0.85 },
         }}
       >
-        <Image
-          src="/opendepot.svg"
-          alt="OpenDepot"
-          width={28}
-          height={28}
-          style={{ flexShrink: 0 }}
-        />
         <Box>
           <Typography
             variant="body1"

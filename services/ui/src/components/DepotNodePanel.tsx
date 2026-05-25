@@ -12,8 +12,9 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import HubIcon from "@mui/icons-material/Hub";
 import StorageIcon from "@mui/icons-material/Storage";
 import Link from "next/link";
+import type { BrowseStorageConfig } from "@/lib/api";
 
-type NodeKind = "depot" | "module" | "provider";
+type NodeKind = "depot" | "module" | "provider" | "version";
 
 interface DepotNodePanelProps {
   node: {
@@ -24,9 +25,20 @@ interface DepotNodePanelProps {
     provider?: string;
     providerNamespace?: string;
     storageBackend?: string;
+    storageConfig?: BrowseStorageConfig;
+    githubAuthenticated?: boolean;
+    latestVersion?: string;
+    fileName?: string;
+    checksum?: string;
+    lastScanned?: string;
   };
   onClose: () => void;
 }
+
+const DEPOT_COLOR = "#047df1";
+const MODULE_COLOR = "#03deb8";
+const PROVIDER_COLOR = "#04cfd0";
+const VERSION_COLOR = "#8b949e";
 
 function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) {
   if (!value && value !== 0) return null;
@@ -53,20 +65,43 @@ function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) 
 
 const PANEL_WIDTH = 280;
 
+function optionalText(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function optionalBool(value?: boolean): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value ? "Yes" : "No";
+}
+
 export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
   const kindLabel =
-    node.kind === "depot" ? "Depot" : node.kind === "module" ? "Module" : "Provider";
+    node.kind === "depot"
+      ? "Depot"
+      : node.kind === "module"
+        ? "Module"
+        : node.kind === "provider"
+          ? "Provider"
+          : "Version";
 
   const kindColor =
     node.kind === "depot"
-      ? "primary.main"
+      ? DEPOT_COLOR
       : node.kind === "module"
-        ? "secondary.main"
-        : "secondary.light";
+        ? MODULE_COLOR
+        : node.kind === "provider"
+          ? PROVIDER_COLOR
+          : VERSION_COLOR;
 
   // Link to the detail page (only for modules and providers)
   const detailHref =
-    node.kind !== "depot"
+    node.kind === "module" || node.kind === "provider"
       ? `/${encodeURIComponent(node.namespace)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`
       : null;
 
@@ -125,6 +160,23 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
           >
             {node.name}
           </Typography>
+
+          {(node.kind === "module" || node.kind === "provider") && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  bgcolor: node.synced ? "#3fb950" : "#f85149",
+                  boxShadow: node.synced ? "0 0 6px #3fb950" : "0 0 6px #f85149",
+                }}
+              />
+              <Typography variant="caption" sx={{ color: node.synced ? "#3fb950" : "#f85149" }}>
+                {node.synced ? "Synced" : "Not Synced"}
+              </Typography>
+            </Box>
+          )}
         </Box>
         <IconButton size="small" onClick={onClose} aria-label="Close detail panel" sx={{ flexShrink: 0, mt: -0.5 }}>
           <CloseIcon sx={{ fontSize: 16 }} />
@@ -144,29 +196,75 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
           <FieldRow label="Provider" value={node.provider} />
         )}
 
+        {node.kind === "module" && (
+          <>
+            <Divider sx={{ my: 1 }} />
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                fontWeight: 600,
+                fontSize: "0.68rem",
+                mb: 0.75,
+              }}
+            >
+              Storage Config
+            </Typography>
+            <FieldRow label="Backend" value={optionalText(node.storageConfig?.backend)} />
+            <FieldRow label="Bucket" value={optionalText(node.storageConfig?.bucket)} />
+            <FieldRow label="Region" value={optionalText(node.storageConfig?.region)} />
+            <FieldRow label="Key" value={optionalText(node.storageConfig?.key)} />
+            <FieldRow label="Directory Path" value={optionalText(node.storageConfig?.directoryPath)} />
+            <FieldRow label="Account Name" value={optionalText(node.storageConfig?.accountName)} />
+            <FieldRow label="Account URL" value={optionalText(node.storageConfig?.accountUrl)} />
+            <FieldRow label="Subscription ID" value={optionalText(node.storageConfig?.subscriptionID)} />
+            <FieldRow label="Resource Group" value={optionalText(node.storageConfig?.resourceGroup)} />
+            <FieldRow label="Presign Enabled" value={optionalBool(node.storageConfig?.presignEnabled)} />
+            <FieldRow label="Presign TTL" value={optionalText(node.storageConfig?.presignTTL)} />
+          </>
+        )}
+
+        {node.kind === "module" && (
+          <>
+            <Divider sx={{ my: 1 }} />
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                fontWeight: 600,
+                fontSize: "0.68rem",
+                mb: 0.75,
+              }}
+            >
+              GitHub Authenticated
+            </Typography>
+            <FieldRow
+              label="Use Authenticated Client"
+              value={node.githubAuthenticated ? "Yes" : "No"}
+            />
+          </>
+        )}
+
         {node.kind === "provider" && node.providerNamespace && (
           <FieldRow label="Provider Namespace" value={node.providerNamespace} />
         )}
 
-        {node.kind !== "depot" && (
+        {node.kind === "version" && node.latestVersion && (
+          <FieldRow label="Version" value={node.latestVersion} />
+        )}
+
+        {node.kind === "version" && (
           <>
-            <Divider sx={{ my: 1 }} />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  bgcolor: node.synced ? "#3fb950" : "#f85149",
-                  boxShadow: node.synced ? "0 0 6px #3fb950" : "0 0 6px #f85149",
-                }}
-              />
-              <Typography variant="caption" sx={{ color: node.synced ? "#3fb950" : "#f85149" }}>
-                {node.synced ? "Synced" : "Not Synced"}
-              </Typography>
-            </Box>
+            <FieldRow label="Filename" value={node.fileName ?? "-"} />
+            <FieldRow label="Checksum" value={node.checksum ?? "-"} />
+            <FieldRow label="Last Scanned" value={node.lastScanned ?? "-"} />
           </>
         )}
+
       </Box>
 
       {/* Actions */}

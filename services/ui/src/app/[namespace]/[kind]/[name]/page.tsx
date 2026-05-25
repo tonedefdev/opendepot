@@ -7,15 +7,16 @@ import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import IconButton from "@mui/material/IconButton";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Breadcrumbs from "@mui/material/Breadcrumbs";
+import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
-import LinkIcon from "@mui/icons-material/Link";
 import StorageIcon from "@mui/icons-material/Storage";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
@@ -24,7 +25,7 @@ import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
-import { getResourceDetail } from "@/lib/api";
+import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
@@ -91,6 +92,41 @@ function displayVersion(v: string): string {
   return v.startsWith("v") ? v : `v${v}`;
 }
 
+function compareVersionDesc(a: string, b: string): number {
+  const normalize = (v: string) => v.replace(/^v/i, "");
+  const tokenize = (v: string) =>
+    normalize(v)
+      .split(/[.+-]/)
+      .map((part) => {
+        const numeric = Number(part);
+        return Number.isFinite(numeric) && part !== "" ? numeric : part.toLowerCase();
+      });
+
+  const aTokens = tokenize(a);
+  const bTokens = tokenize(b);
+  const length = Math.max(aTokens.length, bTokens.length);
+
+  for (let i = 0; i < length; i += 1) {
+    const left = aTokens[i];
+    const right = bTokens[i];
+
+    if (left === undefined) return 1;
+    if (right === undefined) return -1;
+    if (left === right) continue;
+
+    if (typeof left === "number" && typeof right === "number") {
+      return right - left;
+    }
+
+    if (typeof left === "number") return -1;
+    if (typeof right === "number") return 1;
+
+    return String(right).localeCompare(String(left));
+  }
+
+  return 0;
+}
+
 export default async function ResourceDetailPage({ params }: PageProps) {
   const { namespace, kind, name } = await params;
   const token = await getServerSessionToken();
@@ -111,6 +147,21 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   }
 
   const capitalizeKind = kind.charAt(0).toUpperCase() + kind.slice(1);
+  const depots = detail.depotRef ? await listDepots(token).catch(() => undefined) : undefined;
+  const managingDepot = detail.depotRef
+    ? depots?.items.find((d) => d.namespace === detail.depotRef?.namespace && d.name === detail.depotRef?.name)
+    : undefined;
+  const hasStorageConfigValues =
+    !!detail.storageConfig?.backend ||
+    !!detail.storageConfig?.bucket ||
+    !!detail.storageConfig?.region ||
+    !!detail.storageConfig?.key ||
+    !!detail.storageConfig?.directoryPath ||
+    !!detail.storageConfig?.accountName ||
+    !!detail.storageConfig?.accountUrl ||
+    !!detail.storageConfig?.subscriptionID ||
+    !!detail.storageConfig?.resourceGroup;
+  const sortedVersions = [...(detail.versions ?? [])].sort((a, b) => compareVersionDesc(a.version, b.version));
 
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
@@ -190,18 +241,21 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         {/* Source repo link */}
         {(detail.repoUrl || detail.sourceRepository) && (
           <Box flexShrink={0}>
-            <Chip
-              icon={<LinkIcon sx={{ fontSize: 14 }} />}
-              label="Repository"
-              size="small"
-              component="a"
-              href={detail.repoUrl || detail.sourceRepository}
-              target="_blank"
-              rel="noopener noreferrer"
-              clickable
-              variant="outlined"
-              sx={{ borderColor: "rgba(240,246,252,0.2)" }}
-            />
+            <Tooltip title="Open source repository" placement="top">
+              <IconButton
+                component="a"
+                href={detail.repoUrl || detail.sourceRepository}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open source repository"
+                sx={{
+                  border: "1px solid rgba(240,246,252,0.2)",
+                  borderRadius: 1.25,
+                }}
+              >
+                <GitHubIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
         )}
       </Box>
@@ -220,40 +274,39 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           {detail.versionConstraints && (
             <LabelValue label="Version Constraints" value={detail.versionConstraints} />
           )}
-          {(detail.repoUrl || detail.sourceRepository) && (
-            <LabelValue label="Source Repository" value={detail.repoUrl || detail.sourceRepository} />
-          )}
         </Box>
       </SectionCard>
 
       {/* Storage Configuration */}
-      {detail.storageConfig && (
-        <SectionCard icon={<StorageIcon fontSize="small" />} title="Storage Configuration">
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
-            <LabelValue label="Backend" value={detail.storageConfig.backend} />
-            {detail.storageConfig.bucket && <LabelValue label="Bucket" value={detail.storageConfig.bucket} />}
-            {detail.storageConfig.region && <LabelValue label="Region" value={detail.storageConfig.region} />}
-            {detail.storageConfig.key && <LabelValue label="Key" value={detail.storageConfig.key} />}
-            {detail.storageConfig.directoryPath && <LabelValue label="Directory Path" value={detail.storageConfig.directoryPath} />}
-            {detail.storageConfig.accountName && <LabelValue label="Account Name" value={detail.storageConfig.accountName} />}
-            {detail.storageConfig.accountUrl && <LabelValue label="Account URL" value={detail.storageConfig.accountUrl} />}
-            {detail.storageConfig.subscriptionID && <LabelValue label="Subscription ID" value={detail.storageConfig.subscriptionID} />}
-            {detail.storageConfig.resourceGroup && <LabelValue label="Resource Group" value={detail.storageConfig.resourceGroup} />}
-            <LabelValue label="Presign Enabled" value={detail.storageConfig.presignEnabled ? "Yes" : "No"} />
-            {detail.storageConfig.presignTTL && <LabelValue label="Presign TTL" value={detail.storageConfig.presignTTL} />}
-          </Box>
-        </SectionCard>
-      )}
+      <SectionCard icon={<StorageIcon fontSize="small" />} title="Storage Configuration">
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
+          <LabelValue
+            label="Backend"
+            value={detail.storageConfig?.backend || managingDepot?.storageBackend || "Not configured"}
+          />
+          {detail.storageConfig?.bucket && <LabelValue label="Bucket" value={detail.storageConfig.bucket} />}
+          {detail.storageConfig?.region && <LabelValue label="Region" value={detail.storageConfig.region} />}
+          {detail.storageConfig?.key && <LabelValue label="Key" value={detail.storageConfig.key} />}
+          {detail.storageConfig?.directoryPath && <LabelValue label="Directory Path" value={detail.storageConfig.directoryPath} />}
+          {detail.storageConfig?.accountName && <LabelValue label="Account Name" value={detail.storageConfig.accountName} />}
+          {detail.storageConfig?.accountUrl && <LabelValue label="Account URL" value={detail.storageConfig.accountUrl} />}
+          {detail.storageConfig?.subscriptionID && <LabelValue label="Subscription ID" value={detail.storageConfig.subscriptionID} />}
+          {detail.storageConfig?.resourceGroup && <LabelValue label="Resource Group" value={detail.storageConfig.resourceGroup} />}
+          <LabelValue label="Presign Enabled" value={detail.storageConfig?.presignEnabled ? "Yes" : "No"} />
+          {detail.storageConfig?.presignTTL && <LabelValue label="Presign TTL" value={detail.storageConfig.presignTTL} />}
+          {!hasStorageConfigValues && managingDepot?.storageBackend && (
+            <LabelValue label="Inherited From" value={`${managingDepot.namespace} / ${managingDepot.name}`} />
+          )}
+        </Box>
+      </SectionCard>
 
       {/* GitHub Configuration */}
-      {detail.githubConfig && (
-        <SectionCard icon={<GitHubIcon fontSize="small" />} title="GitHub Configuration">
-          <LabelValue
-            label="Authenticated Client"
-            value={detail.githubConfig.useAuthenticatedClient ? "Yes" : "No"}
-          />
-        </SectionCard>
-      )}
+      <SectionCard icon={<GitHubIcon fontSize="small" />} title="GitHub Configuration">
+        <LabelValue
+          label="Authenticated Client"
+          value={detail.githubConfig?.useAuthenticatedClient ? "Yes" : "No"}
+        />
+      </SectionCard>
 
       {/* Depot Association */}
       {detail.depotRef && (
@@ -272,14 +325,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       <Divider sx={{ my: 3 }} />
 
       {/* Versions */}
-      {detail.versions && detail.versions.length > 0 && (
+      {sortedVersions.length > 0 && (
         <Box mb={4}>
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
             Versions{" "}
-            <Chip label={detail.versions.length} size="small" sx={{ ml: 1, fontSize: "0.72rem" }} />
+            <Chip label={sortedVersions.length} size="small" sx={{ ml: 1, fontSize: "0.72rem" }} />
           </Typography>
           <Box sx={{ overflowX: "auto", borderRadius: 2, border: "1px solid rgba(240,246,252,0.08)" }}>
-            <Table size="small">
+            <Table size="small" sx={{ tableLayout: { xs: "auto", md: "fixed" } }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Version</TableCell>
@@ -293,7 +346,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {detail.versions.map((v, idx) => (
+                {sortedVersions.map((v, idx) => (
                   <TableRow key={`${v.version}-${v.os || ""}-${v.arch || ""}-${idx}`} hover>
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
                       {displayVersion(v.version)}
@@ -314,15 +367,15 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                     {detail.kind === "provider" && (
                       <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>{v.arch || "—"}</TableCell>
                     )}
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word" }}>
                       {v.fileName || "—"}
                     </TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.7rem", maxWidth: 140 }}>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.7rem", maxWidth: 220 }}>
                       {v.checksum ? (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                           <Typography
                             variant="caption"
-                            sx={{ fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 110, display: "block" }}
+                            sx={{ fontFamily: "monospace", whiteSpace: "normal", wordBreak: "break-all", maxWidth: { xs: 120, md: 180 }, display: "block" }}
                           >
                             {v.checksum}
                           </Typography>
@@ -352,6 +405,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       <ScanDrillDown
         sourceScanFindings={detail.sourceScanFindings ?? []}
         binaryScanFindings={detail.binaryScanFindings ?? {}}
+        versions={sortedVersions}
       />
     </Container>
   );

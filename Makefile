@@ -341,12 +341,16 @@ oidc-test-clean:
 ## ─── UI Local Testing (Kind) ─────────────────────────────────────────────────
 # Port that the UI NGINX container is port-forwarded to on the host.
 UI_PORT           ?= 8080
+# Port used for local server API port-forward consumed by Next.js dev server.
+UI_API_PORT       ?= 18080
+# Port used by the local Next.js dev server.
+UI_DEV_PORT       ?= 3000
 # OIDC client ID registered in Dex for the UI (separate from the tofu login client).
 UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc
+.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc ui-dev ui-dev-stop
 
 ## Create the session-cookie encryption secret for the UI. Idempotent — skips if it already exists.
 ui-session-secret:
@@ -506,6 +510,26 @@ ui-setup: deploy ui-deploy-anon ui-forward
 ## Build all images, deploy the UI with OIDC login, and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword
 ui-setup-oidc: deploy oidc-tls ui-deploy ui-forward
+
+## One-shot local UI development against a running kind cluster server.
+## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80
+## - Runs Next.js dev server on localhost:$(UI_DEV_PORT)
+## Usage: make ui-dev
+ui-dev:
+	@pkill -f "kubectl port-forward.*svc/server.*$(UI_API_PORT):80" 2>/dev/null || true
+	@pkill -f "next dev --port $(UI_DEV_PORT)" 2>/dev/null || true
+	@rm -rf services/ui/.next
+	@echo "Starting port-forward: server -> localhost:$(UI_API_PORT)"
+	@kubectl port-forward -n $(OIDC_NAMESPACE) svc/server $(UI_API_PORT):80 >/tmp/opendepot-ui-api-forward.log 2>&1 &
+	@echo "UI API forward log: /tmp/opendepot-ui-api-forward.log"
+	@echo "Starting Next.js dev server on localhost:$(UI_DEV_PORT)"
+	@cd services/ui && NEXT_DISABLE_DEVTOOLS=1 OPENDEPOT_SERVER_URL=http://127.0.0.1:$(UI_API_PORT) yarn dev --port $(UI_DEV_PORT)
+
+## Stop local UI development background port-forwards started by ui-dev.
+## Usage: make ui-dev-stop
+ui-dev-stop:
+	@pkill -f "kubectl port-forward.*svc/server.*$(UI_API_PORT):80" 2>/dev/null \
+	  && echo "Stopped server API port-forward" || echo "Server API port-forward was not running"
 
 
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.

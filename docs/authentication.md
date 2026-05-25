@@ -297,3 +297,34 @@ chmod 600 ~/.terraform.d/credentials.tfrc.json
 | OpenTofu Support | All versions | All versions | All versions | All versions |
 | Terraform Support | v1.2+ | All versions | v1.3+ | v1.3+ |
 | IdP Integration | No | No | Yes (GitHub, Entra ID, Okta, LDAP, etc.) | Yes |
+
+## Registry Explorer UI Authentication
+
+The [Registry Explorer UI](guides/registry-explorer.md) has its own browser-based authentication flow that is separate from the `tofu login` CLI flow described above. The UI's OIDC client is registered independently and issues its own access tokens; it does not share a token with the CLI client.
+
+### Sign-in / Sign-out flow
+
+When `ui.oidc.enabled: true`, the Sidebar displays a **Sign in** button. Clicking it redirects the browser to `/auth/login`, which initiates the OIDC authorization code flow. After a successful redirect back from the identity provider, the session stores the resulting access token in an encrypted server-side cookie (iron-session).
+
+The Sidebar footer then shows the authenticated user's display name (derived from the `name` or `preferred_username` JWT claim) and a **Sign out** button. Sign-out hits `/auth/logout`, which clears the session cookie.
+
+### Session token forwarding
+
+The UI is a Next.js application with server components. On every page render the server component reads the access token from the session cookie and forwards it in an `Authorization: Bearer <token>` header to each browse API call (`/opendepot/ui/v1/*`). The server uses this token to evaluate `GroupBinding` resources and extend visibility beyond the public set.
+
+Unauthenticated users (no session cookie, or session without a token) receive only publicly-labelled resources.
+
+### Provider unavailability (503)
+
+If the OIDC provider is unreachable when a user attempts to sign in, `/auth/login` returns **HTTP 503**. This allows load balancers, health checks, and monitoring to distinguish provider unavailability from an application error (HTTP 500).
+
+### Developer token input
+
+!!! danger "Local development only"
+    Developer token mode is controlled by the `ui.auth.devTokenInput.enabled` Helm value. It must be `false` in all production environments.
+
+When `ui.auth.devTokenInput.enabled: true`, the Sidebar shows a text input labelled **Dev Bearer Token**. A developer can paste any raw Kubernetes SA token (a kubeconfig bearer token) directly into the field. The UI posts the value to `/auth/dev-token`, which stores it in the encrypted session as `devToken`. Subsequent server component renders prefer `devToken` over the OIDC access token. Submitting an empty value clears the stored `devToken`.
+
+This allows testing the UI against a live cluster without configuring a full OIDC provider — paste a `kubectl create token` output and browse immediately.
+
+See [Developer Token Input](configuration/ui.md#developer-token-input) for configuration details.
