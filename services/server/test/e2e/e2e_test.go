@@ -2054,6 +2054,30 @@ spec:
 			Expect(names).To(ContainElement(browsePublicNS),
 				"public namespace must appear in the namespace list")
 		})
+
+		It("should NOT include unlabeled namespaces in the response (anonymous-auth mode)", func() {
+			resp, err := http.Get(browseURL("/opendepot/ui/v1/namespaces"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			var body struct {
+				Items []struct {
+					Name string `json:"name"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			names := make([]string, 0, len(body.Items))
+			for _, item := range body.Items {
+				names = append(names, item.Name)
+			}
+			// Private namespace has no opendepot.defdev.io/public=true label — must be absent.
+			Expect(names).NotTo(ContainElement(browsePrivateNS),
+				"unlabeled namespace must not appear in the namespace list regardless of auth mode")
+			// The server's own namespace is also unlabeled — must not leak to callers.
+			Expect(names).NotTo(ContainElement(namespace),
+				"opendepot-system must not appear in the namespace list unless explicitly labeled")
+		})
 	})
 
 	Context("resource listing", func() {
