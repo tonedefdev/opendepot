@@ -6,6 +6,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Box,
+  Button,
   Chip,
   Divider,
   FormControl,
@@ -20,9 +21,12 @@ import {
   TableRow,
   TableContainer,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import ClearIcon from "@mui/icons-material/Clear";
 import CopyButton from "@/components/CopyButton";
 import type { BrowseVersionSummary, SecurityFinding } from "@/lib/api";
 
@@ -154,6 +158,15 @@ function FindingsTable({
     setPage(0);
   }, [query, severityFilter, sortBy, sortDir]);
 
+  const hasActiveFilter = query !== "" || severityFilter !== "ALL" || sortBy !== "severity" || sortDir !== "desc";
+
+  function clearFilters() {
+    setQuery("");
+    setSeverityFilter("ALL");
+    setSortBy("severity");
+    setSortDir("desc");
+  }
+
   if (findings.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
@@ -165,33 +178,30 @@ function FindingsTable({
   return (
     <Box>
       <Box
-        sx={{
-          mb: 1.5,
-          display: "grid",
-          gap: 1,
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: "repeat(2, minmax(0, 1fr))",
-            lg: "minmax(0, 2fr) repeat(3, minmax(0, 1fr))",
-          },
-          alignItems: "start",
-        }}
+        display="flex"
+        flexWrap="wrap"
+        gap={1.5}
+        mb={2}
+        alignItems="center"
+        sx={{ p: 1.5, borderRadius: 1.5, background: "rgba(240,246,252,0.04)", border: "1px solid rgba(240,246,252,0.06)" }}
       >
+        <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+
         <TextField
           size="small"
-          label="Filter findings"
+          placeholder="Search findings…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="ID, title, package..."
-          sx={{ width: "100%" }}
+          sx={{ minWidth: 180, "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
         />
-        <FormControl size="small" sx={{ width: "100%" }}>
-          <InputLabel id="severity-filter-label">Severity</InputLabel>
+
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel sx={{ fontSize: "0.8125rem" }}>Severity</InputLabel>
           <Select
-            labelId="severity-filter-label"
             label="Severity"
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
+            sx={{ fontSize: "0.8125rem" }}
           >
             <MenuItem value="ALL">All severities</MenuItem>
             <MenuItem value="CRITICAL">CRITICAL</MenuItem>
@@ -201,31 +211,46 @@ function FindingsTable({
             <MenuItem value="UNKNOWN">UNKNOWN</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ width: "100%" }}>
-          <InputLabel id="sort-by-label">Sort by</InputLabel>
+
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel sx={{ fontSize: "0.8125rem" }}>Sort by</InputLabel>
           <Select
-            labelId="sort-by-label"
             label="Sort by"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as FindingSortBy)}
+            sx={{ fontSize: "0.8125rem" }}
           >
             <MenuItem value="severity">Severity</MenuItem>
             <MenuItem value="id">ID</MenuItem>
             <MenuItem value="title">Title</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ width: "100%" }}>
-          <InputLabel id="sort-dir-label">Order</InputLabel>
+
+        <FormControl size="small" sx={{ minWidth: 100 }}>
+          <InputLabel sx={{ fontSize: "0.8125rem" }}>Order</InputLabel>
           <Select
-            labelId="sort-dir-label"
             label="Order"
             value={sortDir}
             onChange={(e) => setSortDir(e.target.value as FindingSortDir)}
+            sx={{ fontSize: "0.8125rem" }}
           >
             <MenuItem value="desc">Desc</MenuItem>
             <MenuItem value="asc">Asc</MenuItem>
           </Select>
         </FormControl>
+
+        {hasActiveFilter && (
+          <Tooltip title="Clear all filters">
+            <Button
+              size="small"
+              startIcon={<ClearIcon fontSize="small" />}
+              onClick={clearFilters}
+              sx={{ fontSize: "0.8rem", textTransform: "none" }}
+            >
+              Clear
+            </Button>
+          </Tooltip>
+        )}
       </Box>
 
       <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid rgba(240,246,252,0.08)", borderRadius: 1.5 }}>
@@ -258,8 +283,13 @@ function FindingsTable({
                         ? "error"
                         : findingSeverity(f) === "HIGH"
                           ? "warning"
-                          : "default"
+                          : findingSeverity(f) === "MEDIUM"
+                            ? "info"
+                            : findingSeverity(f) === "LOW"
+                              ? "success"
+                              : "default"
                     }
+                    sx={{ color: "#fff" }}
                   />
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingTitle(f)}</TableCell>

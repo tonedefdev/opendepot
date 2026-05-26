@@ -329,7 +329,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
         onRowsPerPageChange={(e) => {
           setPageSize(Number(e.target.value));
         }}
-        sx={{ borderTop: "1px solid rgba(240,246,252,0.08)", "& .MuiToolbar-root": { fontSize: "0.8125rem" } }}
+        sx={{ "& .MuiToolbar-root": { fontSize: "0.8125rem" } }}
       />
     </Box>
   );
