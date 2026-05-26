@@ -331,11 +331,14 @@ func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, 
 	return b, false
 }
 
-// browseListNamespaces returns all Kubernetes namespace objects via the server SA.
+// browseListNamespaces returns only namespaces labelled opendepot.defdev.io/public=true
+// via the server SA. The label selector is applied server-side so that system namespaces
+// (kube-system, default, etc.) never enter the browse layer.
 func browseListNamespaces(cs *kubernetes.Clientset, r *http.Request) ([]k8sNamespace, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/api/v1/namespaces").
+		Param("labelSelector", labelPublic+"=true").
 		DoRaw(r.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list namespaces: %w", err)
@@ -467,17 +470,13 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 	return items, nil
 }
 
-// handleBrowseNamespaces returns the list of namespaces visible to the caller.
-// Unauthenticated callers see only public namespaces; anonymous-auth mode and
-// authenticated callers (with or without GroupBinding) see all namespaces.
+// handleBrowseNamespaces returns the list of namespaces that carry the
+// opendepot.defdev.io/public=true label. The label filter is enforced at the
+// Kubernetes API level in browseListNamespaces, so system namespaces
+// (kube-system, default, etc.) never appear regardless of auth mode.
 // GET /opendepot/ui/v1/namespaces
 func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	binding, allAccess := browseAuthState(r)
-	// Show all namespaces when in anonymous-auth mode or when the caller has a
-	// GroupBinding (they may have access to resources in non-public namespaces).
-	showAll := allAccess || binding != nil
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -495,13 +494,9 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 
 	result := BrowseNamespaceList{Items: []BrowseNamespace{}}
 	for _, ns := range namespaces {
-		public := isPublicNamespace(ns.Metadata.Labels)
-		if !public && !showAll {
-			continue
-		}
 		result.Items = append(result.Items, BrowseNamespace{
 			Name:   ns.Metadata.Name,
-			Public: public,
+			Public: true,
 		})
 	}
 
