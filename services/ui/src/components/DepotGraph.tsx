@@ -26,8 +26,8 @@ import type {
 import DepotNodePanel from "./DepotNodePanel";
 
 // ── Brand palette ─────────────────────────────────────────────────────────
-const DEPOT_BORDER = "#047df1";
-const DEPOT_BG = "rgba(4,125,241,0.10)";
+const DEPOT_BORDER = "#04cfd0";
+const DEPOT_BG = "rgba(4,207,208,0.10)";
 const MODULE_BORDER = "#03deb8";
 const MODULE_BG = "rgba(3,222,184,0.08)";
 const PROVIDER_BORDER = "#04cfd0";
@@ -50,6 +50,7 @@ interface NodeData {
   kind: NodeKind;
   namespace: string;
   name: string;
+  displayName?: string;
   label: string;
   synced?: boolean;
   provider?: string;
@@ -133,14 +134,17 @@ function nodeStyle(kind: NodeKind): React.CSSProperties {
 }
 
 function VersionFlowNode({ data }: { data: NodeData }) {
+  const primaryText = data.displayName ?? data.latestVersion ?? "No version";
+  const secondaryText = data.displayName ? (data.latestVersion ?? data.name) : data.name;
+
   return (
     <div style={nodeStyle("version")}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
       <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {data.latestVersion || "No version"}
+        {primaryText}
       </span>
       <span style={{ fontSize: 11, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {data.name}
+        {secondaryText}
       </span>
     </div>
   );
@@ -207,6 +211,8 @@ const nodeTypes = {
 function buildGraph(
   graph: BrowseDepotGraph,
   moduleVersionsByKey: Record<string, string[]>,
+  providerVersionsByKey: Record<string, string[]>,
+  providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>,
 ): { nodes: Node<NodeData>[]; edges: Edge[] } {
@@ -257,10 +263,17 @@ function buildGraph(
     });
   });
   graph.providers.forEach((p: BrowseGraphProvider) => {
+    const key = `${p.namespace}/${p.name}`;
+    const providerMeta = providerVersionMetaByKey[key] ?? [];
+    const versionCount = providerMeta.length > 0
+      ? providerMeta.length
+      : Array.from(new Set(providerVersionsByKey[key] ?? [])).filter(Boolean).length;
+    const versionStackHeight = NODE_HEIGHT + Math.max(0, versionCount - 1) * VERSION_GAP;
+    const stride = Math.max(RESOURCE_GAP, versionStackHeight + 20);
     resourceNodes.push({
       id: p.id,
       type: "providerNode",
-      stride: RESOURCE_GAP,
+      stride,
       data: {
         kind: "provider",
         namespace: p.namespace,
@@ -332,6 +345,71 @@ function buildGraph(
     });
   });
 
+  // Add one version node per provider version.
+  graph.providers.forEach((p) => {
+    const key = `${p.namespace}/${p.name}`;
+    const providerMeta = providerVersionMetaByKey[key] ?? [];
+
+    const items: Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }> =
+      providerMeta.length > 0
+        ? [...providerMeta]
+        : Array.from(new Set(providerVersionsByKey[key] ?? []))
+            .filter(Boolean)
+            .map((version) => ({ version }));
+
+    items.sort((a, b) => {
+      const versionCompare = compareVersionDesc(a.version, b.version);
+      if (versionCompare !== 0) {
+        return versionCompare;
+      }
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+
+    if (items.length === 0) {
+      return;
+    }
+
+    const baseY = resourceYById.get(p.id);
+    if (baseY === undefined) {
+      return;
+    }
+
+    items.forEach((item, index) => {
+      const version = item.version;
+      const versionName = item.name?.trim() ? item.name : p.name;
+      const rawIdSuffix = item.name?.trim()
+        ? item.name
+        : `${version}-${index}`;
+      const idSuffix = encodeURIComponent(rawIdSuffix);
+      const versionNodeId = `version/${p.namespace}/${p.name}/${idSuffix}`;
+      nodes.push({
+        id: versionNodeId,
+        type: "versionNode",
+        position: { x: LANE_X.version, y: baseY + index * VERSION_GAP },
+        data: {
+          kind: "version",
+          namespace: p.namespace,
+          name: versionName,
+          displayName: item.name,
+          label: version,
+          latestVersion: version,
+          fileName: item.fileName,
+          checksum: item.checksum,
+          lastScanned: item.lastScanned,
+        },
+      });
+
+      edges.push({
+        id: `edge-${p.id}-${versionNodeId}`,
+        source: p.id,
+        target: versionNodeId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#8b949e", width: 14, height: 14 },
+        style: { stroke: "#8b949e", strokeWidth: 1.6, strokeDasharray: "4 3" },
+        type: "smoothstep",
+      });
+    });
+  });
+
   // Build edges from graph data
   const relationshipEdges: Edge[] = [];
   graph.edges.forEach((e) => {
@@ -394,6 +472,8 @@ function buildGraph(
 interface DepotGraphProps {
   graph: BrowseDepotGraph;
   moduleVersionsByKey?: Record<string, string[]>;
+  providerVersionsByKey?: Record<string, string[]>;
+  providerVersionMetaByKey?: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
   moduleVersionMetaByKey?: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
   moduleDetailByKey?: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
 }
@@ -414,12 +494,12 @@ type SelectedNode = {
   lastScanned?: string;
 } | null;
 
-export default function DepotGraph({ graph, moduleVersionsByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {} }: DepotGraphProps) {
+export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVersionsByKey = {}, providerVersionMetaByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {} }: DepotGraphProps) {
   const [selected, setSelected] = useState<SelectedNode>(null);
 
   const { nodes, edges } = useMemo(
-    () => buildGraph(graph, moduleVersionsByKey, moduleVersionMetaByKey, moduleDetailByKey),
-    [graph, moduleVersionsByKey, moduleVersionMetaByKey, moduleDetailByKey],
+    () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey),
+    [graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {

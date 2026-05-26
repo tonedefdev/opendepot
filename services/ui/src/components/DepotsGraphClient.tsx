@@ -8,7 +8,7 @@ import TextField from "@mui/material/TextField";
 import DepotGraph from "@/components/DepotGraph";
 import type { BrowseDepotGraph, BrowseStorageConfig } from "@/lib/api";
 
-const DEPOT_COLOR = "#047df1";
+const DEPOT_COLOR = "#04cfd0";
 const MODULE_COLOR = "#03deb8";
 const PROVIDER_COLOR = "#04cfd0";
 const VERSION_COLOR = "#8b949e";
@@ -22,6 +22,8 @@ type DepotOption = {
 interface DepotsGraphClientProps {
 	graph: BrowseDepotGraph;
 	moduleVersionsByKey: Record<string, string[]>;
+	providerVersionsByKey: Record<string, string[]>;
+	providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
 	moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
 	moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
 }
@@ -30,7 +32,7 @@ function makeDepotKey(namespace: string, name: string): string {
 	return `${namespace}/${name}`;
 }
 
-export default function DepotsGraphClient({ graph, moduleVersionsByKey, moduleVersionMetaByKey, moduleDetailByKey }: DepotsGraphClientProps) {
+export default function DepotsGraphClient({ graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey = {}, moduleVersionMetaByKey, moduleDetailByKey }: DepotsGraphClientProps) {
 	const depotOptions = React.useMemo<DepotOption[]>(
 		() =>
 			graph.depots.map((depot) => ({
@@ -122,7 +124,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, moduleVe
 	}, [graph, selectedDepotKeys]);
 
 	const totalVersions = React.useMemo(() => {
-		return filteredGraph.modules.reduce((sum, module) => {
+		const moduleVersionTotal = filteredGraph.modules.reduce((sum, module) => {
 			const key = makeDepotKey(module.namespace, module.name);
 			const versionMeta = moduleVersionMetaByKey[key] ?? [];
 			if (versionMeta.length > 0) {
@@ -131,7 +133,19 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, moduleVe
 			const versions = moduleVersionsByKey[key] ?? (module.latestVersion ? [module.latestVersion] : []);
 			return sum + new Set(versions.filter(Boolean)).size;
 		}, 0);
-	}, [filteredGraph.modules, moduleVersionMetaByKey, moduleVersionsByKey]);
+
+		const providerVersionTotal = filteredGraph.providers.reduce((sum, provider) => {
+			const key = makeDepotKey(provider.namespace, provider.name);
+			const providerMeta = providerVersionMetaByKey[key] ?? [];
+			if (providerMeta.length > 0) {
+				return sum + new Set(providerMeta.map((entry) => `${entry.version}|${entry.name ?? ""}`)).size;
+			}
+			const versions = providerVersionsByKey[key] ?? [];
+			return sum + new Set(versions.filter(Boolean)).size;
+		}, 0);
+
+		return moduleVersionTotal + providerVersionTotal;
+	}, [filteredGraph.modules, filteredGraph.providers, moduleVersionMetaByKey, moduleVersionsByKey, providerVersionMetaByKey, providerVersionsByKey]);
 
 	return (
 		<>
@@ -196,6 +210,8 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, moduleVe
 			<DepotGraph
 				graph={filteredGraph}
 				moduleVersionsByKey={moduleVersionsByKey}
+				providerVersionsByKey={providerVersionsByKey}
+				providerVersionMetaByKey={providerVersionMetaByKey}
 				moduleVersionMetaByKey={moduleVersionMetaByKey}
 				moduleDetailByKey={moduleDetailByKey}
 			/>

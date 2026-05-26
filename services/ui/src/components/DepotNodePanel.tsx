@@ -9,7 +9,7 @@ import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import HubIcon from "@mui/icons-material/Hub";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
 import StorageIcon from "@mui/icons-material/Storage";
 import Link from "next/link";
 import type { BrowseStorageConfig } from "@/lib/api";
@@ -35,7 +35,7 @@ interface DepotNodePanelProps {
   onClose: () => void;
 }
 
-const DEPOT_COLOR = "#047df1";
+const DEPOT_COLOR = "#04cfd0";
 const MODULE_COLOR = "#03deb8";
 const PROVIDER_COLOR = "#04cfd0";
 const VERSION_COLOR = "#8b949e";
@@ -131,7 +131,7 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
             {node.kind === "depot" ? (
-              <HubIcon sx={{ fontSize: 14, color: kindColor, flexShrink: 0 }} />
+              <WarehouseIcon sx={{ fontSize: 14, color: kindColor, flexShrink: 0 }} />
             ) : (
               <StorageIcon sx={{ fontSize: 14, color: kindColor, flexShrink: 0 }} />
             )}

@@ -11,6 +11,9 @@ import LockIcon from "@mui/icons-material/Lock";
 import PublicIcon from "@mui/icons-material/Public";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
+import ErrorIcon from "@mui/icons-material/Error";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
 import ProviderLogo from "./ProviderLogo";
@@ -84,10 +87,17 @@ export default function ResourceCard({ resource }: Props) {
 
           {/* Sync status */}
           <Box display="flex" alignItems="center" gap={0.5} mb={1}>
-            {resource.synced ? (
+            {/failed|error/i.test(resource.syncStatus) ? (
+              <ErrorIcon sx={{ fontSize: 13, color: "error.main" }} />
+            ) : resource.synced ? (
               <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
             ) : (
               <SyncProblemIcon sx={{ fontSize: 13, color: "warning.main" }} />
+            )}
+            {resource.hasUnsyncedVersions && (
+              <Tooltip title="Some versions are out of sync">
+                <WarningAmberIcon sx={{ fontSize: 13, color: "warning.main" }} />
+              </Tooltip>
             )}
             <Typography variant="caption" color="text.secondary">
               {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}

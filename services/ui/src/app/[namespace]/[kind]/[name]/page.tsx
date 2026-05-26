@@ -17,7 +17,10 @@ import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
+import ErrorIcon from "@mui/icons-material/Error";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import StorageIcon from "@mui/icons-material/Storage";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import Link from "next/link";
@@ -162,6 +165,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
     !!detail.storageConfig?.subscriptionID ||
     !!detail.storageConfig?.resourceGroup;
   const sortedVersions = [...(detail.versions ?? [])].sort((a, b) => compareVersionDesc(a.version, b.version));
+  const hasUnsyncedVersions = (detail.versions ?? []).some(
+    (v) => !v.synced || /failed|error/i.test(v.syncStatus ?? ""),
+  );
 
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
@@ -188,8 +194,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           mb: 4,
           p: 3,
           borderRadius: 2,
-          border: "1px solid rgba(4,125,241,0.2)",
-          background: "linear-gradient(135deg, rgba(4,125,241,0.06) 0%, rgba(3,222,184,0.03) 100%)",
+          border: "1px solid rgba(4,207,208,0.2)",
+          background: "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
         }}
       >
         {detail.provider && <ProviderLogo provider={detail.provider} size={44} />}
@@ -213,17 +219,24 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 size="small"
                 sx={{
                   fontFamily: "monospace",
-                  background: "rgba(4,125,241,0.12)",
-                  color: "#047df1",
-                  border: "1px solid rgba(4,125,241,0.3)",
+                  background: "rgba(4,207,208,0.12)",
+                  color: "#04cfd0",
+                  border: "1px solid rgba(4,207,208,0.3)",
                 }}
               />
             )}
             <Box display="flex" alignItems="center" gap={0.5}>
-              {detail.synced ? (
+              {/failed|error/i.test(detail.syncStatus) ? (
+                <ErrorIcon sx={{ fontSize: 14, color: "error.main" }} />
+              ) : detail.synced ? (
                 <CheckCircleIcon sx={{ fontSize: 14, color: "success.main" }} />
               ) : (
                 <SyncProblemIcon sx={{ fontSize: 14, color: "warning.main" }} />
+              )}
+              {hasUnsyncedVersions && (
+                <Tooltip title="Some versions are out of sync">
+                  <WarningAmberIcon sx={{ fontSize: 14, color: "warning.main" }} />
+                </Tooltip>
               )}
               <Typography variant="caption" color="text.secondary">
                 {detail.syncStatus || (detail.synced ? "Synced" : "Not synced")}
@@ -310,7 +323,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
       {/* Depot Association */}
       {detail.depotRef && (
-        <SectionCard icon={<StorageIcon fontSize="small" />} title="Depot">
+        <SectionCard icon={<WarehouseIcon fontSize="small" />} title="Depot">
           <Box display="flex" gap={1} alignItems="center">
             <Chip
               label={`${detail.depotRef.namespace} / ${detail.depotRef.name}`}
@@ -332,28 +345,30 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             <Chip label={sortedVersions.length} size="small" sx={{ ml: 1, fontSize: "0.72rem" }} />
           </Typography>
           <Box sx={{ overflowX: "auto", borderRadius: 2, border: "1px solid rgba(240,246,252,0.08)" }}>
-            <Table size="small" sx={{ tableLayout: { xs: "auto", md: "fixed" } }}>
+            <Table size="small" sx={{ minWidth: 860 }}>
               <TableHead>
                 <TableRow>
-                  <TableCell>Version</TableCell>
-                  <TableCell>Sync Status</TableCell>
-                  {detail.kind === "provider" && <TableCell>OS</TableCell>}
-                  {detail.kind === "provider" && <TableCell>Arch</TableCell>}
-                  <TableCell>File Name</TableCell>
-                  <TableCell>Checksum</TableCell>
-                  <TableCell>Last Scanned</TableCell>
-                  <TableCell>Findings</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Version</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Sync Status</TableCell>
+                  {detail.kind === "provider" && <TableCell sx={{ whiteSpace: "nowrap" }}>OS</TableCell>}
+                  {detail.kind === "provider" && <TableCell sx={{ whiteSpace: "nowrap" }}>Arch</TableCell>}
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>File Name</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Checksum</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Last Scanned</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Findings</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {sortedVersions.map((v, idx) => (
                   <TableRow key={`${v.version}-${v.os || ""}-${v.arch || ""}-${idx}`} hover>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
                       {displayVersion(v.version)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ verticalAlign: "top" }}>
                       <Box display="flex" alignItems="center" gap={0.5}>
-                        {v.synced ? (
+                        {/failed|error/i.test(v.syncStatus) ? (
+                          <ErrorIcon sx={{ fontSize: 12, color: "error.main" }} />
+                        ) : v.synced ? (
                           <CheckCircleIcon sx={{ fontSize: 12, color: "success.main" }} />
                         ) : (
                           <SyncProblemIcon sx={{ fontSize: 12, color: "warning.main" }} />
@@ -362,15 +377,15 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                       </Box>
                     </TableCell>
                     {detail.kind === "provider" && (
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>{v.os || "—"}</TableCell>
+                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>{v.os || "—"}</TableCell>
                     )}
                     {detail.kind === "provider" && (
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>{v.arch || "—"}</TableCell>
+                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>{v.arch || "—"}</TableCell>
                     )}
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word" }}>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
                       {v.fileName || "—"}
                     </TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.7rem", maxWidth: 220 }}>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
                       {v.checksum ? (
                         <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                           <Typography
@@ -383,9 +398,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                         </Box>
                       ) : "—"}
                     </TableCell>
-                    <TableCell sx={{ fontSize: "0.8125rem" }}>{v.lastScanned || "—"}</TableCell>
-                    <TableCell>
-                      <Box display="flex" gap={0.5}>
+                    <TableCell sx={{ fontSize: "0.8125rem", verticalAlign: "top", whiteSpace: "nowrap" }}>{v.lastScanned || "—"}</TableCell>
+                    <TableCell sx={{ verticalAlign: "top" }}>
+                      <Box display="flex" gap={0.5} flexWrap="wrap" sx={{ maxWidth: 160 }}>
                         <SeverityBadge counts={v.scanCounts} />
                       </Box>
                     </TableCell>

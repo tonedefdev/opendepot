@@ -1,17 +1,19 @@
 import { createTheme } from "@mui/material/styles";
 
 // Brand tokens from docs/stylesheets/extra.css
-const primary = "#047df1";
+// Dark-mode palette mirrors the docs slate scheme: teal (#04cfd0) is primary,
+// blue (#047df1) is demoted to primary.dark / secondary.
+const primary = "#04cfd0";
 const accent = "#03deb8";
-const secondary = "#04cfd0";
+const secondary = "#047df1";
 
 const theme = createTheme({
   palette: {
     mode: "dark",
     primary: {
       main: primary,
-      light: "#3399ff",
-      dark: "#0260c0",
+      light: accent,
+      dark: secondary,
     },
     secondary: {
       main: secondary,
@@ -68,8 +70,8 @@ const theme = createTheme({
           border: "1px solid rgba(240,246,252,0.1)",
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
           "&:hover": {
-            borderColor: "rgba(4,125,241,0.5)",
-            boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.4)",
+            borderColor: "rgba(4,207,208,0.5)",
+            boxShadow: "0 0 0 1px rgba(4,207,208,0.15), 0 4px 16px rgba(0,0,0,0.4)",
           },
         },
       },

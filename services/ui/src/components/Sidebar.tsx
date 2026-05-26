@@ -24,16 +24,19 @@ import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
 import LogoutIcon from "@mui/icons-material/Logout";
 import LoginIcon from "@mui/icons-material/Login";
-import HubIcon from "@mui/icons-material/Hub";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GridViewIcon from "@mui/icons-material/GridView";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
+const COLLAPSED_WIDTH = 56;
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 
 interface Namespace {
@@ -139,6 +142,7 @@ export default function Sidebar({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const isOnHome = pathname === "/";
 
@@ -157,38 +161,45 @@ export default function Sidebar({
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Logo + Branding */}
       <Box
-        component={Link}
-        href="/"
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 1,
+          justifyContent: "space-between",
           px: 2,
           py: 2.5,
-          textDecoration: "none",
-          borderBottom: "1px solid rgba(240,246,252,0.08)",
-          "&:hover": { opacity: 0.85 },
+          background: "linear-gradient(135deg, #047df1 0%, #03deb8 100%)",
+          borderBottom: "none",
         }}
       >
-        <Box>
-          <Typography
-            variant="body1"
-            sx={{
-              fontWeight: 700,
-              color: "text.primary",
-              lineHeight: 1.2,
-              fontSize: "0.9375rem",
-            }}
-          >
-            OpenDepot
-          </Typography>
-          <Typography
-            variant="caption"
-            sx={{ color: "primary.main", fontSize: "0.7rem", fontWeight: 500 }}
-          >
-            Registry Explorer
-          </Typography>
+        <Box
+          component={Link}
+          href="/"
+          sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", "&:hover": { opacity: 0.85 } }}
+        >
+          <Box>
+            <Typography
+              variant="body1"
+              sx={{ fontWeight: 700, color: "#fff", lineHeight: 1.2, fontSize: "0.9375rem" }}
+            >
+              OpenDepot
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ color: "rgba(255,255,255,0.85)", fontSize: "0.7rem", fontWeight: 500 }}
+            >
+              Registry Explorer
+            </Typography>
+          </Box>
         </Box>
+        <Tooltip title="Collapse sidebar" placement="right">
+          <IconButton
+            size="small"
+            onClick={() => setCollapsed(true)}
+            sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, flexShrink: 0 }}
+          >
+            <ChevronLeftIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Search */}
@@ -206,8 +217,8 @@ export default function Sidebar({
             px: 1.5,
             py: 0.5,
             "&:focus-within": {
-              borderColor: "rgba(4,125,241,0.5)",
-              background: "rgba(4,125,241,0.05)",
+              borderColor: "rgba(4,207,208,0.5)",
+              background: "rgba(4,207,208,0.05)",
             },
           }}
         >
@@ -252,8 +263,8 @@ export default function Sidebar({
                 mx: 1,
                 borderRadius: "6px",
                 py: 0.5,
-                "&.Mui-selected": { background: "rgba(4,125,241,0.12)", color: "primary.main" },
-                "&.Mui-selected:hover": { background: "rgba(4,125,241,0.18)" },
+                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
+                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
               }}
             >
               <GridViewIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
@@ -272,11 +283,11 @@ export default function Sidebar({
                 mx: 1,
                 borderRadius: "6px",
                 py: 0.5,
-                "&.Mui-selected": { background: "rgba(4,125,241,0.12)", color: "primary.main" },
-                "&.Mui-selected:hover": { background: "rgba(4,125,241,0.18)" },
+                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
+                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
               }}
             >
-              <HubIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <WarehouseIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
               <ListItemText
                 primary="Depots"
                 primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: pathname === "/depots" ? 600 : 400 }}
@@ -341,11 +352,11 @@ export default function Sidebar({
                   borderRadius: "6px",
                   py: 0.5,
                   "&.Mui-selected": {
-                    background: "rgba(4,125,241,0.12)",
+                    background: "rgba(4,207,208,0.12)",
                     color: "primary.main",
                   },
                   "&.Mui-selected:hover": {
-                    background: "rgba(4,125,241,0.18)",
+                    background: "rgba(4,207,208,0.18)",
                   },
                 }}
               >
@@ -389,11 +400,11 @@ export default function Sidebar({
                       borderRadius: "6px",
                       py: 0.4,
                       "&.Mui-selected": {
-                        background: "rgba(4,125,241,0.12)",
+                        background: "rgba(4,207,208,0.12)",
                         color: "primary.main",
                       },
                       "&.Mui-selected:hover": {
-                        background: "rgba(4,125,241,0.18)",
+                        background: "rgba(4,207,208,0.18)",
                       },
                     }}
                   >
@@ -529,6 +540,64 @@ export default function Sidebar({
     </Box>
   );
 
+  const collapsedContent = (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
+      <Tooltip title="Expand sidebar" placement="right">
+        <IconButton
+          size="small"
+          onClick={() => setCollapsed(false)}
+          sx={{ color: "text.secondary", "&:hover": { color: "text.primary" }, mb: 0.5 }}
+        >
+          <ChevronRightIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Tooltip>
+      <Divider sx={{ width: "80%", mb: 0.5 }} />
+      <Tooltip title="Registry" placement="right">
+        <IconButton
+          component={Link}
+          href="/"
+          sx={{
+            color: isOnHome ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: isOnHome ? "rgba(4,207,208,0.12)" : "transparent",
+            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+          }}
+        >
+          <GridViewIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Depots" placement="right">
+        <IconButton
+          component={Link}
+          href="/depots"
+          sx={{
+            color: pathname === "/depots" ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: pathname === "/depots" ? "rgba(4,207,208,0.12)" : "transparent",
+            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+          }}
+        >
+          <WarehouseIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
+      <Box sx={{ flex: 1 }} />
+      <Divider sx={{ width: "80%", mb: 0.5 }} />
+      {userInfo ? (
+        <Tooltip title={userInfo.name ?? userInfo.email} placement="right">
+          <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
+            {avatarInitials}
+          </Avatar>
+        </Tooltip>
+      ) : (
+        <Tooltip title="Sign in" placement="right">
+          <IconButton component={Link} href="/auth/login" size="small" sx={{ color: "text.secondary" }}>
+            <LoginIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  );
+
   return (
     <>
       {/* Mobile hamburger toggle — fixed top-left, only visible on xs */}
@@ -543,7 +612,7 @@ export default function Sidebar({
             zIndex: 1300,
             bgcolor: "background.paper",
             border: "1px solid rgba(240,246,252,0.12)",
-            "&:hover": { bgcolor: "rgba(4,125,241,0.1)" },
+            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
           }}
         >
           <MenuIcon sx={{ fontSize: 20 }} />
@@ -567,20 +636,22 @@ export default function Sidebar({
         variant="permanent"
         sx={{
           display: { xs: "none", sm: "block" },
-          width: DRAWER_WIDTH,
+          width: collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH,
           flexShrink: 0,
+          transition: "width 0.2s ease",
           "& .MuiDrawer-paper": {
-            width: DRAWER_WIDTH,
+            width: collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH,
             boxSizing: "border-box",
             overflowX: "hidden",
+            transition: "width 0.2s ease",
           },
         }}
         open
       >
-        {drawerContent}
+        {collapsed ? collapsedContent : drawerContent}
       </Drawer>
     </>
   );
 }
 
-export { DRAWER_WIDTH };
+export { DRAWER_WIDTH, COLLAPSED_WIDTH };

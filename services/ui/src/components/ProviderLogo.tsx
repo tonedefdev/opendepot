@@ -45,7 +45,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
           sx={{
             fontSize: size * 0.45,
             fontWeight: 700,
-            color: "#047df1",
+            color: "#04cfd0",
             fontFamily: "monospace",
           }}
         >

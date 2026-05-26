@@ -175,6 +175,18 @@ func latestOf(times ...string) string {
 	return latest
 }
 
+// anyVersionUnsynced returns true when any Version in vs has Synced == false
+// or a SyncStatus containing "failed" or "error" (case-insensitive).
+func anyVersionUnsynced(vs []opendepotv1alpha1.Version) bool {
+	for _, v := range vs {
+		ss := strings.ToLower(v.Status.SyncStatus)
+		if !v.Status.Synced || strings.Contains(ss, "failed") || strings.Contains(ss, "error") {
+			return true
+		}
+	}
+	return false
+}
+
 // severityRank returns a numeric rank for a severity string (lower = more severe).
 func severityRank(s string) int {
 	switch strings.ToUpper(s) {
@@ -808,6 +820,7 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 	}
 
 	card.LastScanned = latestOf(times...)
+	card.HasUnsyncedVersions = anyVersionUnsynced(versions)
 }
 
 // enrichProviderCard sets Platforms, ScanCounts, and LastScanned on a provider card.
@@ -823,6 +836,11 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 
 		if *v.Spec.ProviderConfigRef.Name != p.Name {
 			continue
+		}
+
+		ss := strings.ToLower(v.Status.SyncStatus)
+		if !v.Status.Synced || strings.Contains(ss, "failed") || strings.Contains(ss, "error") {
+			card.HasUnsyncedVersions = true
 		}
 
 		osName := v.Spec.OperatingSystem
@@ -937,6 +955,7 @@ func moduleVersionSummaries(versions []opendepotv1alpha1.Version) []BrowseVersio
 	summaries := make([]BrowseVersionSummary, 0, len(versions))
 	for _, v := range versions {
 		s := BrowseVersionSummary{
+			Name:       v.Name,
 			Version:    v.Spec.Version,
 			Synced:     v.Status.Synced,
 			SyncStatus: v.Status.SyncStatus,
@@ -968,6 +987,7 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 		}
 
 		s := BrowseVersionSummary{
+			Name:       v.Name,
 			Version:    normalizeVersion(v.Spec.Version),
 			Synced:     v.Status.Synced,
 			SyncStatus: v.Status.SyncStatus,

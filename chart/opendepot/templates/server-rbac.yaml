@@ -38,6 +38,16 @@ rules:
   - get
   - list
   - watch
+{{- if .Values.ui.enabled }}
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - depots
+  verbs:
+  - get
+  - list
+  - watch
+{{- end }}
 - apiGroups:
   - opendepot.defdev.io
   resources:

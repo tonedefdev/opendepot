@@ -26,6 +26,7 @@ export function SeverityChip({ severity, count }: Props) {
         size="small"
         color={colorMap[severity]}
         label={`${severity.charAt(0).toUpperCase()} ${count}`}
+        sx={{ color: "#fff" }}
       />
     </Tooltip>
   );

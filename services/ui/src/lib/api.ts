@@ -25,6 +25,7 @@ export interface BrowseResource {
   latestVersion: string;
   syncStatus: string;
   synced: boolean;
+  hasUnsyncedVersions?: boolean;
   public: boolean;
   provider: string;
   repoUrl: string;
@@ -51,6 +52,7 @@ export interface BrowseNamespaceList {
 }
 
 export interface BrowseVersionSummary {
+  name?: string;
   version: string;
   syncStatus: string;
   os: string;

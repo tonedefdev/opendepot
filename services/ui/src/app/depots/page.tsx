@@ -11,6 +11,8 @@ import DepotsGraphClient from "@/components/DepotsGraphClient";
 export default async function DepotsPage() {
   const token = await getServerSessionToken();
   let moduleVersionsByKey: Record<string, string[]> = {};
+  let providerVersionsByKey: Record<string, string[]> = {};
+  let providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>> = {};
   let moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>> = {};
   let moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }> = {};
 
@@ -72,6 +74,42 @@ export default async function DepotsPage() {
       moduleVersionsByKey = Object.fromEntries(
         moduleVersionEntries.map(([key, value]) => [key, value.versions]),
       ) as Record<string, string[]>;
+
+      const providerVersionEntries = await Promise.all(
+        graph.providers.map(async (provider) => {
+          const key = `${provider.namespace}/${provider.name}`;
+          try {
+            const detail = await getResourceDetail(provider.namespace, "provider", provider.name, token);
+            const versionMeta = (detail.versions ?? [])
+              .filter((version) => Boolean(version.version))
+              .map((version) => ({
+                version: version.version,
+                name: version.name,
+                fileName: version.fileName,
+                checksum: version.checksum,
+                lastScanned: version.lastScanned,
+              }));
+
+            const dedupedVersionMeta = Array.from(
+              new Map(
+                versionMeta.map((entry) => [
+                  `${entry.version}|${entry.name ?? ""}`,
+                  entry,
+                ]),
+              ).values(),
+            );
+
+            return [key, dedupedVersionMeta] as const;
+          } catch {
+            return [key, []] as const;
+          }
+        }),
+      );
+      providerVersionMetaByKey = Object.fromEntries(providerVersionEntries) as Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
+      providerVersionsByKey = Object.fromEntries(
+        providerVersionEntries.map(([key, value]) => [key, value.map((entry) => entry.version)]),
+      ) as Record<string, string[]>;
+
       moduleVersionMetaByKey = Object.fromEntries(
         moduleVersionEntries.map(([key, value]) => [key, value.versionMeta]),
       ) as Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
@@ -155,6 +193,8 @@ export default async function DepotsPage() {
           <DepotsGraphClient
             graph={graph}
             moduleVersionsByKey={moduleVersionsByKey}
+            providerVersionsByKey={providerVersionsByKey}
+            providerVersionMetaByKey={providerVersionMetaByKey}
             moduleVersionMetaByKey={moduleVersionMetaByKey}
             moduleDetailByKey={moduleDetailByKey}
           />

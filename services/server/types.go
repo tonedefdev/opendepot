@@ -97,6 +97,10 @@ type BrowseResource struct {
 	LatestVersion string `json:"latestVersion,omitempty"`
 	Synced        bool   `json:"synced"`
 	SyncStatus    string `json:"syncStatus,omitempty"`
+	// HasUnsyncedVersions is true when at least one Version resource for this
+	// Module or Provider has Synced == false or a SyncStatus containing "failed"
+	// or "error" (case-insensitive).
+	HasUnsyncedVersions bool `json:"hasUnsyncedVersions,omitempty"`
 	// Module-specific fields.
 	Provider string `json:"provider,omitempty"`
 	RepoURL  string `json:"repoUrl,omitempty"`
@@ -131,6 +135,7 @@ type BrowseNamespaceList struct {
 
 // BrowseVersionSummary summarizes a single version for the detail page.
 type BrowseVersionSummary struct {
+	Name        string            `json:"name,omitempty"`
 	Version     string            `json:"version"`
 	Synced      bool              `json:"synced"`
 	SyncStatus  string            `json:"syncStatus,omitempty"`
