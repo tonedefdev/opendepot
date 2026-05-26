@@ -297,7 +297,8 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
       "provider": "aws",
       "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
       "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
-      "public": true
+      "public": true,
+      "hasUnsyncedVersions": true
     }
   ],
   "totalCount": 1,
@@ -305,6 +306,8 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
   "pageSize": 20
 }
 ```
+
+`hasUnsyncedVersions` is present and `true` when at least one `Version` CR under the resource has `status.synced: false` or a `status.syncStatus` containing `"failed"` or `"error"` (case-insensitive). The field is omitted from the response when all versions are healthy.
 
 ### Resource Detail
 
@@ -351,6 +354,54 @@ Returns full detail for a single resource including all versions and scan findin
   }
 }
 ```
+
+### List Resource Versions
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions
+```
+
+Returns a paginated, filtered list of versions for a single resource. Used by the Registry Explorer detail page to populate the versions table. Authentication follows the same rules as the other browse endpoints.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | int | `1` | Page number (1-based) |
+| `page_size` | int | `20` | Items per page (max `100`) |
+| `q` | string | — | Case-insensitive substring filter on the version string |
+| `synced` | string | — | `true` = healthy versions only, `false` = failed or error versions only; omit for all |
+| `os` | string | — | Exact OS filter (case-insensitive); providers only |
+| `arch` | string | — | Exact architecture filter (case-insensitive); providers only |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "version": "3.19.0",
+      "synced": true,
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+    }
+  ],
+  "totalCount": 42,
+  "page": 1,
+  "pageSize": 20,
+  "availableOS": ["darwin", "linux", "windows"],
+  "availableArch": ["amd64", "arm64"]
+}
+```
+
+`availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
 
 ### List Depots
 

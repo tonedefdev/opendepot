@@ -210,6 +210,40 @@ To allow users to log in through the browser:
 
 After logging in, users can browse all resources allowed by their `GroupBinding` in addition to the publicly-labelled set.
 
+## Version Sync Warnings
+
+Resource cards in the browse grid and the resource detail page header show an amber warning icon when any `Version` CR under a `Module` or `Provider` has a sync problem, even if the parent resource itself is marked as synced. Hovering the icon displays the tooltip **"Some versions are out of sync"**.
+
+A version is considered out of sync when either of the following is true:
+
+- `status.synced: false`
+- `status.syncStatus` contains `"failed"` or `"error"` (case-insensitive)
+
+This indicator is independent of the per-resource sync status chip. A resource can show a green sync status alongside the version warning — indicating the resource is healthy but one or more of its version artifacts failed to download or process.
+
+The server computes this flag for grid cards and exposes it as `hasUnsyncedVersions` in the [List Resources](#list-resources) response. The detail page derives the same flag client-side from the version list already present in the [Resource Detail](#resource-detail) response.
+
+## Versions Table
+
+The versions table on module and provider detail pages supports server-side filtering and pagination via the [List Resource Versions](#list-resource-versions) endpoint.
+
+### Filter bar
+
+| Control | Applicable to | Description |
+|---------|--------------|-------------|
+| Version search | All | Case-insensitive substring match on the version string |
+| Sync status | All | Filter to **All**, **Synced**, or **Failed** versions |
+| OS | Providers only | Filter by operating system; options populated from the versions in the current resource |
+| Arch | Providers only | Filter by CPU architecture; options populated from the versions in the current resource |
+
+A **Clear** button appears when any filter is active and resets all filters at once.
+
+### Pagination
+
+A **Rows per page** selector (10 / 20 / 50 / 100) and page navigation controls appear at the bottom of the table. Changing any filter resets the table to page 1.
+
+While the table is loading, skeleton rows are displayed. When no versions match the active filters, the table shows **"No versions match the current filters."**
+
 ## Depots Page
 
 The **Depots** page (`/depots`) renders an interactive relationship graph of all visible `Depot` resources and the `Module` and `Provider` resources each depot manages. It is accessible from the **Depots** entry in the sidebar navigation.
@@ -361,3 +395,51 @@ Returns full detail for a single resource, including all versions and scan findi
   ]
 }
 ```
+
+### List Resource Versions
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions
+```
+
+Returns a paginated, filtered list of versions for a single resource. Authentication follows the same rules as the other browse endpoints.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | int | `1` | Page number (1-based) |
+| `page_size` | int | `20` | Items per page (max `100`) |
+| `q` | string | — | Case-insensitive substring filter on the version string |
+| `synced` | string | — | `true` = healthy versions only, `false` = failed or error versions only; omit for all |
+| `os` | string | — | Exact OS filter (case-insensitive); providers only |
+| `arch` | string | — | Exact architecture filter (case-insensitive); providers only |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "version": "3.19.0",
+      "synced": true,
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+    }
+  ],
+  "totalCount": 42,
+  "page": 1,
+  "pageSize": 20,
+  "availableOS": ["darwin", "linux", "windows"],
+  "availableArch": ["amd64", "arm64"]
+}
+```
+
+`availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
