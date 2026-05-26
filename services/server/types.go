@@ -147,6 +147,16 @@ type BrowseVersionSummary struct {
 	Checksum    *string           `json:"checksum,omitempty"`
 }
 
+// BrowseVersionList is the paginated response for the version listing endpoint.
+type BrowseVersionList struct {
+	Items         []BrowseVersionSummary `json:"items"`
+	TotalCount    int                    `json:"totalCount"`
+	Page          int                    `json:"page"`
+	PageSize      int                    `json:"pageSize"`
+	AvailableOS   []string               `json:"availableOS,omitempty"`
+	AvailableArch []string               `json:"availableArch,omitempty"`
+}
+
 // BrowseStorageConfig is a display-ready summary of a StorageConfig.
 type BrowseStorageConfig struct {
 	Backend        string  `json:"backend"`

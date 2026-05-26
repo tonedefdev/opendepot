@@ -1152,6 +1152,264 @@ func derefString(s *string) string {
 	return *s
 }
 
+// splitVersionParts splits a normalized version string into its constituent tokens
+// by breaking on '.', '+', and '-' separators.
+func splitVersionParts(v string) []string {
+	var parts []string
+	start := 0
+	for i, c := range v {
+		if c == '.' || c == '+' || c == '-' {
+			if i > start {
+				parts = append(parts, v[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(v) {
+		parts = append(parts, v[start:])
+	}
+	return parts
+}
+
+// compareVersionDesc reports whether version string a is newer than b (i.e., a should
+// sort before b in a descending-by-version listing). Mirrors the client-side
+// compareVersionDesc function in page.tsx.
+func compareVersionDesc(a, b string) bool {
+	aParts := splitVersionParts(normalizeVersion(a))
+	bParts := splitVersionParts(normalizeVersion(b))
+	length := len(aParts)
+	if len(bParts) > length {
+		length = len(bParts)
+	}
+	for i := 0; i < length; i++ {
+		if i >= len(aParts) {
+			return false
+		}
+		if i >= len(bParts) {
+			return true
+		}
+		aNum, aErr := strconv.Atoi(aParts[i])
+		bNum, bErr := strconv.Atoi(bParts[i])
+		if aErr == nil && bErr == nil {
+			if aNum != bNum {
+				return aNum > bNum
+			}
+			continue
+		}
+		if aErr == nil {
+			return true // numeric tokens sort before string tokens
+		}
+		if bErr == nil {
+			return false
+		}
+		al := strings.ToLower(aParts[i])
+		bl := strings.ToLower(bParts[i])
+		if al != bl {
+			return al > bl
+		}
+	}
+	return false
+}
+
+// filterAndPaginateVersions applies in-memory text/status/os/arch filters and pagination
+// to a pre-sorted slice of BrowseVersionSummary values. AvailableOS and AvailableArch
+// are derived from the full (unfiltered) set so UI dropdowns stay populated while filters
+// are active.
+func filterAndPaginateVersions(all []BrowseVersionSummary, q, syncedStr, osFilter, archFilter string, page, pageSize int) BrowseVersionList {
+	// Collect distinct OS/arch values from the unfiltered set.
+	osSet := make(map[string]struct{})
+	archSet := make(map[string]struct{})
+	for _, v := range all {
+		if v.OS != "" {
+			osSet[v.OS] = struct{}{}
+		}
+		if v.Arch != "" {
+			archSet[v.Arch] = struct{}{}
+		}
+	}
+
+	// Apply filters.
+	filtered := make([]BrowseVersionSummary, 0, len(all))
+	for _, v := range all {
+		if q != "" && !strings.Contains(strings.ToLower(v.Version), strings.ToLower(q)) {
+			continue
+		}
+		if syncedStr != "" {
+			ss := strings.ToLower(v.SyncStatus)
+			problematic := !v.Synced || strings.Contains(ss, "failed") || strings.Contains(ss, "error")
+			if syncedStr == "true" && problematic {
+				continue
+			}
+			if syncedStr == "false" && !problematic {
+				continue
+			}
+		}
+		if osFilter != "" && !strings.EqualFold(v.OS, osFilter) {
+			continue
+		}
+		if archFilter != "" && !strings.EqualFold(v.Arch, archFilter) {
+			continue
+		}
+		filtered = append(filtered, v)
+	}
+
+	totalCount := len(filtered)
+	start := (page - 1) * pageSize
+	if start > totalCount {
+		start = totalCount
+	}
+	end := start + pageSize
+	if end > totalCount {
+		end = totalCount
+	}
+
+	availableOS := make([]string, 0, len(osSet))
+	for os := range osSet {
+		availableOS = append(availableOS, os)
+	}
+	sort.Strings(availableOS)
+
+	availableArch := make([]string, 0, len(archSet))
+	for arch := range archSet {
+		availableArch = append(availableArch, arch)
+	}
+	sort.Strings(availableArch)
+
+	return BrowseVersionList{
+		Items:         filtered[start:end],
+		TotalCount:    totalCount,
+		Page:          page,
+		PageSize:      pageSize,
+		AvailableOS:   availableOS,
+		AvailableArch: availableArch,
+	}
+}
+
+// handleBrowseVersionsList returns a paginated, filterable list of version summaries for a
+// single module or provider resource.
+// GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions
+func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	namespace := chi.URLParam(r, "namespace")
+	kind := strings.ToLower(chi.URLParam(r, "kind"))
+	name := chi.URLParam(r, "name")
+
+	binding, allAccess := browseAuthState(r)
+
+	cs, err := browseSAClient()
+	if err != nil {
+		logger.Error("browse: failed to create SA client", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	nsLabels, _ := browseGetNamespaceLabels(cs, r, namespace)
+	nsPublic := isPublicNamespace(nsLabels)
+
+	// Parse query params.
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
+		page = p
+	}
+	pageSize := 20
+	if ps, err := strconv.Atoi(r.URL.Query().Get("page_size")); err == nil && ps > 0 {
+		if ps > 100 {
+			ps = 100
+		}
+		pageSize = ps
+	}
+	q := r.URL.Query().Get("q")
+	syncedStr := r.URL.Query().Get("synced")
+	osFilter := r.URL.Query().Get("os")
+	archFilter := r.URL.Query().Get("arch")
+
+	switch kind {
+	case "module":
+		rawModule, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource("modules").
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get module", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var m opendepotv1alpha1.Module
+		if err := json.Unmarshal(rawModule, &m); err != nil {
+			logger.Error("browse: failed to unmarshal module", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(m.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, _ := browseListModuleVersions(cs, r, namespace, name)
+		summaries := moduleVersionSummaries(versions)
+		sort.SliceStable(summaries, func(i, j int) bool {
+			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
+		})
+
+		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
+		json.NewEncoder(w).Encode(result)
+
+	case "provider":
+		rawProvider, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource("providers").
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get provider", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var p opendepotv1alpha1.Provider
+		if err := json.Unmarshal(rawProvider, &p); err != nil {
+			logger.Error("browse: failed to unmarshal provider", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(p.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, _ := browseListProviderVersions(cs, r, namespace)
+		summaries := providerVersionSummaries(p, versions)
+		sort.SliceStable(summaries, func(i, j int) bool {
+			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
+		})
+
+		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
+		json.NewEncoder(w).Encode(result)
+
+	default:
+		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+	}
+}
+
 // handleBrowseDepots returns a list of all Depot resources visible to the caller.
 // GET /opendepot/ui/v1/depots
 func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {

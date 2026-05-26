@@ -8,11 +8,6 @@ import Alert from "@mui/material/Alert";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import IconButton from "@mui/material/IconButton";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -28,6 +23,7 @@ import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
+import VersionsTable from "@/components/VersionsTable";
 import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -168,6 +164,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   const hasUnsyncedVersions = (detail.versions ?? []).some(
     (v) => !v.synced || /failed|error/i.test(v.syncStatus ?? ""),
   );
+  const isProviderKind = kind === "provider";
 
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
@@ -194,8 +191,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           mb: 4,
           p: 3,
           borderRadius: 2,
-          border: "1px solid rgba(4,207,208,0.2)",
-          background: "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
+          border: isProviderKind ? "1px solid rgba(4,125,241,0.25)" : "1px solid rgba(4,207,208,0.2)",
+          background: isProviderKind
+            ? "linear-gradient(135deg, rgba(4,125,241,0.08) 0%, rgba(4,125,241,0.03) 100%)"
+            : "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
         }}
       >
         {detail.provider && <ProviderLogo provider={detail.provider} size={44} />}
@@ -209,9 +208,15 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           </Typography>
 
           <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
-            <Chip label={capitalizeKind} color="primary" size="small" />
+            <Chip label={capitalizeKind} color={kind === "provider" ? "secondary" : "primary"} size="small" />
             {detail.provider && (
-              <Chip label={detail.provider} size="small" variant="outlined" sx={{ fontFamily: "monospace" }} />
+              <Chip
+                label={detail.provider}
+                size="small"
+                variant="outlined"
+                color="primary"
+                sx={{ fontFamily: "monospace" }}
+              />
             )}
             {detail.latestVersion && (
               <Chip
@@ -338,79 +343,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       <Divider sx={{ my: 3 }} />
 
       {/* Versions */}
-      {sortedVersions.length > 0 && (
-        <Box mb={4}>
-          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-            Versions{" "}
-            <Chip label={sortedVersions.length} size="small" sx={{ ml: 1, fontSize: "0.72rem" }} />
-          </Typography>
-          <Box sx={{ overflowX: "auto", borderRadius: 2, border: "1px solid rgba(240,246,252,0.08)" }}>
-            <Table size="small" sx={{ minWidth: 860 }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Version</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Sync Status</TableCell>
-                  {detail.kind === "provider" && <TableCell sx={{ whiteSpace: "nowrap" }}>OS</TableCell>}
-                  {detail.kind === "provider" && <TableCell sx={{ whiteSpace: "nowrap" }}>Arch</TableCell>}
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>File Name</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Checksum</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Last Scanned</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>Findings</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {sortedVersions.map((v, idx) => (
-                  <TableRow key={`${v.version}-${v.os || ""}-${v.arch || ""}-${idx}`} hover>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
-                      {displayVersion(v.version)}
-                    </TableCell>
-                    <TableCell sx={{ verticalAlign: "top" }}>
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        {/failed|error/i.test(v.syncStatus) ? (
-                          <ErrorIcon sx={{ fontSize: 12, color: "error.main" }} />
-                        ) : v.synced ? (
-                          <CheckCircleIcon sx={{ fontSize: 12, color: "success.main" }} />
-                        ) : (
-                          <SyncProblemIcon sx={{ fontSize: 12, color: "warning.main" }} />
-                        )}
-                        <Typography variant="caption">{v.syncStatus}</Typography>
-                      </Box>
-                    </TableCell>
-                    {detail.kind === "provider" && (
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>{v.os || "—"}</TableCell>
-                    )}
-                    {detail.kind === "provider" && (
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>{v.arch || "—"}</TableCell>
-                    )}
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
-                      {v.fileName || "—"}
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
-                      {v.checksum ? (
-                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{ fontFamily: "monospace", whiteSpace: "normal", wordBreak: "break-all", maxWidth: { xs: 120, md: 180 }, display: "block" }}
-                          >
-                            {v.checksum}
-                          </Typography>
-                          <CopyButton value={v.checksum} />
-                        </Box>
-                      ) : "—"}
-                    </TableCell>
-                    <TableCell sx={{ fontSize: "0.8125rem", verticalAlign: "top", whiteSpace: "nowrap" }}>{v.lastScanned || "—"}</TableCell>
-                    <TableCell sx={{ verticalAlign: "top" }}>
-                      <Box display="flex" gap={0.5} flexWrap="wrap" sx={{ maxWidth: 160 }}>
-                        <SeverityBadge counts={v.scanCounts} />
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        </Box>
-      )}
+      <VersionsTable namespace={namespace} kind={kind} name={name} />
 
       {/* Scan findings */}
       <Divider sx={{ my: 3 }} />
