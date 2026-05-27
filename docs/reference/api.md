@@ -304,7 +304,9 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
       "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
       "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
       "public": true,
-      "hasUnsyncedVersions": true
+      "hasUnsyncedVersions": true,
+      "totalDownloads": 4821,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z"
     }
   ],
   "totalCount": 1,
@@ -396,7 +398,10 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
     {
       "version": "3.19.0",
       "synced": true,
-      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "downloadCount": 1243,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z",
+      "archiveSizeBytes": 2097152
     }
   ],
   "totalCount": 42,
@@ -408,6 +413,8 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 ```
 
 `availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
+
+`downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded (stats DB is nil or no events exist). `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
 
 ### List Depots
 
@@ -506,6 +513,61 @@ Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with 
 }
 ```
 
+### Registry Stats
+
+```
+GET /opendepot/ui/v1/stats
+```
+
+Returns aggregate registry statistics as JSON. All counts are scoped to the resources visible to the caller (same visibility rules as the other browse endpoints).
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Scope statistics to a single namespace. Omit for all accessible namespaces. |
+
+**Response:**
+
+```json
+{
+  "totalModules": 12,
+  "totalProviders": 3,
+  "totalVersions": 87,
+  "totalStorageBytes": 5368709120,
+  "totalDownloads": 24601,
+  "syncHealth": {
+    "syncedVersions": 82,
+    "unsyncedVersions": 3,
+    "failedVersions": 2
+  },
+  "securityPosture": {
+    "critical": 0,
+    "high": 4,
+    "medium": 11,
+    "low": 7,
+    "unknown": 1,
+    "totalAffectedResources": 6
+  },
+  "storageDistribution": [
+    { "backend": "s3", "count": 10 },
+    { "backend": "filesystem", "count": 5 }
+  ],
+  "mostDownloaded": [
+    {
+      "namespace": "opendepot-system",
+      "kind": "module",
+      "name": "terraform-aws-vpc",
+      "version": "3.19.0",
+      "downloadCount": 4821,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z"
+    }
+  ]
+}
+```
+
+`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` require a persistent stats DB (`--stats-db-path`); both are `0` / empty when the flag is not set. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+
 ## Kubernetes Resource Types
 
 ### SecurityFinding
@@ -553,6 +615,7 @@ Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependenc
 |---|---|---|
 | `binaryScan` | `ProviderBinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
 | `sourceScan` | `ModuleSourceScan` | IaC scan result for this module archive. Populated only for module `Version` resources when scanning is enabled. |
+| `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
 
 ### ProviderStatus fields
 
@@ -600,6 +663,59 @@ spec:
     - "aws"
     - "google"
 ```
+
+### BrowseStats
+
+Returned by `GET /opendepot/ui/v1/stats`.
+
+| Field | Type | Description |
+|---|---|---|
+| `totalModules` | `int` | Number of visible `Module` resources |
+| `totalProviders` | `int` | Number of visible `Provider` resources |
+| `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
+| `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
+| `totalDownloads` | `int64` | Cumulative download events recorded in the stats DB; `0` when the stats DB is not configured |
+| `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
+| `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
+| `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
+| `mostDownloaded` | `[]PopularResource` | Top 10 most-downloaded resources, filtered to the caller's visibility set |
+
+### SyncHealthStats
+
+| Field | Type | Description |
+|---|---|---|
+| `syncedVersions` | `int` | Versions with `status.synced: true` |
+| `unsyncedVersions` | `int` | Versions not yet synced |
+| `failedVersions` | `int` | Versions where sync has failed or errored |
+
+### SecurityPostureStats
+
+| Field | Type | Description |
+|---|---|---|
+| `critical` | `int` | Findings at CRITICAL severity |
+| `high` | `int` | Findings at HIGH severity |
+| `medium` | `int` | Findings at MEDIUM severity |
+| `low` | `int` | Findings at LOW severity |
+| `unknown` | `int` | Findings at UNKNOWN severity |
+| `totalAffectedResources` | `int` | Number of distinct resources with at least one finding |
+
+### StorageBackendStat
+
+| Field | Type | Description |
+|---|---|---|
+| `backend` | `string` | Storage backend identifier (e.g. `s3`, `azure`, `gcs`, `filesystem`) |
+| `count` | `int` | Number of versions stored on this backend |
+
+### PopularResource
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | `string` | Kubernetes namespace of the resource |
+| `kind` | `string` | `module` or `provider` |
+| `name` | `string` | Resource name |
+| `version` | `string` | Most-downloaded version |
+| `downloadCount` | `int64` | Total download events for this resource/version |
+| `lastDownloadedAt` | `string` | RFC3339 timestamp of the most recent download; omitted when no downloads recorded |
 
 ### PresignConfig fields
 

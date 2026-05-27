@@ -158,12 +158,15 @@ func (r *ProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		provider.Status.ProviderVersionRefs = providerVersionRefs
 		provider.Status.Synced = true
 		provider.Status.SyncStatus = "Successfully synced provider"
+
 		if lv, _ := utils.GetLatestVersion(nil, provider); lv != nil {
 			provider.Status.LatestVersion = lv
 		}
+
 		if err := r.Status().Update(ctx, provider); err != nil {
 			return err
 		}
+
 		return nil
 	}); err != nil {
 		r.Log.Error(err, "Failed to update Provider status", "provider", provider.Name)
@@ -201,6 +204,7 @@ func (r *ProviderReconciler) ReconcileVersionRemovals(ctx context.Context, provi
 		if _, exists := desiredVersionNames[version.Name]; exists {
 			continue
 		}
+
 		r.Log.Info("Deleting stale provider version", "provider", provider.ObjectMeta.Name, "version", version.Spec.Version, "name", version.Name)
 		if err = r.Delete(ctx, version); err != nil {
 			return err

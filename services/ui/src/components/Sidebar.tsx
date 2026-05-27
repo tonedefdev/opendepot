@@ -601,6 +601,20 @@ export default function Sidebar({
           <WarehouseIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Tooltip>
+      <Tooltip title="Stats" placement="right">
+        <IconButton
+          component={Link}
+          href="/stats"
+          sx={{
+            color: pathname === "/stats" ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: pathname === "/stats" ? "rgba(4,207,208,0.12)" : "transparent",
+            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+          }}
+        >
+          <BarChartIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Box sx={{ flex: 1 }} />
       <Divider sx={{ width: "80%", mb: 0.5 }} />
       {userInfo ? (

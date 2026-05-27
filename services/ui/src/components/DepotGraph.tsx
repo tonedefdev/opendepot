@@ -15,6 +15,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import Box from "@mui/material/Box";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import type {
   BrowseDepotGraph,
@@ -42,9 +43,11 @@ const RESOURCE_GAP = 86;
 const VERSION_GAP = 80;
 const NODE_WIDTH = 200;
 const NODE_HEIGHT = 64;
+// Number of version nodes shown per resource before collapsing the rest.
+const VERSION_PAGE_SIZE = 3;
 
 // ── Node types ─────────────────────────────────────────────────────────────
-type NodeKind = "depot" | "module" | "provider" | "version";
+type NodeKind = "depot" | "module" | "provider" | "version" | "versionOverflow";
 
 interface NodeData {
   kind: NodeKind;
@@ -62,6 +65,10 @@ interface NodeData {
   fileName?: string;
   checksum?: string;
   lastScanned?: string;
+  // versionOverflow nodes only:
+  resourceId?: string;
+  isExpanded?: boolean;
+  hiddenCount?: number;
 }
 
 function isEffectivelySynced(synced?: boolean, syncStatus?: string): boolean {
@@ -112,6 +119,7 @@ function nodeStyle(kind: NodeKind): React.CSSProperties {
     module: { border: MODULE_BORDER, bg: MODULE_BG },
     provider: { border: PROVIDER_BORDER, bg: PROVIDER_BG },
     version: { border: VERSION_BORDER, bg: VERSION_BG },
+    versionOverflow: { border: VERSION_BORDER, bg: VERSION_BG },
   };
   const { border, bg } = map[kind];
   return {
@@ -200,11 +208,42 @@ function ProviderFlowNode({ data }: { data: NodeData }) {
   );
 }
 
+function VersionOverflowFlowNode({ data }: { data: NodeData }) {
+  const overflowStyle: React.CSSProperties = {
+    ...nodeStyle("version"),
+    background: "rgba(139,148,158,0.06)",
+    border: "1px dashed #8b949e",
+    cursor: "pointer",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+  };
+  return (
+    <div style={overflowStyle}>
+      <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
+      {data.isExpanded ? (
+        <Tooltip title="collapse" placement="top">
+          <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 600 }}>−</span>
+        </Tooltip>
+      ) : (
+        <>
+          <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 600 }}>+</span>
+          <span style={{ fontWeight: 500, fontSize: 12, color: "#8b949e" }}>
+            {`${data.hiddenCount} more versions`}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
 const nodeTypes = {
   depotNode: DepotFlowNode,
   moduleNode: ModuleFlowNode,
   providerNode: ProviderFlowNode,
   versionNode: VersionFlowNode,
+  versionOverflowNode: VersionOverflowFlowNode,
 };
 
 // ── Layout builder ─────────────────────────────────────────────────────────
@@ -215,6 +254,7 @@ function buildGraph(
   providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>,
+  expandedResources: Set<string>,
 ): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const nodes: Node<NodeData>[] = [];
   const edges: Edge[] = [];
@@ -243,7 +283,14 @@ function buildGraph(
     const moduleDetail = moduleDetailByKey[key];
     const moduleVersions = moduleVersionsByKey[key] ?? (m.latestVersion ? [m.latestVersion] : []);
     const uniqueVersions = Array.from(new Set(moduleVersions)).filter(Boolean);
-    const versionStackHeight = NODE_HEIGHT + Math.max(0, uniqueVersions.length - 1) * VERSION_GAP;
+    const isExpanded = expandedResources.has(m.id);
+    const visibleCount =
+      uniqueVersions.length > VERSION_PAGE_SIZE && !isExpanded
+        ? VERSION_PAGE_SIZE
+        : uniqueVersions.length;
+    // +1 for overflow node when we need to truncate
+    const slotCount = uniqueVersions.length > VERSION_PAGE_SIZE ? visibleCount + 1 : visibleCount;
+    const versionStackHeight = NODE_HEIGHT + Math.max(0, slotCount - 1) * VERSION_GAP;
     const stride = Math.max(RESOURCE_GAP, versionStackHeight + 20);
     resourceNodes.push({
       id: m.id,
@@ -265,10 +312,16 @@ function buildGraph(
   graph.providers.forEach((p: BrowseGraphProvider) => {
     const key = `${p.namespace}/${p.name}`;
     const providerMeta = providerVersionMetaByKey[key] ?? [];
-    const versionCount = providerMeta.length > 0
+    const totalVersionCount = providerMeta.length > 0
       ? providerMeta.length
       : Array.from(new Set(providerVersionsByKey[key] ?? [])).filter(Boolean).length;
-    const versionStackHeight = NODE_HEIGHT + Math.max(0, versionCount - 1) * VERSION_GAP;
+    const isExpanded = expandedResources.has(p.id);
+    const visibleCount =
+      totalVersionCount > VERSION_PAGE_SIZE && !isExpanded
+        ? VERSION_PAGE_SIZE
+        : totalVersionCount;
+    const slotCount = totalVersionCount > VERSION_PAGE_SIZE ? visibleCount + 1 : visibleCount;
+    const versionStackHeight = NODE_HEIGHT + Math.max(0, slotCount - 1) * VERSION_GAP;
     const stride = Math.max(RESOURCE_GAP, versionStackHeight + 20);
     resourceNodes.push({
       id: p.id,
@@ -315,7 +368,13 @@ function buildGraph(
       return;
     }
 
-    versions.forEach((version, index) => {
+    const isExpanded = expandedResources.has(m.id);
+    const visibleVersions =
+      versions.length > VERSION_PAGE_SIZE && !isExpanded
+        ? versions.slice(0, VERSION_PAGE_SIZE)
+        : versions;
+
+    visibleVersions.forEach((version, index) => {
       const versionNodeId = `version/${m.namespace}/${m.name}/${version}`;
       const meta = versionMeta.find((entry) => entry.version === version);
       nodes.push({
@@ -343,6 +402,32 @@ function buildGraph(
         type: "smoothstep",
       });
     });
+
+    if (versions.length > VERSION_PAGE_SIZE) {
+      const overflowIndex = visibleVersions.length;
+      const overflowNodeId = `versionOverflow/${m.id}`;
+      nodes.push({
+        id: overflowNodeId,
+        type: "versionOverflowNode",
+        position: { x: LANE_X.version, y: baseY + overflowIndex * VERSION_GAP },
+        data: {
+          kind: "versionOverflow",
+          namespace: m.namespace,
+          name: m.name,
+          label: isExpanded ? "collapse" : `+${versions.length - VERSION_PAGE_SIZE} more versions`,
+          resourceId: m.id,
+          isExpanded,
+          hiddenCount: versions.length - VERSION_PAGE_SIZE,
+        },
+      });
+      edges.push({
+        id: `edge-${m.id}-${overflowNodeId}`,
+        source: m.id,
+        target: overflowNodeId,
+        style: { stroke: "#8b949e", strokeWidth: 1, strokeDasharray: "3 4", opacity: 0.5 },
+        type: "smoothstep",
+      });
+    }
   });
 
   // Add one version node per provider version.
@@ -374,7 +459,13 @@ function buildGraph(
       return;
     }
 
-    items.forEach((item, index) => {
+    const isExpanded = expandedResources.has(p.id);
+    const visibleItems =
+      items.length > VERSION_PAGE_SIZE && !isExpanded
+        ? items.slice(0, VERSION_PAGE_SIZE)
+        : items;
+
+    visibleItems.forEach((item, index) => {
       const version = item.version;
       const versionName = item.name?.trim() ? item.name : p.name;
       const rawIdSuffix = item.name?.trim()
@@ -408,6 +499,32 @@ function buildGraph(
         type: "smoothstep",
       });
     });
+
+    if (items.length > VERSION_PAGE_SIZE) {
+      const overflowIndex = visibleItems.length;
+      const overflowNodeId = `versionOverflow/${p.id}`;
+      nodes.push({
+        id: overflowNodeId,
+        type: "versionOverflowNode",
+        position: { x: LANE_X.version, y: baseY + overflowIndex * VERSION_GAP },
+        data: {
+          kind: "versionOverflow",
+          namespace: p.namespace,
+          name: p.name,
+          label: isExpanded ? "collapse" : `+${items.length - VERSION_PAGE_SIZE} more versions`,
+          resourceId: p.id,
+          isExpanded,
+          hiddenCount: items.length - VERSION_PAGE_SIZE,
+        },
+      });
+      edges.push({
+        id: `edge-${p.id}-${overflowNodeId}`,
+        source: p.id,
+        target: overflowNodeId,
+        style: { stroke: "#8b949e", strokeWidth: 1, strokeDasharray: "3 4", opacity: 0.5 },
+        type: "smoothstep",
+      });
+    }
   });
 
   // Build edges from graph data
@@ -496,14 +613,27 @@ type SelectedNode = {
 
 export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVersionsByKey = {}, providerVersionMetaByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {} }: DepotGraphProps) {
   const [selected, setSelected] = useState<SelectedNode>(null);
+  const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
 
   const { nodes, edges } = useMemo(
-    () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey),
-    [graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey],
+    () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, expandedResources),
+    [graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, expandedResources],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
     const data = node.data as NodeData;
+    if (data.kind === "versionOverflow" && data.resourceId) {
+      setExpandedResources((prev) => {
+        const next = new Set(prev);
+        if (data.isExpanded) {
+          next.delete(data.resourceId!);
+        } else {
+          next.add(data.resourceId!);
+        }
+        return next;
+      });
+      return;
+    }
     setSelected({
       kind: data.kind,
       namespace: data.namespace,
@@ -530,7 +660,7 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
   }
 
   return (
-    <Box sx={{ display: "flex", height: "calc(100vh - 200px)", minHeight: 500, gap: 0 }}>
+    <Box sx={{ display: "flex", height: "calc(100vh - 290px)", minHeight: 420, gap: 0 }}>
       {/* Graph canvas */}
       <Box sx={{ flex: 1, position: "relative" }}>
         <ReactFlow

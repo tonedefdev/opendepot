@@ -7,6 +7,7 @@ import type { BrowseStorageConfig } from "@/lib/api";
 import { getDepotsGraph, getResourceDetail, listResources } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import DepotsGraphClient from "@/components/DepotsGraphClient";
+import RefreshIconButton from "@/components/RefreshIconButton";
 
 export default async function DepotsPage() {
   const token = await getServerSessionToken();
@@ -179,10 +180,13 @@ export default async function DepotsPage() {
     <main>
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <Box mb={3}>
-          <Typography variant="h4" component="h1" gutterBottom>
-            Depots
-          </Typography>
-          <Typography variant="body1" color="text.secondary" mb={2}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography variant="h4" component="h1">
+              Depots
+            </Typography>
+            <RefreshIconButton ariaLabel="refresh depots" />
+          </Box>
+          <Typography variant="body1" color="text.secondary" mt={1} mb={2}>
             Visualise the relationships between Depots and their managed Modules and Providers.
           </Typography>
         </Box>

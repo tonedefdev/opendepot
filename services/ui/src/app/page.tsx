@@ -6,6 +6,7 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import ResourceCard from "@/components/ResourceCard";
 import ResourceListControls from "@/components/ResourceListControls";
+import RefreshIconButton from "@/components/RefreshIconButton";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
@@ -62,11 +63,14 @@ export default async function HomePage({ searchParams }: PageProps) {
     <main>
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box mb={4}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Registry Explorer
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Browse Terraform modules and providers from your OpenDepot registry.
+        <Box display="flex" alignItems="center" gap={1}>
+          <Typography variant="h4" component="h1">
+            Registry Explorer
+          </Typography>
+          <RefreshIconButton ariaLabel="refresh registry" />
+        </Box>
+        <Typography variant="body1" color="text.secondary" mt={1}>
+          Browse modules and providers from your OpenDepot registry.
         </Typography>
       </Box>
 

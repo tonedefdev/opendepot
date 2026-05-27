@@ -129,6 +129,19 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.ingress.hosts` | list | Host and path rules. |
 | `ui.ingress.tls` | list | TLS configuration for the Ingress. |
 
+## Server Stats Persistence
+
+Controls the embedded SQLite database used to persist download events. When disabled (default), events are tracked in memory and lost on restart.
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.stats.persistence.enabled` | bool | Create a PVC for the stats SQLite database. Default: `false` |
+| `server.stats.persistence.storageClassName` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
+| `server.stats.persistence.size` | string | PVC size. Default: `1Gi` |
+| `server.stats.persistence.accessMode` | string | PVC access mode. Default: `ReadWriteOnce` |
+
+When `enabled: true`, the chart creates a PVC named `server-stats`, mounts it at `/data/stats/`, and passes `--stats-db-path=/data/stats/stats.db` to the server. See [Enabling download tracking](guides/registry-explorer.md#enabling-download-tracking) for details.
+
 ## Scanning Values
 
 The `scanning` section controls Trivy-based provider vulnerability scanning. See [Vulnerability Scanning](configuration/scanning.md) for full details.

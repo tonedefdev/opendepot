@@ -222,11 +222,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
               <Chip
                 label={displayVersion(detail.latestVersion)}
                 size="small"
+                variant="outlined"
+                color={kind === "provider" ? "secondary" : "primary"}
                 sx={{
                   fontFamily: "monospace",
-                  background: "rgba(4,207,208,0.12)",
-                  color: "#04cfd0",
-                  border: "1px solid rgba(4,207,208,0.3)",
                 }}
               />
             )}

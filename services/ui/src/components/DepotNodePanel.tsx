@@ -14,7 +14,7 @@ import StorageIcon from "@mui/icons-material/Storage";
 import Link from "next/link";
 import type { BrowseStorageConfig } from "@/lib/api";
 
-type NodeKind = "depot" | "module" | "provider" | "version";
+type NodeKind = "depot" | "module" | "provider" | "version" | "versionOverflow";
 
 interface DepotNodePanelProps {
   node: {

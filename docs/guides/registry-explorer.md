@@ -276,7 +276,43 @@ The Depots page applies the same visibility rules as the rest of the Registry Ex
 
 The graph is powered by the [`GET /opendepot/ui/v1/depots/graph`](../reference/api.md#depot-relationship-graph) browse endpoint.
 
-## Migration: Enabling the UI on an Existing Deployment
+## Stats Dashboard
+
+The **Stats** page (`/stats`) provides an at-a-glance overview of registry health and usage. It is accessible from the **Stats** entry in the sidebar (bar chart icon).
+
+The dashboard shows:
+
+| Section | Description |
+|---------|-------------|
+| Summary cards | Total modules, providers, versions, storage used, and cumulative downloads |
+| Sync health | Progress bar showing the ratio of synced, unsynced, and failed versions |
+| Security posture | Severity chips (CRITICAL / HIGH / MEDIUM / LOW / UNKNOWN) with finding counts |
+| Storage distribution | Per-backend version counts |
+| Most downloaded | Table of the top 10 most-downloaded resources, with version, namespace, download count, and last-downloaded timestamp |
+
+Summary counts (modules, providers, versions, sync health, security posture, storage distribution) are computed on-demand from Kubernetes CRDs and are always current. Download counts and the most-downloaded table require a persistent stats DB — see [Enabling download tracking](#enabling-download-tracking) below.
+
+!!! note "Visibility"
+    The stats page applies the same visibility rules as the rest of the Registry Explorer. Unauthenticated visitors see statistics derived only from publicly-labelled resources. OIDC-authenticated users with a matching `GroupBinding` additionally see statistics for the resources allowed by that binding.
+
+## Enabling Download Tracking
+
+By default, download events are tracked in memory and lost on server restart. To persist them across restarts, enable the stats PVC in your Helm values:
+
+```yaml
+server:
+  stats:
+    persistence:
+      enabled: true
+      storageClassName: ""  # leave blank to use the cluster default
+      size: 1Gi
+      accessMode: ReadWriteOnce
+```
+
+When `enabled: true`, the chart creates a PVC named `server-stats` and mounts it at `/data/stats/` in the server deployment, passing `--stats-db-path=/data/stats/stats.db` automatically.
+
+!!! warning "Single replica only"
+    The stats PVC uses `ReadWriteOnce`. Do not increase `server.replicaCount` above `1` when stats persistence is enabled, as multiple replicas cannot share a `ReadWriteOnce` volume.
 
 Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:
 
@@ -347,7 +383,9 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
       "provider": "aws",
       "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
       "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
-      "public": true
+      "public": true,
+      "totalDownloads": 4821,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z"
     }
   ],
   "totalCount": 1,
@@ -434,7 +472,10 @@ Returns a paginated, filtered list of versions for a single resource. Authentica
     {
       "version": "3.19.0",
       "synced": true,
-      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "downloadCount": 1243,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z",
+      "archiveSizeBytes": 2097152
     }
   ],
   "totalCount": 42,

@@ -149,38 +149,39 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 
 	return (
 		<>
-			<Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", mb: 2 }}>
-				<Autocomplete
-					multiple
-					size="small"
-					options={depotOptions}
-					value={selectedDepotOptions}
-					onChange={(_event, value) => {
-						setSelectedDepotKeys(value.map((item) => item.key));
-					}}
-					isOptionEqualToValue={(option, value) => option.key === value.key}
-					getOptionLabel={(option) => option.label}
-					renderInput={(params) => (
-						<TextField
-							{...params}
-							label="Filter Depots"
-							placeholder="Select depot(s)"
+			<Box sx={{ display: { xs: "grid", sm: "inline-grid" }, width: { xs: "100%", sm: "auto" }, mb: 3 }}>
+				<Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 2 }}>
+					<Autocomplete
+						multiple
+						size="small"
+						options={depotOptions}
+						value={selectedDepotOptions}
+						onChange={(_event, value) => {
+							setSelectedDepotKeys(value.map((item) => item.key));
+						}}
+						isOptionEqualToValue={(option, value) => option.key === value.key}
+						getOptionLabel={(option) => option.label}
+						renderInput={(params) => (
+							<TextField
+								{...params}
+								label="Filter Depots"
+								placeholder="Select depot(s)"
+							/>
+						)}
+						sx={{ flex: 1, minWidth: 0 }}
+					/>
+					{selectedDepotKeys.length > 0 && (
+						<Chip
+							label="Clear"
+							onClick={() => setSelectedDepotKeys([])}
+							variant="outlined"
+							size="small"
+							sx={{ borderColor: "rgba(240,246,252,0.3)", color: "text.secondary", flexShrink: 0 }}
 						/>
 					)}
-					sx={{ width: { xs: "100%", sm: 280 }, maxWidth: 280 }}
-				/>
-				{selectedDepotKeys.length > 0 && (
-					<Chip
-						label="Clear"
-						onClick={() => setSelectedDepotKeys([])}
-						variant="outlined"
-						size="small"
-						sx={{ borderColor: "rgba(240,246,252,0.3)", color: "text.secondary" }}
-					/>
-				)}
-			</Box>
+				</Box>
 
-			<Box sx={{ display: "flex", gap: 1, mb: 3, flexWrap: "wrap" }}>
+				<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
 				<Chip
 					label={`${filteredGraph.summary.totalDepots} depots`}
 					size="small"
@@ -205,6 +206,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 					variant="outlined"
 					sx={{ color: VERSION_COLOR, borderColor: VERSION_COLOR }}
 				/>
+			</Box>
 			</Box>
 
 			<DepotGraph

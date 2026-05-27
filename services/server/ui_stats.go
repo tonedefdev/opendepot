@@ -56,6 +56,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	nsPublic := make(map[string]bool, len(allNamespaces))
 	for _, ns := range allNamespaces {
 		nsPublic[ns.Metadata.Name] = isPublicNamespace(ns.Metadata.Labels)
@@ -70,18 +71,21 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if namespace != "" {
 			req = req.Namespace(namespace)
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			logger.Error("stats: failed to list modules", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		var all opendepotv1alpha1.ModuleList
 		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal modules", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		for _, m := range all.Items {
 			pub := nsPublic[m.Namespace] && isPublicResource(m.Labels)
 			if isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
@@ -99,18 +103,21 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if namespace != "" {
 			req = req.Namespace(namespace)
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			logger.Error("stats: failed to list providers", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		var all opendepotv1alpha1.ProviderList
 		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal providers", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		for _, p := range all.Items {
 			pub := nsPublic[p.Namespace] && isPublicResource(p.Labels)
 			if isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
@@ -129,18 +136,21 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if namespace != "" {
 			req = req.Namespace(namespace)
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			logger.Error("stats: failed to list versions", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		var all opendepotv1alpha1.VersionList
 		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal versions", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
 		for _, v := range all.Items {
 			pub := nsPublic[v.Namespace] && isPublicResource(v.Labels)
 			if isBrowseVisible(pub, false, allAccess, binding, "version", v.Name) {
@@ -155,6 +165,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		backend := storageBackendName(m.Spec.ModuleConfig.StorageConfig)
 		backendCounts[backend]++
 	}
+
 	for _, p := range providerList.Items {
 		backend := storageBackendName(p.Spec.ProviderConfig.StorageConfig)
 		backendCounts[backend]++
@@ -216,6 +227,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if p.Status.SourceScan == nil {
 			continue
 		}
+
 		for _, f := range p.Status.SourceScan.Findings {
 			accumulateFinding(&secPosture, f)
 			key := p.Namespace + "/provider/" + p.Name
@@ -235,6 +247,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error("stats: failed to query most downloaded", "error", err)
 	}
+
 	if mostDownloaded == nil {
 		mostDownloaded = []PopularResource{}
 	}
@@ -247,9 +260,11 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	for _, m := range moduleList.Items {
 		visibleResources[m.Namespace+"/module/"+m.Name] = struct{}{}
 	}
+
 	for _, p := range providerList.Items {
 		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
 	}
+
 	filtered := mostDownloaded[:0]
 	for _, pr := range mostDownloaded {
 		key := pr.Namespace + "/" + strings.ToLower(pr.Kind) + "/" + pr.Name
@@ -257,6 +272,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, pr)
 		}
 	}
+
 	mostDownloaded = filtered
 
 	stats := BrowseStats{

@@ -13,8 +13,21 @@ import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import LinearProgress from "@mui/material/LinearProgress";
-import { getStats } from "@/lib/api";
+import ExtensionIcon from "@mui/icons-material/Extension";
+import CloudQueueIcon from "@mui/icons-material/CloudQueue";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import StorageIcon from "@mui/icons-material/Storage";
+import DownloadIcon from "@mui/icons-material/Download";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
+import SyncIcon from "@mui/icons-material/Sync";
+import SecurityIcon from "@mui/icons-material/Security";
+import PieChartIcon from "@mui/icons-material/PieChart";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import { SiGooglecloud } from "react-icons/si";
+import { FaAws, FaMicrosoft } from "react-icons/fa6";
+import { getStats, getDepotsGraph } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
+import RefreshIconButton from "@/components/RefreshIconButton";
 
 // Format bytes into human-readable string.
 function formatBytes(bytes: number): string {
@@ -34,22 +47,62 @@ interface StatCardProps {
   label: string;
   value: string | number;
   sub?: string;
+  icon: React.ReactNode;
+  accentColor: string;
 }
 
-function StatCard({ label, value, sub }: StatCardProps) {
+function StatCard({ label, value, sub, icon, accentColor }: StatCardProps) {
   return (
-    <Paper elevation={2} sx={{ p: 2.5, height: "100%" }}>
-      <Typography variant="body2" color="text.secondary" gutterBottom>
-        {label}
-      </Typography>
-      <Typography variant="h4" fontWeight={600}>
-        {value}
-      </Typography>
-      {sub && (
-        <Typography variant="caption" color="text.secondary">
-          {sub}
+    <Paper
+      elevation={3}
+      sx={{
+        height: "100%",
+        overflow: "hidden",
+        borderTop: `4px solid ${accentColor}`,
+      }}
+    >
+      <Box sx={{ p: { xs: 1.5, sm: 2, lg: 2.5 } }}>
+        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            fontWeight={500}
+            sx={{ fontSize: { xs: "0.75rem", lg: "0.875rem" } }}
+          >
+            {label}
+          </Typography>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: { xs: 32, lg: 36 },
+              height: { xs: 32, lg: 36 },
+              borderRadius: 1.5,
+              bgcolor: `${accentColor}18`,
+              color: accentColor,
+              flexShrink: 0,
+              "& svg": { fontSize: { xs: "1.1rem", md: "0.95rem", lg: "1.25rem" } },
+            }}
+          >
+            {icon}
+          </Box>
+        </Box>
+        <Typography
+          fontWeight={700}
+          sx={{
+            lineHeight: 1.1,
+            fontSize: { xs: "1.5rem", sm: "1.75rem", lg: "2rem" },
+          }}
+        >
+          {value}
         </Typography>
-      )}
+        {sub && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+            {sub}
+          </Typography>
+        )}
+      </Box>
     </Paper>
   );
 }
@@ -62,13 +115,32 @@ const severityColour: Record<string, "error" | "warning" | "info" | "default" | 
   unknown: "default",
 };
 
+function storageBackendMeta(backend: string): { icon: React.ReactNode; color: string; label: string } {
+  switch (backend.toLowerCase()) {
+    case "s3":
+      return { icon: <FaAws />, color: "#FF9900", label: "Amazon S3" };
+    case "azurestorage":
+      return { icon: <FaMicrosoft />, color: "#0078D4", label: "Azure Storage" };
+    case "gcs":
+      return { icon: <SiGooglecloud />, color: "#4285F4", label: "Google Cloud Storage" };
+    default:
+      return { icon: <StorageIcon style={{ fontSize: "1.1rem" }} />, color: "#64748b", label: "File System" };
+  }
+}
+
 export default async function StatsPage() {
   const token = await getServerSessionToken();
   let stats;
+  let totalDepots = 0;
   let fetchError: string | null = null;
 
   try {
-    stats = await getStats(undefined, token);
+    const [statsResult, graphResult] = await Promise.all([
+      getStats(undefined, token),
+      getDepotsGraph(undefined, token),
+    ]);
+    stats = statsResult;
+    totalDepots = graphResult.summary.totalDepots;
   } catch (err) {
     fetchError = err instanceof Error ? err.message : "Failed to load stats.";
   }
@@ -78,8 +150,14 @@ export default async function StatsPage() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Typography variant="h5" fontWeight={600} gutterBottom>
-        Registry Statistics
+      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 0.5 }}>
+        <Typography variant="h5" fontWeight={600}>
+          Registry Statistics
+        </Typography>
+        <RefreshIconButton />
+      </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Live metrics across all visible modules, providers, and versions.
       </Typography>
 
       {fetchError && (
@@ -92,36 +170,66 @@ export default async function StatsPage() {
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {/* Summary cards */}
           <Grid container spacing={2}>
-            <Grid item xs={6} sm={4} md={2}>
-              <StatCard label="Modules" value={stats.totalModules} />
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
+              <StatCard
+                label="Modules"
+                value={stats.totalModules}
+                icon={<ExtensionIcon fontSize="small" />}
+                accentColor="#6366f1"
+              />
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <StatCard label="Providers" value={stats.totalProviders} />
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
+              <StatCard
+                label="Providers"
+                value={stats.totalProviders}
+                icon={<CloudQueueIcon fontSize="small" />}
+                accentColor="#0ea5e9"
+              />
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <StatCard label="Versions" value={stats.totalVersions} />
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
+              <StatCard
+                label="Versions"
+                value={stats.totalVersions}
+                icon={<AccountTreeIcon fontSize="small" />}
+                accentColor="#8b5cf6"
+              />
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
+              <StatCard
+                label="Depots"
+                value={totalDepots}
+                icon={<WarehouseIcon fontSize="small" />}
+                accentColor="#f97316"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
               <StatCard
                 label="Storage Used"
                 value={formatBytes(stats.totalStorageBytes)}
+                icon={<StorageIcon fontSize="small" />}
+                accentColor="#f59e0b"
               />
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
               <StatCard
                 label="Total Downloads"
                 value={stats.totalDownloads.toLocaleString()}
+                icon={<DownloadIcon fontSize="small" />}
+                accentColor="#10b981"
               />
             </Grid>
           </Grid>
 
           {/* Sync health + Security posture */}
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Paper elevation={2} sx={{ p: 2.5, height: "100%" }}>
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                  Sync Health
-                </Typography>
+                <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
+                  <SyncIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Sync Health
+                  </Typography>
+                </Box>
                 {syncTotal === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No versions found.
@@ -152,11 +260,14 @@ export default async function StatsPage() {
               </Paper>
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Paper elevation={2} sx={{ p: 2.5, height: "100%" }}>
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                  Security Posture
-                </Typography>
+                <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
+                  <SecurityIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Security Posture
+                  </Typography>
+                </Box>
                 {stats.securityPosture.totalAffectedResources === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No scan findings.
@@ -173,6 +284,7 @@ export default async function StatsPage() {
                             label={`${ucfirst(sev)}: ${count}`}
                             color={severityColour[sev]}
                             size="small"
+                            sx={{ color: "#fff" }}
                           />
                         );
                       })}
@@ -190,25 +302,69 @@ export default async function StatsPage() {
           {/* Storage distribution */}
           {stats.storageDistribution.length > 0 && (
             <Paper elevation={2} sx={{ p: 2.5 }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                Storage Distribution
-              </Typography>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+              <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
+                <PieChartIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Storage Distribution
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
                 {stats.storageDistribution
                   .slice()
                   .sort((a, b) => b.count - a.count)
-                  .map((s) => (
-                    <Chip key={s.backend} label={`${s.backend}: ${s.count}`} variant="outlined" />
-                  ))}
+                  .map((s) => {
+                    const { icon, color, label } = storageBackendMeta(s.backend);
+                    return (
+                      <Box
+                        key={s.backend}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          px: 1.5,
+                          py: 0.75,
+                          borderRadius: 2,
+                          border: "1px solid",
+                          borderColor: `${color}40`,
+                          bgcolor: `${color}0d`,
+                        }}
+                      >
+                        <Box sx={{ color, display: "flex", alignItems: "center", fontSize: "1.25rem" }}>
+                          {icon}
+                        </Box>
+                        <Typography variant="body2" fontWeight={500}>
+                          {label}
+                        </Typography>
+                        <Box
+                          sx={{
+                            ml: 0.5,
+                            px: 0.75,
+                            py: 0.1,
+                            borderRadius: 1,
+                            bgcolor: `${color}20`,
+                            color,
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {s.count}
+                        </Box>
+                      </Box>
+                    );
+                  })}
               </Box>
             </Paper>
           )}
 
           {/* Most downloaded */}
           <Paper elevation={2} sx={{ p: 2.5 }}>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              Most Downloaded
-            </Typography>
+            <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
+              <TrendingUpIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              <Typography variant="subtitle1" fontWeight={600}>
+                Most Downloaded
+              </Typography>
+            </Box>
             {stats.mostDownloaded.length === 0 ? (
               <Typography variant="body2" color="text.secondary">
                 No download events recorded yet.

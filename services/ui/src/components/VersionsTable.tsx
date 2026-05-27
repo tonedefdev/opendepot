@@ -16,6 +16,7 @@ import InputLabel from "@mui/material/InputLabel";
 import Typography from "@mui/material/Typography";
 import Skeleton from "@mui/material/Skeleton";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -23,7 +24,22 @@ import SyncProblemIcon from "@mui/icons-material/SyncProblem";
 import ErrorIcon from "@mui/icons-material/Error";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import ClearIcon from "@mui/icons-material/Clear";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import { keyframes, styled } from "@mui/system";
 import SeverityBadge from "@/components/SeverityBadge";
+
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
+
+const SpinIcon = styled("span", {
+  shouldForwardProp: (prop) => prop !== "spinning",
+})<{ spinning?: boolean }>(({ spinning }) => ({
+  display: "flex",
+  alignItems: "center",
+  animation: spinning ? `${spin} 0.7s linear infinite` : "none",
+}));
 import CopyButton from "@/components/CopyButton";
 import type { BrowseVersionSummary } from "@/lib/api";
 
@@ -62,6 +78,16 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
   const [data, setData] = React.useState<BrowseVersionList | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = React.useState(0);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  // Track whether we've ever received data so we can skip the skeleton flash on re-fetches.
+  const hasData = React.useRef(false);
+
+  const handleRefresh = React.useCallback(() => {
+    setIsRefreshing(true);
+    setRefreshNonce((n) => n + 1);
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, []);
 
   // Debounce the q input so we don't fire a request on every keystroke.
   React.useEffect(() => {
@@ -77,7 +103,9 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
   // Fetch from the Next.js route handler proxy.
   React.useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // Only show the skeleton state on the very first load. Once we have data,
+    // keep the current rows visible while the re-fetch runs (avoids the flash/jank).
+    if (!hasData.current) setLoading(true);
     setError(null);
 
     const params = new URLSearchParams();
@@ -94,7 +122,10 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
         return res.json() as Promise<BrowseVersionList>;
       })
       .then((json) => {
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          hasData.current = true;
+          setData(json);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load versions");
@@ -104,7 +135,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
       });
 
     return () => { cancelled = true; };
-  }, [namespace, kind, name, page, pageSize, debouncedQ, synced, os, arch]);
+  }, [namespace, kind, name, page, pageSize, debouncedQ, synced, os, arch, refreshNonce]);
 
   const hasActiveFilter = debouncedQ !== "" || synced !== "" || os !== "" || arch !== "";
 
@@ -132,6 +163,17 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
         {!loading && (
           <Chip label={totalCount} size="small" sx={{ fontSize: "0.72rem" }} />
         )}
+        <Tooltip title="Refresh">
+          <IconButton
+            size="small"
+            onClick={handleRefresh}
+            aria-label="refresh versions"
+          >
+            <SpinIcon spinning={isRefreshing}>
+              <RefreshIcon fontSize="small" />
+            </SpinIcon>
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Filter bar */}

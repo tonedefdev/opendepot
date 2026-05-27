@@ -3,12 +3,13 @@ PLATFORM ?= linux/arm64
 KIND_CLUSTER ?= opendepot
 TAG ?= dev
 
-SERVICES := server depot-controller module-controller version-controller ui
+SERVICES := server depot-controller module-controller provider-controller version-controller ui
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
 module-controller_PATH := services/module
+provider-controller_PATH := services/provider
 version-controller_PATH := services/version
 ui_PATH := services/ui
 
@@ -16,16 +17,29 @@ ui_PATH := services/ui
 server_CONTEXT := .
 depot-controller_CONTEXT := .
 module-controller_CONTEXT := .
+provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui
 
-.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES))
+.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning
 
 ## Build all images for the target platform
 build: $(addprefix build-,$(SERVICES))
 
 ## Load all images into the kind cluster
 load: $(addprefix load-,$(SERVICES))
+
+## Build the version-controller image with Trivy bundled (required for scanning.enabled=true)
+build-version-controller-scanning:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/version-controller:$(TAG)-scanning \
+		--build-arg INCLUDE_TRIVY=true \
+		-f services/version/Dockerfile \
+		.
+
+## Load the scanning variant of the version-controller into the kind cluster
+load-version-controller-scanning:
+	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-scanning --name $(KIND_CLUSTER)
 
 ## Build and load all images into the kind cluster
 deploy: build load
@@ -78,7 +92,7 @@ endef
 
 $(foreach svc,$(SERVICES),$(eval $(call SERVICE_RULES,$(svc))))
 
-## Build and load a single service: make service NAME=server
+## Build and load a single service: make service NAME=provider-controller
 service:
 	@$(MAKE) build-$(NAME) load-$(NAME)
 
@@ -380,6 +394,9 @@ ui-deploy-anon: ui-session-secret
 	  --set ui.image.repository=$(REGISTRY)/ui \
 	  --set ui.image.tag=$(TAG) \
 	  --set ui.sessionPasswordSecretName=ui-session-secret \
+	  --set storage.filesystem.enabled=true \
+	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
+	  --set scanning.enabled=true \
 	  --wait
 
 ## Deploy the UI with OIDC login (requires oidc-tls to be run first).
@@ -505,7 +522,7 @@ ui-stop:
 
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
-ui-setup: deploy ui-deploy-anon ui-forward
+ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon ui-forward
 
 ## Build all images, deploy the UI with OIDC login, and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword
