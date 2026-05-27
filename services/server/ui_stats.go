@@ -239,6 +239,26 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		mostDownloaded = []PopularResource{}
 	}
 
+	// Filter mostDownloaded to only include resources the caller can see.
+	// queryMostDownloaded reads all download_events without visibility checks;
+	// cross-referencing with the already-filtered module/provider lists ensures
+	// private resource names and namespaces are not leaked to unauthenticated callers.
+	visibleResources := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items))
+	for _, m := range moduleList.Items {
+		visibleResources[m.Namespace+"/module/"+m.Name] = struct{}{}
+	}
+	for _, p := range providerList.Items {
+		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
+	}
+	filtered := mostDownloaded[:0]
+	for _, pr := range mostDownloaded {
+		key := pr.Namespace + "/" + strings.ToLower(pr.Kind) + "/" + pr.Name
+		if _, ok := visibleResources[key]; ok {
+			filtered = append(filtered, pr)
+		}
+	}
+	mostDownloaded = filtered
+
 	stats := BrowseStats{
 		TotalModules:        len(moduleList.Items),
 		TotalProviders:      len(providerList.Items),
