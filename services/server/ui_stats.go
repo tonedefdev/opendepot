@@ -24,7 +24,11 @@ import (
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
-// handleBrowseStats returns aggregate statistics for all visible registry resources.
+// handleBrowseStats returns aggregate statistics for all *visible* registry resources.
+// Visibility follows the same rules as handleBrowseResources: anonymous-auth exposes
+// everything, OIDC+GroupBinding exposes public ∪ allowed, unauthenticated exposes
+// public-only. This ensures the stats endpoint cannot be used to enumerate private
+// resource names or download history.
 // GET /opendepot/ui/v1/stats
 //
 // Query parameters:
@@ -32,6 +36,9 @@ import (
 //	namespace - optional namespace to scope stats (default: all namespaces)
 func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Determine caller visibility level — same logic as all other browse handlers.
+	binding, allAccess := browseAuthState(r)
 
 	namespace := r.URL.Query().Get("namespace")
 
@@ -42,7 +49,19 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// List all modules.
+	// Build namespace public map so we can apply isBrowseVisible per resource.
+	allNamespaces, err := browseListNamespaces(cs, r)
+	if err != nil {
+		logger.Error("stats: failed to list namespaces", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	nsPublic := make(map[string]bool, len(allNamespaces))
+	for _, ns := range allNamespaces {
+		nsPublic[ns.Metadata.Name] = isPublicNamespace(ns.Metadata.Labels)
+	}
+
+	// List all modules and filter by caller visibility.
 	var moduleList opendepotv1alpha1.ModuleList
 	{
 		req := cs.RESTClient().Get().
@@ -57,14 +76,21 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if err := json.Unmarshal(raw, &moduleList); err != nil {
+		var all opendepotv1alpha1.ModuleList
+		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal modules", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		for _, m := range all.Items {
+			pub := nsPublic[m.Namespace] && isPublicResource(m.Labels)
+			if isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
+				moduleList.Items = append(moduleList.Items, m)
+			}
+		}
 	}
 
-	// List all providers.
+	// List all providers and filter by caller visibility.
 	var providerList opendepotv1alpha1.ProviderList
 	{
 		req := cs.RESTClient().Get().
@@ -79,14 +105,22 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if err := json.Unmarshal(raw, &providerList); err != nil {
+		var all opendepotv1alpha1.ProviderList
+		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal providers", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		for _, p := range all.Items {
+			pub := nsPublic[p.Namespace] && isPublicResource(p.Labels)
+			if isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
+				providerList.Items = append(providerList.Items, p)
+			}
+		}
 	}
 
-	// List all versions.
+	// List all versions — a version belongs to a module or provider; filter by
+	// whether the parent module/provider is visible to the caller.
 	var versionList opendepotv1alpha1.VersionList
 	{
 		req := cs.RESTClient().Get().
@@ -101,10 +135,17 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if err := json.Unmarshal(raw, &versionList); err != nil {
+		var all opendepotv1alpha1.VersionList
+		if err := json.Unmarshal(raw, &all); err != nil {
 			logger.Error("stats: failed to unmarshal versions", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		for _, v := range all.Items {
+			pub := nsPublic[v.Namespace] && isPublicResource(v.Labels)
+			if isBrowseVisible(pub, false, allAccess, binding, "version", v.Name) {
+				versionList.Items = append(versionList.Items, v)
+			}
 		}
 	}
 
