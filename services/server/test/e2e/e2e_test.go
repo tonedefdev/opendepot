@@ -1930,14 +1930,14 @@ server:
 			// The stats fields are zero-valued when no downloads have been recorded yet
 			// (server deployed without --stats-db-path in this context). The test
 			// verifies the fields are present and parseable — not that they are non-zero.
-			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/browse/modules?pageSize=1", serverLocalPort))
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources?pageSize=1", serverLocalPort))
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			var body struct {
 				Items []struct {
-					TotalDownloads  *int64  `json:"totalDownloads"`
+					TotalDownloads   *int64  `json:"totalDownloads"`
 					LastDownloadedAt *string `json:"lastDownloadedAt"`
 				} `json:"items"`
 			}
@@ -1948,7 +1948,7 @@ server:
 			// Verifies that the BrowseVersionSummary type includes the new fields and
 			// the response is parseable. Zero values are expected when no archive has
 			// been uploaded or no downloads recorded in this deployment context.
-			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/browse/modules/%s/%s/versions",
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources/%s/module/%s/versions",
 				serverLocalPort, moduleNamespace, moduleName))
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
@@ -1957,7 +1957,7 @@ server:
 			if resp.StatusCode == http.StatusOK {
 				var body struct {
 					Items []struct {
-						DownloadCount   *int64  `json:"downloadCount"`
+						DownloadCount    *int64  `json:"downloadCount"`
 						ArchiveSizeBytes *int64  `json:"archiveSizeBytes"`
 						LastDownloadedAt *string `json:"lastDownloadedAt"`
 					} `json:"items"`
