@@ -61,19 +61,19 @@ func main() {
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
-	opendepotStatsDBAPath := flag.String("stats-db-path", "", "path to SQLite stats database file; when empty download tracking is disabled")
+	opendepotStatsDBPath := flag.String("stats-db-path", "", "path to SQLite stats database file; when empty download tracking is disabled")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
 
-	if *opendepotStatsDBAPath != "" {
-		db, err := initStatsDB(*opendepotStatsDBAPath)
+	if *opendepotStatsDBPath != "" {
+		db, err := initStatsDB(*opendepotStatsDBPath)
 		if err != nil {
-			logger.Error("failed to initialise stats database", "path", *opendepotStatsDBAPath, "error", err)
+			logger.Error("failed to initialise stats database", "path", *opendepotStatsDBPath, "error", err)
 			os.Exit(1)
 		}
 		statsDB = db
-		logger.Info("stats tracking enabled", "path", *opendepotStatsDBAPath)
+		logger.Info("stats tracking enabled", "path", *opendepotStatsDBPath)
 	}
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {

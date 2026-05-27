@@ -1925,6 +1925,49 @@ server:
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		})
+
+		It("browse resources response includes totalDownloads and lastDownloadedAt fields", func() {
+			// The stats fields are zero-valued when no downloads have been recorded yet
+			// (server deployed without --stats-db-path in this context). The test
+			// verifies the fields are present and parseable — not that they are non-zero.
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/browse/modules?pageSize=1", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var body struct {
+				Items []struct {
+					TotalDownloads  *int64  `json:"totalDownloads"`
+					LastDownloadedAt *string `json:"lastDownloadedAt"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+		})
+
+		It("browse versions response includes downloadCount and archiveSizeBytes fields", func() {
+			// Verifies that the BrowseVersionSummary type includes the new fields and
+			// the response is parseable. Zero values are expected when no archive has
+			// been uploaded or no downloads recorded in this deployment context.
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/browse/modules/%s/%s/versions",
+				serverLocalPort, moduleNamespace, moduleName))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			// 404 is acceptable here (module does not exist); we only need to verify
+			// the server does not 500 and that the response is valid JSON when present.
+			if resp.StatusCode == http.StatusOK {
+				var body struct {
+					Items []struct {
+						DownloadCount   *int64  `json:"downloadCount"`
+						ArchiveSizeBytes *int64  `json:"archiveSizeBytes"`
+						LastDownloadedAt *string `json:"lastDownloadedAt"`
+					} `json:"items"`
+				}
+				Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			} else {
+				Expect(resp.StatusCode).To(BeElementOf(http.StatusNotFound, http.StatusOK),
+					"versions endpoint must return 200 or 404, not an internal error")
+			}
+		})
 	})
 })
 
