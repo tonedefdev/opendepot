@@ -33,6 +33,8 @@ export interface BrowseResource {
   platforms: Array<{ os: string; arch: string }>;
   scanCounts: BrowseScanCounts | null;
   lastScanned: string;
+  totalDownloads?: number;
+  lastDownloadedAt?: string;
 }
 
 export interface BrowseResourceList {
@@ -62,6 +64,9 @@ export interface BrowseVersionSummary {
   scanCounts: BrowseScanCounts | null;
   fileName?: string;
   checksum?: string;
+  downloadCount?: number;
+  lastDownloadedAt?: string;
+  archiveSizeBytes?: number;
 }
 
 export interface SecurityFinding {
@@ -262,4 +267,52 @@ export interface BrowseDepotGraph {
 export async function getDepotsGraph(namespace?: string, token?: string): Promise<BrowseDepotGraph> {
   const params = namespace ? `?namespace=${encodeURIComponent(namespace)}` : "";
   return apiFetch<BrowseDepotGraph>(`/opendepot/ui/v1/depots/graph${params}`, token);
+}
+
+// ── Stats types ────────────────────────────────────────────────────────────
+
+export interface SyncHealthStats {
+  syncedVersions: number;
+  unsyncedVersions: number;
+  failedVersions: number;
+}
+
+export interface SecurityPostureStats {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
+  totalAffectedResources: number;
+}
+
+export interface StorageBackendStat {
+  backend: string;
+  count: number;
+}
+
+export interface PopularResource {
+  namespace: string;
+  kind: string;
+  name: string;
+  version: string;
+  downloadCount: number;
+  lastDownloadedAt?: string;
+}
+
+export interface BrowseStats {
+  totalModules: number;
+  totalProviders: number;
+  totalVersions: number;
+  totalStorageBytes: number;
+  totalDownloads: number;
+  syncHealth: SyncHealthStats;
+  securityPosture: SecurityPostureStats;
+  storageDistribution: StorageBackendStat[];
+  mostDownloaded: PopularResource[];
+}
+
+export async function getStats(namespace?: string, token?: string): Promise<BrowseStats> {
+  const params = namespace ? `?namespace=${encodeURIComponent(namespace)}` : "";
+  return apiFetch<BrowseStats>(`/opendepot/ui/v1/stats${params}`, token);
 }

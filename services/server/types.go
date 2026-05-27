@@ -112,6 +112,9 @@ type BrowseResource struct {
 	LastScanned string            `json:"lastScanned,omitempty"`
 	// Public reports whether the namespace and resource are both explicitly public.
 	Public bool `json:"public"`
+	// Download stats (populated from SQLite when stats tracking is enabled).
+	TotalDownloads   int64  `json:"totalDownloads,omitempty"`
+	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
 }
 
 // BrowseResourceList is the JSON body returned by the browse resources list endpoint.
@@ -135,16 +138,19 @@ type BrowseNamespaceList struct {
 
 // BrowseVersionSummary summarizes a single version for the detail page.
 type BrowseVersionSummary struct {
-	Name        string            `json:"name,omitempty"`
-	Version     string            `json:"version"`
-	Synced      bool              `json:"synced"`
-	SyncStatus  string            `json:"syncStatus,omitempty"`
-	OS          string            `json:"os,omitempty"`
-	Arch        string            `json:"arch,omitempty"`
-	ScanCounts  *BrowseScanCounts `json:"scanCounts,omitempty"`
-	LastScanned string            `json:"lastScanned,omitempty"`
-	FileName    *string           `json:"fileName,omitempty"`
-	Checksum    *string           `json:"checksum,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	Version          string            `json:"version"`
+	Synced           bool              `json:"synced"`
+	SyncStatus       string            `json:"syncStatus,omitempty"`
+	OS               string            `json:"os,omitempty"`
+	Arch             string            `json:"arch,omitempty"`
+	ScanCounts       *BrowseScanCounts `json:"scanCounts,omitempty"`
+	LastScanned      string            `json:"lastScanned,omitempty"`
+	FileName         *string           `json:"fileName,omitempty"`
+	Checksum         *string           `json:"checksum,omitempty"`
+	DownloadCount    int64             `json:"downloadCount,omitempty"`
+	LastDownloadedAt string            `json:"lastDownloadedAt,omitempty"`
+	ArchiveSizeBytes *int64            `json:"archiveSizeBytes,omitempty"`
 }
 
 // BrowseVersionList is the paginated response for the version listing endpoint.
@@ -274,4 +280,50 @@ type BrowseDepotGraph struct {
 	Edges       []BrowseGraphEdge     `json:"edges"`
 	Summary     BrowseGraphSummary    `json:"summary"`
 	GeneratedAt string                `json:"generatedAt"`
+}
+
+// BrowseStats is the aggregate stats payload returned by the stats endpoint.
+type BrowseStats struct {
+	TotalModules        int                  `json:"totalModules"`
+	TotalProviders      int                  `json:"totalProviders"`
+	TotalVersions       int                  `json:"totalVersions"`
+	TotalStorageBytes   int64                `json:"totalStorageBytes"`
+	TotalDownloads      int64                `json:"totalDownloads"`
+	SyncHealth          SyncHealthStats      `json:"syncHealth"`
+	SecurityPosture     SecurityPostureStats `json:"securityPosture"`
+	StorageDistribution []StorageBackendStat `json:"storageDistribution"`
+	MostDownloaded      []PopularResource    `json:"mostDownloaded"`
+}
+
+// SyncHealthStats breaks down version sync health.
+type SyncHealthStats struct {
+	SyncedVersions   int `json:"syncedVersions"`
+	UnsyncedVersions int `json:"unsyncedVersions"`
+	FailedVersions   int `json:"failedVersions"`
+}
+
+// SecurityPostureStats aggregates severity counts across all scan findings.
+type SecurityPostureStats struct {
+	Critical               int `json:"critical"`
+	High                   int `json:"high"`
+	Medium                 int `json:"medium"`
+	Low                    int `json:"low"`
+	Unknown                int `json:"unknown"`
+	TotalAffectedResources int `json:"totalAffectedResources"`
+}
+
+// StorageBackendStat counts how many resources use a given storage backend.
+type StorageBackendStat struct {
+	Backend string `json:"backend"`
+	Count   int    `json:"count"`
+}
+
+// PopularResource represents a resource version ranked by download count.
+type PopularResource struct {
+	Namespace        string `json:"namespace"`
+	Kind             string `json:"kind"`
+	Name             string `json:"name"`
+	Version          string `json:"version"`
+	DownloadCount    int64  `json:"downloadCount"`
+	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
 }

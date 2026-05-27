@@ -172,6 +172,15 @@ server:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  stats:
+    persistence:
+      # enabled controls whether a PersistentVolumeClaim is created for the stats
+      # SQLite database. When false the --stats-db-path flag is not set and download
+      # tracking is disabled.
+      enabled: false
+      storageClassName: ""
+      size: 1Gi
+      accessMode: ReadWriteOnce
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false

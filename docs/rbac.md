@@ -38,8 +38,12 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Server | `versions` | get, list, watch |
 | Server | `modules` | get, list |
 | Server | `providers` | get, list, watch |
+| Server | `depots` | get, list, watch |
 | Server | `groupbindings` | get, list, watch |
 | Server | `namespaces` | get, list, watch |
+
+!!! note
+    The `depots` rule is only added to the server `ClusterRole` when `ui.enabled: true`. When the UI is disabled the server never calls the depots API and the rule is omitted.
 
 ## Pipeline Publisher Role Example
 

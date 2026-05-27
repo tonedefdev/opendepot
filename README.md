@@ -26,53 +26,6 @@ Comprehensive documentation is available at **[tonedefdev.github.io/opendepot/](
 | [Authentication](https://tonedefdev.github.io/opendepot/authentication/) | GitHub App and token-based auth |
 | [Kubernetes RBAC](https://tonedefdev.github.io/opendepot/rbac/) | Fine-grained access control for registry resources |
 
-
-## Version Constraints
-
-OpenDepot supports all standard OpenTofu/Terraform version constraint syntax:
-
-| Syntax | Example | Meaning |
-|--------|---------|---------|
-| Exact | `1.2.0` | Only version 1.2.0 |
-| Comparison | `>= 1.0.0, < 2.0.0` | Any 1.x version |
-| Pessimistic | `~> 1.2.0` | >= 1.2.0, < 1.3.0 (bugfixes only) |
-| Pessimistic (minor) | `~> 1.2` | >= 1.2.0, < 2.0.0 |
-| Exclusion | `>= 1.0.0, != 1.5.0` | Any 1.x except 1.5.0 |
-
-## Project Structure
-
-```
-opendepot/
-├── api/v1alpha1/              # CRD type definitions
-│   ├── types.go               # Depot, Module, Version, StorageConfig schemas
-│   └── groupversion_info.go   # API group registration
-├── chart/opendepot/            # Helm chart
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   ├── crds/                  # CRD manifests
-│   └── templates/             # Deployment, RBAC, Service templates
-├── examples/
-│   └── internal-developer-portal/ # React + MUI demo portal for Depot->Module->Version visualization
-├── pkg/
-│   ├── github/                # GitHub API client (App auth, archive fetching)
-│   │   └── github.go
-│   └── storage/               # Storage backend implementations
-│       ├── storage.go         # Storage interface definition
-│       ├── aws.go             # Amazon S3
-│       ├── azure.go           # Azure Blob Storage
-│       ├── gcp.go             # Google Cloud Storage
-│       ├── filesystem.go      # Local filesystem
-│       └── types/             # StorageObjectInput, StorageMethod
-├── services/
-│   ├── server/                # Registry Protocol API (HTTP server)
-│   ├── version/               # Version controller (core — fetch & store)
-│   ├── module/                # Module controller (version lifecycle)
-│   ├── provider/              # Provider controller (version lifecycle for providers)
-│   └── depot/                 # Depot controller (GitHub + HashiCorp discovery)
-├── Makefile                   # Build, load, deploy targets
-└── go.work                    # Go workspace (multi-module)
-```
-
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) for details.

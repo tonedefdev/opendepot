@@ -375,6 +375,10 @@ type VersionStatus struct {
 	Synced bool `json:"synced"`
 	// The Version's reconciliation status.
 	SyncStatus string `json:"syncStatus"`
+	// ArchiveSizeBytes is the size in bytes of the stored archive, set by the Version
+	// controller after a successful PutObject. Nil when the archive has not yet been uploaded.
+	// +optional
+	ArchiveSizeBytes *int64 `json:"archiveSizeBytes,omitempty"`
 	// The binary vulnerability scan result for this specific provider artifact.
 	// Only populated for provider Version resources when scanning is enabled.
 	BinaryScan *ProviderBinaryScan `json:"binaryScan,omitempty"`

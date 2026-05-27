@@ -418,6 +418,8 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		return nil, fmt.Errorf("failed to unmarshal module list: %w", err)
 	}
 
+	dlStats, _ := queryAllResourceDownloadStats(r.Context(), statsDB, "")
+
 	var items []BrowseResource
 	for _, m := range list.Items {
 		ns := m.Namespace
@@ -431,6 +433,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		resource := moduleToCard(m, pub)
 		versionData, _ := browseListModuleVersions(cs, r, ns, m.Name)
 		enrichModuleCard(&resource, versionData)
+		enrichResourceWithDownloads(&resource, dlStats)
 		items = append(items, resource)
 	}
 	return items, nil
@@ -452,6 +455,8 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		return nil, fmt.Errorf("failed to unmarshal provider list: %w", err)
 	}
 
+	dlStats, _ := queryAllResourceDownloadStats(r.Context(), statsDB, "")
+
 	var items []BrowseResource
 	for _, p := range list.Items {
 		ns := p.Namespace
@@ -465,6 +470,7 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		resource := providerToCard(p, pub)
 		versionData, _ := browseListProviderVersions(cs, r, ns)
 		enrichProviderCard(&resource, p, versionData, filterOS, filterArch)
+		enrichResourceWithDownloads(&resource, dlStats)
 		items = append(items, resource)
 	}
 	return items, nil
@@ -950,12 +956,13 @@ func moduleVersionSummaries(versions []opendepotv1alpha1.Version) []BrowseVersio
 	summaries := make([]BrowseVersionSummary, 0, len(versions))
 	for _, v := range versions {
 		s := BrowseVersionSummary{
-			Name:       v.Name,
-			Version:    v.Spec.Version,
-			Synced:     v.Status.Synced,
-			SyncStatus: v.Status.SyncStatus,
-			FileName:   v.Spec.FileName,
-			Checksum:   v.Status.Checksum,
+			Name:             v.Name,
+			Version:          v.Spec.Version,
+			Synced:           v.Status.Synced,
+			SyncStatus:       v.Status.SyncStatus,
+			FileName:         v.Spec.FileName,
+			Checksum:         v.Status.Checksum,
+			ArchiveSizeBytes: v.Status.ArchiveSizeBytes,
 		}
 
 		if v.Status.SourceScan != nil {
@@ -982,14 +989,15 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 		}
 
 		s := BrowseVersionSummary{
-			Name:       v.Name,
-			Version:    normalizeVersion(v.Spec.Version),
-			Synced:     v.Status.Synced,
-			SyncStatus: v.Status.SyncStatus,
-			OS:         v.Spec.OperatingSystem,
-			Arch:       v.Spec.Architecture,
-			FileName:   v.Spec.FileName,
-			Checksum:   v.Status.Checksum,
+			Name:             v.Name,
+			Version:          normalizeVersion(v.Spec.Version),
+			Synced:           v.Status.Synced,
+			SyncStatus:       v.Status.SyncStatus,
+			OS:               v.Spec.OperatingSystem,
+			Arch:             v.Spec.Architecture,
+			FileName:         v.Spec.FileName,
+			Checksum:         v.Status.Checksum,
+			ArchiveSizeBytes: v.Status.ArchiveSizeBytes,
 		}
 
 		if v.Status.BinaryScan != nil {
@@ -1042,6 +1050,41 @@ func collectBinaryFindings(versions []opendepotv1alpha1.Version) map[string][]op
 	}
 
 	return result
+}
+
+// enrichVersionSummariesWithDownloads populates DownloadCount and LastDownloadedAt on each
+// BrowseVersionSummary by issuing a single batch query against the stats DB.
+func enrichVersionSummariesWithDownloads(ctx context.Context, summaries []BrowseVersionSummary, namespace, kind, name string) {
+	if statsDB == nil || len(summaries) == 0 {
+		return
+	}
+
+	dlStats, err := queryAllVersionDownloadStats(ctx, statsDB, namespace)
+	if err != nil {
+		logger.Error("browse: failed to query version download stats", "error", err)
+		return
+	}
+
+	for i := range summaries {
+		key := namespace + "/" + kind + "/" + name + "/" + summaries[i].Version
+		if s, ok := dlStats[key]; ok {
+			summaries[i].DownloadCount = s.Count
+			summaries[i].LastDownloadedAt = s.LastAt
+		}
+	}
+}
+
+// enrichResourceWithDownloads populates TotalDownloads and LastDownloadedAt on a
+// BrowseResource using pre-fetched download stats from the batch query result.
+func enrichResourceWithDownloads(resource *BrowseResource, dlStats map[string]resourceDownloadStats) {
+	if dlStats == nil {
+		return
+	}
+	key := resource.Namespace + "/" + resource.Kind + "/" + resource.Name
+	if s, ok := dlStats[key]; ok {
+		resource.TotalDownloads = s.Count
+		resource.LastDownloadedAt = s.LastAt
+	}
 }
 
 // applyBrowseFilters applies search text, synced, and severity filters.
@@ -1353,6 +1396,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 
 		versions, _ := browseListModuleVersions(cs, r, namespace, name)
 		summaries := moduleVersionSummaries(versions)
+		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, "module", name)
 		sort.SliceStable(summaries, func(i, j int) bool {
 			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
 		})
@@ -1393,6 +1437,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 
 		versions, _ := browseListProviderVersions(cs, r, namespace)
 		summaries := providerVersionSummaries(p, versions)
+		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, "provider", name)
 		sort.SliceStable(summaries, func(i, j int) bool {
 			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
 		})

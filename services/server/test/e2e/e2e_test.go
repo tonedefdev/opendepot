@@ -1858,6 +1858,74 @@ server:
 				"a directory path within the allowed root must not be rejected by the path guard")
 		})
 	})
+
+	Context("stats endpoint", Ordered, func() {
+		var pfCancel context.CancelFunc
+
+		BeforeAll(func() {
+			By("deploying server with anonymous auth for stats tests")
+			deployServer(
+				"--set", "server.anonymousAuth=true",
+				"--set", "server.useBearerToken=false",
+			)
+			pfCancel = startPortForward()
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancel)
+		})
+
+		It("should return 200 with a valid BrowseStats JSON body", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var stats struct {
+				TotalModules   int `json:"totalModules"`
+				TotalProviders int `json:"totalProviders"`
+				TotalVersions  int `json:"totalVersions"`
+				TotalDownloads int `json:"totalDownloads"`
+				SyncHealth     struct {
+					SyncedVersions   int `json:"syncedVersions"`
+					UnsyncedVersions int `json:"unsyncedVersions"`
+					FailedVersions   int `json:"failedVersions"`
+				} `json:"syncHealth"`
+				SecurityPosture struct {
+					Critical               int `json:"critical"`
+					High                   int `json:"high"`
+					Medium                 int `json:"medium"`
+					Low                    int `json:"low"`
+					Unknown                int `json:"unknown"`
+					TotalAffectedResources int `json:"totalAffectedResources"`
+				} `json:"securityPosture"`
+				StorageDistribution []any `json:"storageDistribution"`
+				MostDownloaded      []any `json:"mostDownloaded"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&stats)).To(Succeed())
+
+			Expect(stats.TotalModules).To(BeNumerically(">=", 0),
+				"totalModules must be a non-negative integer")
+			Expect(stats.TotalProviders).To(BeNumerically(">=", 0),
+				"totalProviders must be a non-negative integer")
+			Expect(stats.TotalVersions).To(BeNumerically(">=", 0),
+				"totalVersions must be a non-negative integer")
+			Expect(stats.TotalDownloads).To(BeNumerically(">=", 0),
+				"totalDownloads must be a non-negative integer")
+			Expect(stats.SyncHealth.SyncedVersions).To(BeNumerically(">=", 0))
+			Expect(stats.SyncHealth.UnsyncedVersions).To(BeNumerically(">=", 0))
+			Expect(stats.SyncHealth.FailedVersions).To(BeNumerically(">=", 0))
+			Expect(stats.SecurityPosture.TotalAffectedResources).To(BeNumerically(">=", 0))
+		})
+
+		It("should accept an optional ?namespace= query parameter and return 200", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats?namespace=%s",
+				serverLocalPort, url.QueryEscape(moduleNamespace)))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		})
+	})
 })
 
 // Browse API e2e tests verify that the /opendepot/ui/v1/* endpoints enforce the

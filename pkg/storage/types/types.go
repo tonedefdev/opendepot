@@ -52,4 +52,8 @@ type StorageObjectInput struct {
 	ContainerName *string
 	// The Version spec of the object Version.
 	Version *versionv1alpha1.Version
+	// BytesWritten is set by PutObject to report how many bytes were successfully
+	// written to the backend. Zero when PutObject has not been called or the backend
+	// does not report a size. Callers read this field after a successful Put.
+	BytesWritten int64
 }

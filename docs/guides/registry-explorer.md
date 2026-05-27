@@ -164,6 +164,9 @@ The browse endpoints apply the following visibility logic based on the caller's 
 | `anonymousAuth: true` mode | All resources (public labels are ignored) |
 | Non-OIDC bearer token (SA or kubeconfig) | Public resources only — `GroupBinding` does not apply |
 
+!!! note "Namespace list is always label-filtered"
+    The `GET /opendepot/ui/v1/namespaces` endpoint enforces the `opendepot.defdev.io/public=true` label filter at the Kubernetes API level regardless of auth mode. The rows above describe module and provider resource visibility only. `anonymousAuth: true` mode and `GroupBinding` bypass have no effect on namespace listing — namespaces without the label, including `kube-system`, `default`, and `kube-public`, are never returned.
+
 ## GroupBinding for Browse Access
 
 `GroupBinding` resources grant OIDC-authenticated users access to resources beyond the public set. The same `GroupBinding` CRD used for registry protocol access also controls browse visibility.
@@ -269,7 +272,7 @@ A namespace selector at the top of the page narrows the graph to a single Kubern
 
 ### Visibility
 
-The Depots page applies the same visibility rules as the rest of the Registry Explorer. Unauthenticated visitors see only depots and resources in namespaces labelled `opendepot.defdev.io/public=true`. OIDC-authenticated users with a matching `GroupBinding` additionally see the resources allowed by that binding. In anonymous-auth mode all depots and resources are visible.
+The Depots page applies the same visibility rules as the rest of the Registry Explorer. Unauthenticated visitors see only depots and resources in namespaces labelled `opendepot.defdev.io/public=true`. OIDC-authenticated users with a matching `GroupBinding` additionally see the resources allowed by that binding. In anonymous-auth mode all depot resources are visible. Regardless of auth mode, the namespace selector on this page only lists namespaces carrying the `opendepot.defdev.io/public=true` label.
 
 The graph is powered by the [`GET /opendepot/ui/v1/depots/graph`](../reference/api.md#depot-relationship-graph) browse endpoint.
 
@@ -293,7 +296,7 @@ The browse endpoints are used by the Registry Explorer UI and can also be called
 GET /opendepot/ui/v1/namespaces
 ```
 
-Returns the namespaces visible to the caller.
+Returns only namespaces that carry the `opendepot.defdev.io/public=true` label. The label selector is applied at the Kubernetes API level, so system namespaces (`kube-system`, `default`, `kube-public`) are never returned regardless of the caller's auth state. The `public` field is always `true` in the response because unlabeled namespaces are excluded before the response is built.
 
 **Response:**
 

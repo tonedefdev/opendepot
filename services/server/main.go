@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -26,6 +27,10 @@ var (
 	opendepotOIDCTokenURL               *string
 	opendepotServerNamespace            *string
 	opendepotFilesystemMountPath        *string
+
+	// statsDB is the optional SQLite database used to track download events.
+	// It is nil when --stats-db-path is empty (stats tracking disabled).
+	statsDB *sql.DB
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -56,9 +61,20 @@ func main() {
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
+	opendepotStatsDBAPath := flag.String("stats-db-path", "", "path to SQLite stats database file; when empty download tracking is disabled")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
+
+	if *opendepotStatsDBAPath != "" {
+		db, err := initStatsDB(*opendepotStatsDBAPath)
+		if err != nil {
+			logger.Error("failed to initialise stats database", "path", *opendepotStatsDBAPath, "error", err)
+			os.Exit(1)
+		}
+		statsDB = db
+		logger.Info("stats tracking enabled", "path", *opendepotStatsDBAPath)
+	}
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")
@@ -118,6 +134,7 @@ func main() {
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions", handleBrowseVersionsList)
 	r.Get("/opendepot/ui/v1/depots", handleBrowseDepots)
 	r.Get("/opendepot/ui/v1/depots/graph", handleBrowseDepotsGraph)
+	r.Get("/opendepot/ui/v1/stats", handleBrowseStats)
 
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
 		logger.Info("Server started and listening on port 8080 with TLS")

@@ -246,7 +246,13 @@ The browse endpoints power the [Registry Explorer UI](../guides/registry-explore
 GET /opendepot/ui/v1/namespaces
 ```
 
-Returns the namespaces visible to the caller.
+Returns only namespaces that carry the `opendepot.defdev.io/public=true` label. The label selector is sent directly to the Kubernetes API, so system namespaces (`kube-system`, `default`, `kube-public`) are never included in the response regardless of auth mode. The `public` field is always `true` because unlabeled namespaces are excluded before the response is built.
+
+An admin must label a namespace before it appears in the sidebar:
+
+```bash
+kubectl label namespace <ns> opendepot.defdev.io/public=true
+```
 
 **Response:**
 

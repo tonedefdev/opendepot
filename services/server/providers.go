@@ -340,6 +340,7 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 				}
 				logger.Info("failed to init storage backend for presign, falling back to proxy", "error", initErr)
 			} else if presignErr := storageBackend.PresignObject(r.Context(), soi); presignErr == nil {
+				_ = recordDownload(r.Context(), statsDB, namespace, "provider", providerType, requestedVersion)
 				http.Redirect(w, r, *soi.PresignedURL, http.StatusTemporaryRedirect)
 				return
 			} else {
@@ -362,6 +363,7 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checksumQuery := url.QueryEscape(*versionResource.Status.Checksum)
+	_ = recordDownload(r.Context(), statsDB, namespace, "provider", providerType, requestedVersion)
 	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
 }
 

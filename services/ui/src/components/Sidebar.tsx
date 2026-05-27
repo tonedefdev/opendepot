@@ -26,6 +26,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import LoginIcon from "@mui/icons-material/Login";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GridViewIcon from "@mui/icons-material/GridView";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -291,6 +292,26 @@ export default function Sidebar({
               <ListItemText
                 primary="Depots"
                 primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: pathname === "/depots" ? 600 : 400 }}
+              />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton
+              component={Link}
+              href="/stats"
+              selected={pathname === "/stats"}
+              sx={{
+                mx: 1,
+                borderRadius: "6px",
+                py: 0.5,
+                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
+                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
+              }}
+            >
+              <BarChartIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText
+                primary="Stats"
+                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: pathname === "/stats" ? 600 : 400 }}
               />
             </ListItemButton>
           </ListItem>

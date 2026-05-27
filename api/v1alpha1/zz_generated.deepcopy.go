@@ -1010,6 +1010,11 @@ func (in *VersionStatus) DeepCopyInto(out *VersionStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.ArchiveSizeBytes != nil {
+		in, out := &in.ArchiveSizeBytes, &out.ArchiveSizeBytes
+		*out = new(int64)
+		**out = **in
+	}
 	if in.BinaryScan != nil {
 		in, out := &in.BinaryScan, &out.BinaryScan
 		*out = new(ProviderBinaryScan)

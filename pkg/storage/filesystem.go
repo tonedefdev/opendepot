@@ -110,16 +110,19 @@ func (storage *FileSystem) PutObject(ctx context.Context, soi *types.StorageObje
 	defer out.Close()
 
 	if soi.FileReader != nil {
-		if _, err := io.Copy(out, soi.FileReader); err != nil {
+		n, err := io.Copy(out, soi.FileReader)
+		if err != nil {
 			return err
 		}
+		soi.BytesWritten = n
 		return nil
 	}
 
-	if _, err := out.Write(soi.FileBytes); err != nil {
+	n, err := out.Write(soi.FileBytes)
+	if err != nil {
 		return err
 	}
-
+	soi.BytesWritten = int64(n)
 	return nil
 }
 

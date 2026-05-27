@@ -417,6 +417,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			currentVersion.Status.Checksum = archiveChecksum
 		}
 
+		if soi.BytesWritten > 0 {
+			currentVersion.Status.ArchiveSizeBytes = &soi.BytesWritten
+		}
+
 		currentVersion.Status.SyncStatus = "Successfully synced version"
 		if binaryScan != nil {
 			currentVersion.Status.BinaryScan = binaryScan

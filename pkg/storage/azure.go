@@ -155,11 +155,16 @@ func (storage *AzureBlobStorage) PutObject(ctx context.Context, soi *storagetype
 	}
 
 	if soi.FileReader != nil {
+		if n, seekErr := soi.FileReader.Seek(0, io.SeekEnd); seekErr == nil {
+			soi.BytesWritten = n
+			_, _ = soi.FileReader.Seek(0, io.SeekStart)
+		}
 		streamOptions := &azblob.UploadStreamOptions{
 			Concurrency: 10,
 		}
 		_, err = storage.blobClient.UploadStream(ctx, *ctr.Name, *soi.FilePath, soi.FileReader, streamOptions)
 	} else {
+		soi.BytesWritten = int64(len(soi.FileBytes))
 		bufferOptions := &azblob.UploadBufferOptions{
 			Concurrency: 10,
 		}
@@ -167,6 +172,7 @@ func (storage *AzureBlobStorage) PutObject(ctx context.Context, soi *storagetype
 	}
 
 	if err != nil {
+		soi.BytesWritten = 0
 		return err
 	}
 

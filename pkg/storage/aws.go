@@ -120,8 +120,13 @@ func (storage *AmazonS3Storage) PutObject(ctx context.Context, soi *storagetypes
 	var body io.ReadSeeker
 	if soi.FileReader != nil {
 		body = soi.FileReader
+		if n, err := soi.FileReader.Seek(0, io.SeekEnd); err == nil {
+			soi.BytesWritten = n
+			_, _ = soi.FileReader.Seek(0, io.SeekStart)
+		}
 	} else {
 		body = bytes.NewReader(soi.FileBytes)
+		soi.BytesWritten = int64(len(soi.FileBytes))
 	}
 
 	_, err := storage.client.PutObject(ctx, &s3.PutObjectInput{
@@ -132,6 +137,7 @@ func (storage *AmazonS3Storage) PutObject(ctx context.Context, soi *storagetypes
 		Body:              body,
 	})
 	if err != nil {
+		soi.BytesWritten = 0
 		return err
 	}
 

@@ -30,8 +30,8 @@ const DEPOT_BORDER = "#04cfd0";
 const DEPOT_BG = "rgba(4,207,208,0.10)";
 const MODULE_BORDER = "#03deb8";
 const MODULE_BG = "rgba(3,222,184,0.08)";
-const PROVIDER_BORDER = "#04cfd0";
-const PROVIDER_BG = "rgba(4,207,208,0.08)";
+const PROVIDER_BORDER = "#047df1";
+const PROVIDER_BG = "rgba(4,125,241,0.08)";
 const VERSION_BORDER = "#8b949e";
 const VERSION_BG = "rgba(139,148,158,0.12)";
 

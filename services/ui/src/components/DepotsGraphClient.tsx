@@ -10,7 +10,7 @@ import type { BrowseDepotGraph, BrowseStorageConfig } from "@/lib/api";
 
 const DEPOT_COLOR = "#04cfd0";
 const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#04cfd0";
+const PROVIDER_COLOR = "#047df1";
 const VERSION_COLOR = "#8b949e";
 
 type DepotOption = {
