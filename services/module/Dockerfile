@@ -15,7 +15,7 @@ COPY services/depot/go.mod services/depot/go.sum services/depot/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/version/go.mod services/version/go.sum services/version/
 COPY services/provider/go.mod services/provider/go.sum services/provider/
-COPY pkg/utils/go.mod pkg/utils/
+COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
@@ -28,6 +28,7 @@ RUN cd services/module && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/github/ pkg/github/
+COPY pkg/utils/ pkg/utils/
 COPY services/module/cmd/ services/module/cmd/
 COPY services/module/internal/ services/module/internal/
 
