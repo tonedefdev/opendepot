@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/utils"
 )
 
 const (
@@ -224,8 +225,8 @@ func (r *ModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	latestVersion := getLatestVersion(*module)
-	if latestVersion == nil {
+	latestVersion, err := utils.GetLatestVersion(module, nil)
+	if err != nil || latestVersion == nil {
 		return ctrl.Result{}, fmt.Errorf("latestVersion is nil: %v", module.Spec)
 	}
 
@@ -371,25 +372,6 @@ func generateFileName(module *opendepotv1alpha1.Module) (*string, error) {
 
 	moduleVersionFileName := fmt.Sprintf("%s.%s", moduleVersionFileUUID, *module.Spec.ModuleConfig.FileFormat)
 	return &moduleVersionFileName, nil
-}
-
-// getLatestVersion returns the latest semantic version of a Module
-func getLatestVersion(module opendepotv1alpha1.Module) *string {
-	versions := make([]string, 0, len(module.Spec.Versions))
-	for _, version := range module.Spec.Versions {
-		var semverString string
-		if version.Version[0] != 'v' {
-			semverString = fmt.Sprintf("v%s", version.Version)
-		} else {
-			semverString = version.Version
-		}
-		semverString = semver.Canonical(semverString)
-		versions = append(versions, semverString)
-	}
-
-	semver.Sort(versions)
-	latestVersion := versions[len(versions)-1]
-	return &latestVersion
 }
 
 func versionsToKeep(module opendepotv1alpha1.Module) []string {

@@ -158,6 +158,9 @@ func (r *ProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		provider.Status.ProviderVersionRefs = providerVersionRefs
 		provider.Status.Synced = true
 		provider.Status.SyncStatus = "Successfully synced provider"
+		if lv, _ := utils.GetLatestVersion(nil, provider); lv != nil {
+			provider.Status.LatestVersion = lv
+		}
 		if err := r.Status().Update(ctx, provider); err != nil {
 			return err
 		}

@@ -9,6 +9,7 @@ require (
 	github.com/onsi/gomega v1.40.0
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
+	github.com/tonedefdev/opendepot/pkg/utils v0.2.7
 	golang.org/x/mod v0.35.0
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.0
