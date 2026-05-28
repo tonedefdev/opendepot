@@ -169,6 +169,34 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
+		// Fast path: if the Version has already been synced and the artifact exists in
+		// storage with a matching checksum, skip the GitHub download and any re-scan.
+		// Without this, the controller re-downloads the archive from GitHub and re-runs
+		// Trivy on every reconcile (e.g. after every controller restart), which hammers
+		// the GitHub API and wastes scan CPU even when nothing has changed.
+		if version.Status.Checksum != nil && version.Status.Synced && version.Spec.FileName != nil {
+			existingFilePath, pathErr := getVersionFilePath(version)
+			if pathErr == nil {
+				earlySoi := &types.StorageObjectInput{
+					Method:   types.Get,
+					FilePath: existingFilePath,
+					Version:  version,
+				}
+
+				if checkErr := r.InitStorageFactory(ctx, earlySoi); checkErr == nil &&
+					earlySoi.FileExists &&
+					earlySoi.ObjectChecksum != nil &&
+					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+					if version.Spec.ForceSync {
+						r.Log.V(5).Info("module fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
+						break
+					}
+					r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
+					return reconcile.Result{}, nil
+				}
+			}
+		}
+
 		r.Log.V(5).Info("fetching module archive", "version", version.Name, "versionStr", version.Spec.Version)
 		moduleBytes, checksum, err := r.fetchModuleArchive(ctx, version)
 		if err != nil {
@@ -207,14 +235,17 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					FilePath: existingFilePath,
 					Version:  version,
 				}
+
 				if checkErr := r.InitStorageFactory(ctx, earlySoi); checkErr == nil &&
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+
 					if version.Spec.ForceSync {
 						r.Log.V(5).Info("provider fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
 						break
 					}
+
 					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
 					return reconcile.Result{}, nil
 				}
