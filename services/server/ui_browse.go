@@ -1011,44 +1011,48 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 	return summaries
 }
 
-// collectModuleSourceFindings gathers deduplicated IaC scan findings across module versions.
+// collectModuleSourceFindings returns the IaC scan findings from the latest (highest) module version.
 func collectModuleSourceFindings(versions []opendepotv1alpha1.Version) []opendepotv1alpha1.SecurityFinding {
-	seen := make(map[string]struct{})
-	var findings []opendepotv1alpha1.SecurityFinding
-	for _, v := range versions {
+	var latest *opendepotv1alpha1.Version
+	for i := range versions {
+		v := &versions[i]
 		if v.Status.SourceScan == nil {
 			continue
 		}
-
-		for _, f := range v.Status.SourceScan.Findings {
-			key := f.VulnerabilityID + "/" + f.PkgName
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			findings = append(findings, f)
+		if latest == nil || compareVersionDesc(v.Spec.Version, latest.Spec.Version) {
+			latest = v
 		}
 	}
-
-	return findings
+	if latest == nil {
+		return nil
+	}
+	return latest.Status.SourceScan.Findings
 }
 
-// collectBinaryFindings builds a map of "os/arch" → []SecurityFinding from provider Version resources.
+// collectBinaryFindings returns a map of "os/arch" → []SecurityFinding using only the latest
+// version's binary scan results for each platform.
 func collectBinaryFindings(versions []opendepotv1alpha1.Version) map[string][]opendepotv1alpha1.SecurityFinding {
-	result := make(map[string][]opendepotv1alpha1.SecurityFinding)
-	for _, v := range versions {
+	latestByPlatform := make(map[string]*opendepotv1alpha1.Version)
+	for i := range versions {
+		v := &versions[i]
 		if v.Status.BinaryScan == nil || len(v.Status.BinaryScan.Findings) == 0 {
 			continue
 		}
-
 		key := v.Spec.OperatingSystem + "/" + v.Spec.Architecture
-		result[key] = append(result[key], v.Status.BinaryScan.Findings...)
+		existing, ok := latestByPlatform[key]
+		if !ok || compareVersionDesc(v.Spec.Version, existing.Spec.Version) {
+			latestByPlatform[key] = v
+		}
 	}
 
-	if len(result) == 0 {
+	if len(latestByPlatform) == 0 {
 		return nil
 	}
 
+	result := make(map[string][]opendepotv1alpha1.SecurityFinding, len(latestByPlatform))
+	for key, v := range latestByPlatform {
+		result[key] = v.Status.BinaryScan.Findings
+	}
 	return result
 }
 
