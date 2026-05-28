@@ -1056,7 +1056,7 @@ func collectModuleSourceFindings(versions []opendepotv1alpha1.Version) []opendep
 	if latest == nil {
 		return nil
 	}
-	return latest.Status.SourceScan.Findings
+	return deduplicateFindings(latest.Status.SourceScan.Findings)
 }
 
 // collectBinaryFindings returns a map of "os/arch" → []SecurityFinding using only the latest
@@ -1081,9 +1081,32 @@ func collectBinaryFindings(versions []opendepotv1alpha1.Version) map[string][]op
 
 	result := make(map[string][]opendepotv1alpha1.SecurityFinding, len(latestByPlatform))
 	for key, v := range latestByPlatform {
-		result[key] = v.Status.BinaryScan.Findings
+		result[key] = deduplicateFindings(v.Status.BinaryScan.Findings)
 	}
+
 	return result
+}
+
+// deduplicateFindings removes duplicate SecurityFinding entries from a slice.
+// Vulnerabilities are keyed by VulnerabilityID+PkgName+InstalledVersion;
+// misconfigurations (empty InstalledVersion) are keyed by VulnerabilityID alone.
+func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1alpha1.SecurityFinding {
+	seen := make(map[string]struct{})
+	out := make([]opendepotv1alpha1.SecurityFinding, 0, len(in))
+	for _, f := range in {
+		var key string
+		if f.InstalledVersion != "" {
+			key = f.VulnerabilityID + "|" + f.PkgName + "|" + f.InstalledVersion
+		} else {
+			key = f.VulnerabilityID
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, f)
+	}
+	return out
 }
 
 // enrichVersionSummariesWithDownloads populates DownloadCount and LastDownloadedAt on each
@@ -1582,8 +1605,9 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			BinaryScanFindings: collectBinaryFindings(versions),
 		}
 		if p.Status.SourceScan != nil {
-			result.SourceScanFindings = p.Status.SourceScan.Findings
+			result.SourceScanFindings = deduplicateFindings(p.Status.SourceScan.Findings)
 		}
+
 		json.NewEncoder(w).Encode(result)
 
 	default:

@@ -105,12 +105,18 @@ func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1
 	}
 
 	var findings []opendepotv1alpha1.SecurityFinding
+	seen := make(map[string]struct{})
 	for _, result := range report.Results {
 		if filter != nil && !filter(result) {
 			continue
 		}
 
 		for _, v := range result.Vulnerabilities {
+			key := v.VulnerabilityID + "|" + v.PkgName + "|" + v.InstalledVersion
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
 			findings = append(findings, opendepotv1alpha1.SecurityFinding{
 				VulnerabilityID:  v.VulnerabilityID,
 				PkgName:          v.PkgName,
@@ -122,6 +128,11 @@ func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1
 		}
 
 		for _, m := range result.Misconfigurations {
+			key := m.ID
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
 			findings = append(findings, opendepotv1alpha1.SecurityFinding{
 				VulnerabilityID: m.ID,
 				PkgName:         m.CauseMetadata.Resource,

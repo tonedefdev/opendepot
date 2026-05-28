@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
@@ -106,6 +105,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if err := r.Update(ctx, version); err != nil {
 				return ctrl.Result{}, err
 			}
+
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 	} else {
@@ -117,14 +117,17 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if !version.Status.Synced && version.Status.SyncStatus == terminalMsg {
 			return ctrl.Result{}, nil
 		}
+
 		r.Log.V(5).Info("name guard: Version name contains '.' characters; writing terminal status",
 			"version", version.Name,
 		)
+
 		version.Status.Synced = false
 		version.Status.SyncStatus = terminalMsg
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
+
 		return ctrl.Result{}, nil
 	}
 
@@ -152,11 +155,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.Log.V(5).Info("dual-config guard: both moduleConfigRef and providerConfigRef are set; writing terminal status",
 			"version", version.Name,
 		)
+
 		version.Status.Synced = false
 		version.Status.SyncStatus = "Only one of 'ModuleConfigRef' or 'ProviderConfigRef' can be provided: both are defined"
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
+
 		// This is a permanent user configuration error that cannot be resolved by
 		// requeuing. Return without an error so controller-runtime does not log a
 		// "Reconciler error" and does not schedule unnecessary backoff retries.
@@ -191,8 +196,9 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						r.Log.V(5).Info("module fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
 						break
 					}
+
 					r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
-					return reconcile.Result{}, nil
+					return ctrl.Result{}, nil
 				}
 			}
 		}
@@ -247,7 +253,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					}
 
 					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
-					return reconcile.Result{}, nil
+					return ctrl.Result{}, nil
 				}
 			}
 		}
@@ -450,6 +456,14 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if soi.BytesWritten > 0 {
 			currentVersion.Status.ArchiveSizeBytes = &soi.BytesWritten
+		} else if len(fileBytes) > 0 {
+			size := int64(len(fileBytes))
+			currentVersion.Status.ArchiveSizeBytes = &size
+		} else if providerTmpPath != "" {
+			if info, statErr := os.Stat(providerTmpPath); statErr == nil {
+				size := info.Size()
+				currentVersion.Status.ArchiveSizeBytes = &size
+			}
 		}
 
 		currentVersion.Status.SyncStatus = "Successfully synced version"
@@ -489,7 +503,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	return reconcile.Result{}, nil
+	return ctrl.Result{}, nil
 }
 
 // reconcileDeletion removes the stored artifact and finalizer when a Version is being deleted.
