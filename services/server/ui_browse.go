@@ -1468,7 +1468,10 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsLabels, _ := browseGetNamespaceLabels(cs, r, namespace)
+	nsLabels, nsErr := browseGetNamespaceLabels(cs, r, namespace)
+	if nsErr != nil {
+		logger.Warn("browse: scan-findings: failed to get namespace labels", "namespace", namespace, "error", nsErr)
+	}
 	nsPublic := isPublicNamespace(nsLabels)
 
 	switch kind {

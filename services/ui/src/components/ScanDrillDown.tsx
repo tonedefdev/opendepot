@@ -384,13 +384,18 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
   }, []);
 
   React.useEffect(() => {
+    // Skip the initial render — the parent already SSR'd findings into props.
+    if (refreshNonce === 0) return;
     fetch(`/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
       .then((d: BrowseScanFindings) => {
         setSourceScanFindings(d.sourceScanFindings ?? []);
         setBinaryScanFindings(d.binaryScanFindings ?? {});
       })
-      .catch(() => { /* keep existing data on error */ });
+      .catch(() => { /* keep existing data on error; user can retry */ });
   }, [namespace, kind, name, refreshNonce]);
 
   const binaryKeys = Object.keys(binaryScanFindings ?? {});

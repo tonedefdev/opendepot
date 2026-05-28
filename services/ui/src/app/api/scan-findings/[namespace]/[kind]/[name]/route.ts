@@ -21,6 +21,11 @@ export async function GET(
   }
 
   const res = await fetch(upstreamUrl, { headers, cache: "no-store" });
-  const data: unknown = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    return NextResponse.json({ error: "upstream error" }, { status: res.status });
+  }
   return NextResponse.json(data, { status: res.status });
 }
