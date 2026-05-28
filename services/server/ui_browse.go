@@ -805,30 +805,55 @@ func providerToCard(p opendepotv1alpha1.Provider, public bool) BrowseResource {
 	return r
 }
 
-// enrichModuleCard sets ScanCounts and LastScanned on a module card from its versions.
+// enrichModuleCard sets ScanCounts and LastScanned on a module card using only the latest version.
 func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version) {
-	var allFindings []opendepotv1alpha1.SecurityFinding
-	var times []string
-	for _, v := range versions {
-		if v.Status.SourceScan != nil {
-			allFindings = append(allFindings, v.Status.SourceScan.Findings...)
-			times = append(times, v.Status.SourceScan.ScannedAt)
+	card.HasUnsyncedVersions = anyVersionUnsynced(versions)
+
+	// Identify the latest version: prefer card.LatestVersion set from the Module status;
+	// fall back to finding the highest semver in the slice.
+	latestVersionStr := card.LatestVersion
+	if latestVersionStr == "" {
+		for _, v := range versions {
+			if latestVersionStr == "" || compareVersionDesc(v.Spec.Version, latestVersionStr) {
+				latestVersionStr = v.Spec.Version
+			}
 		}
 	}
 
-	if len(allFindings) > 0 {
-		card.ScanCounts = browseScanCounts(allFindings)
+	for i := range versions {
+		v := &versions[i]
+		if v.Spec.Version != latestVersionStr || v.Status.SourceScan == nil {
+			continue
+		}
+		card.ScanCounts = browseScanCounts(v.Status.SourceScan.Findings)
+		card.LastScanned = v.Status.SourceScan.ScannedAt
+		return
 	}
-
-	card.LastScanned = latestOf(times...)
-	card.HasUnsyncedVersions = anyVersionUnsynced(versions)
 }
 
 // enrichProviderCard sets Platforms, ScanCounts, and LastScanned on a provider card.
+// ScanCounts reflects only the latest version's binary findings plus the provider-level source scan.
 func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, versions []opendepotv1alpha1.Version, filterOS, filterArch string) {
 	platformSet := make(map[string]ProviderPlatform)
-	var allFindings []opendepotv1alpha1.SecurityFinding
-	var times []string
+
+	// Determine the latest version string: prefer provider status, fall back to highest semver.
+	latestVersionStr := derefString(p.Status.LatestVersion)
+	if latestVersionStr == "" {
+		for _, v := range versions {
+			if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
+				continue
+			}
+			if *v.Spec.ProviderConfigRef.Name != p.Name {
+				continue
+			}
+			if latestVersionStr == "" || compareVersionDesc(v.Spec.Version, latestVersionStr) {
+				latestVersionStr = v.Spec.Version
+			}
+		}
+	}
+
+	var scanFindings []opendepotv1alpha1.SecurityFinding
+	var scanTimes []string
 
 	for _, v := range versions {
 		if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
@@ -858,15 +883,16 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		key := osName + "/" + arch
 		platformSet[key] = ProviderPlatform{OS: osName, Arch: arch}
 
-		if v.Status.BinaryScan != nil {
-			allFindings = append(allFindings, v.Status.BinaryScan.Findings...)
-			times = append(times, v.Status.BinaryScan.ScannedAt)
+		// Only include binary scan findings from the latest version.
+		if v.Spec.Version == latestVersionStr && v.Status.BinaryScan != nil {
+			scanFindings = append(scanFindings, v.Status.BinaryScan.Findings...)
+			scanTimes = append(scanTimes, v.Status.BinaryScan.ScannedAt)
 		}
 	}
 
 	if p.Status.SourceScan != nil {
-		allFindings = append(allFindings, p.Status.SourceScan.Findings...)
-		times = append(times, p.Status.SourceScan.ScannedAt)
+		scanFindings = append(scanFindings, p.Status.SourceScan.Findings...)
+		scanTimes = append(scanTimes, p.Status.SourceScan.ScannedAt)
 	}
 
 	platforms := make([]ProviderPlatform, 0, len(platformSet))
@@ -882,11 +908,11 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 	})
 
 	card.Platforms = platforms
-	if len(allFindings) > 0 {
-		card.ScanCounts = browseScanCounts(allFindings)
+	if len(scanFindings) > 0 {
+		card.ScanCounts = browseScanCounts(scanFindings)
 	}
 
-	card.LastScanned = latestOf(times...)
+	card.LastScanned = latestOf(scanTimes...)
 }
 
 // browseListModuleVersions returns Version resources in namespace that belong to the named module.
