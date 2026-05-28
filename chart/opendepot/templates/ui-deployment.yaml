@@ -68,17 +68,30 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/nginx.conf.template
           subPath: nginx.conf
           readOnly: true
+        - name: nginx-tmp
+          mountPath: /tmp
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-run
+          mountPath: /var/run
         resources:
           {{- toYaml .Values.ui.resources | nindent 10 }}
       volumes:
       - name: nginx-config
         configMap:
           name: ui-nginx-config
+      - name: nginx-tmp
+        emptyDir: {}
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-run
+        emptyDir: {}
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

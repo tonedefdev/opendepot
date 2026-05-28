@@ -55,7 +55,6 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
