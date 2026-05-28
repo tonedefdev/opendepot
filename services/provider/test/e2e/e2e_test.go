@@ -491,26 +491,26 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScan on the Provider CR", func() {
+	It("should populate sourceScans on the Provider CR", func() {
 		Eventually(func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
 				"-n", scanNamespace,
-				"-o", "jsonpath={.status.sourceScan.scannedAt}",
+				"-o", "jsonpath={.status.sourceScans[0].scannedAt}",
 			)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty(), "sourceScan.scannedAt should be set after scan completes")
+			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should record the scanned version on the Provider sourceScan", func() {
+	It("should record the scanned version on the Provider sourceScans entry", func() {
 		cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
 			"-n", scanNamespace,
-			"-o", "jsonpath={.status.sourceScan.version}",
+			"-o", "jsonpath={.status.sourceScans[0].version}",
 		)
 		output, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output).To(Equal(scanVersion), "sourceScan.version should match the synced provider version")
+		Expect(output).To(Equal(scanVersion), "sourceScans[0].version should match the synced provider version")
 	})
 })
 
@@ -639,16 +639,96 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScan on the community Provider CR", func() {
+	It("should populate sourceScans on the community Provider CR", func() {
 		// Validates that Trivy can clone and scan the source repository of a community provider.
 		Eventually(func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "provider", communityProviderName,
 				"-n", communityNamespace,
-				"-o", "jsonpath={.status.sourceScan.scannedAt}",
+				"-o", "jsonpath={.status.sourceScans[0].scannedAt}",
 			)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty(), "sourceScan.scannedAt should be set after source scan completes")
+			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after source scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
+	})
+})
+
+var _ = Describe("Provider Version History Limit", Ordered, func() {
+	const (
+		vhlNamespace    = "opendepot-system"
+		vhlProviderName = "null-vhl"
+		vhlStoragePath  = "/data/modules"
+		// Two versions; the controller should keep only the newer one.
+		vhlOlderVersion = "3.2.1"
+		vhlNewerVersion = "3.2.2"
+	)
+
+	BeforeAll(func() {
+		By("applying the null-vhl Provider CR with versionHistoryLimit: 1 and two versions")
+		providerYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: "%s"
+  namespace: %s
+spec:
+  providerConfig:
+    name: "%s"
+    operatingSystems:
+      - linux
+    architectures:
+      - amd64
+    versionHistoryLimit: 1
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - version: "%s"
+    - version: "%s"
+`, vhlProviderName, vhlNamespace, vhlProviderName, vhlStoragePath, vhlOlderVersion, vhlNewerVersion)
+
+		providerFile := filepath.Join(GinkgoT().TempDir(), "vhl-provider.yaml")
+		Expect(os.WriteFile(providerFile, []byte(providerYAML), 0600)).To(Succeed())
+		cmd := exec.Command("kubectl", "apply", "-f", providerFile)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply vhl Provider CR")
+	})
+
+	AfterAll(func() {
+		cmd := exec.Command("kubectl", "delete", "provider", vhlProviderName,
+			"-n", vhlNamespace, "--ignore-not-found",
+		)
+		_, _ = utils.Run(cmd)
+	})
+
+	It("should trim provider Spec.Versions to the history limit", func() {
+		By("waiting for the provider controller to trim Spec.Versions to 1 entry")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "provider", vhlProviderName,
+				"-n", vhlNamespace,
+				"-o", "jsonpath={.spec.versions}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			// A single-element array serialises as e.g. [{"version":"v3.2.2"}]
+			g.Expect(strings.Count(output, "version")).To(Equal(1), "expected exactly 1 version in Spec.Versions after trim")
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
+	})
+
+	It("should create only one Version CR for the newer version", func() {
+		By("waiting for exactly one Version CR to exist for the provider")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "versions",
+				"-l", fmt.Sprintf("opendepot.defdev.io/provider=%s", vhlProviderName),
+				"-n", vhlNamespace,
+				"--no-headers",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			lines := utils.GetNonEmptyLines(output)
+			g.Expect(lines).To(HaveLen(1), "expected exactly 1 Version CR after versionHistoryLimit enforcement")
+			g.Expect(lines[0]).To(ContainSubstring(strings.ReplaceAll(vhlNewerVersion, ".", "-")),
+				"surviving Version CR should be for the newer version %s", vhlNewerVersion)
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
 	})
 })

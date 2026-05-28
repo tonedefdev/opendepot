@@ -80,6 +80,30 @@ func (r *ProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("the provider architectures field cannot be empty")
 	}
 
+	trimmedVersions, err := utils.VersionsToKeep(nil, provider)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if trimmedVersions != nil && len(trimmedVersions) < len(provider.Spec.Versions) {
+		providerVersionsToKeep := make([]opendepotv1alpha1.ProviderVersion, 0, len(trimmedVersions))
+		for _, v := range trimmedVersions {
+			providerVersionsToKeep = append(providerVersionsToKeep, opendepotv1alpha1.ProviderVersion{Version: v})
+		}
+
+		if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			if err := r.Get(ctx, req.NamespacedName, provider); err != nil {
+				return err
+			}
+
+			provider.Spec.Versions = providerVersionsToKeep
+			return r.Update(ctx, provider, &client.UpdateOptions{FieldManager: opendepotControllerName})
+		}); err != nil {
+			r.Log.Error(err, "Failed to trim provider versions to history limit", "provider", provider.Name)
+			return ctrl.Result{}, err
+		}
+	}
+
 	desiredVersionNames := map[string]struct{}{}
 	providerVersionRefs := make(map[string]*opendepotv1alpha1.ProviderVersion)
 

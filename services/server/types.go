@@ -230,6 +230,11 @@ type BrowseScanFindings struct {
 	// BinaryScanFindings are per-artifact (os/arch) provider binary vulnerability findings.
 	// Keys are in the form "os/arch".
 	BinaryScanFindings map[string][]opendepotv1alpha1.SecurityFinding `json:"binaryScanFindings,omitempty"`
+	// SelectedVersion is the provider/module version whose source scan findings are returned.
+	SelectedVersion string `json:"selectedVersion,omitempty"`
+	// ScannedVersions is the list of provider versions that have source scan results available,
+	// sorted descending by semver. Used by the UI to populate the version selector dropdown.
+	ScannedVersions []string `json:"scannedVersions,omitempty"`
 }
 
 // BrowseGraphDepot is a depot node in the depots relationship graph.

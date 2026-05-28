@@ -418,4 +418,186 @@ spec:
 				"expected sourceScan.findings to contain at least one security finding")
 		})
 	})
+
+	Context("Provider Source Scan", Ordered, func() {
+		const (
+			scanProviderName = "null-version-e2e"
+			scanVersion1     = "3.2.3"
+			scanVersion2     = "3.2.0"
+			scanVersionCR1   = "null-version-e2e-3-2-3-linux-amd64"
+			scanVersionCR2   = "null-version-e2e-3-2-0-linux-amd64"
+			scanStoragePath  = "/data/modules"
+			scanSourceRepo   = "https://github.com/hashicorp/terraform-provider-null"
+		)
+
+		AfterAll(func() {
+			By("removing Provider Source Scan test resources")
+			cmd := exec.Command("kubectl", "delete", "version", scanVersionCR1, scanVersionCR2,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "provider", scanProviderName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			By("disabling scanning to restore baseline state")
+			chartPath, err := utils.GetChartPath()
+			if err != nil {
+				return
+			}
+			cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", "scanning.enabled=false",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, _ = utils.Run(cmd)
+		})
+
+		BeforeAll(func() {
+			By("deleting any existing trivy cache PVC to avoid immutable field conflicts")
+			cmd := exec.Command("kubectl", "delete", "pvc", "opendepot-trivy-cache",
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			By("upgrading Helm release to enable scanning with offline=false")
+			chartPath, err := utils.GetChartPath()
+			ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+			baseRepo, baseTag := utils.SplitImageRef(projectImage)
+			cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", fmt.Sprintf("version.image.repository=%s", baseRepo),
+				"--set", fmt.Sprintf("version.image.tag=%s", baseTag),
+				"--set", "scanning.enabled=true",
+				"--set", "scanning.offline=false",
+				"--set", "scanning.cache.accessMode=ReadWriteOnce",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, err = utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release to enable scanning")
+
+			By("applying the null Provider CR with two versions")
+			providerYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: "%s"
+  namespace: %s
+spec:
+  providerConfig:
+    name: "null"
+    sourceRepository: "%s"
+    operatingSystems:
+      - linux
+    architectures:
+      - amd64
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - version: "%s"
+    - version: "%s"
+`, scanProviderName, namespace, scanSourceRepo, scanStoragePath, scanVersion1, scanVersion2)
+
+			providerFile := filepath.Join(GinkgoT().TempDir(), "scan-provider.yaml")
+			Expect(os.WriteFile(providerFile, []byte(providerYAML), 0600)).To(Succeed())
+			cmd = exec.Command("kubectl", "apply", "-f", providerFile)
+			_, err = utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Provider CR")
+
+			By("creating Version CR 1 manually (provider controller is not deployed in this suite)")
+			version1YAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: "%s"
+  namespace: %s
+  labels:
+    opendepot.defdev.io/provider: "%s"
+spec:
+  type: Provider
+  version: "%s"
+  operatingSystem: linux
+  architecture: amd64
+  providerConfigRef:
+    name: "null"
+    sourceRepository: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, scanVersionCR1, namespace, scanProviderName, scanVersion1, scanSourceRepo, scanStoragePath)
+
+			v1File := filepath.Join(GinkgoT().TempDir(), "scan-version1.yaml")
+			Expect(os.WriteFile(v1File, []byte(version1YAML), 0600)).To(Succeed())
+			cmd = exec.Command("kubectl", "apply", "-f", v1File)
+			_, err = utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Version CR 1")
+
+			By("creating Version CR 2 manually")
+			version2YAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: "%s"
+  namespace: %s
+  labels:
+    opendepot.defdev.io/provider: "%s"
+spec:
+  type: Provider
+  version: "%s"
+  operatingSystem: linux
+  architecture: amd64
+  providerConfigRef:
+    name: "null"
+    sourceRepository: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, scanVersionCR2, namespace, scanProviderName, scanVersion2, scanSourceRepo, scanStoragePath)
+
+			v2File := filepath.Join(GinkgoT().TempDir(), "scan-version2.yaml")
+			Expect(os.WriteFile(v2File, []byte(version2YAML), 0600)).To(Succeed())
+			cmd = exec.Command("kubectl", "apply", "-f", v2File)
+			_, err = utils.Run(cmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Version CR 2")
+		})
+
+		It("should accumulate two sourceScans entries on the Provider after scanning both versions", func() {
+			By("waiting for Version CR 1 to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", scanVersionCR1,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("waiting for Version CR 2 to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", scanVersionCR2,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("waiting for both source scans to accumulate on the Provider")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.sourceScans}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring(scanVersion1),
+					"expected sourceScans to contain entry for version %s", scanVersion1)
+				g.Expect(output).To(ContainSubstring(scanVersion2),
+					"expected sourceScans to contain entry for version %s", scanVersion2)
+			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+		})
+	})
 })

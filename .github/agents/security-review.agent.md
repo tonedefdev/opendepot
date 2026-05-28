@@ -1,6 +1,6 @@
 ---
 description: "Use when: reviewing security of Go code, Helm charts, or Kubernetes manifests; running Trivy scans; validating OIDC or OAuth2 authentication flows; checking for secrets in code; auditing GroupBinding expressions; reviewing RBAC configurations; or approving/blocking a change on security grounds in the OpenDepot project."
-name: "OpenDepot Security Reviewer"
+name: "OpenDepot Security Review"
 model: "Claude Sonnet 4.6 (copilot)"
 tools: [read, search, execute, agent, todo, browser]
 agents: ["OpenDepot Developer"]

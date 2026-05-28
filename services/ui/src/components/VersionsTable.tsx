@@ -69,7 +69,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
   const isProvider = kind === "provider";
 
   const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(20);
+  const [pageSize, setPageSize] = React.useState(10);
   const [q, setQ] = React.useState("");
   const [debouncedQ, setDebouncedQ] = React.useState("");
   const [synced, setSynced] = React.useState("");

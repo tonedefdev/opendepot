@@ -370,6 +370,12 @@ spec:
           status:
             description: VersionStatus defines the current status of the resource.
             properties:
+              archiveSizeBytes:
+                description: |-
+                  ArchiveSizeBytes is the size in bytes of the stored archive, set by the Version
+                  controller after a successful PutObject. Nil when the archive has not yet been uploaded.
+                format: int64
+                type: integer
               binaryScan:
                 description: |-
                   The binary vulnerability scan result for this specific provider artifact.

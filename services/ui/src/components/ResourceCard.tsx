@@ -30,6 +30,13 @@ function displayVersion(v: string): string {
 
 export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
+  const nameRef = React.useRef<HTMLDivElement>(null);
+  const [nameTruncated, setNameTruncated] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = nameRef.current;
+    if (el) setNameTruncated(el.scrollWidth > el.clientWidth);
+  }, [resource.name]);
 
   return (
     <Card
@@ -66,15 +73,18 @@ export default function ResourceCard({ resource }: Props) {
           </Box>
 
           {/* Name */}
-          <Typography
-            variant="h6"
-            component="div"
-            gutterBottom
-            noWrap
-            sx={{ fontSize: "0.9375rem", fontWeight: 700, lineHeight: 1.3, mb: 1 }}
-          >
-            {resource.name}
-          </Typography>
+          <Tooltip title={nameTruncated ? resource.name : ""} placement="top" enterDelay={300} disableInteractive>
+            <Typography
+              ref={nameRef}
+              variant="h6"
+              component="div"
+              gutterBottom
+              noWrap
+              sx={{ fontSize: "0.9375rem", fontWeight: 700, lineHeight: 1.3, mb: 1 }}
+            >
+              {resource.name}
+            </Typography>
+          </Tooltip>
 
           {/* Provider logo + kind + version */}
           <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">

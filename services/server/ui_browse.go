@@ -744,9 +744,10 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = providerVersionSummaries(p, versions)
-		if p.Status.SourceScan != nil {
-			detail.SourceScanFindings = p.Status.SourceScan.Findings
+		if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
+			detail.SourceScanFindings = latestScan.Findings
 		}
+
 		detail.BinaryScanFindings = collectBinaryFindings(versions)
 		detail.StorageConfig = storageConfigToBrowse(p.Spec.ProviderConfig.StorageConfig)
 		detail.VersionHistoryLimit = p.Spec.ProviderConfig.VersionHistoryLimit
@@ -797,9 +798,9 @@ func providerToCard(p opendepotv1alpha1.Provider, public bool) BrowseResource {
 		ProviderNamespace: derefString(p.Spec.ProviderConfig.Namespace),
 	}
 
-	if p.Status.SourceScan != nil {
-		r.ScanCounts = browseScanCounts(p.Status.SourceScan.Findings)
-		r.LastScanned = p.Status.SourceScan.ScannedAt
+	if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
+		r.ScanCounts = browseScanCounts(latestScan.Findings)
+		r.LastScanned = latestScan.ScannedAt
 	}
 
 	return r
@@ -894,9 +895,9 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		}
 	}
 
-	if p.Status.SourceScan != nil {
-		scanFindings = append(scanFindings, p.Status.SourceScan.Findings...)
-		scanTimes = append(scanTimes, p.Status.SourceScan.ScannedAt)
+	if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
+		scanFindings = append(scanFindings, latestScan.Findings...)
+		scanTimes = append(scanTimes, latestScan.ScannedAt)
 	}
 
 	platforms := make([]ProviderPlatform, 0, len(platformSet))
@@ -1057,6 +1058,33 @@ func collectModuleSourceFindings(versions []opendepotv1alpha1.Version) []opendep
 		return nil
 	}
 	return deduplicateFindings(latest.Status.SourceScan.Findings)
+}
+
+// findProviderSourceScan returns the ProviderSourceScan entry for the given version string.
+// When version is empty, the entry with the highest semver is returned.
+// Returns nil when the slice is empty or the requested version is not found.
+func findProviderSourceScan(scans []opendepotv1alpha1.ProviderSourceScan, version string) *opendepotv1alpha1.ProviderSourceScan {
+	if len(scans) == 0 {
+		return nil
+	}
+
+	if version != "" {
+		for i := range scans {
+			if scans[i].Version == version {
+				return &scans[i]
+			}
+		}
+		return nil
+	}
+
+	// Return the entry with the highest semver when no version is requested.
+	best := &scans[0]
+	for i := 1; i < len(scans); i++ {
+		if compareVersionDesc(scans[i].Version, best.Version) {
+			best = &scans[i]
+		}
+	}
+	return best
 }
 
 // collectBinaryFindings returns a map of "os/arch" → []SecurityFinding using only the latest
@@ -1509,12 +1537,14 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 
 // handleBrowseScanFindings returns the scan findings for a single module or provider resource.
 // GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
+// Optional query parameter: ?version=<semver> selects a specific source scan version (providers only).
 func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	namespace := chi.URLParam(r, "namespace")
 	kind := strings.ToLower(chi.URLParam(r, "kind"))
 	name := chi.URLParam(r, "name")
+	requestedVersion := strings.TrimPrefix(r.URL.Query().Get("version"), "v")
 
 	binding, allAccess := browseAuthState(r)
 
@@ -1604,8 +1634,20 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		result := BrowseScanFindings{
 			BinaryScanFindings: collectBinaryFindings(versions),
 		}
-		if p.Status.SourceScan != nil {
-			result.SourceScanFindings = deduplicateFindings(p.Status.SourceScan.Findings)
+		if scan := findProviderSourceScan(p.Status.SourceScans, requestedVersion); scan != nil {
+			result.SourceScanFindings = deduplicateFindings(scan.Findings)
+			result.SelectedVersion = scan.Version
+		}
+
+		if len(p.Status.SourceScans) > 0 {
+			scannedVersions := make([]string, len(p.Status.SourceScans))
+			for i, s := range p.Status.SourceScans {
+				scannedVersions[i] = s.Version
+			}
+			sort.Slice(scannedVersions, func(i, j int) bool {
+				return compareVersionDesc(scannedVersions[i], scannedVersions[j])
+			})
+			result.ScannedVersions = scannedVersions
 		}
 
 		json.NewEncoder(w).Encode(result)

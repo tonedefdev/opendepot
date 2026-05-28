@@ -328,8 +328,8 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 // violate the CRD required-field validation (checksum, synced, syncStatus are all
 // required and may not yet be set when this function is called).
 //
-// Source scan deduplication: if Provider.Status.SourceScan already covers this version,
-// the source scan is skipped. Binary scan always runs (unique per OS/arch).
+// Source scan deduplication: if Provider.Status.SourceScans already contains an entry
+// for this version, the source scan is skipped. Binary scan always runs (unique per OS/arch).
 //
 // When blockOnCritical or blockOnHigh is true and findings of that severity are present,
 // the function returns a non-nil error to halt reconciliation.
@@ -392,10 +392,12 @@ func (r *VersionReconciler) runProviderScan(
 	}
 
 	currentVersion := strings.TrimPrefix(version.Spec.Version, "v")
-	if providerObj.Status.SourceScan != nil && providerObj.Status.SourceScan.Version == currentVersion {
-		r.Log.V(5).Info("Source scan already exists for this provider version — skipping",
-			"provider", providerName, "version", currentVersion)
-		return binaryScan, nil
+	for _, existing := range providerObj.Status.SourceScans {
+		if existing.Version == currentVersion {
+			r.Log.V(5).Info("Source scan already exists for this provider version — skipping",
+				"provider", providerName, "version", currentVersion)
+			return binaryScan, nil
+		}
 	}
 
 	useAuthClient := version.Spec.ProviderConfigRef != nil &&
@@ -440,7 +442,31 @@ func (r *VersionReconciler) runProviderScan(
 			return err
 		}
 
-		current.Status.SourceScan = sourceScan
+		// Append the new scan entry (idempotent — skip if version already present).
+		alreadyPresent := false
+		for _, existing := range current.Status.SourceScans {
+			if existing.Version == sourceScan.Version {
+				alreadyPresent = true
+				break
+			}
+		}
+		if !alreadyPresent {
+			current.Status.SourceScans = append(current.Status.SourceScans, *sourceScan)
+		}
+
+		// Prune entries whose version is no longer in Spec.Versions.
+		specVersions := make(map[string]struct{}, len(current.Spec.Versions))
+		for _, v := range current.Spec.Versions {
+			specVersions[strings.TrimPrefix(v.Version, "v")] = struct{}{}
+		}
+		pruned := current.Status.SourceScans[:0]
+		for _, s := range current.Status.SourceScans {
+			if _, keep := specVersions[s.Version]; keep {
+				pruned = append(pruned, s)
+			}
+		}
+		current.Status.SourceScans = pruned
+
 		return r.Status().Update(ctx, current, &client.SubResourceUpdateOptions{
 			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
 		})

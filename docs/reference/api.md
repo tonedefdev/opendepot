@@ -317,13 +317,15 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
 
 `hasUnsyncedVersions` is present and `true` when at least one `Version` CR under the resource has `status.synced: false` or a `status.syncStatus` containing `"failed"` or `"error"` (case-insensitive). The field is omitted from the response when all versions are healthy.
 
+`scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned.
+
 ### Resource Detail
 
 ```
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}
 ```
 
-Returns full detail for a single resource including all versions and scan findings.
+Returns full detail for a single resource including all versions and scan findings. The `sourceScanFindings` and `binaryScanFindings` fields contain findings from the **latest version only**.
 
 **Path Parameters:**
 
@@ -415,6 +417,47 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 `availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
 
 `downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded (stats DB is nil or no events exist). `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
+
+### Resource Scan Findings
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
+```
+
+Returns scan findings for a single resource scoped to the **latest version only**. Authentication follows the same rules as the other browse endpoints.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Response (`BrowseScanFindings`):**
+
+```json
+{
+  "sourceScanFindings": [
+    {
+      "vulnerabilityID": "CVE-2024-12345",
+      "pkgName": "some-dep",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "severity": "HIGH",
+      "title": "Example vulnerability"
+    }
+  ],
+  "binaryScanFindings": {
+    "linux/amd64": [],
+    "darwin/arm64": []
+  }
+}
+```
+
+`sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings from the latest version. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
+
+This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
 ### List Depots
 

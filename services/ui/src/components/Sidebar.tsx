@@ -635,7 +635,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Mobile hamburger toggle — fixed top-left, only visible on xs */}
+      {/* Mobile hamburger toggle — fixed top-right, only visible on xs */}
       {isMobile && (
         <IconButton
           onClick={() => setMobileOpen((prev) => !prev)}
@@ -643,7 +643,7 @@ export default function Sidebar({
           sx={{
             position: "fixed",
             top: 8,
-            left: 8,
+            right: 8,
             zIndex: 1300,
             bgcolor: "background.paper",
             border: "1px solid rgba(240,246,252,0.12)",

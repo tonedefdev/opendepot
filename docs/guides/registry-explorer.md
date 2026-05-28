@@ -247,6 +247,15 @@ A **Rows per page** selector (10 / 20 / 50 / 100) and page navigation controls a
 
 While the table is loading, skeleton rows are displayed. When no versions match the active filters, the table shows **"No versions match the current filters."**
 
+## Scan Findings
+
+The **Scan Findings** section on module and provider detail pages lists vulnerability findings from the **latest version only**. Source findings (IaC misconfigurations and dependency vulnerabilities) are shown for both modules and providers. Binary findings are shown per platform (`os/arch`) for providers.
+
+A **↻ refresh button** appears next to the section heading. Clicking it re-fetches the latest findings from the server via the [Resource Scan Findings](../reference/api.md#resource-scan-findings) endpoint without a full page reload. The button spins briefly while the request is in flight and reverts to idle when the updated findings are displayed. If the request fails, the previously loaded findings are preserved.
+
+!!! note
+    Scan counts shown on resource cards (browse grid, Depots graph) are also derived from the latest version only.
+
 ## Depots Page
 
 The **Depots** page (`/depots`) renders an interactive relationship graph of all visible `Depot` resources and the `Module` and `Provider` resources each depot manages. It is accessible from the **Depots** entry in the sidebar navigation.
@@ -394,13 +403,15 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
 }
 ```
 
+`scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned.
+
 ### Resource Detail
 
 ```
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}
 ```
 
-Returns full detail for a single resource, including all versions and scan findings.
+Returns full detail for a single resource, including all versions and scan findings. The `sourceScanFindings` and `binaryScanFindings` fields contain findings from the **latest version only**.
 
 **Path Parameters:**
 
@@ -436,6 +447,8 @@ Returns full detail for a single resource, including all versions and scan findi
   ]
 }
 ```
+
+The `sourceScanFindings` and `binaryScanFindings` fields are scoped to the latest version. Use the [Resource Scan Findings](#resource-scan-findings) endpoint to re-fetch findings on demand without reloading the full detail page.
 
 ### List Resource Versions
 
@@ -487,3 +500,11 @@ Returns a paginated, filtered list of versions for a single resource. Authentica
 ```
 
 `availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
+
+### Resource Scan Findings
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
+```
+
+Returns scan findings for a single resource scoped to the **latest version only**. See the [API Reference](../reference/api.md#resource-scan-findings) for the full response schema.

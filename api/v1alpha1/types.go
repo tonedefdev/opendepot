@@ -267,8 +267,7 @@ type ModuleSourceScan struct {
 }
 
 // ProviderSourceScan holds the results of a Trivy source scan (go.mod) for a specific provider version.
-// Source scan results are stored on ProviderStatus rather than VersionStatus because all OS/arch
-// variants of the same provider version share identical source code — scanning once is sufficient.
+// One entry per scanned version is accumulated in ProviderStatus.SourceScans.
 type ProviderSourceScan struct {
 	// The RFC3339 timestamp at which the source scan completed.
 	ScannedAt string `json:"scannedAt"`
@@ -300,10 +299,11 @@ type ProviderStatus struct {
 	SyncStatus string `json:"syncStatus"`
 	// A slice of the ProviderVersionRefs that have been successfully created by the controller
 	ProviderVersionRefs map[string]*ProviderVersion `json:"providerVersionRefs,omitempty"`
-	// The most recent source vulnerability scan result for this provider.
-	// Populated by the Version controller after scanning the provider's source code (go.mod).
-	// Deduplicated across all OS/arch Version resources for the same provider version.
-	SourceScan *ProviderSourceScan `json:"sourceScan,omitempty"`
+	// Per-version source vulnerability scan results for this provider.
+	// One entry per scanned version, accumulated by the Version controller after scanning the
+	// provider's source code (go.mod). Entries for versions no longer present in Spec.Versions
+	// are pruned automatically. All OS/arch Version resources for the same version share a single entry.
+	SourceScans []ProviderSourceScan `json:"sourceScans,omitempty"`
 }
 
 // +kubebuilder:object:root=true

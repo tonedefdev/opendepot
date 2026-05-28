@@ -376,6 +376,8 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
   const [binaryScanFindings, setBinaryScanFindings] = React.useState<Record<string, SecurityFinding[]>>(initialBinaryScanFindings);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [refreshNonce, setRefreshNonce] = React.useState(0);
+  const [scannableVersions, setScannableVersions] = React.useState<string[]>([]);
+  const [selectedSourceVersion, setSelectedSourceVersion] = React.useState<string>("");
 
   const handleRefresh = React.useCallback(() => {
     setIsRefreshing(true);
@@ -384,9 +386,11 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
   }, []);
 
   React.useEffect(() => {
-    // Skip the initial render — the parent already SSR'd findings into props.
-    if (refreshNonce === 0) return;
-    fetch(`/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`)
+    let url = `/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`;
+    if (selectedSourceVersion) {
+      url += `?version=${encodeURIComponent(selectedSourceVersion)}`;
+    }
+    fetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
         return r.json();
@@ -394,9 +398,12 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
       .then((d: BrowseScanFindings) => {
         setSourceScanFindings(d.sourceScanFindings ?? []);
         setBinaryScanFindings(d.binaryScanFindings ?? {});
+        if (d.scannedVersions?.length) {
+          setScannableVersions(d.scannedVersions);
+        }
       })
       .catch(() => { /* keep existing data on error; user can retry */ });
-  }, [namespace, kind, name, refreshNonce]);
+  }, [namespace, kind, name, refreshNonce, selectedSourceVersion]);
 
   const binaryKeys = Object.keys(binaryScanFindings ?? {});
   const versionsByPlatform = React.useMemo(() => {
@@ -431,9 +438,30 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
       </Box>
       <Accordion defaultExpanded={sourceScanFindings.length > 0}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>
-            Source Scan Findings ({sourceScanFindings.length})
-          </Typography>
+          <Box display="flex" alignItems="center" gap={2} sx={{ width: "100%" }}>
+            <Typography fontWeight={600}>
+              Source Scan Findings ({sourceScanFindings.length})
+            </Typography>
+            {scannableVersions.length > 1 && (
+              <FormControl
+                size="small"
+                sx={{ minWidth: 140 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
+                <Select
+                  label="Version"
+                  value={selectedSourceVersion || scannableVersions[0] || ""}
+                  onChange={(e) => setSelectedSourceVersion(e.target.value)}
+                  sx={{ fontSize: "0.8125rem" }}
+                >
+                  {scannableVersions.map((v) => (
+                    <MenuItem key={v} value={v} sx={{ fontSize: "0.8125rem" }}>{v}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </Box>
         </AccordionSummary>
         <AccordionDetails>
           <FindingsTable

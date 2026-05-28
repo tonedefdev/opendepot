@@ -826,10 +826,12 @@ func (in *ProviderStatus) DeepCopyInto(out *ProviderStatus) {
 			(*out)[key] = outVal
 		}
 	}
-	if in.SourceScan != nil {
-		in, out := &in.SourceScan, &out.SourceScan
-		*out = new(ProviderSourceScan)
-		(*in).DeepCopyInto(*out)
+	if in.SourceScans != nil {
+		in, out := &in.SourceScans, &out.SourceScans
+		*out = make([]ProviderSourceScan, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
