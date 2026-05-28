@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -387,6 +388,10 @@ func (r *VersionReconciler) runProviderScan(
 		Name:      providerName,
 		Namespace: version.Namespace,
 	}, providerObj); err != nil {
+		if k8serr.IsNotFound(err) {
+			r.Log.V(2).Info("Parent Provider no longer exists, skipping source scan dedup", "provider", providerName)
+			return binaryScan, nil
+		}
 		r.Log.Error(err, "Could not fetch parent Provider for source scan deduplication", "provider", providerName)
 		return binaryScan, nil
 	}
