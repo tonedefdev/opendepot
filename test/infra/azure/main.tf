@@ -29,6 +29,7 @@ resource "azurerm_resource_group" "integration" {
   }
 }
 
+#trivy:ignore:AVD-AZU-0012 -- Short-lived test-only storage account; no network_rules block intentional. Access is scoped by RBAC role assignments on the storage account itself.
 resource "azurerm_storage_account" "integration" {
   # Storage account names: 3–24 chars, lowercase letters and numbers only.
   # Truncate to 24 chars — the nanosecond suffix provides enough uniqueness.

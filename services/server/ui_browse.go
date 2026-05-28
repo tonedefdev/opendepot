@@ -1603,6 +1603,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 				scannedVersions = append(scannedVersions, opendepotUtils.SanitizeVersion(v.Spec.Version))
 			}
 		}
+
 		sort.Slice(scannedVersions, func(i, j int) bool {
 			return compareVersionDesc(scannedVersions[i], scannedVersions[j])
 		})
@@ -1630,6 +1631,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
 			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
 		}
+
 		result.ScannedVersions = scannedVersions
 		json.NewEncoder(w).Encode(result)
 
@@ -1646,6 +1648,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
+
 			logger.Error("browse: failed to get provider", "namespace", namespace, "name", name, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -1668,7 +1671,8 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		result := BrowseScanFindings{
 			BinaryScanFindings: collectBinaryFindings(versions),
 		}
-		if scan := findProviderSourceScan(p.Status.SourceScans, requestedVersion); scan != nil {
+
+		if scan := findProviderSourceScan(p.Status.SourceScans, opendepotUtils.SanitizeVersion(requestedVersion)); scan != nil {
 			result.SourceScanFindings = deduplicateFindings(scan.Findings)
 			result.SelectedVersion = scan.Version
 		}
@@ -1710,6 +1714,7 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Resource("depots").
 		DoRaw(r.Context())
+
 	if err != nil {
 		logger.Error("browse: failed to list depots", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1729,6 +1734,7 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	nsPublic := make(map[string]bool, len(allNamespaces))
 	for _, ns := range allNamespaces {
 		nsPublic[ns.Metadata.Name] = isPublicNamespace(ns.Metadata.Labels)

@@ -30,6 +30,7 @@ resource "aws_s3_bucket_public_access_block" "integration" {
   restrict_public_buckets = true
 }
 
+#trivy:ignore:AVD-AWS-0132 -- Short-lived test-only S3 bucket; AES256 (SSE-S3) is sufficient for ephemeral integration-test data. No customer-managed key required.
 resource "aws_s3_bucket_server_side_encryption_configuration" "integration" {
   bucket = aws_s3_bucket.integration.id
 
