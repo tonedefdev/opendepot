@@ -28,6 +28,7 @@ RUN cd services/server && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/github/ pkg/github/
+COPY pkg/utils/ pkg/utils/
 COPY services/server/ services/server/
 
 # Build
