@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 
 	"golang.org/x/mod/semver"
 
@@ -173,8 +174,10 @@ func GetVersionName(module *opendepotv1alpha1.Module, provider *opendepotv1alpha
 	return "", fmt.Errorf("both module and provider were nil, cannot determine version name")
 }
 
-// SanitizeVersion removes leading 'v' from version strings for terraform/tofu version compatibility.
+// SanitizeVersion removes leading 'v' from version strings and trims surrounding whitespace
+// for terraform/tofu version compatibility.
 func SanitizeVersion(version string) string {
+	version = strings.TrimSpace(version)
 	if len(version) > 0 && version[0] == 'v' {
 		version = version[1:]
 	}

@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
@@ -41,7 +42,7 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 		return nil, fmt.Errorf("unable to unmarshal versions list for %s: %w", ctxName, err)
 	}
 
-	normalizedRequestedVersion := normalizeVersion(requestedVersion)
+	normalizedRequestedVersion := opendepotUtils.SanitizeVersion(requestedVersion)
 	for _, item := range versionList.Items {
 		if item.Spec.ProviderConfigRef == nil || item.Spec.ProviderConfigRef.Name == nil {
 			continue
@@ -51,7 +52,7 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 			continue
 		}
 
-		if normalizeVersion(item.Spec.Version) != normalizedRequestedVersion {
+		if opendepotUtils.SanitizeVersion(item.Spec.Version) != normalizedRequestedVersion {
 			continue
 		}
 
@@ -169,7 +170,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		normalized := normalizeVersion(item.Spec.Version)
+		normalized := opendepotUtils.SanitizeVersion(item.Spec.Version)
 		if normalized == "" {
 			continue
 		}
@@ -248,7 +249,7 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseURL := requestBaseURL(r)
-	versionString := normalizeVersion(versionResource.Spec.Version)
+	versionString := opendepotUtils.SanitizeVersion(versionResource.Spec.Version)
 
 	response := ProviderPackageMetadataResponse{
 		Protocols:           []string{"5.0"},

@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 )
 
 const (
@@ -813,10 +814,10 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 	// Identify the latest version: prefer card.LatestVersion set from the Module status;
 	// fall back to finding the highest semver in the slice.
 	// Normalize to strip any leading "v" prefix so that "v44.2.0" matches "44.2.0".
-	latestVersionStr := normalizeVersion(card.LatestVersion)
+	latestVersionStr := opendepotUtils.SanitizeVersion(card.LatestVersion)
 	if latestVersionStr == "" {
 		for _, v := range versions {
-			nv := normalizeVersion(v.Spec.Version)
+			nv := opendepotUtils.SanitizeVersion(v.Spec.Version)
 			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
 				latestVersionStr = nv
 			}
@@ -825,7 +826,7 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 
 	for i := range versions {
 		v := &versions[i]
-		if normalizeVersion(v.Spec.Version) != latestVersionStr || v.Status.SourceScan == nil {
+		if opendepotUtils.SanitizeVersion(v.Spec.Version) != latestVersionStr || v.Status.SourceScan == nil {
 			continue
 		}
 		card.ScanCounts = browseScanCounts(v.Status.SourceScan.Findings)
@@ -841,7 +842,7 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 
 	// Determine the latest version string: prefer provider status, fall back to highest semver.
 	// Normalize to strip any leading "v" prefix so that "v3.2.4" matches "3.2.4".
-	latestVersionStr := normalizeVersion(derefString(p.Status.LatestVersion))
+	latestVersionStr := opendepotUtils.SanitizeVersion(derefString(p.Status.LatestVersion))
 	if latestVersionStr == "" {
 		for _, v := range versions {
 			if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
@@ -850,7 +851,7 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 			if *v.Spec.ProviderConfigRef.Name != p.Name {
 				continue
 			}
-			nv := normalizeVersion(v.Spec.Version)
+			nv := opendepotUtils.SanitizeVersion(v.Spec.Version)
 			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
 				latestVersionStr = nv
 			}
@@ -889,7 +890,7 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		platformSet[key] = ProviderPlatform{OS: osName, Arch: arch}
 
 		// Only include binary scan findings from the latest version.
-		if normalizeVersion(v.Spec.Version) == latestVersionStr && v.Status.BinaryScan != nil {
+		if opendepotUtils.SanitizeVersion(v.Spec.Version) == latestVersionStr && v.Status.BinaryScan != nil {
 			scanFindings = append(scanFindings, v.Status.BinaryScan.Findings...)
 			scanTimes = append(scanTimes, v.Status.BinaryScan.ScannedAt)
 		}
@@ -1021,7 +1022,7 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 
 		s := BrowseVersionSummary{
 			Name:             v.Name,
-			Version:          normalizeVersion(v.Spec.Version),
+			Version:          opendepotUtils.SanitizeVersion(v.Spec.Version),
 			Synced:           v.Status.Synced,
 			SyncStatus:       v.Status.SyncStatus,
 			OS:               v.Spec.OperatingSystem,
@@ -1298,8 +1299,8 @@ func splitVersionParts(v string) []string {
 // sort before b in a descending-by-version listing). Mirrors the client-side
 // compareVersionDesc function in page.tsx.
 func compareVersionDesc(a, b string) bool {
-	aParts := splitVersionParts(normalizeVersion(a))
-	bParts := splitVersionParts(normalizeVersion(b))
+	aParts := splitVersionParts(opendepotUtils.SanitizeVersion(a))
+	bParts := splitVersionParts(opendepotUtils.SanitizeVersion(b))
 	length := len(aParts)
 	if len(bParts) > length {
 		length = len(bParts)
@@ -1537,7 +1538,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 
 // handleBrowseScanFindings returns the scan findings for a single module or provider resource.
 // GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
-// Optional query parameter: ?version=<semver> selects a specific source scan version (providers only).
+// Optional query parameter: ?version=<semver> selects a specific source scan version (modules and providers).
 func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -1594,9 +1595,42 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		versions, _ := browseListModuleVersions(cs, r, namespace, name)
-		result := BrowseScanFindings{
-			SourceScanFindings: collectModuleSourceFindings(versions),
+
+		// Build the list of versions that have been scanned, sorted descending.
+		var scannedVersions []string
+		for _, v := range versions {
+			if v.Status.SourceScan != nil {
+				scannedVersions = append(scannedVersions, opendepotUtils.SanitizeVersion(v.Spec.Version))
+			}
 		}
+		sort.Slice(scannedVersions, func(i, j int) bool {
+			return compareVersionDesc(scannedVersions[i], scannedVersions[j])
+		})
+
+		// Select findings for the requested version, falling back to latest.
+		var result BrowseScanFindings
+		var selectedVersion *opendepotv1alpha1.Version
+		normalizedRequest := opendepotUtils.SanitizeVersion(requestedVersion)
+		for i := range versions {
+			v := &versions[i]
+			if v.Status.SourceScan == nil {
+				continue
+			}
+
+			if normalizedRequest != "" && opendepotUtils.SanitizeVersion(v.Spec.Version) == normalizedRequest {
+				selectedVersion = v
+				break
+			}
+
+			if selectedVersion == nil || compareVersionDesc(opendepotUtils.SanitizeVersion(v.Spec.Version), opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)) {
+				selectedVersion = v
+			}
+		}
+		if selectedVersion != nil {
+			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
+			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
+		}
+		result.ScannedVersions = scannedVersions
 		json.NewEncoder(w).Encode(result)
 
 	case "provider":
