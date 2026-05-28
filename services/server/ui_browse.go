@@ -1450,6 +1450,110 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleBrowseScanFindings returns the scan findings for a single module or provider resource.
+// GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
+func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	namespace := chi.URLParam(r, "namespace")
+	kind := strings.ToLower(chi.URLParam(r, "kind"))
+	name := chi.URLParam(r, "name")
+
+	binding, allAccess := browseAuthState(r)
+
+	cs, err := browseSAClient()
+	if err != nil {
+		logger.Error("browse: failed to create SA client", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	nsLabels, _ := browseGetNamespaceLabels(cs, r, namespace)
+	nsPublic := isPublicNamespace(nsLabels)
+
+	switch kind {
+	case "module":
+		rawModule, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource("modules").
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get module", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var m opendepotv1alpha1.Module
+		if err := json.Unmarshal(rawModule, &m); err != nil {
+			logger.Error("browse: failed to unmarshal module", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(m.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, _ := browseListModuleVersions(cs, r, namespace, name)
+		result := BrowseScanFindings{
+			SourceScanFindings: collectModuleSourceFindings(versions),
+		}
+		json.NewEncoder(w).Encode(result)
+
+	case "provider":
+		rawProvider, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource("providers").
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get provider", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var p opendepotv1alpha1.Provider
+		if err := json.Unmarshal(rawProvider, &p); err != nil {
+			logger.Error("browse: failed to unmarshal provider", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(p.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, _ := browseListProviderVersions(cs, r, namespace)
+		result := BrowseScanFindings{
+			BinaryScanFindings: collectBinaryFindings(versions),
+		}
+		if p.Status.SourceScan != nil {
+			result.SourceScanFindings = p.Status.SourceScan.Findings
+		}
+		json.NewEncoder(w).Encode(result)
+
+	default:
+		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+	}
+}
+
 // handleBrowseDepots returns a list of all Depot resources visible to the caller.
 // GET /opendepot/ui/v1/depots
 func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {

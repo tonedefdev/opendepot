@@ -346,12 +346,12 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
       {/* Scan findings */}
       <Divider sx={{ my: 3 }} />
-      <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-        Scan Findings
-      </Typography>
       <ScanDrillDown
-        sourceScanFindings={detail.sourceScanFindings ?? []}
-        binaryScanFindings={detail.binaryScanFindings ?? {}}
+        namespace={namespace}
+        kind={kind}
+        name={name}
+        initialSourceScanFindings={detail.sourceScanFindings ?? []}
+        initialBinaryScanFindings={detail.binaryScanFindings ?? {}}
         versions={sortedVersions}
       />
     </Container>

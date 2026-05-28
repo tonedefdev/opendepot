@@ -27,12 +27,31 @@ import {
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import ClearIcon from "@mui/icons-material/Clear";
+import IconButton from "@mui/material/IconButton";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import { keyframes, styled } from "@mui/system";
 import CopyButton from "@/components/CopyButton";
-import type { BrowseVersionSummary, SecurityFinding } from "@/lib/api";
+import type { BrowseScanFindings, BrowseVersionSummary, SecurityFinding } from "@/lib/api";
+
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
+
+const SpinIcon = styled("span", {
+  shouldForwardProp: (prop) => prop !== "spinning",
+})<{ spinning?: boolean }>(({ spinning }) => ({
+  display: "flex",
+  alignItems: "center",
+  animation: spinning ? `${spin} 0.7s linear infinite` : "none",
+}));
 
 interface Props {
-  sourceScanFindings: SecurityFinding[];
-  binaryScanFindings: Record<string, SecurityFinding[]>;
+  namespace: string;
+  kind: string;
+  name: string;
+  initialSourceScanFindings: SecurityFinding[];
+  initialBinaryScanFindings: Record<string, SecurityFinding[]>;
   versions: BrowseVersionSummary[];
 }
 
@@ -352,7 +371,28 @@ function platformKey(os?: string, arch?: string): string {
   return `${os}/${arch}`;
 }
 
-export default function ScanDrillDown({ sourceScanFindings, binaryScanFindings, versions }: Props) {
+export default function ScanDrillDown({ namespace, kind, name, initialSourceScanFindings, initialBinaryScanFindings, versions }: Props) {
+  const [sourceScanFindings, setSourceScanFindings] = React.useState<SecurityFinding[]>(initialSourceScanFindings);
+  const [binaryScanFindings, setBinaryScanFindings] = React.useState<Record<string, SecurityFinding[]>>(initialBinaryScanFindings);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [refreshNonce, setRefreshNonce] = React.useState(0);
+
+  const handleRefresh = React.useCallback(() => {
+    setIsRefreshing(true);
+    setRefreshNonce((n) => n + 1);
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, []);
+
+  React.useEffect(() => {
+    fetch(`/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`)
+      .then((r) => r.json())
+      .then((d: BrowseScanFindings) => {
+        setSourceScanFindings(d.sourceScanFindings ?? []);
+        setBinaryScanFindings(d.binaryScanFindings ?? {});
+      })
+      .catch(() => { /* keep existing data on error */ });
+  }, [namespace, kind, name, refreshNonce]);
+
   const binaryKeys = Object.keys(binaryScanFindings ?? {});
   const versionsByPlatform = React.useMemo(() => {
     const map = new Map<string, BrowseVersionSummary>();
@@ -367,8 +407,23 @@ export default function ScanDrillDown({ sourceScanFindings, binaryScanFindings, 
 
   const sourceVersion = versions.find((v) => !v.os && !v.arch) ?? versions[0];
 
+  const totalFindings = sourceScanFindings.length + Object.values(binaryScanFindings ?? {}).reduce((acc, arr) => acc + arr.length, 0);
+
   return (
     <Box>
+      <Box display="flex" alignItems="center" gap={1} mb={2}>
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+          Scan Findings
+        </Typography>
+        <Chip label={totalFindings} size="small" sx={{ fontSize: "0.72rem" }} />
+        <Tooltip title="Refresh">
+          <IconButton size="small" onClick={handleRefresh} aria-label="refresh scan findings">
+            <SpinIcon spinning={isRefreshing}>
+              <RefreshIcon fontSize="small" />
+            </SpinIcon>
+          </IconButton>
+        </Tooltip>
+      </Box>
       <Accordion defaultExpanded={sourceScanFindings.length > 0}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography fontWeight={600}>

@@ -223,6 +223,15 @@ type BrowseResourceDetail struct {
 	SourceRepository    string                                         `json:"sourceRepository,omitempty"`
 }
 
+// BrowseScanFindings is the JSON body returned by the scan-findings endpoint.
+type BrowseScanFindings struct {
+	// SourceScanFindings are the IaC (module) or go.mod (provider) vulnerability findings.
+	SourceScanFindings []opendepotv1alpha1.SecurityFinding `json:"sourceScanFindings,omitempty"`
+	// BinaryScanFindings are per-artifact (os/arch) provider binary vulnerability findings.
+	// Keys are in the form "os/arch".
+	BinaryScanFindings map[string][]opendepotv1alpha1.SecurityFinding `json:"binaryScanFindings,omitempty"`
+}
+
 // BrowseGraphDepot is a depot node in the depots relationship graph.
 type BrowseGraphDepot struct {
 	ID                     string   `json:"id"`

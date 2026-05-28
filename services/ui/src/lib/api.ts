@@ -83,6 +83,11 @@ export interface SecurityFinding {
   checksum?: string;
 }
 
+export interface BrowseScanFindings {
+  sourceScanFindings?: SecurityFinding[];
+  binaryScanFindings?: Record<string, SecurityFinding[]>;
+}
+
 export interface BrowseStorageConfig {
   backend: string;
   bucket?: string;

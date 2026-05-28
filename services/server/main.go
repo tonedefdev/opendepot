@@ -132,6 +132,7 @@ func main() {
 	r.Get("/opendepot/ui/v1/resources", handleBrowseResources)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}", handleBrowseResourceDetail)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions", handleBrowseVersionsList)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings", handleBrowseScanFindings)
 	r.Get("/opendepot/ui/v1/depots", handleBrowseDepots)
 	r.Get("/opendepot/ui/v1/depots/graph", handleBrowseDepotsGraph)
 	r.Get("/opendepot/ui/v1/stats", handleBrowseStats)
