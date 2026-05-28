@@ -811,18 +811,20 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 
 	// Identify the latest version: prefer card.LatestVersion set from the Module status;
 	// fall back to finding the highest semver in the slice.
-	latestVersionStr := card.LatestVersion
+	// Normalize to strip any leading "v" prefix so that "v44.2.0" matches "44.2.0".
+	latestVersionStr := normalizeVersion(card.LatestVersion)
 	if latestVersionStr == "" {
 		for _, v := range versions {
-			if latestVersionStr == "" || compareVersionDesc(v.Spec.Version, latestVersionStr) {
-				latestVersionStr = v.Spec.Version
+			nv := normalizeVersion(v.Spec.Version)
+			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
+				latestVersionStr = nv
 			}
 		}
 	}
 
 	for i := range versions {
 		v := &versions[i]
-		if v.Spec.Version != latestVersionStr || v.Status.SourceScan == nil {
+		if normalizeVersion(v.Spec.Version) != latestVersionStr || v.Status.SourceScan == nil {
 			continue
 		}
 		card.ScanCounts = browseScanCounts(v.Status.SourceScan.Findings)
@@ -837,7 +839,8 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 	platformSet := make(map[string]ProviderPlatform)
 
 	// Determine the latest version string: prefer provider status, fall back to highest semver.
-	latestVersionStr := derefString(p.Status.LatestVersion)
+	// Normalize to strip any leading "v" prefix so that "v3.2.4" matches "3.2.4".
+	latestVersionStr := normalizeVersion(derefString(p.Status.LatestVersion))
 	if latestVersionStr == "" {
 		for _, v := range versions {
 			if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
@@ -846,8 +849,9 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 			if *v.Spec.ProviderConfigRef.Name != p.Name {
 				continue
 			}
-			if latestVersionStr == "" || compareVersionDesc(v.Spec.Version, latestVersionStr) {
-				latestVersionStr = v.Spec.Version
+			nv := normalizeVersion(v.Spec.Version)
+			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
+				latestVersionStr = nv
 			}
 		}
 	}
@@ -884,7 +888,7 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		platformSet[key] = ProviderPlatform{OS: osName, Arch: arch}
 
 		// Only include binary scan findings from the latest version.
-		if v.Spec.Version == latestVersionStr && v.Status.BinaryScan != nil {
+		if normalizeVersion(v.Spec.Version) == latestVersionStr && v.Status.BinaryScan != nil {
 			scanFindings = append(scanFindings, v.Status.BinaryScan.Findings...)
 			scanTimes = append(scanTimes, v.Status.BinaryScan.ScannedAt)
 		}
