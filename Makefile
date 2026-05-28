@@ -32,6 +32,7 @@ load: $(addprefix load-,$(SERVICES))
 ## Build the version-controller image with Trivy bundled (required for scanning.enabled=true)
 build-version-controller-scanning:
 	docker build --platform $(PLATFORM) \
+		--no-cache \
 		-t $(REGISTRY)/version-controller:$(TAG)-scanning \
 		--build-arg INCLUDE_TRIVY=true \
 		-f services/version/Dockerfile \
@@ -82,6 +83,7 @@ define SERVICE_RULES
 
 build-$(1):
 	docker build --platform $(PLATFORM) \
+		--no-cache \
 		-t $(REGISTRY)/$(1):$(TAG) \
 		-f $($(1)_PATH)/Dockerfile \
 		$($(1)_CONTEXT)
@@ -397,6 +399,7 @@ ui-deploy-anon: ui-session-secret
 	  --set storage.filesystem.enabled=true \
 	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
 	  --set scanning.enabled=true \
+	  --set version.zapLogLevel=5 \
 	  --wait
 
 ## Deploy the UI with OIDC login (requires oidc-tls to be run first).
