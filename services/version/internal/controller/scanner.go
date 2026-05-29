@@ -241,7 +241,7 @@ func (r *VersionReconciler) scanProviderBinary(ctx context.Context, archivePath 
 	defer os.RemoveAll(tmpDir)
 
 	binPath := filepath.Join(tmpDir, "provider-binary")
-	if err := os.WriteFile(binPath, binaryBytes, 0600); err != nil {
+	if err := os.WriteFile(binPath, binaryBytes, 0500); err != nil {
 		return nil, fmt.Errorf("failed to write provider binary to temp dir: %w", err)
 	}
 
@@ -314,8 +314,11 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 		return nil, fmt.Errorf("source scan failed: %w", err)
 	}
 
+	// Trivy ran but produced no output (e.g. DB not yet initialized on first
+	// offline run). Return a non-nil empty slice so the caller writes a
+	// tombstone — dedup then prevents an infinite retry loop.
 	if len(output) == 0 {
-		return nil, nil
+		return make([]opendepotv1alpha1.SecurityFinding, 0), nil
 	}
 
 	return parseTrivyReport(output, func(res trivyResult) bool {
@@ -400,7 +403,7 @@ func (r *VersionReconciler) runProviderScan(
 
 	currentVersion := strings.TrimPrefix(version.Spec.Version, "v")
 	for _, existing := range providerObj.Status.SourceScans {
-		if existing.Version == currentVersion && len(existing.Findings) > 0 {
+		if existing.Version == currentVersion && existing.ScannedAt != "" {
 			r.Log.V(5).Info("Source scan already exists for this provider version — skipping",
 				"provider", providerName, "version", currentVersion)
 			return binaryScan, nil
@@ -433,6 +436,13 @@ func (r *VersionReconciler) runProviderScan(
 	if err != nil {
 		r.Log.Error(err, "Source scan failed — continuing without scan results",
 			"provider", providerName, "version", currentVersion)
+		return binaryScan, nil
+	}
+
+	// nil findings + nil error = scanProviderSource silently skipped the download
+	// (go.mod unavailable, e.g. private repo or transient network error). Do NOT
+	// write a tombstone; the absence of an entry allows the next reconcile to retry.
+	if sourceFindings == nil {
 		return binaryScan, nil
 	}
 

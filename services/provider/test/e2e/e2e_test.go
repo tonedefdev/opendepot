@@ -434,12 +434,18 @@ var _ = Describe("Provider Scanning", Ordered, func() {
 		cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 			"--namespace", scanNamespace,
 			"--reuse-values",
+			// providerScanning=true creates the Trivy cache PVC and passes
+			// --scan-offline=false + --trivy-cache-dir to the controller so
+			// Trivy downloads a real vulnerability DB and returns actual CVEs.
 			"--set", "scanning.enabled=true",
+			"--set", "scanning.providerScanning=true",
 			"--set", "scanning.offline=false",
 			// Kind's default storage class only supports ReadWriteOnce.
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			// Extra memory headroom for the version controller running Trivy.
 			"--set", "version.resources.limits.memory=1Gi",
+			// Enable verbose debug logging so Trivy output is visible in test logs.
+			"--set", "version.zapLogLevel=5",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -486,6 +492,8 @@ spec:
 			"--namespace", scanNamespace,
 			"--reuse-values",
 			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
+			"--set", "version.zapLogLevel=",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -540,6 +548,34 @@ spec:
 		Expect(output).To(Equal(scanVersion), "sourceScans[0].version should match the synced provider version")
 	})
 
+	It("should report at least one binary finding on the Version CR", func() {
+		// null v3.2.3 was released 2021; its embedded Go deps are old enough to
+		// guarantee known CVEs in the Trivy DB. A zero-finding result here means
+		// the scan ran but the source-skip bug wrote a tombstone, or the DB is stale.
+		cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
+			"-n", scanNamespace,
+			"-o", `jsonpath={.status.binaryScan.findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"binaryScan.findings should contain at least one finding for null v%s", scanVersion)
+	})
+
+	It("should report at least one source finding on the Provider CR", func() {
+		// go.mod for null v3.2.3 uses vintage sdk deps that carry known CVEs.
+		// An empty findings list means the silent-skip bug fired or the scan
+		// legitimately found nothing — both of which should fail this test.
+		cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+			"-n", scanNamespace,
+			"-o", `jsonpath={.status.sourceScans[0].findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"sourceScans[0].findings should contain at least one finding for null v%s", scanVersion)
+	})
+
 })
 
 var _ = Describe("Community Provider", Ordered, func() {
@@ -567,12 +603,18 @@ var _ = Describe("Community Provider", Ordered, func() {
 		cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 			"--namespace", communityNamespace,
 			"--reuse-values",
+			// providerScanning=true creates the Trivy cache PVC and passes
+			// --scan-offline=false + --trivy-cache-dir to the controller so
+			// Trivy downloads a real vulnerability DB and returns actual CVEs.
 			"--set", "scanning.enabled=true",
+			"--set", "scanning.providerScanning=true",
 			"--set", "scanning.offline=false",
 			// Kind's default storage class only supports ReadWriteOnce.
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			// Extra memory headroom for Trivy running inside the version controller.
 			"--set", "version.resources.limits.memory=1Gi",
+			// Enable verbose debug logging so Trivy output is visible in test logs.
+			"--set", "version.zapLogLevel=5",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -620,6 +662,8 @@ spec:
 			"--namespace", communityNamespace,
 			"--reuse-values",
 			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
+			"--set", "version.zapLogLevel=",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -678,6 +722,28 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after source scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
+	})
+
+	It("should report at least one binary finding on the community provider Version CR", func() {
+		cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
+			"-n", communityNamespace,
+			"-o", `jsonpath={.status.binaryScan.findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"binaryScan.findings should contain at least one finding for github v%s", communityVersion)
+	})
+
+	It("should report at least one source finding on the community Provider CR", func() {
+		cmd := exec.Command("kubectl", "get", "provider", communityProviderName,
+			"-n", communityNamespace,
+			"-o", `jsonpath={.status.sourceScans[0].findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"sourceScans[0].findings should contain at least one finding for github v%s", communityVersion)
 	})
 
 })
