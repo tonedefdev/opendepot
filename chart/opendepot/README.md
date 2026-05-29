@@ -214,7 +214,7 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `rbac.create` | `true` | Create `ClusterRole`/`ClusterRoleBinding` (or `Role`/`RoleBinding`) for each service |
-| `rbac.scopeToNamespace` | `false` | Use namespace-scoped `Role`/`RoleBinding` instead of cluster-scoped. Also sets `WATCH_NAMESPACE` on controller deployments |
+| `rbac.scopeToNamespace` | `false` | **Recommended for production: `true`**. Use namespace-scoped `Role`/`RoleBinding` instead of cluster-scoped. Also sets `WATCH_NAMESPACE` on controller deployments. Setting `true` constrains all RBAC permissions (including `secrets: [get]` for GitHub App auth) to the install namespace. |
 
 ### Service Accounts
 

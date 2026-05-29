@@ -208,6 +208,9 @@ rbac:
   create: true
   # When true, use namespace-scoped Role/RoleBinding instead of ClusterRole/ClusterRoleBinding.
   # Controllers will only watch resources in global.namespace.
+  # RECOMMENDED for production: set to true to limit controller permissions to a single namespace.
+  # Using true also eliminates the KSV-0041 finding for secrets access in the ClusterRole
+  # (secrets: [get] is required for GitHub App authentication and is always a named-object lookup).
   scopeToNamespace: false
 
 ## Storage configuration
