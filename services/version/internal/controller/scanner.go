@@ -99,13 +99,14 @@ func runTrivy(ctx context.Context, args ...string) ([]byte, error) {
 
 // parseTrivyReport converts raw Trivy JSON output into SecurityFinding slices.
 // The optional filter function allows callers to select specific result targets (e.g. go.mod only).
+// An empty (non-nil) slice is returned when the report contains no matching findings.
 func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1alpha1.SecurityFinding, error) {
 	var report trivyReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy JSON output: %w", err)
 	}
 
-	var findings []opendepotv1alpha1.SecurityFinding
+	findings := make([]opendepotv1alpha1.SecurityFinding, 0)
 	seen := make(map[string]struct{})
 	for _, result := range report.Results {
 		if filter != nil && !filter(result) {
@@ -458,6 +459,7 @@ func (r *VersionReconciler) runProviderScan(
 				break
 			}
 		}
+
 		if !upserted {
 			current.Status.SourceScans = append(current.Status.SourceScans, *sourceScan)
 		}
@@ -625,6 +627,7 @@ func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+
 	output, err := runTrivy(ctx, args...)
 	<-r.scanSem
 	if err != nil {
@@ -670,6 +673,7 @@ func (r *VersionReconciler) runModuleScan(
 			if blockOnCritical && f.Severity == "CRITICAL" {
 				return sourceScan, fmt.Errorf("blocking: CRITICAL finding %s in module source (%s)", f.VulnerabilityID, f.PkgName)
 			}
+
 			if blockOnHigh && f.Severity == "HIGH" {
 				return sourceScan, fmt.Errorf("blocking: HIGH finding %s in module source (%s)", f.VulnerabilityID, f.PkgName)
 			}

@@ -539,6 +539,7 @@ spec:
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output).To(Equal(scanVersion), "sourceScans[0].version should match the synced provider version")
 	})
+
 })
 
 var _ = Describe("Community Provider", Ordered, func() {
@@ -678,6 +679,7 @@ spec:
 			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after source scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
+
 })
 
 var _ = Describe("Provider Version History Limit", Ordered, func() {

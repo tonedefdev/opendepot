@@ -415,3 +415,13 @@ kubectl delete -f chart/opendepot/crds/
 - Do not commit `server.oidc.clientSecret` or Dex connector secrets in plain text. Use an external secret operator (Sealed Secrets, External Secrets Operator) or pre-create the Secret and reference it via `server.oidc.clientSecretName`.
 - `dex.config.enablePasswordDB` and `dex.config.staticPasswords` exist for automated e2e testing only. Never enable them in production.
 - GPG private key material should always be stored in a Kubernetes `Secret`, never in `values.yaml`.
+
+## Upgrade Notes
+
+### Breaking Changes
+
+#### `ProviderStatus.sourceScan` renamed to `ProviderStatus.sourceScans` (field type changed)
+
+The `Provider` CRD field `status.sourceScan` (a single `*ProviderSourceScan` pointer) has been renamed to `status.sourceScans` (a `[]ProviderSourceScan` slice) to support accumulating scan results across multiple provider versions.
+
+**Migration**: Before upgrading, existing `status.sourceScan` values on `Provider` resources will be silently dropped. No data migration path is provided. The version controller will re-populate `status.sourceScans` on the next reconcile for each provider that has scanning enabled.
