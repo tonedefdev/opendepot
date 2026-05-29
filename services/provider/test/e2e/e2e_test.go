@@ -159,6 +159,21 @@ spec:
 			return nil
 		}, 30*time.Second, 2*time.Second).Should(Succeed(), "port-forward did not become ready within 30s")
 
+		By("waiting for spec.fileName and status.checksum to be set on the Version CR")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "version", providerVersionCRName,
+				"-n", providerNamespace,
+				"-o", `jsonpath={.spec.fileName},{.status.checksum},{.status.synced}`,
+			)
+			out, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			parts := strings.SplitN(strings.TrimSpace(out), ",", 3)
+			g.Expect(parts).To(HaveLen(3), "unexpected jsonpath output: %s", out)
+			g.Expect(parts[0]).NotTo(BeEmpty(), "spec.fileName not yet set: %s", out)
+			g.Expect(parts[1]).NotTo(BeEmpty(), "status.checksum not yet set: %s", out)
+			g.Expect(parts[2]).To(Equal("true"), "status.synced not yet true: %s", out)
+		}, 60*time.Second, 5*time.Second).Should(Succeed())
+
 		By("checking /.well-known/terraform.json")
 		body := httpGetBody(base + "/.well-known/terraform.json")
 		Expect(body).To(ContainSubstring("providers.v1"))
@@ -169,11 +184,23 @@ spec:
 		Expect(body).To(ContainSubstring(providerVersion))
 
 		By("checking provider download endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/download/linux/amd64",
-			base, providerNamespace, providerCRName, providerVersion))
-		Expect(body).To(ContainSubstring("download_url"))
-		Expect(body).To(ContainSubstring("shasum"))
-		Expect(body).To(ContainSubstring("signing_keys"))
+		var downloadBody string
+		Eventually(func(g Gomega) {
+			resp, err := http.Get(fmt.Sprintf( //nolint:noctx
+				"%s/opendepot/providers/v1/%s/%s/%s/download/linux/amd64",
+				base, providerNamespace, providerCRName, providerVersion,
+			))
+			g.Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			raw, readErr := io.ReadAll(resp.Body)
+			g.Expect(readErr).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(BeNumerically("<", 300),
+				"unexpected status %d from download endpoint; body: %s", resp.StatusCode, string(raw))
+			downloadBody = string(raw)
+		}, 30*time.Second, 2*time.Second).Should(Succeed())
+		Expect(downloadBody).To(ContainSubstring("download_url"))
+		Expect(downloadBody).To(ContainSubstring("shasum"))
+		Expect(downloadBody).To(ContainSubstring("signing_keys"))
 
 		By("checking SHA256SUMS endpoint")
 		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS/linux/amd64",

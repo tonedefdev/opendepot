@@ -129,12 +129,18 @@ function FindingsTable({
   checksum,
   includeArtifactColumns,
   includeResolutionColumn,
+  scannableVersions,
+  selectedSourceVersion,
+  onVersionChange,
 }: {
   findings: SecurityFinding[];
   fileName?: string;
   checksum?: string;
   includeArtifactColumns: boolean;
   includeResolutionColumn: boolean;
+  scannableVersions?: string[];
+  selectedSourceVersion?: string;
+  onVersionChange?: (v: string) => void;
 }) {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
@@ -205,6 +211,22 @@ function FindingsTable({
         sx={{ p: 1.5, borderRadius: 1.5, background: "rgba(240,246,252,0.04)", border: "1px solid rgba(240,246,252,0.06)" }}
       >
         <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+
+        {scannableVersions && scannableVersions.length > 1 && onVersionChange && (
+          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
+            <Select
+              label="Version"
+              value={selectedSourceVersion || scannableVersions[0] || ""}
+              onChange={(e) => onVersionChange(e.target.value)}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {scannableVersions.map((v) => (
+                <MenuItem key={v} value={v} sx={{ fontSize: "0.8125rem" }}>{v}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
         <TextField
           size="small"
@@ -438,30 +460,9 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
       </Box>
       <Accordion defaultExpanded={sourceScanFindings.length > 0}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Box display="flex" alignItems="center" gap={2} sx={{ width: "100%" }}>
-            <Typography fontWeight={600}>
-              Source Scan Findings ({sourceScanFindings.length})
-            </Typography>
-            {scannableVersions.length > 1 && (
-              <FormControl
-                size="small"
-                sx={{ minWidth: 140 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
-                <Select
-                  label="Version"
-                  value={selectedSourceVersion || scannableVersions[0] || ""}
-                  onChange={(e) => setSelectedSourceVersion(e.target.value)}
-                  sx={{ fontSize: "0.8125rem" }}
-                >
-                  {scannableVersions.map((v) => (
-                    <MenuItem key={v} value={v} sx={{ fontSize: "0.8125rem" }}>{v}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-          </Box>
+          <Typography fontWeight={600}>
+            Source Scan Findings ({sourceScanFindings.length})
+          </Typography>
         </AccordionSummary>
         <AccordionDetails>
           <FindingsTable
@@ -470,6 +471,9 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
             checksum={sourceVersion?.checksum}
             includeArtifactColumns={false}
             includeResolutionColumn={false}
+            scannableVersions={scannableVersions}
+            selectedSourceVersion={selectedSourceVersion}
+            onVersionChange={setSelectedSourceVersion}
           />
         </AccordionDetails>
       </Accordion>

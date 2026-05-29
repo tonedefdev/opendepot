@@ -130,6 +130,17 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal("true"))
 		}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+		By("waiting for spec.fileName to be set on the Version CR")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "version", moduleVersionCRName,
+				"-n", moduleNamespace,
+				"-o", `jsonpath={.spec.fileName}`,
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty(), "spec.fileName not yet set: %s", output)
+		}, 60*time.Second, 5*time.Second).Should(Succeed())
 	})
 
 	It("should serve module registry API endpoints", func() {
@@ -174,11 +185,23 @@ spec:
 		Expect(body).To(ContainSubstring(moduleVersion))
 
 		By("checking module download endpoint returns X-Terraform-Get header")
-		resp := httpGetRaw(fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/%s/download",
-			base, moduleNamespace, moduleCRName, moduleProvider, moduleVersion))
-		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
-		Expect(resp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/opendepot/modules/v1/download/"))
+		downloadURL := fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/%s/download",
+			base, moduleNamespace, moduleCRName, moduleProvider, moduleVersion)
+		var downloadResp *http.Response
+		Eventually(func(g Gomega) {
+			resp, err := http.DefaultClient.Get(downloadURL) //nolint:noctx
+			g.Expect(err).NotTo(HaveOccurred(), "download endpoint returned error: %v", err)
+			if resp.StatusCode != http.StatusNoContent {
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				g.Expect(resp.StatusCode).To(Equal(http.StatusNoContent),
+					"unexpected status %d: %s", resp.StatusCode, string(body))
+				return
+			}
+			downloadResp = resp
+		}, 30*time.Second, 2*time.Second).Should(Succeed(), "download endpoint did not return 204 within 30s")
+		defer downloadResp.Body.Close()
+		Expect(downloadResp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/opendepot/modules/v1/download/"))
 	})
 
 	It("should successfully run tofu init against the opendepot registry", func() {

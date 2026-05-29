@@ -18,8 +18,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
-	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
+	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 )
 
 // getProviderVersionResource scans all Version resources in the given namespace and

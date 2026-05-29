@@ -20,7 +20,7 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 For each provider version, the Version controller performs two scans:
 
 - **Binary scan** — runs `trivy rootfs` against the compiled provider binary extracted from the HashiCorp release archive. Results are stored per `Version` resource in `Version.status.binaryScan` because each OS/architecture binary may embed different Go standard library versions or runtime dependencies.
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are stored on the `Provider` resource in `Provider.status.sourceScan` and deduplicated across OS/architecture variants since all variants share the same source code.
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are accumulated on the `Provider` resource in `Provider.status.sourceScans` — one entry per scanned version, deduplicated across OS/architecture variants since all variants share the same source code. Entries are pruned automatically when a version is removed from `spec.versions`.
 
 !!! note
     `status.binaryScan` will be empty for any `Version` that was synced before scanning was enabled. The controller does not automatically re-scan on restart to avoid re-downloading potentially hundreds of large provider binaries. To trigger a one-time re-download and re-scan, set `forceSync: true` on the `Version` resource:

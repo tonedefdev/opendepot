@@ -399,6 +399,9 @@ ui-deploy-anon: ui-session-secret
 	  --set storage.filesystem.enabled=true \
 	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
 	  --set scanning.enabled=true \
+	  --set scanning.providerScanning=true \
+	  --set scanning.cache.storageClassName="standard" \
+	  --set scanning.cache.accessMode=ReadWriteOnce \
 	  --set version.zapLogLevel=5 \
 	  --wait
 

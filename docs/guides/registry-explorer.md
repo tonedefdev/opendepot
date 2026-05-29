@@ -96,9 +96,6 @@ ui:
           - opendepot.example.com
 ```
 
-!!! warning
-    When `ui.enabled: true`, the server Ingress is automatically disabled. If you were previously routing through `server.ingress`, migrate to `ui.ingress` before upgrading.
-
 ### 3. Apply the chart
 
 ```bash
@@ -249,12 +246,14 @@ While the table is loading, skeleton rows are displayed. When no versions match 
 
 ## Scan Findings
 
-The **Scan Findings** section on module and provider detail pages lists vulnerability findings from the **latest version only**. Source findings (IaC misconfigurations and dependency vulnerabilities) are shown for both modules and providers. Binary findings are shown per platform (`os/arch`) for providers.
+The **Scan Findings** section on module and provider detail pages lists vulnerability findings for a selected version. Source findings (IaC misconfigurations and dependency vulnerabilities) are shown for both modules and providers. Binary findings are shown per platform (`os/arch`) for providers.
 
-A **↻ refresh button** appears next to the section heading. Clicking it re-fetches the latest findings from the server via the [Resource Scan Findings](../reference/api.md#resource-scan-findings) endpoint without a full page reload. The button spins briefly while the request is in flight and reverts to idle when the updated findings are displayed. If the request fails, the previously loaded findings are preserved.
+When scan results are available for more than one version, a **version selector dropdown** appears in the scan findings header. Selecting a different version re-fetches findings for that version from the server. The dropdown lists all versions with recorded scans, sorted newest-first.
+
+A **↻ refresh button** appears next to the section heading. Clicking it re-fetches findings for the currently selected version via the [Resource Scan Findings](../reference/api.md#resource-scan-findings) endpoint without a full page reload. The button spins briefly while the request is in flight and reverts to idle when the updated findings are displayed. If the request fails, the previously loaded findings are preserved.
 
 !!! note
-    Scan counts shown on resource cards (browse grid, Depots graph) are also derived from the latest version only.
+    Scan counts shown on resource cards (browse grid, Depots graph) are derived from the latest version only, regardless of the version selected in the drill-down panel.
 
 ## Depots Page
 

@@ -198,10 +198,10 @@ Provider binary scan results (`Version.status.binaryScan`):
 kubectl get version aws-5-81-0-linux-amd64 -n opendepot-system -o jsonpath='{.status.binaryScan}' | jq .
 ```
 
-Provider source scan results (`Provider.status.sourceScan`):
+Provider source scan results (`Provider.status.sourceScans`):
 
 ```bash
-kubectl get provider aws -n opendepot-system -o jsonpath='{.status.sourceScan}' | jq .
+kubectl get provider aws -n opendepot-system -o jsonpath='{.status.sourceScans}' | jq .
 ```
 
 For complete scanning configuration, thresholds, and policy behavior, see [Vulnerability Scanning](../configuration/scanning.md).

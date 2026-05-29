@@ -113,6 +113,7 @@ func main() {
 	}
 
 	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 	r.Get("/.well-known/terraform.json", serviceDiscoveryHandler)
 	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/versions", getModuleVersions)

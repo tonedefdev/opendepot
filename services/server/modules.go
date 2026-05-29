@@ -92,6 +92,13 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if moduleVersion.Spec.ModuleConfigRef == nil ||
+		moduleVersion.Spec.ModuleConfigRef.StorageConfig == nil ||
+		moduleVersion.Spec.FileName == nil {
+		http.Error(w, "module version artifact not yet available", http.StatusServiceUnavailable)
+		return
+	}
+
 	var downloadPath string
 	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage != nil {
 		downloadPath = fmt.Sprintf("azure/%s/%s/%s/%s/%s/%s",

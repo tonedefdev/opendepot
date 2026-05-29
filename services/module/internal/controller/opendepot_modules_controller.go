@@ -439,7 +439,8 @@ func (r *ModuleReconciler) versionForModule(module *opendepotv1alpha1.Module, mo
 			Type:     opendepotv1alpha1.OpenDepotModule,
 			Version:  version.Version,
 			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
-				Name: moduleName,
+				Name:          moduleName,
+				StorageConfig: module.Spec.ModuleConfig.StorageConfig,
 			},
 		},
 	}

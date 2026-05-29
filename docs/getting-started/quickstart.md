@@ -461,18 +461,20 @@ Check the source scan on the Provider resource (shared across all OS/arch varian
 ```bash
 kubectl get provider aws \
   -n opendepot-system \
-  -o jsonpath='{.status.sourceScan}' | jq .
+  -o jsonpath='{.status.sourceScans}' | jq .
 ```
 
 ```json
-{
-  "scannedAt": "2026-05-03T02:12:05Z",
-  "version": "5.80.0",
-  "findings": []
-}
+[
+  {
+    "scannedAt": "2026-05-03T02:12:05Z",
+    "version": "5.80.0",
+    "findings": []
+  }
+]
 ```
 
-Provider binary findings contain CVE identifiers and package version details. The source scan covers `go.mod` dependencies — an empty `findings` array means no vulnerable dependencies were detected.
+Provider binary findings contain CVE identifiers and package version details. The source scan covers `go.mod` dependencies — an empty `findings` array means no vulnerable dependencies were detected. One entry is accumulated per scanned version; use `jsonpath='{.status.sourceScans[0]}'` to retrieve the latest entry only.
 
 !!! note
     If `status.binaryScan` is empty after the controller restarts, the version was already cached from a previous run and the fast-path skipped re-downloading it. Use `forceSync: true` to trigger a one-time re-download and re-scan:

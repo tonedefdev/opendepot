@@ -424,7 +424,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
 ```
 
-Returns scan findings for a single resource scoped to the **latest version only**. Authentication follows the same rules as the other browse endpoints.
+Returns scan findings for a single resource. The optional `?version=` query parameter selects which scanned version's findings to return. When omitted, findings from the most recently scanned version are returned. Both leading `v` and surrounding whitespace are stripped from the version string, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` are treated identically. Authentication follows the same rules as the other browse endpoints.
 
 **Path Parameters:**
 
@@ -433,6 +433,12 @@ Returns scan findings for a single resource scoped to the **latest version only*
 | `namespace` | Kubernetes namespace of the resource |
 | `kind` | `module` or `provider` |
 | `name` | Resource name |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Selects the source scan entry for this exact version. Applies to both modules and providers. Leading `v` and surrounding whitespace are stripped automatically. Omit to return findings from the latest scanned version. |
 
 **Response (`BrowseScanFindings`):**
 
@@ -451,11 +457,15 @@ Returns scan findings for a single resource scoped to the **latest version only*
   "binaryScanFindings": {
     "linux/amd64": [],
     "darwin/arm64": []
-  }
+  },
+  "selectedVersion": "3.2.3",
+  "scannedVersions": ["3.2.3", "3.2.0"]
 }
 ```
 
-`sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings from the latest version. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
+`sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
+
+`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the version selector dropdown. Both fields are present for modules and providers; they are omitted only when no source scans exist for the resource.
 
 This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
@@ -637,7 +647,7 @@ Holds Trivy binary scan (`trivy rootfs`) results for a specific provider artifac
 
 ### ProviderSourceScan
 
-Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependencies. Stored in `Provider.status.sourceScan`. Deduplicated across OS/architecture `Version` resources because all variants share the same source code.
+Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependencies. Accumulated as an array in `Provider.status.sourceScans` — one entry per scanned provider version. Deduplicated across OS/architecture `Version` resources because all variants share the same source code. Entries for versions removed from `spec.versions` are pruned automatically.
 
 | Field | Type | Description |
 |---|---|---|
@@ -664,7 +674,7 @@ Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependenc
 
 | Field | Type | Description |
 |---|---|---|
-| `sourceScan` | `ProviderSourceScan` | Most recent source vulnerability scan result. Populated by the Version controller after scanning the provider's `go.mod`. Deduplicated across all OS/architecture `Version` resources for the same provider version. |
+| `sourceScans` | `[]ProviderSourceScan` | Per-version source vulnerability scan results, accumulated by the Version controller after scanning the provider's `go.mod`. One entry per scanned version; sorted and pruned automatically when versions are removed from `spec.versions`. |
 
 ### ModuleSourceScan
 

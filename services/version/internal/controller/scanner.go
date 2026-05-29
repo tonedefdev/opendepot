@@ -246,7 +246,7 @@ func (r *VersionReconciler) scanProviderBinary(ctx context.Context, archivePath 
 
 	args := []string{"rootfs", "--format", "json"}
 	if offline {
-		args = append(args, "--offline-scan")
+		args = append(args, "--offline-scan", "--skip-db-update")
 	}
 	args = append(args, "--cache-dir", cacheDir, "--quiet", tmpDir)
 
@@ -297,7 +297,7 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 
 	args := []string{"fs", "--format", "json"}
 	if offline {
-		args = append(args, "--offline-scan")
+		args = append(args, "--offline-scan", "--skip-db-update")
 	}
 	args = append(args, "--cache-dir", cacheDir, "--quiet", tmpDir)
 
@@ -392,13 +392,14 @@ func (r *VersionReconciler) runProviderScan(
 			r.Log.V(2).Info("Parent Provider no longer exists, skipping source scan dedup", "provider", providerName)
 			return binaryScan, nil
 		}
+
 		r.Log.Error(err, "Could not fetch parent Provider for source scan deduplication", "provider", providerName)
 		return binaryScan, nil
 	}
 
 	currentVersion := strings.TrimPrefix(version.Spec.Version, "v")
 	for _, existing := range providerObj.Status.SourceScans {
-		if existing.Version == currentVersion {
+		if existing.Version == currentVersion && len(existing.Findings) > 0 {
 			r.Log.V(5).Info("Source scan already exists for this provider version — skipping",
 				"provider", providerName, "version", currentVersion)
 			return binaryScan, nil
@@ -447,15 +448,17 @@ func (r *VersionReconciler) runProviderScan(
 			return err
 		}
 
-		// Append the new scan entry (idempotent — skip if version already present).
-		alreadyPresent := false
-		for _, existing := range current.Status.SourceScans {
+		// Upsert the scan entry: replace an existing entry for this version (e.g. a
+		// prior zero-finding tombstone), or append if none exists yet.
+		upserted := false
+		for i, existing := range current.Status.SourceScans {
 			if existing.Version == sourceScan.Version {
-				alreadyPresent = true
+				current.Status.SourceScans[i] = *sourceScan
+				upserted = true
 				break
 			}
 		}
-		if !alreadyPresent {
+		if !upserted {
 			current.Status.SourceScans = append(current.Status.SourceScans, *sourceScan)
 		}
 
@@ -464,12 +467,14 @@ func (r *VersionReconciler) runProviderScan(
 		for _, v := range current.Spec.Versions {
 			specVersions[strings.TrimPrefix(v.Version, "v")] = struct{}{}
 		}
+
 		pruned := current.Status.SourceScans[:0]
 		for _, s := range current.Status.SourceScans {
 			if _, keep := specVersions[s.Version]; keep {
 				pruned = append(pruned, s)
 			}
 		}
+
 		current.Status.SourceScans = pruned
 
 		return r.Status().Update(ctx, current, &client.SubResourceUpdateOptions{
@@ -504,6 +509,7 @@ func extractArchiveToDir(archiveBytes []byte, destDir string) error {
 				return err
 			}
 		}
+
 		return nil
 	}
 
@@ -562,6 +568,7 @@ func extractZipEntry(f *zip.File, destDir string) error {
 	if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // size bounded by Trivy scan input
 		return fmt.Errorf("failed to write zip entry %s: %w", f.Name, err)
 	}
+
 	return nil
 }
 

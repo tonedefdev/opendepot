@@ -79,6 +79,7 @@ helm install opendepot ./chart/opendepot \
 |-----------|---------|-------------|
 | `module.enabled` | `true` | Deploy the Module controller |
 | `module.replicaCount` | `1` | Number of replicas |
+| `module.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `module.image.repository` | `ghcr.io/tonedefdev/opendepot/module-controller` | Image repository |
 | `module.image.tag` | `""` | Per-service tag override |
 | `module.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
@@ -92,6 +93,7 @@ helm install opendepot ./chart/opendepot \
 |-----------|---------|-------------|
 | `depot.enabled` | `true` | Deploy the Depot controller |
 | `depot.replicaCount` | `1` | Number of replicas |
+| `depot.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `depot.image.repository` | `ghcr.io/tonedefdev/opendepot/depot-controller` | Image repository |
 | `depot.image.tag` | `""` | Per-service tag override |
 | `depot.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
@@ -107,6 +109,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 |-----------|---------|-------------|
 | `provider.enabled` | `false` | Deploy the Provider controller |
 | `provider.replicaCount` | `1` | Number of replicas |
+| `provider.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `provider.image.repository` | `ghcr.io/tonedefdev/opendepot/provider-controller` | Image repository |
 | `provider.image.tag` | `""` | Per-service tag override |
 | `provider.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |

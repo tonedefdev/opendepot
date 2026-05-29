@@ -33,6 +33,9 @@ version:
 module:
   enabled: true
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/module-controller
     tag: ""  # Overrides global.image.tag when set
@@ -50,6 +53,9 @@ module:
 depot:
   enabled: true  # Set to true to enable the Depot controller
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/depot-controller
     tag: ""  # Overrides global.image.tag when set
@@ -67,6 +73,9 @@ depot:
 provider:
   enabled: false
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/provider-controller
     tag: ""  # Overrides global.image.tag when set

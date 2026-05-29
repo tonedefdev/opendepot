@@ -18,7 +18,6 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Depot | `depots/status` | get, patch, update |
 | Depot | `modules` | create, get, list, patch, update, watch |
 | Depot | `providers` | create, get, list, patch, update, watch |
-| Depot | `secrets` | get, list, watch |
 | Module | `modules` | create, delete, get, list, patch, update, watch |
 | Module | `modules/finalizers` | update |
 | Module | `modules/status` | get, patch, update |
@@ -30,7 +29,6 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Version | `versions` | create, delete, get, list, patch, update, watch |
 | Version | `versions/finalizers` | update |
 | Version | `versions/status` | get, patch, update |
-| Version | `secrets` | get, list, watch |
 | Provider | `providers` | create, delete, get, list, patch, update, watch |
 | Provider | `providers/finalizers` | update |
 | Provider | `providers/status` | get, patch, update |
