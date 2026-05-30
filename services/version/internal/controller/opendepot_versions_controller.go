@@ -507,7 +507,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.patchProviderResolvedRepo(ctx, version, resolvedRepo); err != nil {
-		return ctrl.Result{}, err
+		r.Log.V(5).Info("patchProviderResolvedRepo failed — non-fatal", "error", err)
 	}
 
 	return ctrl.Result{}, nil
@@ -526,6 +526,9 @@ func (r *VersionReconciler) patchProviderResolvedRepo(ctx context.Context, versi
 	provider := &opendepotv1alpha1.Provider{}
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if err := r.Get(ctx, k8stypes.NamespacedName{Name: *version.Spec.ProviderConfigRef.Name, Namespace: version.Namespace}, provider); err != nil {
+			if k8serr.IsNotFound(err) {
+				return nil
+			}
 			return fmt.Errorf("patchProviderResolvedRepo: failed to get provider: %w", err)
 		}
 

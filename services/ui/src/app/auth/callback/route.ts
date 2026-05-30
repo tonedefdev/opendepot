@@ -84,8 +84,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   });
 
   if (!tokenRes.ok) {
-    const body = await tokenRes.text();
-    console.error("token exchange failed:", tokenRes.status, body);
     return new NextResponse("Token exchange failed", { status: 502 });
   }
 
