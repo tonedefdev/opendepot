@@ -126,8 +126,20 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// List all versions — a version belongs to a module or provider; filter by
-	// whether the parent module/provider is visible to the caller.
+	// Build a set of visible parent (module/provider) resource keys so version
+	// visibility can be derived from the parent, which is what GroupBinding controls.
+	// Key format: "<namespace>/<Kind>/<name>"
+	visibleParents := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items))
+	for _, m := range moduleList.Items {
+		visibleParents[m.Namespace+"/Module/"+m.Name] = struct{}{}
+	}
+
+	for _, p := range providerList.Items {
+		visibleParents[p.Namespace+"/Provider/"+p.Name] = struct{}{}
+	}
+
+	// List all versions — a version is visible if its owner module/provider is visible.
+	// GroupBinding only specifies module/provider names, not version names directly.
 	var versionList opendepotv1alpha1.VersionList
 	{
 		req := cs.RESTClient().Get().
@@ -152,9 +164,11 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, v := range all.Items {
-			pub := nsPublic[v.Namespace] && isPublicResource(v.Labels)
-			if isBrowseVisible(pub, false, allAccess, binding, "version", v.Name) {
-				versionList.Items = append(versionList.Items, v)
+			for _, ref := range v.OwnerReferences {
+				if _, ok := visibleParents[v.Namespace+"/"+ref.Kind+"/"+ref.Name]; ok {
+					versionList.Items = append(versionList.Items, v)
+					break
+				}
 			}
 		}
 	}
