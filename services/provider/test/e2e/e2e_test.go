@@ -526,26 +526,16 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScans on the Provider CR", func() {
+	It("should populate sourceScan on the Version CR", func() {
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+			cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
 				"-n", scanNamespace,
-				"-o", "jsonpath={.status.sourceScans[0].scannedAt}",
+				"-o", "jsonpath={.status.sourceScan.scannedAt}",
 			)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after scan completes")
+			g.Expect(output).NotTo(BeEmpty(), "sourceScan.scannedAt should be set after scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
-	})
-
-	It("should record the scanned version on the Provider sourceScans entry", func() {
-		cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
-			"-n", scanNamespace,
-			"-o", "jsonpath={.status.sourceScans[0].version}",
-		)
-		output, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(output).To(Equal(scanVersion), "sourceScans[0].version should match the synced provider version")
 	})
 
 	It("should report at least one binary finding on the Version CR", func() {
@@ -562,18 +552,16 @@ spec:
 			"binaryScan.findings should contain at least one finding for null v%s", scanVersion)
 	})
 
-	It("should report at least one source finding on the Provider CR", func() {
+	It("should report at least one source finding on the Version CR", func() {
 		// go.mod for null v3.2.3 uses vintage sdk deps that carry known CVEs.
-		// An empty findings list means the silent-skip bug fired or the scan
-		// legitimately found nothing — both of which should fail this test.
-		cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+		cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
 			"-n", scanNamespace,
-			"-o", `jsonpath={.status.sourceScans[0].findings[0].vulnerabilityID}`,
+			"-o", `jsonpath={.status.sourceScan.findings[0].vulnerabilityID}`,
 		)
 		output, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
-			"sourceScans[0].findings should contain at least one finding for null v%s", scanVersion)
+			"sourceScan.findings should contain at least one finding for null v%s", scanVersion)
 	})
 
 })
@@ -711,16 +699,16 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScans on the community Provider CR", func() {
+	It("should populate sourceScan on the community provider Version CR", func() {
 		// Validates that Trivy can clone and scan the source repository of a community provider.
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "provider", communityProviderName,
+			cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
 				"-n", communityNamespace,
-				"-o", "jsonpath={.status.sourceScans[0].scannedAt}",
+				"-o", "jsonpath={.status.sourceScan.scannedAt}",
 			)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty(), "sourceScans[0].scannedAt should be set after source scan completes")
+			g.Expect(output).NotTo(BeEmpty(), "sourceScan.scannedAt should be set after source scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
@@ -735,15 +723,15 @@ spec:
 			"binaryScan.findings should contain at least one finding for github v%s", communityVersion)
 	})
 
-	It("should report at least one source finding on the community Provider CR", func() {
-		cmd := exec.Command("kubectl", "get", "provider", communityProviderName,
+	It("should report at least one source finding on the community provider Version CR", func() {
+		cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
 			"-n", communityNamespace,
-			"-o", `jsonpath={.status.sourceScans[0].findings[0].vulnerabilityID}`,
+			"-o", `jsonpath={.status.sourceScan.findings[0].vulnerabilityID}`,
 		)
 		output, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
-			"sourceScans[0].findings should contain at least one finding for github v%s", communityVersion)
+			"sourceScan.findings should contain at least one finding for github v%s", communityVersion)
 	})
 
 })

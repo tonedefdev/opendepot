@@ -58,7 +58,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   const response = NextResponse.redirect(authUrl.toString());
   const cookieOpts = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: (baseUrl ?? "").startsWith("https://"),
     sameSite: "lax" as const,
     maxAge: 300,
     path: "/",

@@ -3,6 +3,7 @@ go 1.25.5
 use (
 	./api/v1alpha1
 	./pkg/github
+	./pkg/registry
 	./pkg/storage
 	./pkg/testutils
 	./pkg/utils

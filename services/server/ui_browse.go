@@ -303,7 +303,19 @@ func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, 
 	rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 	idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
 	if err != nil {
-		return browseAuthClientCredentials(r.Context(), rawToken)
+		// If a separate UI client ID is configured, try verifying as a UI token.
+		// This handles the case where the UI uses a confidential OIDC client
+		// (e.g. "opendepot-ui") whose tokens have a different audience than the
+		// server's primary client ID but still carry the groups claim.
+		if oidcUIVerifier != nil {
+			if uiToken, uiErr := oidcUIVerifier.Verify(r.Context(), rawToken); uiErr == nil {
+				idToken = uiToken
+				err = nil
+			}
+		}
+		if err != nil {
+			return browseAuthClientCredentials(r.Context(), rawToken)
+		}
 	}
 
 	var claims map[string]any
@@ -391,6 +403,7 @@ func isBrowseVisible(pub, publicOnly, allAccess bool, binding *opendepotv1alpha1
 		if binding == nil {
 			return false
 		}
+
 		if !isResourceAllowed(binding, kind, name) {
 			return false
 		}
@@ -427,10 +440,12 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		if len(nsFilter) > 0 && !nsFilter[ns] {
 			continue
 		}
+
 		pub := nsPublic[ns] && isPublicResource(m.Labels)
 		if !isBrowseVisible(pub, publicOnly, allAccess, binding, "module", m.Name) {
 			continue
 		}
+
 		resource := moduleToCard(m, pub)
 		versionData, _ := browseListModuleVersions(cs, r, ns, m.Name)
 		enrichModuleCard(&resource, versionData)
@@ -464,13 +479,15 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		if len(nsFilter) > 0 && !nsFilter[ns] {
 			continue
 		}
+
 		pub := nsPublic[ns] && isPublicResource(p.Labels)
 		if !isBrowseVisible(pub, publicOnly, allAccess, binding, "provider", p.Name) {
 			continue
 		}
+
 		resource := providerToCard(p, pub)
 		versionData, _ := browseListProviderVersions(cs, r, ns)
-		enrichProviderCard(&resource, p, versionData, filterOS, filterArch)
+		enrichProviderCard(&resource, p, providerVersionsFor(versionData, p.Name), filterOS, filterArch)
 		enrichResourceWithDownloads(&resource, dlStats)
 		items = append(items, resource)
 	}
@@ -741,11 +758,12 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		card := providerToCard(p, pub)
 		versions, _ := browseListProviderVersions(cs, r, namespace)
+		versions = providerVersionsFor(versions, p.Name)
 		enrichProviderCard(&card, p, versions, "", "")
 
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = providerVersionSummaries(p, versions)
-		if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
+		if latestScan := findProviderSourceScanFromVersions(versions, ""); latestScan != nil {
 			detail.SourceScanFindings = latestScan.Findings
 		}
 
@@ -754,8 +772,10 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.VersionHistoryLimit = p.Spec.ProviderConfig.VersionHistoryLimit
 		detail.VersionConstraints = p.Spec.ProviderConfig.VersionConstraints
 
-		if p.Spec.ProviderConfig.SourceRepository != nil {
+		if p.Spec.ProviderConfig.SourceRepository != nil && *p.Spec.ProviderConfig.SourceRepository != "" {
 			detail.SourceRepository = *p.Spec.ProviderConfig.SourceRepository
+		} else if p.Status.ResolvedSourceRepository != "" {
+			detail.SourceRepository = p.Status.ResolvedSourceRepository
 		}
 
 		if p.Spec.ProviderConfig.GithubClientConfig != nil {
@@ -763,6 +783,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 				UseAuthenticatedClient: p.Spec.ProviderConfig.GithubClientConfig.UseAuthenticatedClient,
 			}
 		}
+
 		detail.DepotRef = browseDepotForProvider(cs, r, namespace, name)
 		json.NewEncoder(w).Encode(detail)
 
@@ -788,7 +809,7 @@ func moduleToCard(m opendepotv1alpha1.Module, public bool) BrowseResource {
 
 // providerToCard converts a Provider resource to a BrowseResource card.
 func providerToCard(p opendepotv1alpha1.Provider, public bool) BrowseResource {
-	r := BrowseResource{
+	return BrowseResource{
 		Kind:              "provider",
 		Namespace:         p.Namespace,
 		Name:              p.Name,
@@ -798,13 +819,6 @@ func providerToCard(p opendepotv1alpha1.Provider, public bool) BrowseResource {
 		LatestVersion:     derefString(p.Status.LatestVersion),
 		ProviderNamespace: derefString(p.Spec.ProviderConfig.Namespace),
 	}
-
-	if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
-		r.ScanCounts = browseScanCounts(latestScan.Findings)
-		r.LastScanned = latestScan.ScannedAt
-	}
-
-	return r
 }
 
 // enrichModuleCard sets ScanCounts and LastScanned on a module card using only the latest version.
@@ -829,6 +843,7 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 		if opendepotUtils.SanitizeVersion(v.Spec.Version) != latestVersionStr || v.Status.SourceScan == nil {
 			continue
 		}
+
 		card.ScanCounts = browseScanCounts(v.Status.SourceScan.Findings)
 		card.LastScanned = v.Status.SourceScan.ScannedAt
 		return
@@ -861,7 +876,13 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 	var scanFindings []opendepotv1alpha1.SecurityFinding
 	var scanTimes []string
 
-	for _, v := range versions {
+	// latestBinaryByPlatform collects one Version per os/arch key at the latest semver.
+	// Only the alphabetically-first platform's findings are used for the badge count so
+	// that findings shared across platforms are not multiplied by the platform count.
+	latestBinaryByPlatform := make(map[string]*opendepotv1alpha1.Version)
+
+	for i := range versions {
+		v := &versions[i]
 		if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
 			continue
 		}
@@ -889,14 +910,25 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		key := osName + "/" + arch
 		platformSet[key] = ProviderPlatform{OS: osName, Arch: arch}
 
-		// Only include binary scan findings from the latest version.
 		if opendepotUtils.SanitizeVersion(v.Spec.Version) == latestVersionStr && v.Status.BinaryScan != nil {
-			scanFindings = append(scanFindings, v.Status.BinaryScan.Findings...)
-			scanTimes = append(scanTimes, v.Status.BinaryScan.ScannedAt)
+			if _, exists := latestBinaryByPlatform[key]; !exists {
+				latestBinaryByPlatform[key] = v
+			}
 		}
 	}
 
-	if latestScan := findProviderSourceScan(p.Status.SourceScans, ""); latestScan != nil {
+	if len(latestBinaryByPlatform) > 0 {
+		binaryKeys := make([]string, 0, len(latestBinaryByPlatform))
+		for k := range latestBinaryByPlatform {
+			binaryKeys = append(binaryKeys, k)
+		}
+		sort.Strings(binaryKeys)
+		chosen := latestBinaryByPlatform[binaryKeys[0]]
+		scanFindings = append(scanFindings, chosen.Status.BinaryScan.Findings...)
+		scanTimes = append(scanTimes, chosen.Status.BinaryScan.ScannedAt)
+	}
+
+	if latestScan := findProviderSourceScanFromVersions(versions, ""); latestScan != nil {
 		scanFindings = append(scanFindings, latestScan.Findings...)
 		scanTimes = append(scanTimes, latestScan.ScannedAt)
 	}
@@ -1051,52 +1083,83 @@ func collectModuleSourceFindings(versions []opendepotv1alpha1.Version) []opendep
 		if v.Status.SourceScan == nil {
 			continue
 		}
+
 		if latest == nil || compareVersionDesc(v.Spec.Version, latest.Spec.Version) {
 			latest = v
 		}
 	}
+
 	if latest == nil {
 		return nil
 	}
+
 	return deduplicateFindings(latest.Status.SourceScan.Findings)
 }
 
-// findProviderSourceScan returns the ProviderSourceScan entry for the given version string.
-// When version is empty, the entry with the highest semver is returned.
-// Returns nil when the slice is empty or the requested version is not found.
-func findProviderSourceScan(scans []opendepotv1alpha1.ProviderSourceScan, version string) *opendepotv1alpha1.ProviderSourceScan {
-	if len(scans) == 0 {
-		return nil
-	}
+// findProviderSourceScanFromVersions returns the SourceScan for the given semver by inspecting
+// Version.Status.SourceScan across the supplied Version slice. When version is empty the scan
+// from the Version with the highest semver is returned. Returns nil when no match is found.
+func findProviderSourceScanFromVersions(versions []opendepotv1alpha1.Version, version string) *opendepotv1alpha1.SourceScan {
+	var best *opendepotv1alpha1.Version
+	for i := range versions {
+		v := &versions[i]
+		if v.Status.SourceScan == nil {
+			continue
+		}
 
-	if version != "" {
-		for i := range scans {
-			if scans[i].Version == version {
-				return &scans[i]
+		if version != "" {
+			if opendepotUtils.SanitizeVersion(v.Spec.Version) == version {
+				return v.Status.SourceScan
 			}
+			continue
 		}
-		return nil
+
+		if best == nil || compareVersionDesc(v.Spec.Version, best.Spec.Version) {
+			best = v
+		}
 	}
 
-	// Return the entry with the highest semver when no version is requested.
-	best := &scans[0]
-	for i := 1; i < len(scans); i++ {
-		if compareVersionDesc(scans[i].Version, best.Version) {
-			best = &scans[i]
-		}
+	if best != nil {
+		return best.Status.SourceScan
 	}
-	return best
+
+	return nil
 }
 
 // collectBinaryFindings returns a map of "os/arch" → []SecurityFinding using only the latest
 // version's binary scan results for each platform.
+// providerVersionsFor returns only the Version entries whose ProviderConfigRef.Name matches providerName.
+func providerVersionsFor(versions []opendepotv1alpha1.Version, providerName string) []opendepotv1alpha1.Version {
+	result := versions[:0:0]
+	for i := range versions {
+		v := &versions[i]
+		if v.Spec.ProviderConfigRef != nil && v.Spec.ProviderConfigRef.Name != nil && *v.Spec.ProviderConfigRef.Name == providerName {
+			result = append(result, versions[i])
+		}
+	}
+
+	return result
+}
+
 func collectBinaryFindings(versions []opendepotv1alpha1.Version) map[string][]opendepotv1alpha1.SecurityFinding {
+	return collectBinaryFindingsForVersion(versions, "")
+}
+
+// collectBinaryFindingsForVersion returns the binary scan findings keyed by "os/arch".
+// When semver is non-empty only Version CRs matching that version are considered;
+// otherwise the latest semver per platform is used (same behaviour as before).
+func collectBinaryFindingsForVersion(versions []opendepotv1alpha1.Version, semver string) map[string][]opendepotv1alpha1.SecurityFinding {
 	latestByPlatform := make(map[string]*opendepotv1alpha1.Version)
 	for i := range versions {
 		v := &versions[i]
 		if v.Status.BinaryScan == nil || len(v.Status.BinaryScan.Findings) == 0 {
 			continue
 		}
+
+		if semver != "" && opendepotUtils.SanitizeVersion(v.Spec.Version) != semver {
+			continue
+		}
+
 		key := v.Spec.OperatingSystem + "/" + v.Spec.Architecture
 		existing, ok := latestByPlatform[key]
 		if !ok || compareVersionDesc(v.Spec.Version, existing.Spec.Version) {
@@ -1129,9 +1192,11 @@ func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1al
 		} else {
 			key = f.VulnerabilityID
 		}
+
 		if _, exists := seen[key]; exists {
 			continue
 		}
+
 		seen[key] = struct{}{}
 		out = append(out, f)
 	}
@@ -1166,6 +1231,7 @@ func enrichResourceWithDownloads(resource *BrowseResource, dlStats map[string]re
 	if dlStats == nil {
 		return
 	}
+
 	key := resource.Namespace + "/" + resource.Kind + "/" + resource.Name
 	if s, ok := dlStats[key]; ok {
 		resource.TotalDownloads = s.Count
@@ -1273,6 +1339,7 @@ func derefString(s *string) string {
 	if s == nil {
 		return ""
 	}
+
 	return *s
 }
 
@@ -1301,17 +1368,17 @@ func splitVersionParts(v string) []string {
 func compareVersionDesc(a, b string) bool {
 	aParts := splitVersionParts(opendepotUtils.SanitizeVersion(a))
 	bParts := splitVersionParts(opendepotUtils.SanitizeVersion(b))
-	length := len(aParts)
-	if len(bParts) > length {
-		length = len(bParts)
-	}
-	for i := 0; i < length; i++ {
+	length := max(len(bParts), len(aParts))
+
+	for i := range length {
 		if i >= len(aParts) {
 			return false
 		}
+
 		if i >= len(bParts) {
 			return true
 		}
+
 		aNum, aErr := strconv.Atoi(aParts[i])
 		bNum, bErr := strconv.Atoi(bParts[i])
 		if aErr == nil && bErr == nil {
@@ -1320,18 +1387,22 @@ func compareVersionDesc(a, b string) bool {
 			}
 			continue
 		}
+
 		if aErr == nil {
 			return true // numeric tokens sort before string tokens
 		}
+
 		if bErr == nil {
 			return false
 		}
+
 		al := strings.ToLower(aParts[i])
 		bl := strings.ToLower(bParts[i])
 		if al != bl {
 			return al > bl
 		}
 	}
+
 	return false
 }
 
@@ -1347,6 +1418,7 @@ func filterAndPaginateVersions(all []BrowseVersionSummary, q, syncedStr, osFilte
 		if v.OS != "" {
 			osSet[v.OS] = struct{}{}
 		}
+
 		if v.Arch != "" {
 			archSet[v.Arch] = struct{}{}
 		}
@@ -1358,45 +1430,52 @@ func filterAndPaginateVersions(all []BrowseVersionSummary, q, syncedStr, osFilte
 		if q != "" && !strings.Contains(strings.ToLower(v.Version), strings.ToLower(q)) {
 			continue
 		}
+
 		if syncedStr != "" {
 			ss := strings.ToLower(v.SyncStatus)
-			problematic := !v.Synced || strings.Contains(ss, "failed") || strings.Contains(ss, "error")
+			problemStatus := strings.Contains(ss, "failed") || strings.Contains(ss, "error")
+			problematic := !v.Synced || problemStatus
 			if syncedStr == "true" && problematic {
 				continue
 			}
+
 			if syncedStr == "false" && !problematic {
 				continue
 			}
+
+			// progressing: not yet synced but not in a failed/error state
+			if syncedStr == "progressing" && (v.Synced || problemStatus) {
+				continue
+			}
 		}
+
 		if osFilter != "" && !strings.EqualFold(v.OS, osFilter) {
 			continue
 		}
+
 		if archFilter != "" && !strings.EqualFold(v.Arch, archFilter) {
 			continue
 		}
+
 		filtered = append(filtered, v)
 	}
 
 	totalCount := len(filtered)
-	start := (page - 1) * pageSize
-	if start > totalCount {
-		start = totalCount
-	}
-	end := start + pageSize
-	if end > totalCount {
-		end = totalCount
-	}
+	start := min((page-1)*pageSize, totalCount)
+	end := min(start+pageSize, totalCount)
 
 	availableOS := make([]string, 0, len(osSet))
 	for os := range osSet {
 		availableOS = append(availableOS, os)
 	}
+
 	sort.Strings(availableOS)
 
 	availableArch := make([]string, 0, len(archSet))
 	for arch := range archSet {
 		availableArch = append(availableArch, arch)
 	}
+
 	sort.Strings(availableArch)
 
 	return BrowseVersionList{
@@ -1436,6 +1515,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
 		page = p
 	}
+
 	pageSize := 20
 	if ps, err := strconv.Atoi(r.URL.Query().Get("page_size")); err == nil && ps > 0 {
 		if ps > 100 {
@@ -1443,6 +1523,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		pageSize = ps
 	}
+
 	q := r.URL.Query().Get("q")
 	syncedStr := r.URL.Query().Get("synced")
 	osFilter := r.URL.Query().Get("os")
@@ -1462,6 +1543,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
+
 			logger.Error("browse: failed to get module", "namespace", namespace, "name", name, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -1503,6 +1585,7 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
+
 			logger.Error("browse: failed to get provider", "namespace", namespace, "name", name, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -1538,7 +1621,9 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 
 // handleBrowseScanFindings returns the scan findings for a single module or provider resource.
 // GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
-// Optional query parameter: ?version=<semver> selects a specific source scan version (modules and providers).
+// Optional query parameters:
+//   - ?version=<semver>       selects a specific source scan version (modules and providers)
+//   - ?binaryVersion=<semver> selects a specific binary scan version (providers only)
 func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -1546,6 +1631,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(chi.URLParam(r, "kind"))
 	name := chi.URLParam(r, "name")
 	requestedVersion := strings.TrimPrefix(r.URL.Query().Get("version"), "v")
+	requestedBinaryVersion := opendepotUtils.SanitizeVersion(r.URL.Query().Get("binaryVersion"))
 
 	binding, allAccess := browseAuthState(r)
 
@@ -1668,24 +1754,65 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		versions, _ := browseListProviderVersions(cs, r, namespace)
+		versions = providerVersionsFor(versions, p.Name)
 		result := BrowseScanFindings{
-			BinaryScanFindings: collectBinaryFindings(versions),
+			BinaryScanFindings: collectBinaryFindingsForVersion(versions, requestedBinaryVersion),
 		}
 
-		if scan := findProviderSourceScan(p.Status.SourceScans, opendepotUtils.SanitizeVersion(requestedVersion)); scan != nil {
+		requestedSemver := opendepotUtils.SanitizeVersion(requestedVersion)
+		if scan := findProviderSourceScanFromVersions(versions, requestedSemver); scan != nil {
 			result.SourceScanFindings = deduplicateFindings(scan.Findings)
-			result.SelectedVersion = scan.Version
+			result.SelectedVersion = requestedSemver
 		}
 
-		if len(p.Status.SourceScans) > 0 {
-			scannedVersions := make([]string, len(p.Status.SourceScans))
-			for i, s := range p.Status.SourceScans {
-				scannedVersions[i] = s.Version
+		// Build scannedVersions from distinct semver values that have a SourceScan result.
+		seenSource := make(map[string]struct{})
+		var scannedVersions []string
+		for i := range versions {
+			v := &versions[i]
+			if v.Status.SourceScan == nil {
+				continue
 			}
+
+			sv := opendepotUtils.SanitizeVersion(v.Spec.Version)
+			if _, exists := seenSource[sv]; exists {
+				continue
+			}
+
+			seenSource[sv] = struct{}{}
+			scannedVersions = append(scannedVersions, sv)
+		}
+
+		if len(scannedVersions) > 0 {
 			sort.Slice(scannedVersions, func(i, j int) bool {
 				return compareVersionDesc(scannedVersions[i], scannedVersions[j])
 			})
 			result.ScannedVersions = scannedVersions
+		}
+
+		// Build binaryVersions from distinct semver values that have a BinaryScan result.
+		seenBinary := make(map[string]struct{})
+		var binaryVersions []string
+		for i := range versions {
+			v := &versions[i]
+			if v.Status.BinaryScan == nil {
+				continue
+			}
+
+			sv := opendepotUtils.SanitizeVersion(v.Spec.Version)
+			if _, exists := seenBinary[sv]; exists {
+				continue
+			}
+
+			seenBinary[sv] = struct{}{}
+			binaryVersions = append(binaryVersions, sv)
+		}
+
+		if len(binaryVersions) > 0 {
+			sort.Slice(binaryVersions, func(i, j int) bool {
+				return compareVersionDesc(binaryVersions[i], binaryVersions[j])
+			})
+			result.BinaryVersions = binaryVersions
 		}
 
 		json.NewEncoder(w).Encode(result)
@@ -1799,13 +1926,13 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	nsPublic := make(map[string]bool, len(allNamespaces))
 	for _, nsObj := range allNamespaces {
 		nsPublic[nsObj.Metadata.Name] = isPublicNamespace(nsObj.Metadata.Labels)
 	}
 
 	showAll := allAccess || binding != nil
-
 	ns := r.URL.Query().Get("namespace")
 
 	// Fetch depots, modules and providers in parallel using goroutines.
@@ -1813,10 +1940,12 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		list opendepotv1alpha1.DepotList
 		err  error
 	}
+
 	type moduleResult struct {
 		list opendepotv1alpha1.ModuleList
 		err  error
 	}
+
 	type providerResult struct {
 		list opendepotv1alpha1.ProviderList
 		err  error
@@ -1831,50 +1960,61 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		if ns != "" {
 			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("depots")
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			depotCh <- depotResult{err: err}
 			return
 		}
+
 		var list opendepotv1alpha1.DepotList
 		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
 			depotCh <- depotResult{err: unmarshalErr}
 			return
 		}
+
 		depotCh <- depotResult{list: list}
 	}()
+
 	go func() {
 		req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("modules")
 		if ns != "" {
 			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("modules")
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			moduleCh <- moduleResult{err: err}
 			return
 		}
+
 		var list opendepotv1alpha1.ModuleList
 		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
 			moduleCh <- moduleResult{err: unmarshalErr}
 			return
 		}
+
 		moduleCh <- moduleResult{list: list}
 	}()
+
 	go func() {
 		req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource("providers")
 		if ns != "" {
 			req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource("providers")
 		}
+
 		raw, err := req.DoRaw(r.Context())
 		if err != nil {
 			providerCh <- providerResult{err: err}
 			return
 		}
+
 		var list opendepotv1alpha1.ProviderList
 		if unmarshalErr := json.Unmarshal(raw, &list); unmarshalErr != nil {
 			providerCh <- providerResult{err: unmarshalErr}
 			return
 		}
+
 		providerCh <- providerResult{list: list}
 	}()
 
@@ -1887,11 +2027,13 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	if mr.err != nil {
 		logger.Error("browse: graph: failed to list modules", "error", mr.err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	if pr.err != nil {
 		logger.Error("browse: graph: failed to list providers", "error", pr.err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1912,6 +2054,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		if !pub && !showAll {
 			continue
 		}
+
 		depotID := fmt.Sprintf("depot/%s/%s", d.Namespace, d.Name)
 		node := BrowseGraphDepot{
 			ID:                   depotID,
@@ -1920,6 +2063,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			ManagedModuleNames:   d.Status.Modules,
 			ManagedProviderNames: d.Status.Providers,
 		}
+
 		node.PollingIntervalMinutes = d.Spec.PollingIntervalMinutes
 		if d.Spec.GlobalConfig != nil && d.Spec.GlobalConfig.StorageConfig != nil {
 			sc := storageConfigToBrowse(d.Spec.GlobalConfig.StorageConfig)
@@ -1927,6 +2071,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 				node.StorageBackend = sc.Backend
 			}
 		}
+
 		graph.Depots = append(graph.Depots, node)
 
 		// Edges: depot → module
@@ -1935,6 +2080,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			if len(parts) != 2 {
 				continue
 			}
+
 			targetID := fmt.Sprintf("module/%s/%s", parts[0], parts[1])
 			graph.Edges = append(graph.Edges, BrowseGraphEdge{
 				ID:     fmt.Sprintf("edge/%s/%s", depotID, targetID),
@@ -1949,6 +2095,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			if len(parts) != 2 {
 				continue
 			}
+
 			targetID := fmt.Sprintf("provider/%s/%s", parts[0], parts[1])
 			graph.Edges = append(graph.Edges, BrowseGraphEdge{
 				ID:     fmt.Sprintf("edge/%s/%s", depotID, targetID),
@@ -1964,6 +2111,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		if !isBrowseVisible(pub, false, allAccess, binding, "module", m.Name) {
 			continue
 		}
+
 		moduleID := fmt.Sprintf("module/%s/%s", m.Namespace, m.Name)
 		synced := m.Status.SyncStatus == "Synced"
 		node := BrowseGraphModule{
@@ -1974,12 +2122,15 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			Synced:     synced,
 			SyncStatus: m.Status.SyncStatus,
 		}
+
 		if m.Spec.ModuleConfig.RepoUrl != nil {
 			node.RepoURL = *m.Spec.ModuleConfig.RepoUrl
 		}
+
 		if m.Status.LatestVersion != nil {
 			node.LatestVersion = *m.Status.LatestVersion
 		}
+
 		graph.Modules = append(graph.Modules, node)
 	}
 
@@ -1989,6 +2140,7 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		if !isBrowseVisible(pub, false, allAccess, binding, "provider", p.Name) {
 			continue
 		}
+
 		providerID := fmt.Sprintf("provider/%s/%s", p.Namespace, p.Name)
 		synced := p.Status.SyncStatus == "Synced"
 		graph.Providers = append(graph.Providers, BrowseGraphProvider{

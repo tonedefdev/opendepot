@@ -221,21 +221,6 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Accumulate provider-level source scan findings.
-	for i := range providerList.Items {
-		p := &providerList.Items[i]
-		latestScan := findProviderSourceScan(p.Status.SourceScans, "")
-		if latestScan == nil {
-			continue
-		}
-
-		for _, f := range latestScan.Findings {
-			accumulateFinding(&secPosture, f)
-			key := p.Namespace + "/provider/" + p.Name
-			affectedResources[key] = struct{}{}
-		}
-	}
-
 	secPosture.TotalAffectedResources = len(affectedResources)
 
 	// Query download stats from SQLite.

@@ -14,8 +14,12 @@ export async function GET(
   const token = await getServerSessionToken();
 
   const version = _request.nextUrl.searchParams.get("version");
+  const binaryVersion = _request.nextUrl.searchParams.get("binaryVersion");
   const upstreamBase = `${BASE_URL}/opendepot/ui/v1/resources/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/scan-findings`;
-  const upstreamUrl = version ? `${upstreamBase}?version=${encodeURIComponent(version)}` : upstreamBase;
+  const qs = new URLSearchParams();
+  if (version) qs.set("version", version);
+  if (binaryVersion) qs.set("binaryVersion", binaryVersion);
+  const upstreamUrl = qs.size > 0 ? `${upstreamBase}?${qs.toString()}` : upstreamBase;
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) {

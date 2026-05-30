@@ -8,7 +8,6 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
   FormControl,
   InputLabel,
   MenuItem,
@@ -29,6 +28,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { keyframes, styled } from "@mui/system";
 import CopyButton from "@/components/CopyButton";
 import type { BrowseScanFindings, BrowseVersionSummary, SecurityFinding } from "@/lib/api";
@@ -132,6 +132,15 @@ function FindingsTable({
   scannableVersions,
   selectedSourceVersion,
   onVersionChange,
+  binaryVersions,
+  selectedBinaryVersion,
+  onBinaryVersionChange,
+  availableOS,
+  selectedOS,
+  onOSChange,
+  availableArch,
+  selectedArch,
+  onArchChange,
 }: {
   findings: SecurityFinding[];
   fileName?: string;
@@ -141,6 +150,15 @@ function FindingsTable({
   scannableVersions?: string[];
   selectedSourceVersion?: string;
   onVersionChange?: (v: string) => void;
+  binaryVersions?: string[];
+  selectedBinaryVersion?: string;
+  onBinaryVersionChange?: (v: string) => void;
+  availableOS?: string[];
+  selectedOS?: string;
+  onOSChange?: (v: string) => void;
+  availableArch?: string[];
+  selectedArch?: string;
+  onArchChange?: (v: string) => void;
 }) {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
@@ -228,6 +246,56 @@ function FindingsTable({
           </FormControl>
         )}
 
+        {binaryVersions && binaryVersions.length > 1 && onBinaryVersionChange && (
+          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
+            <Select
+              label="Version"
+              value={selectedBinaryVersion || binaryVersions[0] || ""}
+              onChange={(e) => onBinaryVersionChange(e.target.value)}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {binaryVersions.map((v) => (
+                <MenuItem key={v} value={v} sx={{ fontSize: "0.8125rem" }}>{v}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+
+        {availableOS && availableOS.length > 1 && onOSChange && (
+          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
+            <Select
+              label="OS"
+              value={selectedOS || availableOS[0] || ""}
+              onChange={(e) => {
+                onOSChange(e.target.value);
+              }}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {availableOS.map((os) => (
+                <MenuItem key={os} value={os} sx={{ fontSize: "0.8125rem" }}>{os}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+
+        {availableArch && availableArch.length > 1 && onArchChange && (
+          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>Arch</InputLabel>
+            <Select
+              label="Arch"
+              value={selectedArch || availableArch[0] || ""}
+              onChange={(e) => onArchChange(e.target.value)}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {availableArch.map((arch) => (
+                <MenuItem key={arch} value={arch} sx={{ fontSize: "0.8125rem" }}>{arch}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+
         <TextField
           size="small"
           placeholder="Search findings…"
@@ -295,16 +363,16 @@ function FindingsTable({
       </Box>
 
       <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid rgba(240,246,252,0.08)", borderRadius: 1.5 }}>
-        <Table size="small" sx={{ tableLayout: { xs: "auto", md: "fixed" } }}>
+        <Table size="small" sx={{ tableLayout: "fixed", minWidth: includeArtifactColumns ? 1060 : 580 }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: { xs: 110, md: 130 } }}>ID</TableCell>
-              <TableCell sx={{ width: { xs: 95, md: 110 } }}>Severity</TableCell>
-              <TableCell>Title</TableCell>
-              <TableCell>Message</TableCell>
-              {includeArtifactColumns && <TableCell sx={{ width: { xs: 150, md: 180 } }}>Filename</TableCell>}
-              {includeArtifactColumns && <TableCell sx={{ width: { xs: 150, md: 190 } }}>Checksum</TableCell>}
-              {includeResolutionColumn && <TableCell>Resolution</TableCell>}
+              <TableCell sx={{ width: 130, whiteSpace: "nowrap" }}>ID</TableCell>
+              <TableCell sx={{ width: 105, whiteSpace: "nowrap" }}>Severity</TableCell>
+              <TableCell sx={{ width: 185, whiteSpace: "nowrap" }}>Title</TableCell>
+              <TableCell sx={{ width: 185, whiteSpace: "nowrap" }}>Message</TableCell>
+              {includeArtifactColumns && <TableCell sx={{ width: 170, whiteSpace: "nowrap" }}>Filename</TableCell>}
+              {includeArtifactColumns && <TableCell sx={{ width: 175, whiteSpace: "nowrap" }}>Checksum</TableCell>}
+              {includeResolutionColumn && <TableCell sx={{ width: 160, whiteSpace: "nowrap" }}>Resolution</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -386,13 +454,6 @@ function FindingsTable({
   );
 }
 
-function platformKey(os?: string, arch?: string): string {
-  if (!os || !arch) {
-    return "";
-  }
-  return `${os}/${arch}`;
-}
-
 export default function ScanDrillDown({ namespace, kind, name, initialSourceScanFindings, initialBinaryScanFindings, versions }: Props) {
   const [sourceScanFindings, setSourceScanFindings] = React.useState<SecurityFinding[]>(initialSourceScanFindings);
   const [binaryScanFindings, setBinaryScanFindings] = React.useState<Record<string, SecurityFinding[]>>(initialBinaryScanFindings);
@@ -400,6 +461,12 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [scannableVersions, setScannableVersions] = React.useState<string[]>([]);
   const [selectedSourceVersion, setSelectedSourceVersion] = React.useState<string>("");
+  const [sourceExpanded, setSourceExpanded] = React.useState(initialSourceScanFindings.length > 0);
+  const [binaryExpanded, setBinaryExpanded] = React.useState(Object.values(initialBinaryScanFindings).flat().length > 0);
+  const [binaryVersions, setBinaryVersions] = React.useState<string[]>([]);
+  const [selectedBinaryVersion, setSelectedBinaryVersion] = React.useState<string>("");
+  const [selectedOS, setSelectedOS] = React.useState<string>("");
+  const [selectedArch, setSelectedArch] = React.useState<string>("");
 
   const handleRefresh = React.useCallback(() => {
     setIsRefreshing(true);
@@ -408,40 +475,63 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
   }, []);
 
   React.useEffect(() => {
-    let url = `/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`;
-    if (selectedSourceVersion) {
-      url += `?version=${encodeURIComponent(selectedSourceVersion)}`;
-    }
+    const qs = new URLSearchParams();
+    if (selectedSourceVersion) qs.set("version", selectedSourceVersion);
+    if (selectedBinaryVersion) qs.set("binaryVersion", selectedBinaryVersion);
+    const query = qs.size > 0 ? `?${qs.toString()}` : "";
+    const url = `/api/scan-findings/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}${query}`;
     fetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
         return r.json();
       })
       .then((d: BrowseScanFindings) => {
-        setSourceScanFindings(d.sourceScanFindings ?? []);
-        setBinaryScanFindings(d.binaryScanFindings ?? {});
+        const newSource = d.sourceScanFindings ?? [];
+        const newBinary = d.binaryScanFindings ?? {};
+        setSourceScanFindings(newSource);
+        setBinaryScanFindings(newBinary);
+        if (newSource.length > 0) setSourceExpanded(true);
+        if (Object.values(newBinary).flat().length > 0) setBinaryExpanded(true);
         if (d.scannedVersions?.length) {
           setScannableVersions(d.scannedVersions);
         }
+        if (d.binaryVersions?.length) {
+          setBinaryVersions(d.binaryVersions);
+        }
       })
       .catch(() => { /* keep existing data on error; user can retry */ });
-  }, [namespace, kind, name, refreshNonce, selectedSourceVersion]);
+  }, [namespace, kind, name, refreshNonce, selectedSourceVersion, selectedBinaryVersion]);
 
-  const binaryKeys = Object.keys(binaryScanFindings ?? {});
-  const versionsByPlatform = React.useMemo(() => {
-    const map = new Map<string, BrowseVersionSummary>();
-    for (const v of versions) {
-      const key = platformKey(v.os, v.arch);
-      if (key) {
-        map.set(key, v);
-      }
-    }
-    return map;
-  }, [versions]);
+  const allBinaryFindings = React.useMemo(() => {
+    return Object.values(binaryScanFindings ?? {}).flat();
+  }, [binaryScanFindings]);
+
+  // Available OS values derived from the platform keys of the current binary scan map.
+  const availableOS = React.useMemo(() => {
+    return [...new Set(Object.keys(binaryScanFindings ?? {}).map((k) => k.split("/")[0]))].sort();
+  }, [binaryScanFindings]);
+
+  // Available Arch values for the currently selected OS (or all platforms if none selected).
+  const availableArch = React.useMemo(() => {
+    const keys = Object.keys(binaryScanFindings ?? {}).filter(
+      (k) => !selectedOS || k.startsWith(selectedOS + "/"),
+    );
+    return [...new Set(keys.map((k) => k.split("/")[1]))].sort();
+  }, [binaryScanFindings, selectedOS]);
+
+  // Effective OS/Arch: fall back to first available when the stored value is no longer valid.
+  const effectiveOS = availableOS.includes(selectedOS) ? selectedOS : (availableOS[0] ?? "");
+  const effectiveArch = availableArch.includes(selectedArch) ? selectedArch : (availableArch[0] ?? "");
+
+  // Findings for the selected platform key only.
+  const filteredBinaryFindings = React.useMemo(() => {
+    if (!effectiveOS || !effectiveArch) return [];
+    return binaryScanFindings?.[`${effectiveOS}/${effectiveArch}`] ?? [];
+  }, [binaryScanFindings, effectiveOS, effectiveArch]);
 
   const sourceVersion = versions.find((v) => !v.os && !v.arch) ?? versions[0];
 
-  const totalFindings = sourceScanFindings.length + Object.values(binaryScanFindings ?? {}).reduce((acc, arr) => acc + arr.length, 0);
+  const totalFindings = sourceScanFindings.length + allBinaryFindings.length;
 
   return (
     <Box>
@@ -458,11 +548,20 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
           </IconButton>
         </Tooltip>
       </Box>
-      <Accordion defaultExpanded={sourceScanFindings.length > 0}>
+      <Accordion
+        expanded={sourceExpanded}
+        onChange={(_, v) => setSourceExpanded(v)}
+        sx={{ borderRadius: '8px !important', '&::before': { display: 'none' } }}
+      >
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>
-            Source Scan Findings ({sourceScanFindings.length})
-          </Typography>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography fontWeight={600}>
+              Source Scan Findings ({sourceScanFindings.length})
+            </Typography>
+            <Tooltip title="Findings are deduplicated by rule ID. Only the highest-severity instance of each rule is shown.">
+              <InfoOutlinedIcon sx={{ fontSize: 15, color: "text.secondary", cursor: "default" }} />
+            </Tooltip>
+          </Box>
         </AccordionSummary>
         <AccordionDetails>
           <FindingsTable
@@ -470,7 +569,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
             fileName={sourceVersion?.fileName}
             checksum={sourceVersion?.checksum}
             includeArtifactColumns={false}
-            includeResolutionColumn={false}
+            includeResolutionColumn={true}
             scannableVersions={scannableVersions}
             selectedSourceVersion={selectedSourceVersion}
             onVersionChange={setSelectedSourceVersion}
@@ -478,31 +577,46 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
         </AccordionDetails>
       </Accordion>
 
-      {binaryKeys.length > 0 && (
-        <Box mt={1}>
-          <Divider sx={{ my: 1 }} />
-          <Typography variant="subtitle2" gutterBottom>
-            Binary Scan Findings
-          </Typography>
-          {binaryKeys.map((platform) => (
-            <Accordion key={platform}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="body2">
-                  {platform} ({(binaryScanFindings[platform] ?? []).length} findings)
-                </Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <FindingsTable
-                  findings={binaryScanFindings[platform] ?? []}
-                  fileName={versionsByPlatform.get(platform)?.fileName}
-                  checksum={versionsByPlatform.get(platform)?.checksum}
-                  includeArtifactColumns={true}
-                  includeResolutionColumn={true}
-                />
-              </AccordionDetails>
-            </Accordion>
-          ))}
-        </Box>
+      {allBinaryFindings.length > 0 && (
+        <Accordion
+          expanded={binaryExpanded}
+          onChange={(_, v) => setBinaryExpanded(v)}
+          sx={{ mt: 1, borderRadius: '8px !important', '&::before': { display: 'none' } }}
+        >
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <Typography fontWeight={600}>
+                Binary Scan Findings ({filteredBinaryFindings.length})
+              </Typography>
+              <Tooltip title="Findings are deduplicated by rule ID. Only the highest-severity instance of each rule is shown.">
+                <InfoOutlinedIcon sx={{ fontSize: 15, color: "text.secondary", cursor: "default" }} />
+              </Tooltip>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <FindingsTable
+              findings={filteredBinaryFindings}
+              includeArtifactColumns={false}
+              includeResolutionColumn={true}
+              binaryVersions={binaryVersions}
+              selectedBinaryVersion={selectedBinaryVersion || binaryVersions[0] || ""}
+              onBinaryVersionChange={(v) => {
+                setSelectedBinaryVersion(v);
+                setSelectedOS("");
+                setSelectedArch("");
+              }}
+              availableOS={availableOS}
+              selectedOS={effectiveOS}
+              onOSChange={(v) => {
+                setSelectedOS(v);
+                setSelectedArch("");
+              }}
+              availableArch={availableArch}
+              selectedArch={effectiveArch}
+              onArchChange={setSelectedArch}
+            />
+          </AccordionDetails>
+        </Accordion>
       )}
     </Box>
   );

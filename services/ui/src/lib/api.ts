@@ -88,6 +88,7 @@ export interface BrowseScanFindings {
   binaryScanFindings?: Record<string, SecurityFinding[]>;
   selectedVersion?: string;
   scannedVersions?: string[];
+  binaryVersions?: string[];
 }
 
 export interface BrowseStorageConfig {

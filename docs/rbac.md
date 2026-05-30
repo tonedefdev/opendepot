@@ -18,6 +18,7 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Depot | `depots/status` | get, patch, update |
 | Depot | `modules` | create, get, list, patch, update, watch |
 | Depot | `providers` | create, get, list, patch, update, watch |
+| Depot | `secrets` | get |
 | Module | `modules` | create, delete, get, list, patch, update, watch |
 | Module | `modules/finalizers` | update |
 | Module | `modules/status` | get, patch, update |
@@ -29,6 +30,7 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Version | `versions` | create, delete, get, list, patch, update, watch |
 | Version | `versions/finalizers` | update |
 | Version | `versions/status` | get, patch, update |
+| Version | `secrets` | get |
 | Provider | `providers` | create, delete, get, list, patch, update, watch |
 | Provider | `providers/finalizers` | update |
 | Provider | `providers/status` | get, patch, update |
@@ -42,6 +44,24 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 
 !!! note
     The `depots` rule is only added to the server `ClusterRole` when `ui.enabled: true`. When the UI is disabled the server never calls the depots API and the rule is omitted.
+
+## Namespace-Scoped RBAC (Production Recommendation)
+
+By default, OpenDepot creates `ClusterRole` and `ClusterRoleBinding` resources so controllers can watch the entire cluster. For production deployments, set `rbac.scopeToNamespace: true`:
+
+```yaml
+rbac:
+  scopeToNamespace: true
+```
+
+When enabled, the chart creates `Role`/`RoleBinding` objects instead. This:
+
+- Limits all controller permissions to the install namespace (`global.namespace`).
+- Eliminates the KSV-0041 finding for secrets access in a `ClusterRole` — the `secrets: [get]` permission required for GitHub App authentication is always a named-object lookup, not a cluster-wide read.
+- Reduces blast radius if a controller is compromised.
+
+!!! warning
+    `rbac.scopeToNamespace: true` requires all `Module`, `Provider`, `Version`, and `Depot` resources to reside in the same namespace as the controllers. Do not enable this if your resources span multiple namespaces.
 
 ## Pipeline Publisher Role Example
 

@@ -1,0 +1,22 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: "null"
+  namespace: opendepot-system
+spec:
+  providerConfig:
+    architectures:
+    - arm64
+    name: "null"
+    operatingSystems:
+    - darwin
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+    versionConstraints: ~> 3.2.0
+  versions:
+  - version: 3.2.4
+  - version: 3.2.3
+  - version: 3.2.2
+  - version: 3.2.1
+  - version: 3.2.0

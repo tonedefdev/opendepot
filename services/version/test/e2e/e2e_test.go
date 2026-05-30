@@ -562,7 +562,7 @@ spec:
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Version CR 2")
 		})
 
-		It("should accumulate two sourceScans entries on the Provider after scanning both versions", func() {
+		It("should populate sourceScan on Version CR 1", func() {
 			By("waiting for Version CR 1 to reach synced=true")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "version", scanVersionCR1,
@@ -574,6 +574,19 @@ spec:
 				g.Expect(output).To(Equal("true"))
 			}, 5*time.Minute, 10*time.Second).Should(Succeed())
 
+			By("waiting for sourceScan.scannedAt to be set on Version CR 1")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", scanVersionCR1,
+					"-n", namespace,
+					"-o", "jsonpath={.status.sourceScan.scannedAt}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty(), "expected sourceScan.scannedAt to be set on %s", scanVersionCR1)
+			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+		})
+
+		It("should populate sourceScan on Version CR 2", func() {
 			By("waiting for Version CR 2 to reach synced=true")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "version", scanVersionCR2,
@@ -585,18 +598,27 @@ spec:
 				g.Expect(output).To(Equal("true"))
 			}, 5*time.Minute, 10*time.Second).Should(Succeed())
 
-			By("waiting for both source scans to accumulate on the Provider")
+			By("waiting for sourceScan.scannedAt to be set on Version CR 2")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+				cmd := exec.Command("kubectl", "get", "version", scanVersionCR2,
 					"-n", namespace,
-					"-o", "jsonpath={.status.sourceScans}",
+					"-o", "jsonpath={.status.sourceScan.scannedAt}",
 				)
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(ContainSubstring(scanVersion1),
-					"expected sourceScans to contain entry for version %s", scanVersion1)
-				g.Expect(output).To(ContainSubstring(scanVersion2),
-					"expected sourceScans to contain entry for version %s", scanVersion2)
+				g.Expect(output).NotTo(BeEmpty(), "expected sourceScan.scannedAt to be set on %s", scanVersionCR2)
+			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+		})
+
+		It("should report at least one source finding on Version CR 1", func() {
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", scanVersionCR1,
+					"-n", namespace,
+					"-o", "jsonpath={.status.sourceScan.findings[0].vulnerabilityID}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty(), "expected at least one source finding on %s", scanVersionCR1)
 			}, 15*time.Minute, 15*time.Second).Should(Succeed())
 		})
 	})

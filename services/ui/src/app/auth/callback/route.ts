@@ -116,9 +116,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
   await session.save();
 
-  // Clear PKCE/state cookies.
+  // Clear PKCE/state cookies via headers.append to avoid ResponseCookies
+  // overwriting the iron-session cookie that was set via headers.append above.
   for (const name of ["oidc_state", "oidc_nonce", "oidc_cv"]) {
-    response.cookies.set(name, "", { maxAge: 0, path: "/" });
+    response.headers.append(
+      "set-cookie",
+      `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`,
+    );
   }
 
   return response;

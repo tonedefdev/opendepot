@@ -149,6 +149,7 @@ The `scanning` section controls Trivy-based provider vulnerability scanning. See
 ```yaml
 scanning:
   enabled: false
+  providerScanning: false
   cacheMountPath: /var/cache/trivy
   offline: true
   blockOnCritical: false

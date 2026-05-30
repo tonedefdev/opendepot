@@ -235,6 +235,9 @@ type BrowseScanFindings struct {
 	// ScannedVersions is the list of provider versions that have source scan results available,
 	// sorted descending by semver. Used by the UI to populate the version selector dropdown.
 	ScannedVersions []string `json:"scannedVersions,omitempty"`
+	// BinaryVersions is the list of semver values that have binary scan results available,
+	// sorted descending. Used by the UI to populate the binary version selector dropdown.
+	BinaryVersions []string `json:"binaryVersions,omitempty"`
 }
 
 // BrowseGraphDepot is a depot node in the depots relationship graph.

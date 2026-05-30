@@ -1,0 +1,16 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: terragoat
+  namespace: opendepot-system
+spec:
+  moduleConfig:
+    fileFormat: zip
+    provider: aws
+    repoOwner: bridgecrewio
+    repoUrl: https://github.com/bridgecrewio/terragoat
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+  versions:
+  - version: 0.5.40

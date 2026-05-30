@@ -56,6 +56,7 @@ interface VersionsTableProps {
   namespace: string;
   kind: string;
   name: string;
+  onAllSynced?: () => void;
 }
 
 function displayVersion(v: string): string {
@@ -65,7 +66,7 @@ function displayVersion(v: string): string {
 const SKELETON_ROWS = 5;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
-export default function VersionsTable({ namespace, kind, name }: VersionsTableProps) {
+export default function VersionsTable({ namespace, kind, name, onAllSynced }: VersionsTableProps) {
   const isProvider = kind === "provider";
 
   const [page, setPage] = React.useState(1);
@@ -125,6 +126,13 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
         if (!cancelled) {
           hasData.current = true;
           setData(json);
+          if (
+            refreshNonce > 0 &&
+            json.totalCount > 0 &&
+            json.items.every((v) => v.synced && !/failed|error/i.test(v.syncStatus ?? ""))
+          ) {
+            onAllSynced?.();
+          }
         }
       })
       .catch((err: unknown) => {
@@ -152,7 +160,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
   const items = data?.items ?? [];
 
   // Table column count for skeleton/empty colspans.
-  const colCount = isProvider ? 8 : 6;
+  const colCount = isProvider ? 9 : 7;
 
   return (
     <Box mb={4}>
@@ -205,6 +213,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
           >
             <MenuItem value="">All</MenuItem>
             <MenuItem value="true">Synced</MenuItem>
+            <MenuItem value="progressing">Progressing</MenuItem>
             <MenuItem value="false">Failed</MenuItem>
           </Select>
         </FormControl>
@@ -273,6 +282,7 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
             <TableRow>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Version</TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Sync Status</TableCell>
+              <TableCell sx={{ whiteSpace: "nowrap" }}>Resource Name</TableCell>
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>OS</TableCell>}
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>Arch</TableCell>}
               <TableCell sx={{ whiteSpace: "nowrap" }}>File Name</TableCell>
@@ -316,6 +326,14 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
                       <Typography variant="caption">{v.syncStatus}</Typography>
                     </Box>
                   </TableCell>
+                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
+                    {v.name ? (
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        <Typography variant="caption" sx={{ fontFamily: "monospace" }}>{v.name}</Typography>
+                        <CopyButton value={v.name} />
+                      </Box>
+                    ) : "—"}
+                  </TableCell>
                   {isProvider && (
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
                       {v.os || "—"}
@@ -329,7 +347,17 @@ export default function VersionsTable({ namespace, kind, name }: VersionsTablePr
                   <TableCell
                     sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}
                   >
-                    {v.fileName || "—"}
+                    {v.fileName ? (
+                      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+                        <Typography
+                          variant="caption"
+                          sx={{ fontFamily: "monospace", whiteSpace: "normal", wordBreak: "break-all" }}
+                        >
+                          {v.fileName}
+                        </Typography>
+                        <CopyButton value={v.fileName} />
+                      </Box>
+                    ) : "—"}
                   </TableCell>
                   <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
                     {v.checksum ? (

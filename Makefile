@@ -264,8 +264,6 @@ endif
 	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
 	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
-	  '  tls:' \
-	  '    enabled: true' \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -384,8 +382,8 @@ ui-session-secret:
 ## Deploy the UI in anonymous-auth mode. No OIDC required — all resources are visible to everyone.
 ## Usage: make ui-deploy-anon
 ui-deploy-anon: ui-session-secret
-	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
-	  -n $(OIDC_NAMESPACE) --create-namespace --skip-crds \
+	@helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
+	  -n $(OIDC_NAMESPACE) --create-namespace \
 	  --set global.image.tag=$(TAG) \
 	  --set server.enabled=true \
 	  --set server.image.repository=$(REGISTRY)/server \
@@ -398,12 +396,14 @@ ui-deploy-anon: ui-session-secret
 	  --set ui.sessionPasswordSecretName=ui-session-secret \
 	  --set storage.filesystem.enabled=true \
 	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
+	  --set provider.enabled=true \
 	  --set scanning.enabled=true \
 	  --set scanning.providerScanning=true \
 	  --set scanning.cache.storageClassName="standard" \
 	  --set scanning.cache.accessMode=ReadWriteOnce \
 	  --set version.zapLogLevel=5 \
-	  --wait
+	  --wait \
+	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
 
 ## Deploy the UI with OIDC login (requires oidc-tls to be run first).
 ## A dedicated UI OIDC client ($(UI_OIDC_CLIENT_ID)) is registered in Dex alongside
@@ -452,6 +452,8 @@ endif
 	  '      - id: "$(UI_OIDC_CLIENT_ID)"' \
 	  '        name: OpenDepot UI' \
 	  '        secret: "$(UI_OIDC_SECRET)"' \
+	  '        trustedPeers:' \
+	  '          - "$(OIDC_CLIENT_ID)"' \
 	  '        redirectURIs:' \
 	  "          - \"http://opendepot.localtest.me:$(UI_PORT)/auth/callback\"" \
 	  '      - id: "$(OIDC_CLIENT_ID)"' \
@@ -480,8 +482,6 @@ endif
 	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
 	  '    clientId: "$(OIDC_CLIENT_ID)"' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
-	  '  tls:' \
-	  '    enabled: true' \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -528,7 +528,7 @@ ui-stop:
 
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
-ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon ui-forward
+ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
 ## Build all images, deploy the UI with OIDC login, and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword

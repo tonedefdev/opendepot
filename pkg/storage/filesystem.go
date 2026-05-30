@@ -122,6 +122,7 @@ func (storage *FileSystem) PutObject(ctx context.Context, soi *types.StorageObje
 	if err != nil {
 		return err
 	}
+
 	soi.BytesWritten = int64(n)
 	return nil
 }

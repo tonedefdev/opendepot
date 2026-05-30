@@ -13,8 +13,21 @@ test.describe("dev token input — production guard", () => {
   test("dev token input field is not visible in production mode", async ({
     page,
   }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
+    // Abort secondary resources to avoid overwhelming kubectl port-forward.
+    // The dev-token guard is reflected in the SSR'd HTML, so JS is not needed.
+    await page.route("**/*", (route) => {
+      if (
+        ["script", "stylesheet", "image", "font", "media"].includes(
+          route.request().resourceType(),
+        )
+      ) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
 
     // The dev token input must not be rendered unless explicitly enabled.
     const devInput = page.locator('[data-testid="dev-token-input"]');

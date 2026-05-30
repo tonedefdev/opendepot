@@ -13,7 +13,6 @@ import Tooltip from "@mui/material/Tooltip";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
 import ErrorIcon from "@mui/icons-material/Error";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import StorageIcon from "@mui/icons-material/Storage";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
@@ -23,7 +22,7 @@ import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
-import VersionsTable from "@/components/VersionsTable";
+import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -197,7 +196,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             : "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
         }}
       >
-        {detail.provider && <ProviderLogo provider={detail.provider} size={44} />}
+        {isProviderKind
+          ? <ProviderLogo provider={detail.name} size={44} />
+          : detail.provider && <ProviderLogo provider={detail.provider} size={44} />}
 
         <Box flex={1} minWidth={0}>
           <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 0.5, wordBreak: "break-word" }}>
@@ -236,11 +237,6 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 <CheckCircleIcon sx={{ fontSize: 14, color: "success.main" }} />
               ) : (
                 <SyncProblemIcon sx={{ fontSize: 14, color: "warning.main" }} />
-              )}
-              {hasUnsyncedVersions && (
-                <Tooltip title="Some versions are out of sync">
-                  <WarningAmberIcon sx={{ fontSize: 14, color: "warning.main" }} />
-                </Tooltip>
               )}
               <Typography variant="caption" color="text.secondary">
                 {detail.syncStatus || (detail.synced ? "Synced" : "Not synced")}
@@ -283,6 +279,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           <LabelValue label="Namespace" value={detail.namespace} />
           <LabelValue label="Kind" value={capitalizeKind} />
           <LabelValue label="Provider" value={detail.provider} />
+          {isProviderKind && (
+            <LabelValue label="Provider Namespace" value={detail.providerNamespace || "hashicorp"} />
+          )}
           <LabelValue label="Latest Version" value={detail.latestVersion ? displayVersion(detail.latestVersion) : undefined} />
           {detail.repoOwner && <LabelValue label="Repo Owner" value={detail.repoOwner} />}
           {detail.versionHistoryLimit !== undefined && detail.versionHistoryLimit > 0 && (
@@ -291,6 +290,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           {detail.versionConstraints && (
             <LabelValue label="Version Constraints" value={detail.versionConstraints} />
           )}
+
         </Box>
       </SectionCard>
 
@@ -342,7 +342,12 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       <Divider sx={{ my: 3 }} />
 
       {/* Versions */}
-      <VersionsTable namespace={namespace} kind={kind} name={name} />
+      <DrillDownWarningBridge
+        initialHasUnsynced={hasUnsyncedVersions}
+        namespace={namespace}
+        kind={kind}
+        name={name}
+      />
 
       {/* Scan findings */}
       <Divider sx={{ my: 3 }} />

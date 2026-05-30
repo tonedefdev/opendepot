@@ -88,9 +88,11 @@ export default function ResourceCard({ resource }: Props) {
 
           {/* Provider logo + kind + version */}
           <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
-            {resource.provider && (
+            {resource.kind === "provider" ? (
+              <ProviderLogo provider={resource.name} size={22} />
+            ) : resource.provider ? (
               <ProviderLogo provider={resource.provider} size={22} />
-            )}
+            ) : null}
             <Chip
               size="small"
               label={resource.kind}

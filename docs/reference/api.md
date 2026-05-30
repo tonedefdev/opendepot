@@ -6,6 +6,14 @@ tags:
 
 # API Reference
 
+## Breaking Changes
+
+### v0.5.0
+
+| Change | Affected field | Action required |
+|--------|---------------|----------------|
+| `Provider.status.sourceScan` renamed to `Provider.status.sourceScans` | `ProviderStatus` | Update any automation or scripts that read `.status.sourceScan` on a `Provider` resource. The field is now an array (`sourceScans`) with one entry per scanned version. |
+
 ## Service Discovery
 
 ```
@@ -639,6 +647,9 @@ Represents a single vulnerability finding from a Trivy scan.
 ### ProviderBinaryScan
 
 Holds Trivy binary scan (`trivy rootfs`) results for a specific provider artifact. Stored in `Version.status.binaryScan`. Each OS/architecture binary is scanned independently because Go stdlib versions and runtime dependencies may differ between compiled artifacts.
+
+!!! note
+    Trivy requires the execute bit to be set on the binary for gobinary detection. Provider binaries are written with `0500` permissions before scanning; binaries without execute permission are silently skipped by Trivy and `findings` will be empty.
 
 | Field | Type | Description |
 |---|---|---|

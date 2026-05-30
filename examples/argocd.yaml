@@ -1,0 +1,19 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: argocd
+  namespace: opendepot-system
+spec:
+  providerConfig:
+    architectures:
+    - arm64
+    name: argocd
+    namespace: argoproj-labs
+    operatingSystems:
+    - darwin
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+    versionConstraints: 7.15.3
+  versions:
+  - version: 7.15.3

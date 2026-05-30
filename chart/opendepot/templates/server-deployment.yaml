@@ -64,6 +64,9 @@ spec:
         {{- if .Values.server.oidc.allowClientCredentials }}
         - --oidc-allow-client-credentials
         {{- end }}
+        {{- if and .Values.ui.enabled .Values.ui.oidc.enabled .Values.ui.oidc.clientId }}
+        - --oidc-ui-client-id={{ .Values.ui.oidc.clientId }}
+        {{- end }}
         {{- if .Values.server.oidc.authzUrl }}
         - --oidc-authz-url={{ .Values.server.oidc.authzUrl }}
         {{- end }}

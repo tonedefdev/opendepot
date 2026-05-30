@@ -180,15 +180,9 @@ export default function Sidebar({
           <Box>
             <Typography
               variant="body1"
-              sx={{ fontWeight: 700, color: "#fff", lineHeight: 1.2, fontSize: "0.9375rem" }}
+              sx={{ fontWeight: 700, color: "#fff", lineHeight: 1.2, fontSize: "1.200rem" }}
             >
               OpenDepot
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: "rgba(255,255,255,0.85)", fontSize: "0.7rem", fontWeight: 500 }}
-            >
-              Registry Explorer
             </Typography>
           </Box>
         </Box>
@@ -532,7 +526,7 @@ export default function Sidebar({
               </Box>
               <Tooltip title="Sign out">
                 <IconButton
-                  component={Link}
+                  component="a"
                   href="/auth/logout"
                   size="small"
                   aria-label="Sign out"
@@ -545,7 +539,7 @@ export default function Sidebar({
           ) : (
             /* Signed-out state */
             <Button
-              component={Link}
+              component="a"
               href="/auth/login"
               variant="outlined"
               size="small"
@@ -625,7 +619,7 @@ export default function Sidebar({
         </Tooltip>
       ) : (
         <Tooltip title="Sign in" placement="right">
-          <IconButton component={Link} href="/auth/login" size="small" sx={{ color: "text.secondary" }}>
+          <IconButton component="a" href="/auth/login" size="small" sx={{ color: "text.secondary" }}>
             <LoginIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>

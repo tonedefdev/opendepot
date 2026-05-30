@@ -307,6 +307,18 @@ dex:
           - http://localhost:10008
           - http://localhost:10009
           - http://localhost:10010
+    # When ui.oidc.enabled=true, add the UI client here and include
+    # trustedPeers pointing to the server client ID (e.g. "opendepot").
+    # This ensures Dex includes the server's audience in UI-issued tokens
+    # so the server's OIDC verifier can validate them and match GroupBindings.
+    # Example:
+    #   - id: opendepot-ui
+    #     name: OpenDepot UI
+    #     secret: <ui-client-secret>
+    #     trustedPeers:
+    #       - opendepot
+    #     redirectURIs:
+    #       - https://<ui-host>/auth/callback
     # connectors is where operators add upstream IdP connector configuration.
     # Example GitHub connector:
     #   connectors:

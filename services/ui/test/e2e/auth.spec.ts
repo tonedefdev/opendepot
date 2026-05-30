@@ -94,3 +94,112 @@ test.describe("dev-token route", () => {
     expect([403]).toContain(response.status());
   });
 });
+
+test.describe("session cookie safety — error paths", () => {
+  // Regression tests for: iron-session cookie being wiped by incorrect use of
+  // ResponseCookies (response.cookies.set) after getIronSession writes its
+  // Set-Cookie header. The callback route must never emit an expired/zeroed
+  // opendepot_session cookie on any error path.
+
+  test("OIDC error callback does not clear opendepot_session", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      "/auth/callback?error=access_denied&error_description=User+denied+access",
+      { maxRedirects: 0 },
+    );
+    if (response.status() === 503) return; // OIDC not configured — skip
+
+    const wipesSession = response
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .some(
+        (v) =>
+          v.toLowerCase().startsWith("opendepot_session=") &&
+          (v.includes("Max-Age=0") || v.includes("max-age=0")),
+      );
+
+    expect(wipesSession).toBe(false);
+  });
+
+  test("callback without code or state does not clear opendepot_session", async ({
+    request,
+  }) => {
+    const response = await request.get("/auth/callback", { maxRedirects: 0 });
+    if (response.status() === 503) return; // OIDC not configured — skip
+
+    const wipesSession = response
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .some(
+        (v) =>
+          v.toLowerCase().startsWith("opendepot_session=") &&
+          (v.includes("Max-Age=0") || v.includes("max-age=0")),
+      );
+
+    expect(wipesSession).toBe(false);
+  });
+
+  test("state-mismatch callback does not clear opendepot_session", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      "/auth/callback?code=fake-code&state=mismatched-state",
+      { maxRedirects: 0 },
+    );
+    if (response.status() === 503) return; // OIDC not configured — skip
+
+    const wipesSession = response
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .some(
+        (v) =>
+          v.toLowerCase().startsWith("opendepot_session=") &&
+          (v.includes("Max-Age=0") || v.includes("max-age=0")),
+      );
+
+    expect(wipesSession).toBe(false);
+  });
+});
+
+test.describe("logout prefetch regression", () => {
+  // Regression test for: Next.js App Router prefetching <Link href="/auth/logout">
+  // which called session.destroy() immediately after login, wiping the session
+  // before the user ever interacted with the page.
+  //
+  // The fix: the logout button uses component="a" (a plain anchor) rather than
+  // Next.js <Link>, which is never prefetched by the App Router.
+
+  test("page load does not send any request to /auth/logout", async ({
+    page,
+  }) => {
+    const logoutRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/auth/logout")) {
+        logoutRequests.push(req.url());
+      }
+    });
+
+    // Abort secondary resources (scripts, styles, media) to avoid overwhelming
+    // kubectl port-forward with concurrent TCP connections. Fetch/XHR requests
+    // are still allowed through, so the /auth/logout request capture remains valid.
+    await page.route("**/*", (route) => {
+      if (
+        ["script", "stylesheet", "image", "font", "media"].includes(
+          route.request().resourceType(),
+        )
+      ) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    expect(logoutRequests).toHaveLength(0);
+  });
+});

@@ -41,21 +41,27 @@ data:
             add_header X-Frame-Options SAMEORIGIN;
             add_header Referrer-Policy strict-origin-when-cross-origin;
 
-            location /.well-known/terraform.json {
-                proxy_pass         http://opendepot_server;
-                proxy_set_header   Host              $host;
-                proxy_set_header   X-Forwarded-For   $remote_addr;
-                proxy_set_header   X-Forwarded-Proto $scheme;
-                proxy_set_header   X-Request-ID      $request_id;
-            }
-
             location /opendepot/ {
-                proxy_pass         http://opendepot_server;
+                proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
+                {{- if .Values.server.tls.enabled }}
+                proxy_ssl_verify   off;
+                {{- end }}
                 proxy_set_header   Host              $host;
                 proxy_set_header   X-Forwarded-For   $remote_addr;
                 proxy_set_header   X-Forwarded-Proto $scheme;
                 proxy_set_header   X-Request-ID      $request_id;
                 proxy_set_header   Authorization     $http_authorization;
+            }
+
+            location /.well-known/terraform.json {
+                proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
+                {{- if .Values.server.tls.enabled }}
+                proxy_ssl_verify   off;
+                {{- end }}
+                proxy_set_header   Host              $host;
+                proxy_set_header   X-Forwarded-For   $remote_addr;
+                proxy_set_header   X-Forwarded-Proto $scheme;
+                proxy_set_header   X-Request-ID      $request_id;
             }
 
             location / {

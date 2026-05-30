@@ -31,13 +31,10 @@ import (
 	"strings"
 	"time"
 
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/util/retry"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/google/go-github/v81/github"
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
+	"github.com/tonedefdev/opendepot/pkg/registry"
 )
 
 // trivyVulnerability is the subset of Trivy's per-vulnerability JSON output used here.
@@ -160,7 +157,7 @@ func resolveProviderSourceRepository(ctx context.Context, namespace, providerNam
 		namespace = "hashicorp"
 	}
 
-	repoURL, err := lookupProviderRepo(ctx, namespace, providerName)
+	repoURL, err := registry.LookupProviderRepo(ctx, namespace, providerName)
 	if err == nil && repoURL != "" {
 		return repoURL
 	}
@@ -328,16 +325,15 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 
 // runProviderScan orchestrates source and binary Trivy scans for a provider Version.
 // archivePath is the path to the provider zip on disk (as written by httpStreamToFile).
-// It returns the binary scan result (if successful) to be persisted by the caller
-// alongside the other status fields, avoiding partial status updates that would
-// violate the CRD required-field validation (checksum, synced, syncStatus are all
-// required and may not yet be set when this function is called).
+// Both results are returned to the caller for atomic persistence alongside the other
+// required status fields (checksum, synced, syncStatus).
 //
-// Source scan deduplication: if Provider.Status.SourceScans already contains an entry
-// for this version, the source scan is skipped. Binary scan always runs (unique per OS/arch).
+// Source scan deduplication: if Version.Status.SourceScan is already set, the source
+// scan is skipped — the result is specific to the provider version's go.mod and does
+// not vary across OS/arch variants. Binary scan always runs (unique per OS/arch artifact).
 //
 // When blockOnCritical or blockOnHigh is true and findings of that severity are present,
-// the function returns a non-nil error to halt reconciliation.
+// a non-nil error is returned to halt reconciliation.
 func (r *VersionReconciler) runProviderScan(
 	ctx context.Context,
 	version *opendepotv1alpha1.Version,
@@ -346,39 +342,12 @@ func (r *VersionReconciler) runProviderScan(
 	offline bool,
 	blockOnCritical bool,
 	blockOnHigh bool,
-) (*opendepotv1alpha1.ProviderBinaryScan, error) {
+) (string, *opendepotv1alpha1.BinaryScan, *opendepotv1alpha1.SourceScan, error) {
 	providerName := version.Labels["opendepot.defdev.io/provider"]
 	if providerName == "" {
-		return nil, nil
+		return "", nil, nil, nil
 	}
 
-	// Binary scan (always runs, unique per OS/arch)
-	var binaryScan *opendepotv1alpha1.ProviderBinaryScan
-	binaryFindings, err := r.scanProviderBinary(ctx, archivePath, cacheDir, offline)
-	if err != nil {
-		r.Log.Error(err, "Binary scan failed — continuing without scan results",
-			"version", version.Name)
-	} else {
-		now := time.Now().UTC().Format(time.RFC3339)
-		binaryScan = &opendepotv1alpha1.ProviderBinaryScan{
-			ScannedAt: now,
-			Findings:  binaryFindings,
-		}
-
-		if blockOnCritical || blockOnHigh {
-			for _, f := range binaryFindings {
-				if blockOnCritical && f.Severity == "CRITICAL" {
-					return binaryScan, fmt.Errorf("blocking: CRITICAL vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-				}
-
-				if blockOnHigh && f.Severity == "HIGH" {
-					return binaryScan, fmt.Errorf("blocking: HIGH vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-				}
-			}
-		}
-	}
-
-	// Source scan (deduplicated per provider version)
 	providerNamespace := "hashicorp"
 	if version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Namespace != nil {
 		if ns := strings.TrimSpace(*version.Spec.ProviderConfigRef.Namespace); ns != "" {
@@ -387,27 +356,38 @@ func (r *VersionReconciler) runProviderScan(
 	}
 
 	repoURL := resolveProviderSourceRepository(ctx, providerNamespace, providerName, version.Spec.ProviderConfigRef)
-	providerObj := &opendepotv1alpha1.Provider{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Name:      providerName,
-		Namespace: version.Namespace,
-	}, providerObj); err != nil {
-		if k8serr.IsNotFound(err) {
-			r.Log.V(2).Info("Parent Provider no longer exists, skipping source scan dedup", "provider", providerName)
-			return binaryScan, nil
+
+	// Binary scan (always runs, unique per OS/arch)
+	var binaryScan *opendepotv1alpha1.BinaryScan
+	binaryFindings, err := r.scanProviderBinary(ctx, archivePath, cacheDir, offline)
+	if err != nil {
+		r.Log.Error(err, "Binary scan failed — continuing without scan results",
+			"version", version.Name)
+	} else {
+		now := time.Now().UTC().Format(time.RFC3339)
+		binaryScan = &opendepotv1alpha1.BinaryScan{
+			ScannedAt: now,
+			Findings:  binaryFindings,
 		}
 
-		r.Log.Error(err, "Could not fetch parent Provider for source scan deduplication", "provider", providerName)
-		return binaryScan, nil
+		if blockOnCritical || blockOnHigh {
+			for _, f := range binaryFindings {
+				if blockOnCritical && f.Severity == "CRITICAL" {
+					return repoURL, binaryScan, nil, fmt.Errorf("blocking: CRITICAL vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
+				}
+
+				if blockOnHigh && f.Severity == "HIGH" {
+					return repoURL, binaryScan, nil, fmt.Errorf("blocking: HIGH vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
+				}
+			}
+		}
 	}
 
-	currentVersion := strings.TrimPrefix(version.Spec.Version, "v")
-	for _, existing := range providerObj.Status.SourceScans {
-		if existing.Version == currentVersion && existing.ScannedAt != "" {
-			r.Log.V(5).Info("Source scan already exists for this provider version — skipping",
-				"provider", providerName, "version", currentVersion)
-			return binaryScan, nil
-		}
+	// Source scan (deduplicated per Version CR: skip if already scanned)
+	if version.Status.SourceScan != nil {
+		r.Log.V(5).Info("Source scan already present on this Version — skipping",
+			"version", version.Name)
+		return repoURL, binaryScan, nil, nil
 	}
 
 	useAuthClient := version.Spec.ProviderConfigRef != nil &&
@@ -432,84 +412,40 @@ func (r *VersionReconciler) runProviderScan(
 		ghClient, _ = opendepotGithub.CreateGithubClient(ctx, false, nil)
 	}
 
-	sourceFindings, err := r.scanProviderSource(ctx, repoURL, strings.TrimPrefix(version.Spec.Version, "v"), cacheDir, offline, ghClient)
+	currentVersion := strings.TrimPrefix(version.Spec.Version, "v")
+	sourceFindings, err := r.scanProviderSource(ctx, repoURL, currentVersion, cacheDir, offline, ghClient)
 	if err != nil {
 		r.Log.Error(err, "Source scan failed — continuing without scan results",
 			"provider", providerName, "version", currentVersion)
-		return binaryScan, nil
+		return repoURL, binaryScan, nil, nil
 	}
 
 	// nil findings + nil error = scanProviderSource silently skipped the download
-	// (go.mod unavailable, e.g. private repo or transient network error). Do NOT
-	// write a tombstone; the absence of an entry allows the next reconcile to retry.
+	// (go.mod unavailable, e.g. private repo or transient network error). Return nil
+	// so the caller does not persist a result — the next reconcile will retry.
 	if sourceFindings == nil {
-		return binaryScan, nil
+		return repoURL, binaryScan, nil, nil
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	sourceScan := &opendepotv1alpha1.ProviderSourceScan{
+	sourceScan := &opendepotv1alpha1.SourceScan{
 		ScannedAt: now,
-		Version:   currentVersion,
 		Findings:  sourceFindings,
-	}
-
-	if scanErr := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		current := &opendepotv1alpha1.Provider{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(providerObj), current); err != nil {
-			return err
-		}
-
-		// Upsert the scan entry: replace an existing entry for this version (e.g. a
-		// prior zero-finding tombstone), or append if none exists yet.
-		upserted := false
-		for i, existing := range current.Status.SourceScans {
-			if existing.Version == sourceScan.Version {
-				current.Status.SourceScans[i] = *sourceScan
-				upserted = true
-				break
-			}
-		}
-
-		if !upserted {
-			current.Status.SourceScans = append(current.Status.SourceScans, *sourceScan)
-		}
-
-		// Prune entries whose version is no longer in Spec.Versions.
-		specVersions := make(map[string]struct{}, len(current.Spec.Versions))
-		for _, v := range current.Spec.Versions {
-			specVersions[strings.TrimPrefix(v.Version, "v")] = struct{}{}
-		}
-
-		pruned := current.Status.SourceScans[:0]
-		for _, s := range current.Status.SourceScans {
-			if _, keep := specVersions[s.Version]; keep {
-				pruned = append(pruned, s)
-			}
-		}
-
-		current.Status.SourceScans = pruned
-
-		return r.Status().Update(ctx, current, &client.SubResourceUpdateOptions{
-			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
-		})
-	}); scanErr != nil {
-		r.Log.Error(scanErr, "Failed to persist source scan results", "provider", providerName)
-		return binaryScan, nil
 	}
 
 	if blockOnCritical || blockOnHigh {
 		for _, f := range sourceFindings {
 			if blockOnCritical && f.Severity == "CRITICAL" {
-				return binaryScan, fmt.Errorf("blocking: CRITICAL vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
+				return repoURL, binaryScan, sourceScan, fmt.Errorf("blocking: CRITICAL vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
 			}
 
 			if blockOnHigh && f.Severity == "HIGH" {
-				return binaryScan, fmt.Errorf("blocking: HIGH vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
+				return repoURL, binaryScan, sourceScan, fmt.Errorf("blocking: HIGH vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
 			}
 		}
 	}
 
-	return binaryScan, nil
+	return repoURL, binaryScan, sourceScan, nil
 }
 
 // extractArchiveToDir extracts the contents of a module archive (zip or gzip tarball) into destDir.
@@ -664,7 +600,7 @@ func (r *VersionReconciler) runModuleScan(
 	offline bool,
 	blockOnCritical bool,
 	blockOnHigh bool,
-) (*opendepotv1alpha1.ModuleSourceScan, error) {
+) (*opendepotv1alpha1.SourceScan, error) {
 	findings, err := r.scanModuleArchive(ctx, archiveBytes, cacheDir, offline)
 	if err != nil {
 		r.Log.Error(err, "Module source scan failed — continuing without scan results",
@@ -673,7 +609,7 @@ func (r *VersionReconciler) runModuleScan(
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	sourceScan := &opendepotv1alpha1.ModuleSourceScan{
+	sourceScan := &opendepotv1alpha1.SourceScan{
 		ScannedAt: now,
 		Findings:  findings,
 	}

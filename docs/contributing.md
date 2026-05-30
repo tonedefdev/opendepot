@@ -9,6 +9,18 @@ Thank you for your interest in contributing to OpenDepot! Please read our [CONTR
 
 Pull requests also run the e2e workflow, which builds the service images and scans them with Trivy before the controller tests execute. A PR fails if the scanner reports critical or high severity vulnerabilities in a built image.
 
+## Security Scanning
+
+The security review runs two Trivy scans against every pull request:
+
+- `trivy image` — scans each built service image for OS package and Go module CVEs.
+- `trivy config` — scans the Helm chart templates for Kubernetes misconfigurations.
+
+OpenDepot bundles Trivy v0.70.0 in the `-scanning` image variant. The controller application binary itself is 0-CVE clean; the 11 HIGH CVEs reported against the embedded Trivy binary are tracked in [issue #65](https://github.com/tonedefdev/opendepot/issues/65) and suppressed via `.trivyignore` files at the repository root and at `chart/opendepot/.trivyignore`. When adding a new suppression, add it to both files and include the tracking issue URL as a comment.
+
+!!! note
+    `.trivyignore` suppressions are scoped to the repository and apply only to findings in the embedded Trivy binary. CVEs in the controller's own dependencies must be resolved, not suppressed.
+
 ## Local OIDC E2E Testing
 
 The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.

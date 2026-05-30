@@ -12,6 +12,7 @@ COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY pkg/utils/go.mod pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
+COPY pkg/registry/go.mod pkg/registry/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
 COPY services/module/go.mod services/module/go.sum services/module/
@@ -29,6 +30,7 @@ COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/github/ pkg/github/
 COPY pkg/utils/ pkg/utils/
+COPY pkg/registry/ pkg/registry/
 COPY services/server/ services/server/
 
 # Build

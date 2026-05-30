@@ -69,6 +69,7 @@ func (storage *AzureBlobStorage) GetObjectChecksum(ctx context.Context, soi *sto
 		*soi.ContainerName,
 		nil,
 	)
+
 	if err != nil {
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) {

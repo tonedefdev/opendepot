@@ -15,8 +15,9 @@ export const sessionOptions: SessionOptions = {
   password: process.env.SESSION_PASSWORD as string,
   cookieName: "opendepot_session",
   cookieOptions: {
-    // Require HTTPS in production; allow HTTP in local dev.
-    secure: process.env.NODE_ENV === "production",
+    // Require HTTPS only when the configured base URL uses HTTPS.
+    // Using NODE_ENV would set secure=true even on HTTP port-forwards.
+    secure: (process.env.NEXT_PUBLIC_BASE_URL ?? "").startsWith("https://"),
     httpOnly: true,
     sameSite: "lax",
   },
