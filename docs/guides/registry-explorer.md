@@ -399,7 +399,7 @@ Existing server-only deployments require no changes until you set `ui.enabled: t
 
 ## Browse API
 
-The browse endpoints are used by the Registry Explorer UI and can also be called directly (for integrations or automation). All endpoints are unauthenticated-accessible; optional `Authorization: Bearer <token>` headers extend visibility per the [rules above](#browse-visibility-rules).
+The browse endpoints are used by the Registry Explorer UI and can also be called directly (for integrations or automation). When `server.oidc.enabled=true` and `server.anonymousAuth=false`, all endpoints require a valid `Authorization: Bearer <token>` header — requests without one return `401 Unauthorized`. In non-OIDC mode or when `server.anonymousAuth=true`, endpoints are accessible without authentication; an optional `Authorization: Bearer <token>` header extends visibility per the [rules above](#browse-visibility-rules).
 
 ### List Namespaces
 
@@ -514,7 +514,7 @@ Returns full detail for a single resource, including all versions and scan findi
 }
 ```
 
-The `sourceScanFindings` and `binaryScanFindings` fields are scoped to the latest version. Use the [Resource Scan Findings](#resource-scan-findings) endpoint to re-fetch findings on demand without reloading the full detail page.
+The `sourceScanFindings` and `binaryScanFindings` fields in this response are scoped to the latest version. Use the [Resource Scan Findings](#resource-scan-findings) endpoint to fetch findings for a specific version on demand without reloading the full detail page.
 
 ### List Resource Versions
 
@@ -573,4 +573,4 @@ Returns a paginated, filtered list of versions for a single resource. Authentica
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
 ```
 
-Returns scan findings for a single resource scoped to the **latest version only**. See the [API Reference](../reference/api.md#resource-scan-findings) for the full response schema.
+Returns scan findings for a single resource. Defaults to the most recently scanned version; pass `?version=<semver>` to select a specific source scan version, or `?binaryVersion=<semver>` (providers only) to select a specific binary scan version. See the [API Reference](../reference/api.md#resource-scan-findings) for the full response schema.
