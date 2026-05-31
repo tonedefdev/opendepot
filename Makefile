@@ -571,7 +571,7 @@ ui-tofurc:
 	  '      authz       = "http://localhost:$(OIDC_DEX_PORT)/dex/auth"' \
 	  '      token       = "http://localhost:$(OIDC_DEX_PORT)/dex/token"' \
 	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
-	  '      ports       = [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]' \
+	  '      ports       = [10000, 10010]' \
 	  '    }' \
 	  '  }' \
 	  '}' \
