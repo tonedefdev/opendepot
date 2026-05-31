@@ -448,6 +448,7 @@ Returns scan findings for a single resource. The optional `?version=` query para
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `version` | string | Selects the source scan entry for this exact version. Applies to both modules and providers. Leading `v` and surrounding whitespace are stripped automatically. Omit to return findings from the latest scanned version. |
+| `binaryVersion` | string | Providers only. Selects the binary scan entries for this exact version. When omitted, binary findings from the latest scanned version per platform are returned. Leading `v` is stripped automatically. |
 
 **Response (`BrowseScanFindings`):**
 
@@ -468,13 +469,14 @@ Returns scan findings for a single resource. The optional `?version=` query para
     "darwin/arm64": []
   },
   "selectedVersion": "3.2.3",
-  "scannedVersions": ["3.2.3", "3.2.0"]
+  "scannedVersions": ["3.2.3", "3.2.0"],
+  "binaryVersions": ["3.2.3", "3.2.0"]
 }
 ```
 
 `sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
 
-`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the version selector dropdown. Both fields are present for modules and providers; they are omitted only when no source scans exist for the resource.
+`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
 
 This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
