@@ -10,6 +10,7 @@ import RefreshIconButton from "@/components/RefreshIconButton";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
+import { redirect } from "next/navigation";
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -44,8 +45,11 @@ export default async function HomePage({ searchParams }: PageProps) {
       listNamespaces(token),
     ]);
   } catch (err) {
-    fetchError =
-      err instanceof Error ? err.message : "Failed to load resources.";
+    const msg = err instanceof Error ? err.message : "Failed to load resources.";
+    if (msg.includes("401") || msg.includes("unauthorized")) {
+      redirect("/auth/login");
+    }
+    fetchError = msg;
     resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
     namespaceList = { items: [] };
   }

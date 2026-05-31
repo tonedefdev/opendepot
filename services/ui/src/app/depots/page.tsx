@@ -6,6 +6,7 @@ import Alert from "@mui/material/Alert";
 import type { BrowseStorageConfig } from "@/lib/api";
 import { getDepotsGraph, getResourceDetail, listResources } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
+import { redirect } from "next/navigation";
 import DepotsGraphClient from "@/components/DepotsGraphClient";
 import RefreshIconButton from "@/components/RefreshIconButton";
 
@@ -164,13 +165,7 @@ export default async function DepotsPage() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("unauthorized")) {
-      return (
-        <Container maxWidth="xl" sx={{ py: 4 }}>
-          <Alert severity="warning">
-            You must be signed in to view the Depots graph.
-          </Alert>
-        </Container>
-      );
+      redirect("/auth/login");
     }
     fetchError = msg;
     graph = { depots: [], modules: [], providers: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0 }, generatedAt: "" };
