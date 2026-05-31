@@ -378,11 +378,11 @@ By default, Valkey persists data to a PVC so stats survive pod restarts. For loc
 
 ```yaml
 valkey:
-  persistence:
+  dataStorage:
     enabled: false  # ephemeral storage; stats lost on restart
 ```
 
-For production, leave `valkey.persistence.enabled: true` (the default). See the [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) Helm values reference for the full set of options.
+For production, leave `valkey.dataStorage.enabled: true` (the default). See the [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) Helm values reference for the full set of options.
 
 Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:
 

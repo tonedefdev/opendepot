@@ -132,18 +132,22 @@ Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Red
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `valkey.image.repository` | `valkey/valkey` | Valkey container image |
-| `valkey.image.tag` | `"8"` | Valkey image tag |
 | `valkey.resources` | see values.yaml | Resource requests and limits for the Valkey pod |
-| `valkey.persistence.enabled` | `true` | Create a PVC for Valkey data. When `false`, stats are stored on an ephemeral in-pod volume and lost on restart |
-| `valkey.persistence.storageClassName` | `""` | StorageClass for the PVC. Leave blank to use the cluster default |
-| `valkey.persistence.size` | `1Gi` | PVC storage size |
-| `valkey.persistence.accessMode` | `ReadWriteOnce` | PVC access mode |
+| `valkey.dataStorage.enabled` | `true` | Create a PVC for Valkey data. When `false`, stats are stored on an ephemeral in-pod volume and lost on restart |
+| `valkey.dataStorage.className` | `""` | StorageClass for the PVC. Leave blank to use the cluster default |
+| `valkey.dataStorage.requestedSize` | `1Gi` | PVC storage size |
+| `valkey.auth.enabled` | `false` | Enable Valkey ACL password authentication |
+| `valkey.auth.usersExistingSecret` | `""` | Name of a pre-existing Secret whose keys are ACL usernames. Required when auth is enabled |
+| `valkey.auth.aclUsers.default.permissions` | `~* &* +@all` | ACL permissions string for the default user |
+| `server.stats.valkeyPasswordSecretName` | `""` | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server. Must match `valkey.auth.usersExistingSecret` |
 | `valkey.nodeSelector` | `{}` | Node selector for the Valkey pod |
 | `valkey.tolerations` | `[]` | Tolerations for the Valkey pod |
 | `valkey.affinity` | `{}` | Affinity rules for the Valkey pod |
 
-Set `valkey.persistence.enabled: false` for local Kind clusters or ephemeral environments where no StorageClass is available. For production, leave persistence enabled (the default) so stats survive pod restarts.
+Set `valkey.dataStorage.enabled: false` for local Kind clusters or ephemeral environments where no StorageClass is available. For production, leave persistence enabled (the default) so stats survive pod restarts.
+
+!!! warning "Production Security"
+    Valkey ACL authentication is **disabled by default**. For production deployments, create a Kubernetes Secret containing the password, then set `valkey.auth.enabled: true`, `valkey.auth.usersExistingSecret`, and `server.stats.valkeyPasswordSecretName` to match. Use [External Secrets Operator](https://external-secrets.io/) or HashiCorp Vault to provision the Secret in regulated environments.
 
 ## Controllers
 

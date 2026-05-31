@@ -48,4 +48,4 @@ v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance
    helm upgrade opendepot opendepot/opendepot -n opendepot-system -f my-values.yaml
    ```
 
-Valkey is deployed automatically as part of the chart. Download tracking resumes immediately after the server pod becomes ready. For production clusters, `valkey.persistence.enabled: true` (the default) ensures stats survive pod restarts — no additional configuration is required.
+Valkey is deployed automatically as part of the chart. Download tracking resumes immediately after the server pod becomes ready. For production clusters, `valkey.dataStorage.enabled: true` (the default) ensures stats survive pod restarts — no additional configuration is required.
