@@ -12,7 +12,8 @@ tags:
 
 | Change | Affected field | Action required |
 |--------|---------------|----------------|
-| `Provider.status.sourceScan` renamed to `Provider.status.sourceScans` | `ProviderStatus` | Update any automation or scripts that read `.status.sourceScan` on a `Provider` resource. The field is now an array (`sourceScans`) with one entry per scanned version. |
+| `Provider.status.sourceScans` removed; per-version provider source scans moved to `Version.status.sourceScan` | `ProviderStatus`, `VersionStatus` | Update any automation or scripts that read `.status.sourceScans` on a `Provider` resource. Provider source scan results are now stored on each `Version` resource in `status.sourceScan`, alongside module IaC scan results. |
+| `Provider.status.resolvedSourceRepository` added (read-only, string) | `ProviderStatus` | No action required. The field is populated automatically by the Version controller after the first scan. |
 
 ## Service Discovery
 
@@ -644,7 +645,7 @@ Represents a single vulnerability finding from a Trivy scan.
 | `severity` | `string` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `UNKNOWN` |
 | `title` | `string` | Short description of the vulnerability |
 
-### ProviderBinaryScan
+### BinaryScan
 
 Holds Trivy binary scan (`trivy rootfs`) results for a specific provider artifact. Stored in `Version.status.binaryScan`. Each OS/architecture binary is scanned independently because Go stdlib versions and runtime dependencies may differ between compiled artifacts.
 
@@ -656,15 +657,14 @@ Holds Trivy binary scan (`trivy rootfs`) results for a specific provider artifac
 | `scannedAt` | `string` | RFC3339 timestamp at which the binary scan completed |
 | `findings` | `[]SecurityFinding` | Vulnerabilities found in the compiled provider binary |
 
-### ProviderSourceScan
+### SourceScan
 
-Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependencies. Accumulated as an array in `Provider.status.sourceScans` — one entry per scanned provider version. Deduplicated across OS/architecture `Version` resources because all variants share the same source code. Entries for versions removed from `spec.versions` are pruned automatically.
+Holds Trivy source scan results. Used for both provider `go.mod` dependency scans and module IaC (HCL filesystem) scans. Stored in `Version.status.sourceScan` for every `Version` resource when scanning is enabled.
 
 | Field | Type | Description |
 |---|---|---|
-| `scannedAt` | `string` | RFC3339 timestamp at which the source scan completed |
-| `version` | `string` | Provider version that was scanned (used for deduplication) |
-| `findings` | `[]SecurityFinding` | Vulnerabilities found in the provider's source dependencies (go.mod) |
+| `scannedAt` | `string` | RFC3339 timestamp at which the scan completed |
+| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `aws-0057`). |
 
 ### ProviderConfig fields
 
@@ -677,24 +677,15 @@ Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependenc
 
 | Field | Type | Description |
 |---|---|---|
-| `binaryScan` | `ProviderBinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
-| `sourceScan` | `ModuleSourceScan` | IaC scan result for this module archive. Populated only for module `Version` resources when scanning is enabled. |
+| `binaryScan` | `BinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
+| `sourceScan` | `SourceScan` | Scan result for this version. Contains IaC misconfigurations for module `Version` resources and `go.mod` dependency vulnerabilities for provider `Version` resources. Populated when scanning is enabled. |
 | `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
 
 ### ProviderStatus fields
 
 | Field | Type | Description |
 |---|---|---|
-| `sourceScans` | `[]ProviderSourceScan` | Per-version source vulnerability scan results, accumulated by the Version controller after scanning the provider's `go.mod`. One entry per scanned version; sorted and pruned automatically when versions are removed from `spec.versions`. |
-
-### ModuleSourceScan
-
-Holds Trivy IaC scan (`trivy fs`) results for a module archive. Stored in `Version.status.sourceScan`. Findings represent HCL misconfigurations detected by Trivy's config-class rules.
-
-| Field | Type | Description |
-|---|---|---|
-| `scannedAt` | `string` | RFC3339 timestamp at which the IaC scan completed |
-| `findings` | `[]SecurityFinding` | Misconfigurations found in the module's HCL source. `vulnerabilityID` contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE. |
+| `resolvedSourceRepository` | `string` | The VCS source URL resolved by the Version controller. Set automatically on first scan; `spec.providerConfig.sourceRepository` takes precedence if set. See [Provider Source Repository Resolution](../configuration/scanning.md#provider-source-repository-resolution). |
 
 ### GroupBinding
 

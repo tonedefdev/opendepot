@@ -117,6 +117,40 @@ credentials "opendepot.defdev.io" {
 }
 ```
 
+#### Registry Explorer UI OIDC
+
+When the Registry Explorer UI is deployed with `ui.oidc.enabled: true`, the UI authenticates users via an OIDC authorization code flow using a dedicated Dex client (default client ID: `opendepot-ui`). This client is separate from the `tofu login` client (`opendepot`) and issues tokens with a different audience.
+
+By default, the server only validates tokens issued to the primary client ID (`--oidc-client-id`). To allow UI-issued tokens to be accepted by the browse and stats endpoints, set `ui.oidc.clientId` in Helm values (it defaults to `opendepot-ui` and takes effect automatically when `ui.oidc.enabled: true`):
+
+```yaml
+ui:
+  oidc:
+    enabled: true
+    clientId: opendepot-ui
+    clientSecretName: opendepot-ui-oidc-secret
+```
+
+When `ui.oidc.enabled: true` and `ui.oidc.clientId` is non-empty, the chart passes `--oidc-ui-client-id={{ ui.oidc.clientId }}` to the server. The server creates a second OIDC verifier for this client ID so that UI-issued tokens are accepted on browse and stats endpoints.
+
+The Dex `opendepot-ui` client must include `trustedPeers: [opendepot]` so that Dex embeds the server's audience in UI-issued tokens. Without this, the server rejects the token even when `--oidc-ui-client-id` is configured:
+
+```yaml
+dex:
+  config:
+    staticClients:
+      - id: opendepot-ui
+        name: OpenDepot UI
+        secret: <ui-client-secret>
+        trustedPeers:
+          - opendepot
+        redirectURIs:
+          - https://<ui-host>/auth/callback
+```
+
+!!! note
+    Without `--oidc-ui-client-id` configured, the Stats page and browse endpoints return zeroes or empty results for users authenticated through the UI's OIDC client.
+
 #### GroupBinding Access Control
 
 When [GroupBinding](guides/groupbinding.md/) resources are deployed, the server enforces fine-grained access control after OIDC authentication. The user's groups claim is extracted from the JWT and matched against GroupBinding expressions to determine which modules and providers the user may access.
@@ -169,6 +203,7 @@ With this flag, K8s SA tokens (identified by a non-OIDC `iss` claim) are routed 
 | `CrashLoopBackOff` on server pod | `server.oidc.issuerUrl` not set or misconfigured | Verify OIDC is enabled and issuer URL is correct; check pod logs |
 | Browser opens to an in-cluster hostname (e.g. `opendepot-dex.opendepot-system.svc...`) | `server.oidc.issuerUrl` was left blank; chart derived the in-cluster service URL | Set both `dex.config.issuer` and `server.oidc.issuerUrl` to the external Dex URL and redeploy |
 | Browser redirects to localhost but connection fails | Dex `redirectURI` not included in client config | Add all expected localhost ports (10000-10010) to Dex client redirectURIs |
+| Stats page shows zeroes for UI-authenticated users | `ui.oidc.clientId` not propagated to the server | Ensure `ui.oidc.enabled: true` and `ui.oidc.clientId` is non-empty in Helm values; the chart passes `--oidc-ui-client-id` to the server automatically |
 
 ### Method 2: Managed Cluster Tokens
 

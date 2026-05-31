@@ -20,7 +20,7 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 For each provider version, the Version controller performs two scans:
 
 - **Binary scan** — runs `trivy rootfs` against the compiled provider binary extracted from the HashiCorp release archive. Results are stored per `Version` resource in `Version.status.binaryScan` because each OS/architecture binary may embed different Go standard library versions or runtime dependencies. The binary is written with `0500` (execute) permissions before scanning; Trivy requires the execute bit to be set for gobinary detection — binaries without execute permission are silently skipped.
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are accumulated on the `Provider` resource in `Provider.status.sourceScans` — one entry per scanned version, deduplicated across OS/architecture variants since all variants share the same source code. Entries are pruned automatically when a version is removed from `spec.versions`. When a provider repository has no `go.mod`, the scan completes with `findings: []` (an empty slice, not absent) — this is a tombstone indicating the version was scanned and nothing was found, as opposed to not yet scanned.
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are stored on each `Version` resource in `Version.status.sourceScan`, deduplicated across OS/architecture variants of the same provider version since all variants share the same source code. When a provider repository has no `go.mod`, the scan completes with `findings: []` (an empty slice, not absent) — this is a tombstone indicating the version was scanned and nothing was found, as opposed to not yet scanned.
 
 !!! note
     `status.binaryScan` will be empty for any `Version` that was synced before scanning was enabled. The controller does not automatically re-scan on restart to avoid re-downloading potentially hundreds of large provider binaries. To trigger a one-time re-download and re-scan, set `forceSync: true` on the `Version` resource:
@@ -147,6 +147,13 @@ When performing a source scan, the Version controller resolves the provider's Gi
 3. **Heuristic fallback** — constructs `https://github.com/{namespace}/terraform-provider-{name}` from the configured namespace and provider name.
 
 If all three steps fail to produce a usable URL, the Version controller logs a warning and skips the source scan. The binary scan still runs.
+
+The resolved URL is written to `Provider.status.resolvedSourceRepository` after the first successful scan. Once set, subsequent reconciliations do not overwrite it. To inspect the effective repository URL in use:
+
+```bash
+kubectl get provider <name> -n <namespace> \
+  -o jsonpath='{.status.resolvedSourceRepository}'
+```
 
 **`namespace` field**
 

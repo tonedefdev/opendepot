@@ -118,7 +118,7 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
 | `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
 | `ui.oidc.issuerUrl` | string | Public OIDC issuer URL (must be reachable from browsers). |
-| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"` |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](../authentication.md#registry-explorer-ui-oidc). |
 | `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
 | `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
 | `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |

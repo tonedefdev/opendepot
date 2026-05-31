@@ -42,7 +42,7 @@ The most critical component. It performs the actual work of fetching module and 
 3. Generates a UUID7 filename and persists it to `spec.fileName` on the `Version` resource — subsequent reconciliations reuse the same filename, preventing duplicate uploads
 4. Computes a SHA256 checksum and generates a detached GPG signature over the `SHA256SUMS` file
 5. Uploads the archive to the configured storage backend
-6. When scanning is enabled, runs a binary scan (`trivy rootfs`) against the extracted provider binary and stores findings in `Version.status.binaryScan`; resolves the provider's source repository (explicit override → OpenTofu registry lookup → heuristic fallback) and runs a source scan (`trivy fs`), appending deduplicated results to `Provider.status.sourceScans` (one entry per version, pruned when a version is removed)
+6. When scanning is enabled, runs a binary scan (`trivy rootfs`) against the extracted provider binary and stores findings in `Version.status.binaryScan`; resolves the provider's source repository (explicit override → OpenTofu registry lookup → heuristic fallback), writes the resolved URL to `Provider.status.resolvedSourceRepository`, and runs a source scan (`trivy fs`) storing results in `Version.status.sourceScan` (deduplicated across OS/architecture variants of the same version)
 7. If `blockOnCritical` or `blockOnHigh` is configured, halts reconciliation for any version with findings at or above the threshold
 8. Updates the `Version` resource status with the sync state
 

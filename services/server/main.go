@@ -115,6 +115,7 @@ func main() {
 		if *opendepotOIDCAllowClientCredentials {
 			oidcCCVerifier = provider.Verifier(&gooidc.Config{SkipClientIDCheck: true})
 		}
+
 		if *opendepotOIDCUIClientID != "" {
 			oidcUIVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCUIClientID})
 			logger.Info("OIDC UI client ID configured", "uiClientId", *opendepotOIDCUIClientID)
