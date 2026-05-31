@@ -423,6 +423,7 @@ ui-deploy-anon: ui-session-secret
 	  --set ui.image.repository=$(REGISTRY)/ui \
 	  --set ui.image.tag=$(TAG) \
 	  --set ui.sessionPasswordSecretName=ui-session-secret \
+	  --set ui.nginx.preserveHostPort=true \
 	  --set storage.filesystem.enabled=true \
 	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
 	  --set provider.enabled=true \
@@ -550,6 +551,8 @@ endif
 	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
 	  '    clientId: "$(UI_OIDC_CLIENT_ID)"' \
 	  '    clientSecretName: ui-oidc-secret' \
+	  '  nginx:' \
+	  '    preserveHostPort: true' \
 	  > "$$tmpfile"; \
 	echo "=== Deploying full e2e stack: UI + OIDC + scanning (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
 	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \

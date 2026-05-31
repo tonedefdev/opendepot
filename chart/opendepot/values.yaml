@@ -349,6 +349,13 @@ ui:
   # container will proxy registry protocol requests to.
   # Defaults to server.<global.namespace>.svc.cluster.local:80 when empty.
   serverHost: ""
+  nginx:
+    # preserveHostPort passes the client Host header including the port ($http_host)
+    # to the upstream server service. Enable this for local development environments
+    # where the UI is accessed on a non-standard port (e.g. opendepot.localtest.me:8080)
+    # and the server needs the port for correct registry URL construction.
+    # Must be false in production.
+    preserveHostPort: false
   oidc:
     # enabled toggles OIDC login support in the UI.
     enabled: false
@@ -441,7 +448,6 @@ valkey:
       cpu: 50m
       memory: 64Mi
     limits:
-      cpu: 200m
       memory: 256Mi
   nodeSelector: {}
   tolerations: []

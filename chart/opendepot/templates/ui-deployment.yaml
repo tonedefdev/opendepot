@@ -59,13 +59,11 @@ spec:
         - name: DEV_TOKEN_INPUT_ENABLED
           value: "true"
         {{- end }}
-        {{- if .Values.ui.sessionPasswordSecretName }}
         - name: SESSION_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.ui.sessionPasswordSecretName }}
+              name: {{ required "ui.sessionPasswordSecretName must be set when ui.enabled=true" .Values.ui.sessionPasswordSecretName }}
               key: sessionPassword
-        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
