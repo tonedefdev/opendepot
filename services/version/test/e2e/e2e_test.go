@@ -448,6 +448,7 @@ spec:
 				"--reuse-values",
 				"--namespace", namespace,
 				"--set", "scanning.enabled=false",
+				"--set", "scanning.providerScanning=false",
 				"--wait",
 				"--timeout", "3m",
 			)
@@ -471,6 +472,7 @@ spec:
 				"--set", fmt.Sprintf("version.image.repository=%s", baseRepo),
 				"--set", fmt.Sprintf("version.image.tag=%s", baseTag),
 				"--set", "scanning.enabled=true",
+				"--set", "scanning.providerScanning=true",
 				"--set", "scanning.offline=false",
 				"--set", "scanning.cache.accessMode=ReadWriteOnce",
 				"--wait",
@@ -583,7 +585,7 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(), "expected sourceScan.scannedAt to be set on %s", scanVersionCR1)
-			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+			}, 5*time.Minute, 15*time.Second).Should(Succeed())
 		})
 
 		It("should populate sourceScan on Version CR 2", func() {
@@ -607,7 +609,7 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(), "expected sourceScan.scannedAt to be set on %s", scanVersionCR2)
-			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+			}, 5*time.Minute, 15*time.Second).Should(Succeed())
 		})
 
 		It("should report at least one source finding on Version CR 1", func() {
@@ -619,7 +621,7 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(), "expected at least one source finding on %s", scanVersionCR1)
-			}, 15*time.Minute, 15*time.Second).Should(Succeed())
+			}, 5*time.Minute, 15*time.Second).Should(Succeed())
 		})
 	})
 })
