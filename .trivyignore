@@ -63,5 +63,5 @@ CVE-2025-69720
 # A patched Debian package is available (1:2.75-10+deb13u1) but the valkey/valkey:8 image
 # has not yet been rebuilt with it. cap_set_file() is not called by the Valkey binary at
 # runtime. Suppression will be removed when the valkey:8 image is rebuilt.
-# Tracking: https://github.com/tonedefdev/opendepot/issues/66
+# Tracking: https://github.com/tonedefdev/opendepot/issues/68
 CVE-2026-4878
