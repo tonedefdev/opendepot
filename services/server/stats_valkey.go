@@ -50,6 +50,7 @@ func keyLeaderboard(namespace string) string {
 	if namespace == "" {
 		return "stats:leaderboard:global"
 	}
+
 	return "stats:leaderboard:" + namespace
 }
 
@@ -99,6 +100,7 @@ func recordDownload(ctx context.Context, client *redis.Client, namespace, kind, 
 
 		return nil
 	})
+
 	if err != nil {
 		return fmt.Errorf("stats: record download: %w", err)
 	}
@@ -118,6 +120,7 @@ func queryTotalDownloads(ctx context.Context, client *redis.Client, namespace st
 	if err == redis.Nil {
 		return 0, nil
 	}
+
 	if err != nil {
 		return 0, fmt.Errorf("stats: query total downloads: %w", err)
 	}
@@ -139,6 +142,7 @@ func queryMostDownloaded(ctx context.Context, client *redis.Client, namespace st
 	if err == redis.Nil {
 		return []PopularResource{}, nil
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("stats: query most downloaded: %w", err)
 	}
@@ -181,10 +185,13 @@ func batchResourceDownloadStats(ctx context.Context, client *redis.Client, keys 
 			if !ok {
 				continue
 			}
+
 			cmds[i] = pipe.HGetAll(ctx, keyResourceHash(ns, kind, name))
 		}
+
 		return nil
 	})
+
 	if err != nil && err != redis.Nil {
 		return nil, fmt.Errorf("stats: batch resource stats: %w", err)
 	}
@@ -194,10 +201,12 @@ func batchResourceDownloadStats(ctx context.Context, client *redis.Client, keys 
 		if cmd == nil {
 			continue
 		}
+
 		vals, err := cmd.Result()
 		if err != nil || len(vals) == 0 {
 			continue
 		}
+
 		count, _ := strconv.ParseInt(vals["count"], 10, 64)
 		result[keys[i]] = resourceDownloadStats{Count: count, LastAt: vals["lastAt"]}
 	}
@@ -220,10 +229,13 @@ func batchVersionDownloadStats(ctx context.Context, client *redis.Client, keys [
 			if !ok {
 				continue
 			}
+
 			cmds[i] = pipe.HGetAll(ctx, keyVersionHash(ns, kind, name, version))
 		}
+
 		return nil
 	})
+
 	if err != nil && err != redis.Nil {
 		return nil, fmt.Errorf("stats: batch version stats: %w", err)
 	}
@@ -233,10 +245,12 @@ func batchVersionDownloadStats(ctx context.Context, client *redis.Client, keys [
 		if cmd == nil {
 			continue
 		}
+
 		vals, err := cmd.Result()
 		if err != nil || len(vals) == 0 {
 			continue
 		}
+
 		count, _ := strconv.ParseInt(vals["count"], 10, 64)
 		result[keys[i]] = resourceDownloadStats{Count: count, LastAt: vals["lastAt"]}
 	}
@@ -259,6 +273,7 @@ func splitLeaderboardMember(s string) (ns, kind, name, version string, ok bool) 
 	if len(parts) != 4 {
 		return "", "", "", "", false
 	}
+
 	return parts[0], parts[1], parts[2], parts[3], true
 }
 
@@ -268,6 +283,7 @@ func splitResourceKey(s string) (ns, kind, name string, ok bool) {
 	if len(parts) != 3 {
 		return "", "", "", false
 	}
+
 	return parts[0], parts[1], parts[2], true
 }
 
@@ -277,5 +293,6 @@ func splitVersionKey(s string) (ns, kind, name, version string, ok bool) {
 	if len(parts) != 4 {
 		return "", "", "", "", false
 	}
+
 	return parts[0], parts[1], parts[2], parts[3], true
 }

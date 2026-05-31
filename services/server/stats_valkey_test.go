@@ -37,11 +37,12 @@ func TestRecordDownloadAndQueryCount(t *testing.T) {
 	ctx := context.Background()
 
 	// Record two downloads for v1.0.0 and one for v2.0.0.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := recordDownload(ctx, client, "test-ns", "module", "my-module", "1.0.0"); err != nil {
 			t.Fatalf("recordDownload: %v", err)
 		}
 	}
+
 	if err := recordDownload(ctx, client, "test-ns", "module", "my-module", "2.0.0"); err != nil {
 		t.Fatalf("recordDownload: %v", err)
 	}
@@ -56,9 +57,11 @@ func TestRecordDownloadAndQueryCount(t *testing.T) {
 	if !ok {
 		t.Fatal("expected stats for v1.0.0, got nothing")
 	}
+
 	if s.Count != 2 {
 		t.Errorf("expected 2 downloads for v1.0.0, got %d", s.Count)
 	}
+
 	if s.LastAt == "" {
 		t.Error("expected lastAt to be set, got empty string")
 	}
@@ -73,6 +76,7 @@ func TestRecordDownloadAndQueryCount(t *testing.T) {
 	if !ok {
 		t.Fatal("expected resource stats for my-module, got nothing")
 	}
+
 	if rs.Count != 3 {
 		t.Errorf("expected 3 total downloads for my-module, got %d", rs.Count)
 	}
@@ -82,6 +86,7 @@ func TestRecordDownloadAndQueryCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryTotalDownloads: %v", err)
 	}
+
 	if total != 3 {
 		t.Errorf("expected global total of 3, got %d", total)
 	}
@@ -91,6 +96,7 @@ func TestRecordDownloadAndQueryCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryTotalDownloads namespace: %v", err)
 	}
+
 	if nsTotal != 3 {
 		t.Errorf("expected ns total of 3, got %d", nsTotal)
 	}
@@ -101,11 +107,12 @@ func TestQueryMostDownloaded(t *testing.T) {
 	ctx := context.Background()
 
 	// module-a: 3 downloads; module-b: 1 download.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := recordDownload(ctx, client, "ns", "module", "module-a", "1.0.0"); err != nil {
 			t.Fatalf("recordDownload: %v", err)
 		}
 	}
+
 	if err := recordDownload(ctx, client, "ns", "module", "module-b", "1.0.0"); err != nil {
 		t.Fatalf("recordDownload: %v", err)
 	}
@@ -114,12 +121,15 @@ func TestQueryMostDownloaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryMostDownloaded: %v", err)
 	}
+
 	if len(results) < 2 {
 		t.Fatalf("expected at least 2 results, got %d", len(results))
 	}
+
 	if results[0].DownloadCount < results[1].DownloadCount {
 		t.Error("results must be sorted descending by download count")
 	}
+
 	if results[0].Name != "module-a" {
 		t.Errorf("expected module-a to be most downloaded, got %s", results[0].Name)
 	}
@@ -129,6 +139,7 @@ func TestQueryMostDownloaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryMostDownloaded namespace: %v", err)
 	}
+
 	if len(nsResults) < 2 {
 		t.Fatalf("expected at least 2 namespace-scoped results, got %d", len(nsResults))
 	}
@@ -142,6 +153,7 @@ func TestBatchEmptyKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batchResourceDownloadStats empty: %v", err)
 	}
+
 	if rStats != nil {
 		t.Error("expected nil map for empty key slice")
 	}
@@ -150,6 +162,7 @@ func TestBatchEmptyKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batchVersionDownloadStats empty: %v", err)
 	}
+
 	if vStats != nil {
 		t.Error("expected nil map for empty key slice")
 	}
@@ -162,7 +175,7 @@ func TestConcurrentRecordDownload(t *testing.T) {
 	const goroutines = 20
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			if err := recordDownload(ctx, client, "ns", "module", "concurrent-mod", "1.0.0"); err != nil {
@@ -176,6 +189,7 @@ func TestConcurrentRecordDownload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryTotalDownloads: %v", err)
 	}
+
 	if total != goroutines {
 		t.Errorf("expected %d total downloads after concurrent writes, got %d", goroutines, total)
 	}

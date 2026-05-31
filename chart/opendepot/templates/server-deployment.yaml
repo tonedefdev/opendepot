@@ -88,6 +88,14 @@ spec:
         - secretRef:
             name: {{ .Values.server.gpg.secretName }}
         {{- end }}
+        {{- if .Values.server.stats.valkeyPasswordSecretName }}
+        env:
+        - name: OPENDEPOT_VALKEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.server.stats.valkeyPasswordSecretName }}
+              key: default
+        {{- end }}
         ports:
         - name: http
           containerPort: {{ .Values.server.service.targetPort }}

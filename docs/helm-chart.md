@@ -129,18 +129,26 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.ingress.hosts` | list | Host and path rules. |
 | `ui.ingress.tls` | list | TLS configuration for the Ingress. |
 
-## Server Stats Persistence
+## Valkey Stats Store
 
-Controls the embedded SQLite database used to persist download events. When disabled (default), events are tracked in memory and lost on restart.
+Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Redis-compatible) instance deployed automatically alongside the server. No additional setup is required — Valkey is always deployed as part of the chart.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `server.stats.persistence.enabled` | bool | Create a PVC for the stats SQLite database. Default: `false` |
-| `server.stats.persistence.storageClassName` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
-| `server.stats.persistence.size` | string | PVC size. Default: `1Gi` |
-| `server.stats.persistence.accessMode` | string | PVC access mode. Default: `ReadWriteOnce` |
+| `valkey.image.repository` | string | Valkey container image. Default: `valkey/valkey` |
+| `valkey.image.tag` | string | Valkey image tag. Default: `"8"` |
+| `valkey.resources` | map | Resource requests and limits for the Valkey pod |
+| `valkey.persistence.enabled` | bool | Create a PVC for Valkey data. Default: `true` |
+| `valkey.persistence.storageClassName` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
+| `valkey.persistence.size` | string | PVC storage size. Default: `1Gi` |
+| `valkey.persistence.accessMode` | string | PVC access mode. Default: `ReadWriteOnce` |
+| `valkey.nodeSelector` | map | Node selector for the Valkey pod |
+| `valkey.tolerations` | list | Tolerations for the Valkey pod |
+| `valkey.affinity` | map | Affinity rules for the Valkey pod |
 
-When `enabled: true`, the chart creates a PVC named `server-stats`, mounts it at `/data/stats/`, and passes `--stats-db-path=/data/stats/stats.db` to the server. See [Enabling download tracking](guides/registry-explorer.md#enabling-download-tracking) for details.
+When `valkey.persistence.enabled: true` (the default), a PVC is created and mounted at `/data` in the Valkey pod. Set `valkey.persistence.enabled: false` to use ephemeral in-pod storage — suitable for local development or Kind clusters where no StorageClass is available. Stats are lost on pod restart when persistence is disabled.
+
+See [Download Tracking](guides/registry-explorer.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
 
 ## Scanning Values
 

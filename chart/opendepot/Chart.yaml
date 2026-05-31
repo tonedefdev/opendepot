@@ -18,3 +18,7 @@ dependencies:
     version: "0.24.*"
     repository: https://charts.dexidp.io
     condition: dex.enabled
+  - name: valkey
+    version: "0.9.*"
+    repository: https://valkey-io.github.io/valkey-helm/
+    condition: server.enabled

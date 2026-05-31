@@ -1,6 +1,9 @@
 dependencies:
 - name: dex
   repository: https://charts.dexidp.io
-  version: 0.24.0
-digest: sha256:f0733bf05978367406c91036105ef9b9f0666872e2b38a4742d4b150d77fde68
-generated: "2026-05-15T01:02:12.62587-07:00"
+  version: 0.24.1
+- name: valkey
+  repository: https://valkey-io.github.io/valkey-helm/
+  version: 0.9.4
+digest: sha256:62aae976f7ac11346b805ffa6ce89105622e4a3bd51debdbfae56a2930d072b0
+generated: "2026-05-31T15:21:41.134715-07:00"

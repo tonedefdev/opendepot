@@ -172,6 +172,12 @@ server:
     # The secret must have keys: OPENDEPOT_PROVIDER_GPG_KEY_ID, OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR,
     # OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64, and optionally OPENDEPOT_PROVIDER_GPG_SOURCE_URL.
     secretName: ""
+  stats:
+    # Name of a pre-existing Kubernetes Secret whose "default" key holds the Valkey ACL
+    # password. Must match valkey.auth.usersExistingSecret. When set, the password is
+    # injected into the server container via the OPENDEPOT_VALKEY_PASSWORD environment
+    # variable. Leave empty when valkey.auth.enabled=false.
+    valkeyPasswordSecretName: ""
   resources:
     requests:
       cpu: 100m
@@ -402,22 +408,33 @@ ui:
   affinity: {}
 
 ## Valkey (Redis-compatible) statistics store
-## Valkey is always deployed alongside the server for download stats tracking.
+## Deployed via the official valkey-io/valkey-helm subchart when server.enabled=true.
 valkey:
-  image:
-    repository: valkey/valkey
-    tag: "8"
+  fullnameOverride: valkey  # Forces Service name to exactly "valkey" — do not change
+  auth:
+    # Set to true to require ACL password authentication.
+    # Recommended for production environments (finance, banking, DoD, etc.).
+    # When enabled, also set usersExistingSecret and server.stats.valkeyPasswordSecretName
+    # to the name of the same pre-existing Kubernetes Secret. Use External Secrets
+    # Operator or HashiCorp Vault to provision the Secret rather than storing the
+    # password in plain text.
+    enabled: false
+    # Name of a pre-existing Secret whose keys are ACL usernames and values are passwords.
+    # The Secret must contain at minimum: key "default" = <password>.
+    usersExistingSecret: ""
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+  dataStorage:
+    enabled: true
+    requestedSize: 1Gi
+    className: ""
   resources:
     requests:
       cpu: 50m
       memory: 64Mi
     limits:
       memory: 256Mi
-  persistence:
-    enabled: true
-    storageClassName: ""
-    size: 1Gi
-    accessMode: ReadWriteOnce
   nodeSelector: {}
   tolerations: []
   affinity: {}

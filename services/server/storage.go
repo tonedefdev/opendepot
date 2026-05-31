@@ -106,14 +106,15 @@ func getObjectFromStorageSystem(w http.ResponseWriter, r *http.Request, s storag
 	}
 }
 
-// initStorageBackend creates and initialises a storage backend from the provided StorageConfig.
-// It returns an error if the backend cannot be initialised or if no supported backend is configured.
+// initStorageBackend creates and initializes a storage backend from the provided StorageConfig.
+// It returns an error if the backend cannot be initialized or if no supported backend is configured.
 func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.StorageConfig) (storage.Storage, error) {
 	if storageConfig.S3 != nil {
 		s3Storage := &storage.AmazonS3Storage{}
 		if err := s3Storage.NewClient(ctx, storageConfig.S3.Region); err != nil {
 			return nil, fmt.Errorf("failed to init s3 client: %w", err)
 		}
+
 		return s3Storage, nil
 	}
 
@@ -122,6 +123,7 @@ func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.St
 		if err := gcsStorage.NewClient(ctx); err != nil {
 			return nil, fmt.Errorf("failed to init gcs client: %w", err)
 		}
+
 		return gcsStorage, nil
 	}
 
@@ -130,6 +132,7 @@ func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.St
 		if err := azStorage.NewClients(storageConfig.AzureStorage.SubscriptionID, storageConfig.AzureStorage.AccountUrl); err != nil {
 			return nil, fmt.Errorf("failed to init azure client: %w", err)
 		}
+
 		return azStorage, nil
 	}
 

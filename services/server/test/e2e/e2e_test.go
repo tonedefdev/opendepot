@@ -86,7 +86,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--set", "server.enabled=true",
 			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
-			"--set", "valkey.persistence.enabled=false",
+			"--set", "valkey.dataStorage.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -2085,6 +2085,54 @@ spec:
 			_, _ = utils.Run(cleanModuleCmd)
 		})
 	})
+
+	Context("with Valkey ACL auth enabled", Ordered, func() {
+		const valkeyAuthSecret = "valkey-auth-test"
+		var pfCancel context.CancelFunc
+
+		BeforeAll(func() {
+			By("creating valkey ACL password Secret")
+			createCmd := exec.Command("kubectl", "create", "secret", "generic", valkeyAuthSecret,
+				"--from-literal=default=testpassword123",
+				"-n", namespace,
+				"--dry-run=client", "-o", "yaml",
+			)
+			applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+			createOut, err := createCmd.Output()
+			Expect(err).NotTo(HaveOccurred())
+			applyCmd.Stdin = strings.NewReader(string(createOut))
+			_, err = utils.Run(applyCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deploying server with Valkey ACL auth enabled")
+			deployServer(
+				"--set", "valkey.auth.enabled=true",
+				"--set", fmt.Sprintf("valkey.auth.usersExistingSecret=%s", valkeyAuthSecret),
+				"--set", "valkey.auth.aclUsers.default.permissions=~* &* +@all",
+				"--set", fmt.Sprintf("server.stats.valkeyPasswordSecretName=%s", valkeyAuthSecret),
+				"--set", "valkey.dataStorage.enabled=false",
+			)
+
+			pfCancel = startPortForward()
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancel)
+
+			By("deleting valkey ACL password Secret")
+			deleteCmd := exec.Command("kubectl", "delete", "secret", valkeyAuthSecret,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(deleteCmd)
+		})
+
+		It("should return 200 from the stats endpoint when Valkey auth is configured", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"stats endpoint must return 200 when server authenticates to Valkey with ACL password")
+		})
+	})
 })
 
 // Browse API e2e tests verify that the /opendepot/ui/v1/* endpoints enforce the
@@ -2126,7 +2174,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			// Anonymous auth so the SA client path is exercised.
 			"--set", "server.anonymousAuth=true",
 			"--set", "server.useBearerToken=false",
-			"--set", "valkey.persistence.enabled=false",
+			"--set", "valkey.dataStorage.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -2721,7 +2769,7 @@ server:
 				"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
-				"--set", "valkey.persistence.enabled=false",
+				"--set", "valkey.dataStorage.enabled=false",
 				"-f", valuesFile,
 				"--wait",
 				"--timeout", "10m",

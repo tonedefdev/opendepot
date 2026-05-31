@@ -74,27 +74,33 @@ func main() {
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
 
-	{
-		client := redis.NewClient(&redis.Options{Addr: *opendepotValkeyAddr})
-		const maxAttempts = 10
-		var pingErr error
-		for i := 0; i < maxAttempts; i++ {
-			pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			pingErr = client.Ping(pingCtx).Err()
-			cancel()
-			if pingErr == nil {
-				break
-			}
-			logger.Warn("stats: waiting for Valkey", "addr", *opendepotValkeyAddr, "attempt", i+1, "error", pingErr)
-			time.Sleep(3 * time.Second)
+	client := redis.NewClient(&redis.Options{
+		Addr:     *opendepotValkeyAddr,
+		Password: os.Getenv("OPENDEPOT_VALKEY_PASSWORD"),
+	})
+
+	const maxAttempts = 10
+	var pingErr error
+	for i := range maxAttempts {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingErr = client.Ping(pingCtx).Err()
+		cancel()
+
+		if pingErr == nil {
+			break
 		}
-		if pingErr != nil {
-			logger.Error("stats: failed to connect to Valkey", "addr", *opendepotValkeyAddr, "error", pingErr)
-			os.Exit(1)
-		}
-		statsClient = client
-		logger.Info("stats tracking enabled", "addr", *opendepotValkeyAddr)
+
+		logger.Warn("stats: waiting for Valkey", "addr", *opendepotValkeyAddr, "attempt", i+1, "error", pingErr)
+		time.Sleep(3 * time.Second)
 	}
+
+	if pingErr != nil {
+		logger.Error("stats: failed to connect to Valkey", "addr", *opendepotValkeyAddr, "error", pingErr)
+		os.Exit(1)
+	}
+
+	statsClient = client
+	logger.Info("stats tracking enabled", "addr", *opendepotValkeyAddr)
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")

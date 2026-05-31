@@ -365,7 +365,12 @@ UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop
+.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop chart-deps
+
+## Download and cache Helm chart dependencies (Dex, Valkey). Run once after cloning.
+## make ui-setup and make ui-setup-oidc call this automatically.
+chart-deps:
+	helm dependency update $(CHART_PATH)
 
 ## Generate a throwaway GPG keypair and create the provider signing secret for local testing.
 ## Idempotent — skips if the secret already exists.
@@ -425,7 +430,6 @@ ui-deploy-anon: ui-session-secret
 	  --set scanning.providerScanning=true \
 	  --set scanning.cache.storageClassName="standard" \
 	  --set scanning.cache.accessMode=ReadWriteOnce \
-	  --set server.stats.emptyDir=true \
 	  --set version.zapLogLevel=5 \
 	  --wait \
 	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
@@ -514,8 +518,6 @@ endif
 	  '    clientId: "$(OIDC_CLIENT_ID)"' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
 	  '    groupsClaim: "groups"' \
-	  '  stats:' \
-	  '    emptyDir: true' \
 	  'provider:' \
 	  '  enabled: true' \
 	  '  image:' \
@@ -608,11 +610,11 @@ ui-tofurc:
 
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
-ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
+ui-setup: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
 ## Build all images, deploy the full e2e stack (UI + OIDC + scanning), and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
+ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80

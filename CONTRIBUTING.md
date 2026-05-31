@@ -73,6 +73,16 @@ kind create cluster --name kind
 > [!TIP] 
 > If you already have a `kind` cluster from a previous run it can be reused. The suites use `helm upgrade --install` so they are safe to run repeatedly.
 
+### Chart Dependencies
+
+OpenDepot uses Helm subcharts for Dex and Valkey. The tarballs are committed to `chart/opendepot/charts/`, so no internet access is required during e2e test runs. If you add or update a subchart dependency, regenerate the lock file and tarballs with:
+
+```bash
+make chart-deps
+```
+
+`make ui-setup` and `make ui-setup-oidc` call `chart-deps` automatically, so you only need to run it manually after cloning or after editing `chart/opendepot/Chart.yaml`.
+
 ---
 
 ## Running the E2E Tests
