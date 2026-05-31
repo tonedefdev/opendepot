@@ -83,7 +83,7 @@ export default function UsageSnippet({
     <Box sx={{ position: "relative" }}>
       <Highlight
         prism={Prism as typeof Prism}
-        theme={themes.dracula}
+        theme={themes.nightOwl}
         code={snippet}
         language={"hcl" as Language}
       >
