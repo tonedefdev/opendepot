@@ -155,11 +155,16 @@ The browse endpoints apply the following visibility logic based on the caller's 
 
 | Caller | Resources visible |
 |--------|------------------|
-| Unauthenticated | Public namespace + public resource only |
+| Unauthenticated — OIDC mode (`server.oidc.enabled=true`) + `server.anonymousAuth=false` | **401 Unauthorized** |
+| Invalid or expired token — same OIDC mode conditions | **401 Unauthorized** |
+| Unauthenticated — non-OIDC mode or `server.anonymousAuth=true` | Public namespace + public resource only |
 | OIDC-authenticated, no matching `GroupBinding` | Public namespace + public resource only |
 | OIDC-authenticated, matching `GroupBinding` | Public resources ∪ resources allowed by the `GroupBinding` |
 | `anonymousAuth: true` mode | All resources (public labels are ignored) |
 | Non-OIDC bearer token (SA or kubeconfig) | Public resources only — `GroupBinding` does not apply |
+
+!!! warning "Unauthenticated access is blocked in OIDC mode"
+    When `server.oidc.enabled=true` and `server.anonymousAuth=false`, all nine browse endpoints (`/namespaces`, `/resources`, `/resources/{namespace}/{kind}/{name}`, `/resources/{namespace}/{kind}/{name}/versions`, `/resources/{namespace}/{kind}/{name}/scan-findings`, `/depots`, `/depots/graph`, and `/stats`) require a valid `Authorization: Bearer <token>` header. Requests without a valid token receive `401 Unauthorized`. The Registry Explorer, Depots graph, and Stats pages automatically redirect to `/auth/login` when the API returns 401.
 
 !!! note "Namespace list is always label-filtered"
     The `GET /opendepot/ui/v1/namespaces` endpoint enforces the `opendepot.defdev.io/public=true` label filter at the Kubernetes API level regardless of auth mode. The rows above describe module and provider resource visibility only. `anonymousAuth: true` mode and `GroupBinding` bypass have no effect on namespace listing — namespaces without the label, including `kube-system`, `default`, and `kube-public`, are never returned.

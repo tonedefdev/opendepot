@@ -117,6 +117,17 @@ credentials "opendepot.defdev.io" {
 }
 ```
 
+#### Browse Endpoint Authentication Enforcement
+
+When `server.oidc.enabled: true` and `server.anonymousAuth: false`, the browse API endpoints (`/opendepot/ui/v1/*`) require a valid `Authorization: Bearer <token>` header. Any request without a valid token returns `401 Unauthorized` — including requests with an invalid or expired JWT. This applies to all nine browse endpoints used by the Registry Explorer, Depots graph, and Stats pages.
+
+A valid token with no matching `GroupBinding` is still accepted and receives public-only visibility. The gate only blocks callers who present no token or a token that fails all verification paths.
+
+When `server.anonymousAuth: true` or OIDC is not configured, this gate is not active and browse endpoints remain accessible without authentication.
+
+!!! warning
+    Set `server.anonymousAuth: false` together with `server.oidc.enabled: true` in production to prevent unauthenticated access to the browse API.
+
 #### Registry Explorer UI OIDC
 
 When the Registry Explorer UI is deployed with `ui.oidc.enabled: true`, the UI authenticates users via an OIDC authorization code flow using a dedicated Dex client (default client ID: `opendepot-ui`). This client is separate from the `tofu login` client (`opendepot`) and issues tokens with a different audience.
