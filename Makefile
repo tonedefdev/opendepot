@@ -567,7 +567,7 @@ ui-tofurc:
 	  '    "providers.v1" = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/providers/v1/"' \
 	  '    "login.v1" = {' \
 	  '      client      = "$(OIDC_CLIENT_ID)"' \
-	  '      grant_types = ["urn:ietf:params:oauth:grant-type:device_code"]' \
+	  '      grant_types = ["device_code"]' \
 	  '      authz       = "http://localhost:$(OIDC_DEX_PORT)/dex/auth"' \
 	  '      token       = "http://localhost:$(OIDC_DEX_PORT)/dex/token"' \
 	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
