@@ -529,6 +529,7 @@ func (r *VersionReconciler) patchProviderResolvedRepo(ctx context.Context, versi
 			if k8serr.IsNotFound(err) {
 				return nil
 			}
+
 			return fmt.Errorf("patchProviderResolvedRepo: failed to get provider: %w", err)
 		}
 

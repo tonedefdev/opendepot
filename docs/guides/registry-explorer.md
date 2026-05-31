@@ -32,9 +32,12 @@ In anonymous-auth mode every visitor sees all resources. This is fine for local 
 To test the full OIDC login flow locally (user accounts, GroupBinding visibility rules), run:
 
 ```bash
-# Build images, generate a TLS cert, deploy Dex + server OIDC + UI OIDC, and start port-forwards.
+# Build all images, deploy Dex + server OIDC + UI OIDC + scanning, start port-forwards,
+# and write ~/.tofurc so `tofu login` works immediately.
 make ui-setup-oidc PASS=yourpassword
 ```
+
+This single target runs the full end-to-end setup: it builds and loads all service images (including the scanning-enabled version-controller variant), auto-creates a throwaway GPG signing secret for the provider shasums endpoint (`make ui-gpg-secret`), deploys the complete Helm release with Dex, OIDC, provider controller, and Trivy scanning, starts port-forwards, and writes `~/.tofurc` (`make ui-tofurc`) so `tofu login opendepot.localtest.me:8080` works without any extra configuration. No `mkcert` or TLS certificate is required for local testing.
 
 This registers two Dex static clients:
 
@@ -58,6 +61,37 @@ Stop all port-forwards when done:
 ```bash
 make ui-stop
 ```
+
+#### `make ui-tofurc` — configure `tofu login`
+
+`make ui-tofurc` writes `~/.tofurc` with a `host` block that maps `opendepot.localtest.me:8080` to the HTTP endpoints exposed by the port-forward. This is called automatically by `make ui-setup-oidc`, but you can run it manually at any time to regenerate the file — for example, if `~/.tofurc` was overwritten or if you changed `OIDC_DEX_PORT`.
+
+The generated block looks like this:
+
+```hcl
+host "opendepot.localtest.me:8080" {
+  services = {
+    "modules.v1"   = "http://opendepot.localtest.me:8080/opendepot/modules/v1/"
+    "providers.v1" = "http://opendepot.localtest.me:8080/opendepot/providers/v1/"
+    "login.v1" = {
+      client      = "opendepot"
+      grant_types = ["authz_code"]
+      authz       = "http://localhost:5556/dex/auth"
+      token       = "http://localhost:5556/dex/token"
+      scopes      = ["openid", "email", "profile", "groups", "offline_access"]
+      ports       = [10000, 10010]
+    }
+  }
+}
+```
+
+Because the port-forward exposes the registry at `opendepot.localtest.me:8080` (hostname with port), OpenTofu requires both the `modules.v1`/`providers.v1` service overrides **and** the `login.v1` block in the same `host` key — a bare `host "opendepot.localtest.me"` block without the port is insufficient for authentication.
+
+#### `make ui-gpg-secret` — provider GPG signing key
+
+`make ui-gpg-secret` generates a throwaway RSA 2048 GPG keypair and creates the `opendepot-provider-gpg` Kubernetes Secret in `opendepot-system`. The secret is referenced by `server.gpg.secretName` in the Helm values and enables the provider shasums endpoint to sign `SHA256SUMS` files. Without this secret, `tofu init` for a provider returns `501` with `signing metadata not configured`.
+
+This target is called automatically by `make ui-deploy` (and therefore by `make ui-setup-oidc`). It is idempotent — if the secret already exists, it prints a message and exits without overwriting it.
 
 !!! note "How the OIDC split-URL works"
     The server pod discovers Dex at its in-cluster address (`http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`), which is not reachable from your browser. OpenDepot solves this with `ui.oidc.authzUrl`: the UI overrides the `authorization_endpoint` from OIDC discovery with the port-forwarded address (`http://localhost:5556/dex/auth`), so the browser can complete the PKCE redirect while the server still validates tokens using the in-cluster issuer URL.
@@ -214,6 +248,34 @@ To allow users to log in through the browser:
 2. Set `ui.oidc.enabled: true` in your Helm values.
 
 After logging in, users can browse all resources allowed by their `GroupBinding` in addition to the publicly-labelled set.
+
+## HCL Usage Snippets
+
+Every module and provider detail page (`/<namespace>/<kind>/<name>`) shows a **Usage** card with a ready-to-paste HCL block and a copy-to-clipboard button.
+
+For a **provider**, the card shows a `versions.tf` block:
+
+```hcl
+terraform {
+  required_providers {
+    <name> = {
+      source  = "<registryHost>/<namespace>/<name>"
+      version = "<latestVersion>"
+    }
+  }
+}
+```
+
+For a **module**, the card shows a `module` block:
+
+```hcl
+module "<name>" {
+  source  = "<registryHost>/<namespace>/<name>/<provider>"
+  version = "<latestVersion>"
+}
+```
+
+The registry host is derived automatically from `NEXT_PUBLIC_BASE_URL` (set by the Helm chart via `ui.baseUrl`). If the latest version is not yet synced, the `version` attribute is omitted from the snippet. No new Helm chart values or environment variables are required.
 
 ## Version Sync Warnings
 
