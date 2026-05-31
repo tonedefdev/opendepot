@@ -216,7 +216,8 @@ endif
 	    || { echo "ERROR: neither htpasswd nor the python3 bcrypt package is available." \
 	           "Install Apache tools (brew install httpd) or run: pip3 install bcrypt" >&2; exit 1; }; \
 	fi; \
-	tmpfile=$$(mktemp /tmp/opendepot-oidc-XXXXXX.yaml); \
+	rm -f /tmp/opendepot-oidc-XXXXXX.yaml; \
+	tmpfile=$$(mktemp -t opendepot-oidc) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'dex:' \
 	  '  enabled: true' \
@@ -312,7 +313,7 @@ oidc-setup: deploy oidc-tls oidc-deploy oidc-forward
 ## The module controller will sync from GitHub (public, no auth required).
 oidc-test-resources:
 	@echo "=== Creating test Module and GroupBinding ==="
-	@tmpfile=$$(mktemp /tmp/opendepot-test-XXXXXX.yaml); \
+	@tmpfile=$$(mktemp -t opendepot-test) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'apiVersion: opendepot.defdev.io/v1alpha1' \
 	  'kind: Module' \
@@ -425,7 +426,8 @@ endif
 	kubectl create secret generic ui-oidc-secret \
 	  --from-literal=clientSecret="$(UI_OIDC_SECRET)" \
 	  -n $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -; \
-	tmpfile=$$(mktemp /tmp/opendepot-ui-XXXXXX.yaml); \
+	rm -f /tmp/opendepot-ui-XXXXXX.yaml; \
+	tmpfile=$$(mktemp -t opendepot-ui) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'dex:' \
 	  '  enabled: true' \
