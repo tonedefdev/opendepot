@@ -216,7 +216,8 @@ endif
 	    || { echo "ERROR: neither htpasswd nor the python3 bcrypt package is available." \
 	           "Install Apache tools (brew install httpd) or run: pip3 install bcrypt" >&2; exit 1; }; \
 	fi; \
-	tmpfile=$$(mktemp /tmp/opendepot-oidc-XXXXXX.yaml); \
+	rm -f /tmp/opendepot-oidc-XXXXXX.yaml; \
+	tmpfile=$$(mktemp -t opendepot-oidc) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'dex:' \
 	  '  enabled: true' \
@@ -312,7 +313,7 @@ oidc-setup: deploy oidc-tls oidc-deploy oidc-forward
 ## The module controller will sync from GitHub (public, no auth required).
 oidc-test-resources:
 	@echo "=== Creating test Module and GroupBinding ==="
-	@tmpfile=$$(mktemp /tmp/opendepot-test-XXXXXX.yaml); \
+	@tmpfile=$$(mktemp -t opendepot-test) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'apiVersion: opendepot.defdev.io/v1alpha1' \
 	  'kind: Module' \
@@ -364,7 +365,30 @@ UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc ui-dev ui-dev-stop
+.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop
+
+## Generate a throwaway GPG keypair and create the provider signing secret for local testing.
+## Idempotent — skips if the secret already exists.
+ui-gpg-secret:
+	@kubectl create namespace $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null; \
+	if kubectl get secret opendepot-provider-gpg -n $(OIDC_NAMESPACE) >/dev/null 2>&1; then \
+	  echo "opendepot-provider-gpg already exists — skipping"; \
+	else \
+	  tmpdir=$$(mktemp -d -t opendepot-gpg); \
+	  printf '%%no-protection\nKey-Type: RSA\nKey-Length: 2048\nName-Real: OpenDepot Local\nName-Email: opendepot@local.test\nExpire-Date: 0\n%%commit\n' \
+	    > "$$tmpdir/keygen.conf"; \
+	  GNUPGHOME="$$tmpdir" gpg --batch --gen-key "$$tmpdir/keygen.conf" 2>/dev/null; \
+	  KEY_ID=$$(GNUPGHOME="$$tmpdir" gpg --list-keys --with-colons 2>/dev/null | awk -F: '/^fpr/{print $$10; exit}'); \
+	  ASCII_ARMOR=$$(GNUPGHOME="$$tmpdir" gpg --armor --export "$$KEY_ID" 2>/dev/null); \
+	  PRIV_B64=$$(GNUPGHOME="$$tmpdir" gpg --armor --export-secret-keys "$$KEY_ID" 2>/dev/null | base64 | tr -d '\n'); \
+	  kubectl create secret generic opendepot-provider-gpg \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_KEY_ID="$$KEY_ID" \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR="$$ASCII_ARMOR" \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64="$$PRIV_B64" \
+	    -n $(OIDC_NAMESPACE); \
+	  rm -rf "$$tmpdir"; \
+	  echo "Created opendepot-provider-gpg (key: $$KEY_ID)"; \
+	fi
 
 ## Create the session-cookie encryption secret for the UI. Idempotent — skips if it already exists.
 ui-session-secret:
@@ -401,15 +425,18 @@ ui-deploy-anon: ui-session-secret
 	  --set scanning.providerScanning=true \
 	  --set scanning.cache.storageClassName="standard" \
 	  --set scanning.cache.accessMode=ReadWriteOnce \
+	  --set server.stats.emptyDir=true \
 	  --set version.zapLogLevel=5 \
 	  --wait \
 	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
 
-## Deploy the UI with OIDC login (requires oidc-tls to be run first).
-## A dedicated UI OIDC client ($(UI_OIDC_CLIENT_ID)) is registered in Dex alongside
-## the existing tofu login client. The UI port-forwards to localhost:$(UI_PORT).
+## Full e2e deployment: UI + OIDC login + module/provider scanning + tofu login support.
+## This is the single target to validate the entire system end-to-end.
+## Deploys: server (OIDC), module, version, provider, depot, scanning (w/ provider scanning),
+## UI (OIDC), and Dex. Configures a test user ($(OIDC_EMAIL)) who can log in via the UI
+## and use `tofu login` through the UI proxy at http://opendepot.localtest.me:$(UI_PORT).
 ## Usage: make ui-deploy PASS=yourpassword
-ui-deploy: ui-session-secret
+ui-deploy: ui-session-secret ui-gpg-secret
 ifndef PASS
 	$(error PASS is required. Usage: make ui-deploy PASS=yourpassword)
 endif
@@ -423,7 +450,8 @@ endif
 	kubectl create secret generic ui-oidc-secret \
 	  --from-literal=clientSecret="$(UI_OIDC_SECRET)" \
 	  -n $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -; \
-	tmpfile=$$(mktemp /tmp/opendepot-ui-XXXXXX.yaml); \
+	rm -f /tmp/opendepot-ui-XXXXXX.yaml; \
+	tmpfile=$$(mktemp -t opendepot-ui) || { echo "ERROR: mktemp failed" >&2; exit 1; }; \
 	printf '%s\n' \
 	  'dex:' \
 	  '  enabled: true' \
@@ -439,6 +467,7 @@ endif
 	  '        - code' \
 	  '      grantTypes:' \
 	  '        - authorization_code' \
+	  '        - "urn:ietf:params:oauth:grant-type:device_code"' \
 	  '      skipApprovalScreen: true' \
 	  '    staticPasswords:' \
 	  '      - email: "$(OIDC_EMAIL)"' \
@@ -475,6 +504,8 @@ endif
 	  '  image:' \
 	  '    repository: $(REGISTRY)/server' \
 	  "    tag: \"$(TAG)\"" \
+	  '  gpg:' \
+	  '    secretName: opendepot-provider-gpg' \
 	  '  oidc:' \
 	  '    enabled: true' \
 	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
@@ -482,6 +513,24 @@ endif
 	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
 	  '    clientId: "$(OIDC_CLIENT_ID)"' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
+	  '    groupsClaim: "groups"' \
+	  '  stats:' \
+	  '    emptyDir: true' \
+	  'provider:' \
+	  '  enabled: true' \
+	  '  image:' \
+	  '    repository: $(REGISTRY)/provider-controller' \
+	  "    tag: \"$(TAG)\"" \
+	  'scanning:' \
+	  '  enabled: true' \
+	  '  providerScanning: true' \
+	  '  cache:' \
+	  '    storageClassName: standard' \
+	  '    accessMode: ReadWriteOnce' \
+	  'version:' \
+	  '  zapLogLevel: 5' \
+	  '  image:' \
+	  '    repository: $(REGISTRY)/version-controller' \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -500,12 +549,21 @@ endif
 	  '    clientId: "$(UI_OIDC_CLIENT_ID)"' \
 	  '    clientSecretName: ui-oidc-secret' \
 	  > "$$tmpfile"; \
-	echo "=== Deploying with UI + OIDC (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
+	echo "=== Deploying full e2e stack: UI + OIDC + scanning (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
 	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
 	  -n $(OIDC_NAMESPACE) --create-namespace \
 	  --set global.image.tag=$(TAG) \
 	  -f "$$tmpfile" --wait; \
-	rm -f "$$tmpfile"
+	rm -f "$$tmpfile"; \
+	echo "=== Seeding Trivy vulnerability DB cache ==="; \
+	kubectl create job trivy-cache-db --from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) --dry-run=client -o yaml \
+	  | kubectl apply -f -; \
+	kubectl wait --for=condition=complete job/trivy-cache-db -n $(OIDC_NAMESPACE) --timeout=5m \
+	  || echo "WARNING: Trivy cache seed job did not complete in 5m — scans will run online"; \
+	echo "=== Deployment complete ==="; \
+	echo "  UI:        http://opendepot.localtest.me:$(UI_PORT)  (run: make ui-forward)"; \
+	echo "  tofu login: tofu login opendepot.localtest.me:$(UI_PORT)"; \
+	echo "  Login:     $(OIDC_EMAIL) / <your PASS>"
 
 ## Start port-forwards for the UI and (when Dex is deployed) Dex.
 ## After running, open http://opendepot.localtest.me:$(UI_PORT) in your browser.
@@ -526,13 +584,35 @@ ui-stop:
 	@pkill -f "kubectl port-forward.*svc/$(OIDC_RELEASE_NAME)-dex" 2>/dev/null \
 	  && echo "Stopped Dex port-forward" || echo "Dex port-forward was not running"
 
+## Write ~/.tofurc so that `tofu login opendepot.localtest.me:$(OIDC_SERVER_PORT)` works over HTTP.
+## Requires that `make ui-forward` (or ui-setup-oidc) is already running to expose Dex on localhost:$(OIDC_DEX_PORT).
+## Usage: make ui-tofurc
+ui-tofurc:
+	@printf '%s\n' \
+	  'host "opendepot.localtest.me:$(OIDC_SERVER_PORT)" {' \
+	  '  services = {' \
+	  '    "modules.v1"   = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/modules/v1/"' \
+	  '    "providers.v1" = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/providers/v1/"' \
+	  '    "login.v1" = {' \
+	  '      client      = "$(OIDC_CLIENT_ID)"' \
+	  '      grant_types = ["authz_code"]' \
+	  '      authz       = "http://localhost:$(OIDC_DEX_PORT)/dex/auth"' \
+	  '      token       = "http://localhost:$(OIDC_DEX_PORT)/dex/token"' \
+	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
+	  '      ports       = [10000, 10010]' \
+	  '    }' \
+	  '  }' \
+	  '}' \
+	  > ~/.tofurc; \
+	echo "Wrote ~/.tofurc for opendepot.localtest.me:$(OIDC_SERVER_PORT) (Dex on localhost:$(OIDC_DEX_PORT))"
+
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
 ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
-## Build all images, deploy the UI with OIDC login, and start port-forwards.
+## Build all images, deploy the full e2e stack (UI + OIDC + scanning), and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: deploy oidc-tls ui-deploy ui-forward
+ui-setup-oidc: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80

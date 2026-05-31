@@ -27,6 +27,7 @@ import { SiGooglecloud } from "react-icons/si";
 import { FaAws, FaMicrosoft } from "react-icons/fa6";
 import { getStats, getDepotsGraph } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
+import { redirect } from "next/navigation";
 import RefreshIconButton from "@/components/RefreshIconButton";
 
 // Format bytes into human-readable string.
@@ -142,7 +143,11 @@ export default async function StatsPage() {
     stats = statsResult;
     totalDepots = graphResult.summary.totalDepots;
   } catch (err) {
-    fetchError = err instanceof Error ? err.message : "Failed to load stats.";
+    const msg = err instanceof Error ? err.message : "Failed to load stats.";
+    if (msg.includes("401") || msg.includes("unauthorized")) {
+      redirect("/auth/login");
+    }
+    fetchError = msg;
   }
 
   const syncTotal =

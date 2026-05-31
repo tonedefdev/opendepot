@@ -18,11 +18,13 @@ import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import Link from "next/link";
+import CodeIcon from "@mui/icons-material/Code";
 import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
+import UsageSnippet from "@/components/UsageSnippet";
 import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -165,6 +167,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   );
   const isProviderKind = kind === "provider";
 
+  const rawBase = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  const registryHost = rawBase ? new URL(rawBase).host : "your-opendepot-host";
+
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
       {/* Breadcrumbs */}
@@ -292,6 +297,18 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           )}
 
         </Box>
+      </SectionCard>
+
+      {/* Usage */}
+      <SectionCard icon={<CodeIcon fontSize="small" />} title="Usage">
+        <UsageSnippet
+          kind={isProviderKind ? "provider" : "module"}
+          namespace={detail.namespace}
+          name={detail.name}
+          provider={detail.provider}
+          latestVersion={detail.latestVersion}
+          registryHost={registryHost}
+        />
       </SectionCard>
 
       {/* Storage Configuration */}

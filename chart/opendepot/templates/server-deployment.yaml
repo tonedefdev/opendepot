@@ -78,7 +78,7 @@ spec:
         {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.mountPath }}
         - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
         {{- end }}
-        {{- if and .Values.server.stats.persistence.enabled }}
+        {{- if or .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
         - --stats-db-path=/data/stats/stats.db
         {{- end }}
         {{- if .Values.server.tls.enabled }}
@@ -101,7 +101,7 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.server.resources | nindent 10 }}
-        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
         volumeMounts:
         {{- if .Values.server.tls.enabled }}
         - name: tls
@@ -112,12 +112,12 @@ spec:
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
         {{- end }}
-        {{- if .Values.server.stats.persistence.enabled }}
+        {{- if or .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
         - name: stats-db
           mountPath: /data/stats
         {{- end }}
         {{- end }}
-      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
       volumes:
       {{- if .Values.server.tls.enabled }}
       - name: tls
@@ -139,6 +139,9 @@ spec:
       - name: stats-db
         persistentVolumeClaim:
           claimName: server-stats
+      {{- else if .Values.server.stats.emptyDir }}
+      - name: stats-db
+        emptyDir: {}
       {{- end }}
       {{- end }}
       {{- with .Values.server.nodeSelector }}

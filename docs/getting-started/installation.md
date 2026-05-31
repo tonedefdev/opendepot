@@ -130,12 +130,15 @@ helm install opendepot opendepot/opendepot \
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `server.stats.persistence.enabled` | `false` | Create a PVC for the download-events SQLite database. When `false`, events are tracked in memory and lost on restart. |
+| `server.stats.emptyDir` | `false` | Mount an ephemeral in-pod volume for the stats SQLite database. Data is lost on pod restart — suitable for local development and Kind clusters where no StorageClass is available. |
+| `server.stats.persistence.enabled` | `false` | Create a PVC for the download-events SQLite database. Recommended for production deployments. |
 | `server.stats.persistence.storageClassName` | `""` | StorageClass for the stats PVC. Leave blank to use the cluster default. |
 | `server.stats.persistence.size` | `1Gi` | PVC storage size |
 | `server.stats.persistence.accessMode` | `ReadWriteOnce` | PVC access mode. Do not change unless your storage class supports multi-writer access. |
 
-When `server.stats.persistence.enabled: true`, the chart creates a PVC named `server-stats` and mounts it at `/data/stats/` in the server deployment. The server is started with `--stats-db-path=/data/stats/stats.db` automatically.
+When either `server.stats.emptyDir: true` or `server.stats.persistence.enabled: true`, the chart mounts a volume at `/data/stats/` in the server deployment and starts the server with `--stats-db-path=/data/stats/stats.db`. When both are `false` (the default), download tracking is disabled entirely — no events are recorded.
+
+Use `server.stats.emptyDir: true` for local Kind clusters. Use `server.stats.persistence.enabled: true` for production deployments where stats must survive pod restarts.
 
 !!! warning "Single replica"
     The stats PVC uses `ReadWriteOnce`. Keep `server.replicaCount: 1` when stats persistence is enabled.

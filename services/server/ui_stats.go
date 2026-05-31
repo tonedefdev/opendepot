@@ -37,8 +37,11 @@ import (
 func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Determine caller visibility level — same logic as all other browse handlers.
-	binding, allAccess := browseAuthState(r)
+	// Gate access in OIDC mode — same policy as all other browse handlers.
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	namespace := r.URL.Query().Get("namespace")
 

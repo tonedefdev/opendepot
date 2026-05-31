@@ -235,7 +235,9 @@ func browseSAClient() (*kubernetes.Clientset, error) {
 }
 
 // browseAuthClientCredentials attempts to authenticate via OAuth2 client credentials.
-// Returns the GroupBinding and true on success, nil and false on any failure.
+// Returns the GroupBinding (may be nil when no GroupBinding matches) and verified=true
+// when the token was successfully verified as a client-credentials token.
+// Returns nil and false on any auth failure.
 func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendepotv1alpha1.GroupBinding, bool) {
 	if !*opendepotOIDCAllowClientCredentials || oidcCCVerifier == nil {
 		return nil, false
@@ -266,47 +268,44 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 		return nil, false
 	}
 
-	b, err := findGroupBinding(ctx, cs, []string{"client:" + sub})
-	if err != nil {
-		return nil, false
-	}
-
-	return b, false
+	b, _ := findGroupBinding(ctx, cs, []string{"client:" + sub})
+	// b may be nil when no GroupBinding matches — the CC client is still authenticated.
+	return b, true
 }
 
-// browseAuthState determines the authentication level for a browse request without
-// requiring auth (browse is public-accessible). Returns:
-//   - binding != nil: OIDC-authenticated caller; visibility = public ∪ GroupBinding-allowed
-//   - binding == nil, allAccess == true: anonymous-auth mode; all resources visible
-//   - binding == nil, allAccess == false: unauthenticated or authenticated without GroupBinding;
-//     visibility = public only
-func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, allAccess bool) {
+// browseAuthCheck gates browse access when the server is in OIDC mode with anonymous-auth
+// disabled. It writes an appropriate HTTP error and returns ok=false when the request must
+// be rejected. On success it returns the resolved GroupBinding (nil when none matches) and
+// the allAccess flag, following the same visibility semantics as the former browseAuthState.
+//
+// Gating rules (when oidcVerifier != nil && !anonymousAuth):
+//   - No Authorization header, or not a Bearer token → 401
+//   - Token fails all verification paths (OIDC, UI client, CC) → 401
+//   - Token valid, no GroupBinding match → (nil, false, true)  public-only visibility
+//   - Token valid, GroupBinding found   → (binding, false, true)
+//
+// When anonymous-auth is enabled or OIDC is not configured the function never rejects.
+func browseAuthCheck(w http.ResponseWriter, r *http.Request) (binding *opendepotv1alpha1.GroupBinding, allAccess bool, ok bool) {
 	if *opendepotAnonymousAuth {
-		// Anonymous auth mode: everyone sees all resources.
-		return nil, true
-	}
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return nil, false
+		return nil, true, true
 	}
 
 	if oidcVerifier == nil {
-		// Non-OIDC mode: no GroupBinding concept applies; public-only visibility.
-		return nil, false
+		// Non-OIDC mode: no gating; public-only visibility.
+		return nil, false, true
 	}
 
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return nil, false
+	// OIDC mode is active — require a valid Bearer token.
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return nil, false, false
 	}
 
 	rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 	idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
 	if err != nil {
 		// If a separate UI client ID is configured, try verifying as a UI token.
-		// This handles the case where the UI uses a confidential OIDC client
-		// (e.g. "opendepot-ui") whose tokens have a different audience than the
-		// server's primary client ID but still carry the groups claim.
 		if oidcUIVerifier != nil {
 			if uiToken, uiErr := oidcUIVerifier.Verify(r.Context(), rawToken); uiErr == nil {
 				idToken = uiToken
@@ -314,34 +313,42 @@ func browseAuthState(r *http.Request) (binding *opendepotv1alpha1.GroupBinding, 
 			}
 		}
 		if err != nil {
-			return browseAuthClientCredentials(r.Context(), rawToken)
+			// Try the client-credentials path.
+			if b, verified := browseAuthClientCredentials(r.Context(), rawToken); verified {
+				return b, false, true
+			}
+			// All verification paths exhausted — the token is invalid.
+			logger.Warn("browse: token verification failed", "error", err)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return nil, false, false
 		}
 	}
 
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		return nil, false
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return nil, false, false
 	}
 
 	groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
 	if len(groups) == 0 {
-		// JWT present and valid but missing groups — authenticated without GroupBinding.
-		// Public-only visibility.
-		return nil, false
+		// Valid token but no groups claim — authenticated without a GroupBinding.
+		return nil, false, true
 	}
 
 	cs, err := browseSAClient()
 	if err != nil {
-		return nil, false
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, false, false
 	}
 
 	b, err := findGroupBinding(r.Context(), cs, groups)
 	if err != nil {
 		// Authenticated but no matching GroupBinding → public-only visibility.
-		return nil, false
+		return nil, false, true
 	}
 
-	return b, false
+	return b, false, true
 }
 
 // browseListNamespaces returns only namespaces labelled opendepot.defdev.io/public=true
@@ -502,6 +509,10 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	if _, _, ok := browseAuthCheck(w, r); !ok {
+		return
+	}
+
 	cs, err := browseSAClient()
 	if err != nil {
 		logger.Error("browse: failed to create SA client", "error", err)
@@ -547,7 +558,10 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	binding, allAccess := browseAuthState(r)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -660,7 +674,10 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(chi.URLParam(r, "kind"))
 	name := chi.URLParam(r, "name")
 
-	binding, allAccess := browseAuthState(r)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -1498,7 +1515,10 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(chi.URLParam(r, "kind"))
 	name := chi.URLParam(r, "name")
 
-	binding, allAccess := browseAuthState(r)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -1633,7 +1653,10 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 	requestedVersion := strings.TrimPrefix(r.URL.Query().Get("version"), "v")
 	requestedBinaryVersion := opendepotUtils.SanitizeVersion(r.URL.Query().Get("binaryVersion"))
 
-	binding, allAccess := browseAuthState(r)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -1827,7 +1850,10 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	binding, allAccess := browseAuthState(r)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
+		return
+	}
 
 	cs, err := browseSAClient()
 	if err != nil {
@@ -1907,9 +1933,8 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	binding, allAccess := browseAuthState(r)
-	if !allAccess && binding == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	binding, allAccess, ok := browseAuthCheck(w, r)
+	if !ok {
 		return
 	}
 

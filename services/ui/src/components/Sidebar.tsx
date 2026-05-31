@@ -311,80 +311,84 @@ export default function Sidebar({
           </ListItem>
         </List>
 
-        <Divider sx={{ mx: 2, my: 1 }} />
+        {isOnHome && (
+          <>
+            <Divider sx={{ mx: 2, my: 1 }} />
 
-        {/* Kind filter */}
-        <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-          <Typography
-            variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-          >
-            Kind
-          </Typography>
-        </Box>
-        <Box sx={{ px: 1.5, pb: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-          {[
-            { label: "All", value: "" },
-            { label: "Module", value: "module" },
-            { label: "Provider", value: "provider" },
-          ].map((opt) => (
-            <Chip
-              key={opt.value || "all"}
-              label={opt.label}
-              size="small"
-              variant={currentKind === opt.value ? "filled" : "outlined"}
-              color={currentKind === opt.value ? "primary" : "default"}
-              onClick={() => isOnHome && navigate({ kind: opt.value })}
-              sx={{ cursor: "pointer" }}
-            />
-          ))}
-        </Box>
-
-        <Divider sx={{ mx: 2, my: 1 }} />
-
-        {/* Sort */}
-        <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-          <Typography
-            variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-          >
-            Sort by
-          </Typography>
-        </Box>
-        <List dense disablePadding>
-          {[
-            { label: "Name", value: "name" },
-            { label: "Namespace", value: "namespace" },
-            { label: "Latest Version", value: "latest_version" },
-            { label: "Last Scanned", value: "last_scanned" },
-          ].map((opt) => (
-            <ListItem key={opt.value} disablePadding>
-              <ListItemButton
-                selected={currentSort === opt.value}
-                onClick={() => isOnHome && navigate({ sort_by: opt.value })}
-                sx={{
-                  mx: 1,
-                  borderRadius: "6px",
-                  py: 0.5,
-                  "&.Mui-selected": {
-                    background: "rgba(4,207,208,0.12)",
-                    color: "primary.main",
-                  },
-                  "&.Mui-selected:hover": {
-                    background: "rgba(4,207,208,0.18)",
-                  },
-                }}
+            {/* Kind filter */}
+            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
+              <Typography
+                variant="caption"
+                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
               >
-                <ListItemText
-                  primary={opt.label}
-                  primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: currentSort === opt.value ? 600 : 400 }}
+                Kind
+              </Typography>
+            </Box>
+            <Box sx={{ px: 1.5, pb: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+              {[
+                { label: "All", value: "" },
+                { label: "Module", value: "module" },
+                { label: "Provider", value: "provider" },
+              ].map((opt) => (
+                <Chip
+                  key={opt.value || "all"}
+                  label={opt.label}
+                  size="small"
+                  variant={currentKind === opt.value ? "filled" : "outlined"}
+                  color={currentKind === opt.value ? "primary" : "default"}
+                  onClick={() => navigate({ kind: opt.value })}
+                  sx={{ cursor: "pointer" }}
                 />
-              </ListItemButton>
-            </ListItem>
-          ))}
-        </List>
+              ))}
+            </Box>
 
-        <Divider sx={{ mx: 2, my: 1 }} />
+            <Divider sx={{ mx: 2, my: 1 }} />
+
+            {/* Sort */}
+            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
+              <Typography
+                variant="caption"
+                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+              >
+                Sort by
+              </Typography>
+            </Box>
+            <List dense disablePadding>
+              {[
+                { label: "Name", value: "name" },
+                { label: "Namespace", value: "namespace" },
+                { label: "Latest Version", value: "latest_version" },
+                { label: "Last Scanned", value: "last_scanned" },
+              ].map((opt) => (
+                <ListItem key={opt.value} disablePadding>
+                  <ListItemButton
+                    selected={currentSort === opt.value}
+                    onClick={() => navigate({ sort_by: opt.value })}
+                    sx={{
+                      mx: 1,
+                      borderRadius: "6px",
+                      py: 0.5,
+                      "&.Mui-selected": {
+                        background: "rgba(4,207,208,0.12)",
+                        color: "primary.main",
+                      },
+                      "&.Mui-selected:hover": {
+                        background: "rgba(4,207,208,0.18)",
+                      },
+                    }}
+                  >
+                    <ListItemText
+                      primary={opt.label}
+                      primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: currentSort === opt.value ? 600 : 400 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+
+            <Divider sx={{ mx: 2, my: 1 }} />
+          </>
+        )}
 
         {/* Namespace filter */}
         {namespaces.length > 0 && (

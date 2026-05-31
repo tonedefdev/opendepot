@@ -588,6 +588,8 @@ To test the full OIDC login flow with user accounts and `GroupBinding` visibilit
 make ui-setup-oidc PASS=yourpassword
 ```
 
+This deploys the UI with OIDC login, enables the provider controller and Trivy scanning, auto-creates the GPG signing secret required for provider shasums, and writes `~/.tofurc` so `tofu login opendepot.localtest.me:8080` works immediately after setup. No `mkcert` or TLS certificate is required.
+
 See the [Registry Explorer UI guide](../guides/registry-explorer.md) for the complete setup, public visibility labels, and `GroupBinding` configuration.
 
 

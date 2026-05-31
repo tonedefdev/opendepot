@@ -182,10 +182,12 @@ server:
   tolerations: []
   affinity: {}
   stats:
+    # emptyDir enables stats tracking using an in-pod ephemeral volume. Data is
+    # lost on pod restart — suitable for local development and Kind clusters.
+    emptyDir: false
     persistence:
       # enabled controls whether a PersistentVolumeClaim is created for the stats
-      # SQLite database. When false the --stats-db-path flag is not set and download
-      # tracking is disabled.
+      # SQLite database. When false (and emptyDir is false) download tracking is disabled.
       enabled: false
       storageClassName: ""
       size: 1Gi

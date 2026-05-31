@@ -2687,8 +2687,23 @@ spec:
 			gbDeleteGroupBinding(gbBrowseGroupBinding)
 		})
 
-		It("should return only public resources for an unauthenticated browse request", func() {
+		It("should return 401 for an unauthenticated browse request in OIDC mode", func() {
 			resp, err := http.Get(gbBrowseURL("/opendepot/ui/v1/resources?kind=module"))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
+				"unauthenticated browse must be rejected with 401 when OIDC mode is active")
+		})
+
+		It("should return only public resources for an authenticated caller with no GroupBinding", func() {
+			// No GroupBinding has been applied yet in this context — the caller is
+			// authenticated (valid JWT) but has no GroupBinding match → public-only.
+			req, err := http.NewRequest(http.MethodGet,
+				gbBrowseURL("/opendepot/ui/v1/resources?kind=module"), nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Authorization", "Bearer "+gbOIDCJWT)
+
+			resp, err := http.DefaultClient.Do(req)
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -2703,9 +2718,8 @@ spec:
 			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
 
 			for _, item := range body.Items {
-				// Every item returned without auth must be public.
 				Expect(item.Public).To(BeTrue(),
-					"unauthenticated browse must only return public resources; got non-public item %s/%s",
+					"authenticated caller without a GroupBinding must only see public resources; got non-public item %s/%s",
 					item.Namespace, item.Name)
 			}
 
@@ -2714,7 +2728,7 @@ spec:
 				names = append(names, item.Name)
 			}
 			Expect(names).NotTo(ContainElement(browsePrivMod),
-				"private module must not appear in an unauthenticated browse response")
+				"private module must not appear when the authenticated caller has no GroupBinding")
 		})
 
 		It("should include private resource when authenticated caller has matching GroupBinding", func() {
