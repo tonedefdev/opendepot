@@ -249,6 +249,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	mostDownloaded, err := queryMostDownloaded(r.Context(), statsClient, namespace, 10)
 	if err != nil {
 		logger.Error("stats: failed to query most downloaded", "error", err)
+		mostDownloaded = []PopularResource{}
 	}
 
 	// Filter mostDownloaded to only include resources the caller can see.

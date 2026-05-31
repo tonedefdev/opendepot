@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -254,7 +255,7 @@ type resourceDownloadStats struct {
 func splitLeaderboardMember(s string) (ns, kind, name, version string, ok bool) {
 	// Members use "/" as separator; version strings can contain "/" in edge cases
 	// but conventionally do not. Split on first three "/" occurrences only.
-	parts := splitN(s, "/", 4)
+	parts := strings.SplitN(s, "/", 4)
 	if len(parts) != 4 {
 		return "", "", "", "", false
 	}
@@ -263,7 +264,7 @@ func splitLeaderboardMember(s string) (ns, kind, name, version string, ok bool) 
 
 // splitResourceKey splits a key of the form "namespace/kind/name".
 func splitResourceKey(s string) (ns, kind, name string, ok bool) {
-	parts := splitN(s, "/", 3)
+	parts := strings.SplitN(s, "/", 3)
 	if len(parts) != 3 {
 		return "", "", "", false
 	}
@@ -272,35 +273,9 @@ func splitResourceKey(s string) (ns, kind, name string, ok bool) {
 
 // splitVersionKey splits a key of the form "namespace/kind/name/version".
 func splitVersionKey(s string) (ns, kind, name, version string, ok bool) {
-	parts := splitN(s, "/", 4)
+	parts := strings.SplitN(s, "/", 4)
 	if len(parts) != 4 {
 		return "", "", "", "", false
 	}
 	return parts[0], parts[1], parts[2], parts[3], true
-}
-
-// splitN splits s by sep up to n parts, similar to strings.SplitN but avoids
-// importing strings just for this helper.
-func splitN(s, sep string, n int) []string {
-	var parts []string
-	for len(parts) < n-1 {
-		idx := indexOf(s, sep)
-		if idx < 0 {
-			break
-		}
-		parts = append(parts, s[:idx])
-		s = s[idx+len(sep):]
-	}
-	parts = append(parts, s)
-	return parts
-}
-
-// indexOf returns the index of the first occurrence of sub in s, or -1.
-func indexOf(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

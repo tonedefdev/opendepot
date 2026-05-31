@@ -444,6 +444,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		for _, m := range list.Items {
 			keys = append(keys, m.Namespace+"/module/"+m.Name)
 		}
+
 		return keys
 	}())
 
@@ -489,6 +490,7 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		for _, p := range list.Items {
 			keys = append(keys, p.Namespace+"/provider/"+p.Name)
 		}
+
 		return keys
 	}())
 

@@ -280,8 +280,6 @@ github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7 h1:RsSO5aKpbhEE/qNXhLlLl7zae
 github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7/go.mod h1:fAkqWqqNWN+RJmgYh75DCQ/TIOJIGvlSECxV+GCKoxc=
 github.com/tonedefdev/opendepot/pkg/github v0.2.7 h1:ufVqDW/otxkKc0dRJQJAn+Q2P2LHluvyrOrveYr7u2Q=
 github.com/tonedefdev/opendepot/pkg/github v0.2.7/go.mod h1:zHEDMTMptGOsdRWdqcUlxbEFgFw4CBEQzuhGgnVYzcw=
-github.com/tonedefdev/opendepot/pkg/registry v0.0.0-20260531013401-7bafdedbe77f h1:nspEeT4ppFewddNG+NmsqR5JOlqBPRdqxrO9r4sL4Fc=
-github.com/tonedefdev/opendepot/pkg/registry v0.0.0-20260531013401-7bafdedbe77f/go.mod h1:XlyJuLAVbeL0cT1OkJp2GkBDWKN4B6QM6VtFPyhYdQs=
 github.com/tonedefdev/opendepot/pkg/storage v0.2.7 h1:9eEZHOVMJ3HTUIkDXDBvGb3kp+huIOrUNW5Nz3NRSyQ=
 github.com/tonedefdev/opendepot/pkg/storage v0.2.7/go.mod h1:RGwm+erGodklHxwYZy115g0e5TQa7PePCW/DIxTY4Zw=
 github.com/tonedefdev/opendepot/pkg/testutils v0.2.7 h1:zxeFJyrTm4puMYkrYlv8qv+z3OUSGFXN+xg+0H3Q0BU=

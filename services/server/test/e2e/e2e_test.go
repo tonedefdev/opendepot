@@ -1969,6 +1969,102 @@ server:
 					"versions endpoint must return 200 or 404, not an internal error")
 			}
 		})
+
+		It("totalDownloads increments after a real module download and mostDownloaded is populated", func() {
+			const (
+				statsModuleName    = "stats-smoke-module"
+				statsModuleVersion = "2.0.0"
+				statsModuleNS      = "opendepot-system"
+			)
+			// Version CR name follows the sanitizeModuleVersionForLookup convention:
+			// dots replaced with hyphens → "stats-smoke-module-2-0-0".
+			versionCRName := fmt.Sprintf("%s-2-0-0", statsModuleName)
+
+			By("creating a Module CR so the stats visibility filter can match it")
+			moduleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  moduleConfig:
+    provider: aws
+    storageConfig:
+      fileSystem:
+        directoryPath: "/data/modules"
+  versions:
+  - version: "2.0.0"
+`, statsModuleName, statsModuleNS)
+			moduleCmd := exec.Command("kubectl", "apply", "-f", "-")
+			moduleCmd.Stdin = strings.NewReader(moduleYAML)
+			_, err := utils.Run(moduleCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating a Version CR with filesystem storage and a checksum")
+			dirPath := "/data/modules"
+			fileName := "stats-smoke-module.tar.gz"
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: "%s"
+  fileName: "%s"
+  moduleConfigRef:
+    name: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: "%s"
+`, versionCRName, statsModuleNS, statsModuleVersion, fileName, statsModuleName, dirPath)
+			applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+			applyCmd.Stdin = strings.NewReader(versionYAML)
+			_, err = utils.Run(applyCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("patching the Version CR status to set a checksum")
+			patchCmd := exec.Command("kubectl", "patch", "version", versionCRName,
+				"-n", statsModuleNS,
+				"--subresource=status",
+				"--type=merge",
+				`--patch={"status":{"synced":true,"syncStatus":"Synced","checksum":"abc123"}}`)
+			_, err = utils.Run(patchCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("triggering the module download endpoint to record a stat")
+			downloadURL := fmt.Sprintf("http://localhost:%d/opendepot/modules/v1/%s/%s/aws/%s/download",
+				serverLocalPort, statsModuleNS, statsModuleName, statsModuleVersion)
+			resp, err := http.Get(downloadURL)
+			Expect(err).NotTo(HaveOccurred())
+			resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent),
+				"download redirect must return 204 so that recordDownload is called")
+
+			By("asserting totalDownloads >= 1 from the stats endpoint")
+			statsResp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer statsResp.Body.Close()
+			Expect(statsResp.StatusCode).To(Equal(http.StatusOK))
+
+			var stats struct {
+				TotalDownloads int           `json:"totalDownloads"`
+				MostDownloaded []interface{} `json:"mostDownloaded"`
+			}
+			Expect(json.NewDecoder(statsResp.Body).Decode(&stats)).To(Succeed())
+			Expect(stats.TotalDownloads).To(BeNumerically(">=", 1),
+				"totalDownloads must be at least 1 after a recorded download")
+			Expect(len(stats.MostDownloaded)).To(BeNumerically(">=", 1),
+				"mostDownloaded must be non-empty after a recorded download")
+
+			By("cleaning up the smoke test Version and Module CRs")
+			cleanCmd := exec.Command("kubectl", "delete", "version", versionCRName,
+				"-n", statsModuleNS, "--ignore-not-found")
+			_, _ = utils.Run(cleanCmd)
+			cleanModuleCmd := exec.Command("kubectl", "delete", "module", statsModuleName,
+				"-n", statsModuleNS, "--ignore-not-found")
+			_, _ = utils.Run(cleanModuleCmd)
+		})
 	})
 })
 
