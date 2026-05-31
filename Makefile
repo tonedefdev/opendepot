@@ -365,7 +365,7 @@ UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc ui-dev ui-dev-stop
+.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop
 
 ## Create the session-cookie encryption secret for the UI. Idempotent — skips if it already exists.
 ui-session-secret:
@@ -556,13 +556,35 @@ ui-stop:
 	@pkill -f "kubectl port-forward.*svc/$(OIDC_RELEASE_NAME)-dex" 2>/dev/null \
 	  && echo "Stopped Dex port-forward" || echo "Dex port-forward was not running"
 
+## Write ~/.tofurc so that `tofu login opendepot.localtest.me:$(OIDC_SERVER_PORT)` works over HTTP.
+## Requires that `make ui-forward` (or ui-setup-oidc) is already running to expose Dex on localhost:$(OIDC_DEX_PORT).
+## Usage: make ui-tofurc
+ui-tofurc:
+	@printf '%s\n' \
+	  'host "opendepot.localtest.me:$(OIDC_SERVER_PORT)" {' \
+	  '  services = {' \
+	  '    "modules.v1"   = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/modules/v1/"' \
+	  '    "providers.v1" = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/providers/v1/"' \
+	  '    "login.v1" = {' \
+	  '      client      = "$(OIDC_CLIENT_ID)"' \
+	  '      grant_types = ["urn:ietf:params:oauth:grant-type:device_code"]' \
+	  '      authz       = "http://localhost:$(OIDC_DEX_PORT)/dex/auth"' \
+	  '      token       = "http://localhost:$(OIDC_DEX_PORT)/dex/token"' \
+	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
+	  '      ports       = [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]' \
+	  '    }' \
+	  '  }' \
+	  '}' \
+	  > ~/.tofurc; \
+	echo "Wrote ~/.tofurc for opendepot.localtest.me:$(OIDC_SERVER_PORT) (Dex on localhost:$(OIDC_DEX_PORT))"
+
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
 ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
 ## Build all images, deploy the full e2e stack (UI + OIDC + scanning), and start port-forwards.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward
+ui-setup-oidc: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80
