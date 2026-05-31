@@ -240,19 +240,15 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 
 	secPosture.TotalAffectedResources = len(affectedResources)
 
-	// Query download stats from SQLite.
-	totalDownloads, err := queryTotalDownloads(r.Context(), statsDB, namespace)
+	// Query download stats from Valkey.
+	totalDownloads, err := queryTotalDownloads(r.Context(), statsClient, namespace)
 	if err != nil {
 		logger.Error("stats: failed to query total downloads", "error", err)
 	}
 
-	mostDownloaded, err := queryMostDownloaded(r.Context(), statsDB, namespace, 10)
+	mostDownloaded, err := queryMostDownloaded(r.Context(), statsClient, namespace, 10)
 	if err != nil {
 		logger.Error("stats: failed to query most downloaded", "error", err)
-	}
-
-	if mostDownloaded == nil {
-		mostDownloaded = []PopularResource{}
 	}
 
 	// Filter mostDownloaded to only include resources the caller can see.

@@ -146,7 +146,7 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	// serveModuleFrom* handlers because the Terraform module protocol requires clients
 	// to call this endpoint first; namespace and version are only available here.
 	// The serveModuleFrom* routes do not carry namespace or version URL params.
-	_ = recordDownload(r.Context(), statsDB, chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), chi.URLParam(r, "version"))
+	_ = recordDownload(r.Context(), statsClient, chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), chi.URLParam(r, "version"))
 	w.WriteHeader(http.StatusNoContent)
 }
 

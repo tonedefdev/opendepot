@@ -112,7 +112,7 @@ type BrowseResource struct {
 	LastScanned string            `json:"lastScanned,omitempty"`
 	// Public reports whether the namespace and resource are both explicitly public.
 	Public bool `json:"public"`
-	// Download stats (populated from SQLite when stats tracking is enabled).
+	// Download stats (populated from Valkey).
 	TotalDownloads   int64  `json:"totalDownloads,omitempty"`
 	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
 }

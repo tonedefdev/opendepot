@@ -439,7 +439,13 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		return nil, fmt.Errorf("failed to unmarshal module list: %w", err)
 	}
 
-	dlStats, _ := queryAllResourceDownloadStats(r.Context(), statsDB, "")
+	dlStats, _ := batchResourceDownloadStats(r.Context(), statsClient, func() []string {
+		keys := make([]string, 0, len(list.Items))
+		for _, m := range list.Items {
+			keys = append(keys, m.Namespace+"/module/"+m.Name)
+		}
+		return keys
+	}())
 
 	var items []BrowseResource
 	for _, m := range list.Items {
@@ -478,7 +484,13 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		return nil, fmt.Errorf("failed to unmarshal provider list: %w", err)
 	}
 
-	dlStats, _ := queryAllResourceDownloadStats(r.Context(), statsDB, "")
+	dlStats, _ := batchResourceDownloadStats(r.Context(), statsClient, func() []string {
+		keys := make([]string, 0, len(list.Items))
+		for _, p := range list.Items {
+			keys = append(keys, p.Namespace+"/provider/"+p.Name)
+		}
+		return keys
+	}())
 
 	var items []BrowseResource
 	for _, p := range list.Items {
@@ -1221,21 +1233,25 @@ func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1al
 }
 
 // enrichVersionSummariesWithDownloads populates DownloadCount and LastDownloadedAt on each
-// BrowseVersionSummary by issuing a single batch query against the stats DB.
+// BrowseVersionSummary by issuing a single batch query against Valkey.
 func enrichVersionSummariesWithDownloads(ctx context.Context, summaries []BrowseVersionSummary, namespace, kind, name string) {
-	if statsDB == nil || len(summaries) == 0 {
+	if len(summaries) == 0 {
 		return
 	}
 
-	dlStats, err := queryAllVersionDownloadStats(ctx, statsDB, namespace)
+	keys := make([]string, len(summaries))
+	for i := range summaries {
+		keys[i] = namespace + "/" + kind + "/" + name + "/" + summaries[i].Version
+	}
+
+	dlStats, err := batchVersionDownloadStats(ctx, statsClient, keys)
 	if err != nil {
 		logger.Error("browse: failed to query version download stats", "error", err)
 		return
 	}
 
 	for i := range summaries {
-		key := namespace + "/" + kind + "/" + name + "/" + summaries[i].Version
-		if s, ok := dlStats[key]; ok {
+		if s, ok := dlStats[keys[i]]; ok {
 			summaries[i].DownloadCount = s.Count
 			summaries[i].LastDownloadedAt = s.LastAt
 		}

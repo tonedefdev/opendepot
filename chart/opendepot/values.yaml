@@ -181,17 +181,6 @@ server:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-  stats:
-    # emptyDir enables stats tracking using an in-pod ephemeral volume. Data is
-    # lost on pod restart — suitable for local development and Kind clusters.
-    emptyDir: false
-    persistence:
-      # enabled controls whether a PersistentVolumeClaim is created for the stats
-      # SQLite database. When false (and emptyDir is false) download tracking is disabled.
-      enabled: false
-      storageClassName: ""
-      size: 1Gi
-      accessMode: ReadWriteOnce
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false
@@ -408,6 +397,27 @@ ui:
       memory: 128Mi
     limits:
       memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## Valkey (Redis-compatible) statistics store
+## Valkey is always deployed alongside the server for download stats tracking.
+valkey:
+  image:
+    repository: valkey/valkey
+    tag: "8"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 1Gi
+    accessMode: ReadWriteOnce
   nodeSelector: {}
   tolerations: []
   affinity: {}

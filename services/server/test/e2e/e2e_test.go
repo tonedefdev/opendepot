@@ -77,6 +77,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
+			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
@@ -85,6 +86,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--set", "server.enabled=true",
 			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
+			"--set", "valkey.persistence.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -1927,9 +1929,8 @@ server:
 		})
 
 		It("browse resources response includes totalDownloads and lastDownloadedAt fields", func() {
-			// The stats fields are zero-valued when no downloads have been recorded yet
-			// (server deployed without --stats-db-path in this context). The test
-			// verifies the fields are present and parseable — not that they are non-zero.
+			// The stats fields are zero-valued when no downloads have been recorded yet.
+			// The test verifies the fields are present and parseable — not that they are non-zero.
 			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources?pageSize=1", serverLocalPort))
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
@@ -1998,6 +1999,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
+			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
@@ -2009,6 +2011,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			// Anonymous auth so the SA client path is exercised.
 			"--set", "server.anonymousAuth=true",
 			"--set", "server.useBearerToken=false",
+			"--set", "valkey.persistence.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -2540,11 +2543,6 @@ spec:
 			}
 			pfCancel = nil
 
-			By("uninstalling previous Helm release before OIDC redeployment")
-			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
-				"--namespace", namespace, "--ignore-not-found")
-			_, _ = utils.Run(uninstallCmd)
-
 			By("generating bcrypt hash for the GroupBinding browse test password")
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbBrowseUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
@@ -2597,6 +2595,7 @@ server:
 				"--create-namespace",
 				"--namespace", namespace,
 				"--skip-crds",
+				"--force-conflicts",
 				"--set", "global.image.tag=",
 				"--set", "depot.enabled=false",
 				"--set", "module.enabled=false",
@@ -2607,6 +2606,7 @@ server:
 				"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
+				"--set", "valkey.persistence.enabled=false",
 				"-f", valuesFile,
 				"--wait",
 				"--timeout", "10m",
