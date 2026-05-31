@@ -17,11 +17,23 @@ export default function CopyButton({ value, size = "small" }: CopyButtonProps) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        // Fallback for non-HTTPS contexts (e.g. local dev with a custom hostname).
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      // Clipboard API may be unavailable in non-HTTPS contexts — silently ignore.
+      // If all clipboard methods fail, silently ignore.
     }
   };
 
