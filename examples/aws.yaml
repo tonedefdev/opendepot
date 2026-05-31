@@ -1,0 +1,18 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: aws
+  namespace: opendepot-system
+spec:
+  providerConfig:
+    architectures:
+    - arm64
+    name: aws
+    operatingSystems:
+    - darwin
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+    versionConstraints: 6.0.0
+  versions:
+  - version: 6.0.0

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -22,10 +23,15 @@ var (
 	opendepotOIDCGroupsClaim            *string
 	opendepotOIDCAllowSAFallback        *bool
 	opendepotOIDCAllowClientCredentials *bool
+	opendepotOIDCUIClientID             *string
 	opendepotOIDCAuthzURL               *string
 	opendepotOIDCTokenURL               *string
 	opendepotServerNamespace            *string
 	opendepotFilesystemMountPath        *string
+
+	// statsDB is the optional SQLite database used to track download events.
+	// It is nil when --stats-db-path is empty (stats tracking disabled).
+	statsDB *sql.DB
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -34,6 +40,11 @@ var (
 	// used only for the client credentials path when --oidc-allow-client-credentials
 	// is set, to accept tokens issued for a different client ID by the same Dex.
 	oidcCCVerifier *gooidc.IDTokenVerifier
+	// oidcUIVerifier is like oidcVerifier but uses the UI client ID as the expected
+	// audience. Set when --oidc-ui-client-id is provided to allow the UI's OIDC
+	// tokens (issued under a separate client registration) to be accepted by the
+	// browse endpoints for GroupBinding evaluation.
+	oidcUIVerifier *gooidc.IDTokenVerifier
 	// oidcProvider is the discovered OIDC provider; its Endpoint() is used to
 	// populate the login.v1 service discovery response.
 	oidcProvider *gooidc.Provider
@@ -52,13 +63,25 @@ func main() {
 	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
 	opendepotOIDCAllowSAFallback = flag.Bool("oidc-allow-sa-fallback", false, "when true and OIDC mode is active, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer token path using the caller's own RBAC; GroupBinding is bypassed for SA tokens")
 	opendepotOIDCAllowClientCredentials = flag.Bool("oidc-allow-client-credentials", false, "when true and OIDC mode is active, Dex client credentials tokens (audience != oidc-client-id) are accepted; the token's sub claim is mapped to a virtual group \"client:<sub>\" and evaluated against GroupBinding resources")
+	opendepotOIDCUIClientID = flag.String("oidc-ui-client-id", "", "when set, tokens issued to this OIDC client ID are also accepted by browse endpoints; use when the UI registers as a separate confidential client from the main --oidc-client-id")
 	opendepotOIDCAuthzURL = flag.String("oidc-authz-url", "", "override the authorization URL advertised in /.well-known/terraform.json login.v1; when blank uses the authz URL from the OIDC provider discovery document")
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
+	opendepotStatsDBPath := flag.String("stats-db-path", "", "path to SQLite stats database file; when empty download tracking is disabled")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
+
+	if *opendepotStatsDBPath != "" {
+		db, err := initStatsDB(*opendepotStatsDBPath)
+		if err != nil {
+			logger.Error("failed to initialise stats database", "path", *opendepotStatsDBPath, "error", err)
+			os.Exit(1)
+		}
+		statsDB = db
+		logger.Info("stats tracking enabled", "path", *opendepotStatsDBPath)
+	}
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")
@@ -93,10 +116,16 @@ func main() {
 			oidcCCVerifier = provider.Verifier(&gooidc.Config{SkipClientIDCheck: true})
 		}
 
+		if *opendepotOIDCUIClientID != "" {
+			oidcUIVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCUIClientID})
+			logger.Info("OIDC UI client ID configured", "uiClientId", *opendepotOIDCUIClientID)
+		}
+
 		logger.Info("OIDC auth mode enabled", "issuerUrl", *opendepotOIDCIssuerURL, "clientId", *opendepotOIDCClientID)
 	}
 
 	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 	r.Get("/.well-known/terraform.json", serviceDiscoveryHandler)
 	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/versions", getModuleVersions)
@@ -111,6 +140,15 @@ func main() {
 	r.Get("/opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}", serveModuleFromFileSystem)
 	r.Get("/opendepot/modules/v1/download/gcs/{bucket}/{name}/{fileName}", serveModuleFromGCS)
 	r.Get("/opendepot/modules/v1/download/s3/{bucket}/{region}/{name}/{fileName}", serveModuleFromS3)
+
+	r.Get("/opendepot/ui/v1/namespaces", handleBrowseNamespaces)
+	r.Get("/opendepot/ui/v1/resources", handleBrowseResources)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}", handleBrowseResourceDetail)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions", handleBrowseVersionsList)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings", handleBrowseScanFindings)
+	r.Get("/opendepot/ui/v1/depots", handleBrowseDepots)
+	r.Get("/opendepot/ui/v1/depots/graph", handleBrowseDepotsGraph)
+	r.Get("/opendepot/ui/v1/stats", handleBrowseStats)
 
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
 		logger.Info("Server started and listening on port 8080 with TLS")

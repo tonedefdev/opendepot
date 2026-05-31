@@ -12,10 +12,32 @@ spec:
   gateways:
   - {{ .Values.server.ingress.istio.gateway }}
   http:
+  {{- if .Values.ui.enabled }}
+  # Registry protocol and API paths route to the server service.
+  - name: opendepot-server-protocol
+    match:
+    - uri:
+        prefix: /opendepot
+    - uri:
+        prefix: /.well-known
+    route:
+    - destination:
+        host: server
+        port:
+          number: {{ .Values.server.service.port }}
+  # Root and all remaining paths route to the UI service.
+  - name: opendepot-ui
+    route:
+    - destination:
+        host: ui
+        port:
+          number: {{ .Values.ui.service.port }}
+  {{- else }}
   - name: opendepot-server
     route:
     - destination:
         host: server
         port:
           number: {{ .Values.server.service.port }}
+  {{- end }}
 {{- end }}

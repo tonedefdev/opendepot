@@ -27,6 +27,10 @@ spec:
       - name: depot-controller
         image: "{{ .Values.depot.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.depot.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- if .Values.depot.zapLogLevel }}
+        args:
+        - --zap-log-level={{ .Values.depot.zapLogLevel }}
+        {{- end }}
         {{- if .Values.rbac.scopeToNamespace }}
         env:
         - name: WATCH_NAMESPACE

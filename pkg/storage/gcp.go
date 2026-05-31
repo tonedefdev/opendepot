@@ -138,19 +138,24 @@ func (gcs *GoogleCloudStorage) PutObject(ctx context.Context, soi *storagetypes.
 
 	// Write the file bytes
 	if soi.FileReader != nil {
-		if _, err := io.Copy(wc, soi.FileReader); err != nil {
+		n, err := io.Copy(wc, soi.FileReader)
+		if err != nil {
 			wc.Close()
 			return err
 		}
+		soi.BytesWritten = n
 	} else {
-		if _, err := wc.Write(soi.FileBytes); err != nil {
+		n, err := wc.Write(soi.FileBytes)
+		if err != nil {
 			wc.Close()
 			return err
 		}
+		soi.BytesWritten = int64(n)
 	}
 
 	// Close the writer to finalize the upload
 	if err := wc.Close(); err != nil {
+		soi.BytesWritten = 0
 		return err
 	}
 

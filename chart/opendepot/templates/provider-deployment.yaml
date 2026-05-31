@@ -27,6 +27,10 @@ spec:
       - name: provider-controller
         image: "{{ .Values.provider.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.provider.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- if .Values.provider.zapLogLevel }}
+        args:
+        - --zap-log-level={{ .Values.provider.zapLogLevel }}
+        {{- end }}
         {{- if .Values.rbac.scopeToNamespace }}
         env:
         - name: WATCH_NAMESPACE

@@ -257,31 +257,20 @@ type SecurityFinding struct {
 	Title string `json:"title,omitempty"`
 }
 
-// ModuleSourceScan holds the results of a Trivy IaC (filesystem) scan for a specific module version archive.
-// Scan results are stored on VersionStatus because each module version contains distinct HCL source.
-type ModuleSourceScan struct {
+// SourceScan holds the results of a Trivy source scan. Used for both module IaC (HCL filesystem)
+// scans and provider go.mod dependency scans. Stored on VersionStatus so each Version CR carries
+// its own result; the JSON key is "sourceScan".
+type SourceScan struct {
 	// The RFC3339 timestamp at which the source scan completed.
 	ScannedAt string `json:"scannedAt"`
-	// The list of IaC findings found in the module's HCL source.
+	// The list of findings produced by the scan.
 	Findings []SecurityFinding `json:"findings,omitempty"`
 }
 
-// ProviderSourceScan holds the results of a Trivy source scan (go.mod) for a specific provider version.
-// Source scan results are stored on ProviderStatus rather than VersionStatus because all OS/arch
-// variants of the same provider version share identical source code — scanning once is sufficient.
-type ProviderSourceScan struct {
-	// The RFC3339 timestamp at which the source scan completed.
-	ScannedAt string `json:"scannedAt"`
-	// The provider version that was scanned. Used for deduplication across OS/arch Version resources.
-	Version string `json:"version"`
-	// The list of vulnerabilities found in the provider's source dependencies (go.mod).
-	Findings []SecurityFinding `json:"findings,omitempty"`
-}
-
-// ProviderBinaryScan holds the results of a Trivy binary scan (gobinary) for a specific provider artifact.
-// Binary scan results are stored on VersionStatus because each OS/arch binary may embed different
-// Go stdlib versions or runtime dependencies.
-type ProviderBinaryScan struct {
+// BinaryScan holds the results of a Trivy gobinary scan for a specific provider artifact.
+// Stored on VersionStatus because each OS/arch binary may embed different Go stdlib versions
+// or runtime dependencies; the JSON key is "binaryScan".
+type BinaryScan struct {
 	// The RFC3339 timestamp at which the binary scan completed.
 	ScannedAt string `json:"scannedAt"`
 	// The list of vulnerabilities found in the compiled provider binary.
@@ -300,10 +289,10 @@ type ProviderStatus struct {
 	SyncStatus string `json:"syncStatus"`
 	// A slice of the ProviderVersionRefs that have been successfully created by the controller
 	ProviderVersionRefs map[string]*ProviderVersion `json:"providerVersionRefs,omitempty"`
-	// The most recent source vulnerability scan result for this provider.
-	// Populated by the Version controller after scanning the provider's source code (go.mod).
-	// Deduplicated across all OS/arch Version resources for the same provider version.
-	SourceScan *ProviderSourceScan `json:"sourceScan,omitempty"`
+	// ResolvedSourceRepository is the VCS source URL discovered by the version controller
+	// from the OpenTofu registry (api.opentofu.org). Populated automatically on first scan;
+	// spec.providerConfig.sourceRepository takes precedence if set.
+	ResolvedSourceRepository string `json:"resolvedSourceRepository,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -375,12 +364,16 @@ type VersionStatus struct {
 	Synced bool `json:"synced"`
 	// The Version's reconciliation status.
 	SyncStatus string `json:"syncStatus"`
+	// ArchiveSizeBytes is the size in bytes of the stored archive, set by the Version
+	// controller after a successful PutObject. Nil when the archive has not yet been uploaded.
+	// +optional
+	ArchiveSizeBytes *int64 `json:"archiveSizeBytes,omitempty"`
 	// The binary vulnerability scan result for this specific provider artifact.
 	// Only populated for provider Version resources when scanning is enabled.
-	BinaryScan *ProviderBinaryScan `json:"binaryScan,omitempty"`
-	// The IaC source scan result for this specific module version archive.
-	// Only populated for module Version resources when scanning is enabled.
-	SourceScan *ModuleSourceScan `json:"sourceScan,omitempty"`
+	BinaryScan *BinaryScan `json:"binaryScan,omitempty"`
+	// The source vulnerability scan result for this Version. Populated for provider Versions
+	// (go.mod scan) and module Versions (IaC filesystem scan) when scanning is enabled.
+	SourceScan *SourceScan `json:"sourceScan,omitempty"`
 }
 
 // +kubebuilder:object:root=true

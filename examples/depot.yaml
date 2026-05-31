@@ -1,0 +1,37 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Depot
+metadata:
+  name: ui-demo-depot
+  namespace: opendepot-system
+spec:
+  global:
+    moduleConfig:
+      fileFormat: zip
+      immutable: true
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+  moduleConfigs:
+  - name: terraform-aws-key-pair
+    provider: aws
+    repoOwner: terraform-aws-modules
+    repoUrl: https://github.com/terraform-aws-modules/terraform-aws-key-pair
+    versionConstraints: '>= 2.0.0, < 2.0.4'
+  - name: terraform-azurerm-avm-res-containerservice-managedcluster
+    provider: azurerm
+    repoOwner: Azure
+    repoUrl: https://github.com/Azure/terraform-azurerm-avm-res-containerservice-managedcluster
+    versionConstraints: '>= 0.5.0'
+  - name: terraform-google-kubernetes-engine
+    provider: google
+    repoOwner: terraform-google-modules
+    repoUrl: https://github.com/terraform-google-modules/terraform-google-kubernetes-engine
+    versionConstraints: '>= 30.0.0'
+  pollingIntervalMinutes: 60
+  providerConfigs:
+  - architectures:
+    - arm64
+    name: "null"
+    operatingSystems:
+    - darwin
+    versionConstraints: ~> 3.2.0

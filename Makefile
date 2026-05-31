@@ -3,27 +3,44 @@ PLATFORM ?= linux/arm64
 KIND_CLUSTER ?= opendepot
 TAG ?= dev
 
-SERVICES := server depot-controller module-controller version-controller
+SERVICES := server depot-controller module-controller provider-controller version-controller ui
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
 module-controller_PATH := services/module
+provider-controller_PATH := services/provider
 version-controller_PATH := services/version
+ui_PATH := services/ui
 
 # Map service names to their Docker build context (repo root for services that use local packages)
 server_CONTEXT := .
 depot-controller_CONTEXT := .
 module-controller_CONTEXT := .
+provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
+ui_CONTEXT := services/ui
 
-.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES))
+.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning
 
 ## Build all images for the target platform
 build: $(addprefix build-,$(SERVICES))
 
 ## Load all images into the kind cluster
 load: $(addprefix load-,$(SERVICES))
+
+## Build the version-controller image with Trivy bundled (required for scanning.enabled=true)
+build-version-controller-scanning:
+	docker build --platform $(PLATFORM) \
+		--no-cache \
+		-t $(REGISTRY)/version-controller:$(TAG)-scanning \
+		--build-arg INCLUDE_TRIVY=true \
+		-f services/version/Dockerfile \
+		.
+
+## Load the scanning variant of the version-controller into the kind cluster
+load-version-controller-scanning:
+	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-scanning --name $(KIND_CLUSTER)
 
 ## Build and load all images into the kind cluster
 deploy: build load
@@ -66,6 +83,7 @@ define SERVICE_RULES
 
 build-$(1):
 	docker build --platform $(PLATFORM) \
+		--no-cache \
 		-t $(REGISTRY)/$(1):$(TAG) \
 		-f $($(1)_PATH)/Dockerfile \
 		$($(1)_CONTEXT)
@@ -76,7 +94,7 @@ endef
 
 $(foreach svc,$(SERVICES),$(eval $(call SERVICE_RULES,$(svc))))
 
-## Build and load a single service: make service NAME=server
+## Build and load a single service: make service NAME=provider-controller
 service:
 	@$(MAKE) build-$(NAME) load-$(NAME)
 
@@ -246,8 +264,6 @@ endif
 	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
 	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
-	  '  tls:' \
-	  '    enabled: true' \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -336,7 +352,209 @@ oidc-test-clean:
 	kubectl delete module terraform-aws-key-pair -n $(OIDC_NAMESPACE) --ignore-not-found
 	kubectl delete groupbinding local-test-access -n $(OIDC_NAMESPACE) --ignore-not-found
 
-## Tag shared packages, update all go.mod files, and push. Usage: make tag-modules MODULE_VERSION=vX.Y.Z
+## ─── UI Local Testing (Kind) ─────────────────────────────────────────────────
+# Port that the UI NGINX container is port-forwarded to on the host.
+UI_PORT           ?= 8080
+# Port used for local server API port-forward consumed by Next.js dev server.
+UI_API_PORT       ?= 18080
+# Port used by the local Next.js dev server.
+UI_DEV_PORT       ?= 3000
+# OIDC client ID registered in Dex for the UI (separate from the tofu login client).
+UI_OIDC_CLIENT_ID ?= opendepot-ui
+# Static client secret used for the UI Dex client in local Kind testing only.
+UI_OIDC_SECRET    ?= ui-local-test-secret
+
+.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc ui-dev ui-dev-stop
+
+## Create the session-cookie encryption secret for the UI. Idempotent — skips if it already exists.
+ui-session-secret:
+	@kubectl create namespace $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+	@if kubectl get secret ui-session-secret -n $(OIDC_NAMESPACE) >/dev/null 2>&1; then \
+	  echo "ui-session-secret already exists — skipping"; \
+	else \
+	  _pass=$$(openssl rand -base64 32); \
+	  kubectl create secret generic ui-session-secret \
+	    --from-literal=sessionPassword="$$_pass" \
+	    -n $(OIDC_NAMESPACE); \
+	  echo "Created ui-session-secret in $(OIDC_NAMESPACE)"; \
+	fi
+
+## Deploy the UI in anonymous-auth mode. No OIDC required — all resources are visible to everyone.
+## Usage: make ui-deploy-anon
+ui-deploy-anon: ui-session-secret
+	@helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
+	  -n $(OIDC_NAMESPACE) --create-namespace \
+	  --set global.image.tag=$(TAG) \
+	  --set server.enabled=true \
+	  --set server.image.repository=$(REGISTRY)/server \
+	  --set server.image.tag=$(TAG) \
+	  --set server.anonymousAuth=true \
+	  --set server.useBearerToken=false \
+	  --set ui.enabled=true \
+	  --set ui.image.repository=$(REGISTRY)/ui \
+	  --set ui.image.tag=$(TAG) \
+	  --set ui.sessionPasswordSecretName=ui-session-secret \
+	  --set storage.filesystem.enabled=true \
+	  --set storage.filesystem.hostPath=/tmp/opendepot-modules \
+	  --set provider.enabled=true \
+	  --set scanning.enabled=true \
+	  --set scanning.providerScanning=true \
+	  --set scanning.cache.storageClassName="standard" \
+	  --set scanning.cache.accessMode=ReadWriteOnce \
+	  --set version.zapLogLevel=5 \
+	  --wait \
+	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
+
+## Deploy the UI with OIDC login (requires oidc-tls to be run first).
+## A dedicated UI OIDC client ($(UI_OIDC_CLIENT_ID)) is registered in Dex alongside
+## the existing tofu login client. The UI port-forwards to localhost:$(UI_PORT).
+## Usage: make ui-deploy PASS=yourpassword
+ui-deploy: ui-session-secret
+ifndef PASS
+	$(error PASS is required. Usage: make ui-deploy PASS=yourpassword)
+endif
+	@if command -v htpasswd >/dev/null 2>&1; then \
+	  _hash=$$(htpasswd -bnBC 10 "" "$(PASS)" | tr -d ':\n'); \
+	else \
+	  _hash=$$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$(PASS)', bcrypt.gensalt(10)).decode())") \
+	    || { echo "ERROR: neither htpasswd nor the python3 bcrypt package is available." \
+	           "Install Apache tools (brew install httpd) or run: pip3 install bcrypt" >&2; exit 1; }; \
+	fi; \
+	kubectl create secret generic ui-oidc-secret \
+	  --from-literal=clientSecret="$(UI_OIDC_SECRET)" \
+	  -n $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -; \
+	tmpfile=$$(mktemp /tmp/opendepot-ui-XXXXXX.yaml); \
+	printf '%s\n' \
+	  'dex:' \
+	  '  enabled: true' \
+	  '  image:' \
+	  '    tag: v2.45.0' \
+	  '  config:' \
+	  "    issuer: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
+	  '    storage:' \
+	  '      type: memory' \
+	  '    enablePasswordDB: true' \
+	  '    oauth2:' \
+	  '      responseTypes:' \
+	  '        - code' \
+	  '      grantTypes:' \
+	  '        - authorization_code' \
+	  '      skipApprovalScreen: true' \
+	  '    staticPasswords:' \
+	  '      - email: "$(OIDC_EMAIL)"' \
+	  "        hash: \"$$_hash\"" \
+	  '        username: "$(OIDC_USER)"' \
+	  '        userID: "local-test-user"' \
+	  '        groups:' \
+	  '          - "$(OIDC_GROUP)"' \
+	  '    connectors: []' \
+	  '    staticClients:' \
+	  '      - id: "$(UI_OIDC_CLIENT_ID)"' \
+	  '        name: OpenDepot UI' \
+	  '        secret: "$(UI_OIDC_SECRET)"' \
+	  '        trustedPeers:' \
+	  '          - "$(OIDC_CLIENT_ID)"' \
+	  '        redirectURIs:' \
+	  "          - \"http://opendepot.localtest.me:$(UI_PORT)/auth/callback\"" \
+	  '      - id: "$(OIDC_CLIENT_ID)"' \
+	  '        name: OpenDepot' \
+	  '        public: true' \
+	  '        redirectURIs:' \
+	  '          - http://localhost:10000/login' \
+	  '          - http://localhost:10001/login' \
+	  '          - http://localhost:10002/login' \
+	  '          - http://localhost:10003/login' \
+	  '          - http://localhost:10004/login' \
+	  '          - http://localhost:10005/login' \
+	  '          - http://localhost:10006/login' \
+	  '          - http://localhost:10007/login' \
+	  '          - http://localhost:10008/login' \
+	  '          - http://localhost:10009/login' \
+	  '          - http://localhost:10010/login' \
+	  'server:' \
+	  '  image:' \
+	  '    repository: $(REGISTRY)/server' \
+	  "    tag: \"$(TAG)\"" \
+	  '  oidc:' \
+	  '    enabled: true' \
+	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
+	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
+	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
+	  '    clientId: "$(OIDC_CLIENT_ID)"' \
+	  '    clientSecret: "$(OIDC_SECRET)"' \
+	  'storage:' \
+	  '  filesystem:' \
+	  '    enabled: true' \
+	  '    hostPath: /tmp/opendepot-modules' \
+	  'ui:' \
+	  '  enabled: true' \
+	  '  image:' \
+	  '    repository: $(REGISTRY)/ui' \
+	  "    tag: \"$(TAG)\"" \
+	  "  baseUrl: \"http://opendepot.localtest.me:$(UI_PORT)\"" \
+	  '  sessionPasswordSecretName: ui-session-secret' \
+	  '  oidc:' \
+	  '    enabled: true' \
+	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
+	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
+	  '    clientId: "$(UI_OIDC_CLIENT_ID)"' \
+	  '    clientSecretName: ui-oidc-secret' \
+	  > "$$tmpfile"; \
+	echo "=== Deploying with UI + OIDC (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
+	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
+	  -n $(OIDC_NAMESPACE) --create-namespace \
+	  --set global.image.tag=$(TAG) \
+	  -f "$$tmpfile" --wait; \
+	rm -f "$$tmpfile"
+
+## Start port-forwards for the UI and (when Dex is deployed) Dex.
+## After running, open http://opendepot.localtest.me:$(UI_PORT) in your browser.
+## Usage: make ui-forward
+ui-forward:
+	@echo "Starting port-forward: ui → localhost:$(UI_PORT)"
+	@kubectl port-forward -n $(OIDC_NAMESPACE) svc/ui $(UI_PORT):80 &
+	@if kubectl get svc $(OIDC_RELEASE_NAME)-dex -n $(OIDC_NAMESPACE) >/dev/null 2>&1; then \
+	  echo "Starting port-forward: dex → localhost:$(OIDC_DEX_PORT)"; \
+	  kubectl port-forward -n $(OIDC_NAMESPACE) svc/$(OIDC_RELEASE_NAME)-dex $(OIDC_DEX_PORT):5556 & \
+	fi
+	@echo "UI available at: http://opendepot.localtest.me:$(UI_PORT)"
+
+## Stop UI and Dex port-forwards started by ui-forward.
+ui-stop:
+	@pkill -f "kubectl port-forward.*svc/ui.*:80" 2>/dev/null \
+	  && echo "Stopped UI port-forward" || echo "UI port-forward was not running"
+	@pkill -f "kubectl port-forward.*svc/$(OIDC_RELEASE_NAME)-dex" 2>/dev/null \
+	  && echo "Stopped Dex port-forward" || echo "Dex port-forward was not running"
+
+## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
+## Usage: make ui-setup
+ui-setup: deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
+
+## Build all images, deploy the UI with OIDC login, and start port-forwards.
+## Usage: make ui-setup-oidc PASS=yourpassword
+ui-setup-oidc: deploy oidc-tls ui-deploy ui-forward
+
+## One-shot local UI development against a running kind cluster server.
+## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80
+## - Runs Next.js dev server on localhost:$(UI_DEV_PORT)
+## Usage: make ui-dev
+ui-dev:
+	@pkill -f "kubectl port-forward.*svc/server.*$(UI_API_PORT):80" 2>/dev/null || true
+	@pkill -f "next dev --port $(UI_DEV_PORT)" 2>/dev/null || true
+	@rm -rf services/ui/.next
+	@echo "Starting port-forward: server -> localhost:$(UI_API_PORT)"
+	@kubectl port-forward -n $(OIDC_NAMESPACE) svc/server $(UI_API_PORT):80 >/tmp/opendepot-ui-api-forward.log 2>&1 &
+	@echo "UI API forward log: /tmp/opendepot-ui-api-forward.log"
+	@echo "Starting Next.js dev server on localhost:$(UI_DEV_PORT)"
+	@cd services/ui && NEXT_DISABLE_DEVTOOLS=1 OPENDEPOT_SERVER_URL=http://127.0.0.1:$(UI_API_PORT) yarn dev --port $(UI_DEV_PORT)
+
+## Stop local UI development background port-forwards started by ui-dev.
+## Usage: make ui-dev-stop
+ui-dev-stop:
+	@pkill -f "kubectl port-forward.*svc/server.*$(UI_API_PORT):80" 2>/dev/null \
+	  && echo "Stopped server API port-forward" || echo "Server API port-forward was not running"
+
+
 ## Only importable packages are tagged (api/v1alpha1, pkg/*) — services are excluded.
 ## Steps: create tags → push tags → update go.mod files → work-tidy → commit.
 MODULE_VERSION ?= $(error MODULE_VERSION is required. Usage: make tag-modules MODULE_VERSION=vX.Y.Z)

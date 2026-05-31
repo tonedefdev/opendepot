@@ -6,6 +6,15 @@ tags:
 
 # API Reference
 
+## Breaking Changes
+
+### v0.5.0
+
+| Change | Affected field | Action required |
+|--------|---------------|----------------|
+| `Provider.status.sourceScans` removed; per-version provider source scans moved to `Version.status.sourceScan` | `ProviderStatus`, `VersionStatus` | Update any automation or scripts that read `.status.sourceScans` on a `Provider` resource. Provider source scan results are now stored on each `Version` resource in `status.sourceScan`, alongside module IaC scan results. |
+| `Provider.status.resolvedSourceRepository` added (read-only, string) | `ProviderStatus` | No action required. The field is populated automatically by the Version controller after the first scan. |
+
 ## Service Discovery
 
 ```
@@ -236,6 +245,391 @@ GET /opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{ar
 
 Returns the detached GPG signature over the `SHA256SUMS` file, signed with the key configured in `server.gpg.secretName`. Does **not** require client authentication.
 
+## Browse API
+
+The browse endpoints power the [Registry Explorer UI](../guides/registry-explorer.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer.md#browse-visibility-rules).
+
+### List Namespaces
+
+```
+GET /opendepot/ui/v1/namespaces
+```
+
+Returns only namespaces that carry the `opendepot.defdev.io/public=true` label. The label selector is sent directly to the Kubernetes API, so system namespaces (`kube-system`, `default`, `kube-public`) are never included in the response regardless of auth mode. The `public` field is always `true` because unlabeled namespaces are excluded before the response is built.
+
+An admin must label a namespace before it appears in the sidebar:
+
+```bash
+kubectl label namespace <ns> opendepot.defdev.io/public=true
+```
+
+**Response:**
+
+```json
+{
+  "items": [
+    { "name": "opendepot-system", "public": true }
+  ]
+}
+```
+
+### List Resources
+
+```
+GET /opendepot/ui/v1/resources
+```
+
+Returns a paginated, filtered list of visible `Module` and `Provider` resources.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string (repeatable) | Filter by one or more namespaces |
+| `kind` | string | `module` or `provider` |
+| `q` | string | Search string matched against resource name |
+| `synced` | bool | Filter to synced (`true`) or unsynced (`false`) resources |
+| `os` | string | Filter providers by operating system |
+| `arch` | string | Filter providers by CPU architecture |
+| `severity` | string | Filter to resources with findings at or above this level (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) |
+| `public_only` | bool | When `true`, return only publicly-labelled resources |
+| `sort_by` | string | Sort field |
+| `sort_dir` | string | `asc` or `desc` |
+| `page` | int | Page number (1-based) |
+| `page_size` | int | Results per page |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "kind": "module",
+      "namespace": "opendepot-system",
+      "name": "terraform-aws-vpc",
+      "latestVersion": "3.19.0",
+      "synced": true,
+      "provider": "aws",
+      "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "public": true,
+      "hasUnsyncedVersions": true,
+      "totalDownloads": 4821,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z"
+    }
+  ],
+  "totalCount": 1,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+`hasUnsyncedVersions` is present and `true` when at least one `Version` CR under the resource has `status.synced: false` or a `status.syncStatus` containing `"failed"` or `"error"` (case-insensitive). The field is omitted from the response when all versions are healthy.
+
+`scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned.
+
+### Resource Detail
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}
+```
+
+Returns full detail for a single resource including all versions and scan findings. The `sourceScanFindings` and `binaryScanFindings` fields contain findings from the **latest version only**.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Response:**
+
+```json
+{
+  "kind": "module",
+  "namespace": "opendepot-system",
+  "name": "terraform-aws-vpc",
+  "latestVersion": "3.19.0",
+  "synced": true,
+  "public": true,
+  "versions": [
+    { "version": "3.19.0", "synced": true },
+    { "version": "3.18.0", "synced": true }
+  ],
+  "sourceScanFindings": [
+    {
+      "vulnerabilityID": "CVE-2024-12345",
+      "pkgName": "some-dep",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "severity": "HIGH",
+      "title": "Example vulnerability"
+    }
+  ],
+  "binaryScanFindings": {
+    "linux/amd64": []
+  }
+}
+```
+
+### List Resource Versions
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions
+```
+
+Returns a paginated, filtered list of versions for a single resource. Used by the Registry Explorer detail page to populate the versions table. Authentication follows the same rules as the other browse endpoints.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | int | `1` | Page number (1-based) |
+| `page_size` | int | `20` | Items per page (max `100`) |
+| `q` | string | — | Case-insensitive substring filter on the version string |
+| `synced` | string | — | `true` = healthy versions only, `false` = failed or error versions only; omit for all |
+| `os` | string | — | Exact OS filter (case-insensitive); providers only |
+| `arch` | string | — | Exact architecture filter (case-insensitive); providers only |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "version": "3.19.0",
+      "synced": true,
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "downloadCount": 1243,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z",
+      "archiveSizeBytes": 2097152
+    }
+  ],
+  "totalCount": 42,
+  "page": 1,
+  "pageSize": 20,
+  "availableOS": ["darwin", "linux", "windows"],
+  "availableArch": ["amd64", "arm64"]
+}
+```
+
+`availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
+
+`downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded (stats DB is nil or no events exist). `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
+
+### Resource Scan Findings
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
+```
+
+Returns scan findings for a single resource. The optional `?version=` query parameter selects which scanned version's findings to return. When omitted, findings from the most recently scanned version are returned. Both leading `v` and surrounding whitespace are stripped from the version string, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` are treated identically. Authentication follows the same rules as the other browse endpoints.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `namespace` | Kubernetes namespace of the resource |
+| `kind` | `module` or `provider` |
+| `name` | Resource name |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Selects the source scan entry for this exact version. Applies to both modules and providers. Leading `v` and surrounding whitespace are stripped automatically. Omit to return findings from the latest scanned version. |
+
+**Response (`BrowseScanFindings`):**
+
+```json
+{
+  "sourceScanFindings": [
+    {
+      "vulnerabilityID": "CVE-2024-12345",
+      "pkgName": "some-dep",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "severity": "HIGH",
+      "title": "Example vulnerability"
+    }
+  ],
+  "binaryScanFindings": {
+    "linux/amd64": [],
+    "darwin/arm64": []
+  },
+  "selectedVersion": "3.2.3",
+  "scannedVersions": ["3.2.3", "3.2.0"]
+}
+```
+
+`sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
+
+`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the version selector dropdown. Both fields are present for modules and providers; they are omitted only when no source scans exist for the resource.
+
+This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer.md#scan-findings) refresh button to re-fetch findings without a full page reload.
+
+### List Depots
+
+```
+GET /opendepot/ui/v1/depots
+```
+
+Returns a flat list of all visible `Depot` resources with their storage backend, polling interval, and managed resource counts.
+
+**Visibility:** public depots are always included. Non-public depots are included when the server is in anonymous-auth mode or when the caller has a matching `GroupBinding`. An optional `?namespace=` query parameter filters results to a single namespace.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Filter by namespace |
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "namespace": "opendepot-system",
+      "name": "platform-depot",
+      "modules": ["terraform-aws-vpc", "terraform-aws-s3-bucket"],
+      "providers": ["aws"],
+      "pollingIntervalMinutes": 30,
+      "storageBackend": "s3"
+    }
+  ]
+}
+```
+
+### Depot Relationship Graph
+
+```
+GET /opendepot/ui/v1/depots/graph
+```
+
+Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](#depots-page) in the Registry Explorer UI to render the interactive relationship diagram.
+
+**Visibility:** same rules as [List Depots](#list-depots).
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Filter the graph to a single namespace |
+
+**Response:**
+
+```json
+{
+  "depots": [
+    {
+      "id": "opendepot-system/platform-depot",
+      "namespace": "opendepot-system",
+      "name": "platform-depot",
+      "storageBackend": "s3",
+      "pollingIntervalMinutes": 30,
+      "managedModuleNames": ["terraform-aws-vpc"],
+      "managedProviderNames": ["aws"]
+    }
+  ],
+  "modules": [
+    {
+      "id": "opendepot-system/module/terraform-aws-vpc",
+      "namespace": "opendepot-system",
+      "name": "terraform-aws-vpc",
+      "provider": "aws",
+      "synced": true,
+      "latestVersion": "3.19.0",
+      "depotID": "opendepot-system/platform-depot",
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+    }
+  ],
+  "providers": [
+    {
+      "id": "opendepot-system/provider/aws",
+      "namespace": "opendepot-system",
+      "name": "aws",
+      "synced": true
+    }
+  ],
+  "edges": [
+    { "id": "e-depot-mod-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/module/terraform-aws-vpc" },
+    { "id": "e-depot-prov-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/provider/aws" }
+  ],
+  "summary": {
+    "totalDepots": 1,
+    "totalModules": 1,
+    "totalProviders": 1
+  },
+  "generatedAt": "2026-05-25T12:00:00Z"
+}
+```
+
+### Registry Stats
+
+```
+GET /opendepot/ui/v1/stats
+```
+
+Returns aggregate registry statistics as JSON. All counts are scoped to the resources visible to the caller (same visibility rules as the other browse endpoints).
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `namespace` | string | Scope statistics to a single namespace. Omit for all accessible namespaces. |
+
+**Response:**
+
+```json
+{
+  "totalModules": 12,
+  "totalProviders": 3,
+  "totalVersions": 87,
+  "totalStorageBytes": 5368709120,
+  "totalDownloads": 24601,
+  "syncHealth": {
+    "syncedVersions": 82,
+    "unsyncedVersions": 3,
+    "failedVersions": 2
+  },
+  "securityPosture": {
+    "critical": 0,
+    "high": 4,
+    "medium": 11,
+    "low": 7,
+    "unknown": 1,
+    "totalAffectedResources": 6
+  },
+  "storageDistribution": [
+    { "backend": "s3", "count": 10 },
+    { "backend": "filesystem", "count": 5 }
+  ],
+  "mostDownloaded": [
+    {
+      "namespace": "opendepot-system",
+      "kind": "module",
+      "name": "terraform-aws-vpc",
+      "version": "3.19.0",
+      "downloadCount": 4821,
+      "lastDownloadedAt": "2026-05-25T14:32:00Z"
+    }
+  ]
+}
+```
+
+`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` require a persistent stats DB (`--stats-db-path`); both are `0` / empty when the flag is not set. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+
 ## Kubernetes Resource Types
 
 ### SecurityFinding
@@ -251,24 +645,26 @@ Represents a single vulnerability finding from a Trivy scan.
 | `severity` | `string` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `UNKNOWN` |
 | `title` | `string` | Short description of the vulnerability |
 
-### ProviderBinaryScan
+### BinaryScan
 
 Holds Trivy binary scan (`trivy rootfs`) results for a specific provider artifact. Stored in `Version.status.binaryScan`. Each OS/architecture binary is scanned independently because Go stdlib versions and runtime dependencies may differ between compiled artifacts.
+
+!!! note
+    Trivy requires the execute bit to be set on the binary for gobinary detection. Provider binaries are written with `0500` permissions before scanning; binaries without execute permission are silently skipped by Trivy and `findings` will be empty.
 
 | Field | Type | Description |
 |---|---|---|
 | `scannedAt` | `string` | RFC3339 timestamp at which the binary scan completed |
 | `findings` | `[]SecurityFinding` | Vulnerabilities found in the compiled provider binary |
 
-### ProviderSourceScan
+### SourceScan
 
-Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependencies. Stored in `Provider.status.sourceScan`. Deduplicated across OS/architecture `Version` resources because all variants share the same source code.
+Holds Trivy source scan results. Used for both provider `go.mod` dependency scans and module IaC (HCL filesystem) scans. Stored in `Version.status.sourceScan` for every `Version` resource when scanning is enabled.
 
 | Field | Type | Description |
 |---|---|---|
-| `scannedAt` | `string` | RFC3339 timestamp at which the source scan completed |
-| `version` | `string` | Provider version that was scanned (used for deduplication) |
-| `findings` | `[]SecurityFinding` | Vulnerabilities found in the provider's source dependencies (go.mod) |
+| `scannedAt` | `string` | RFC3339 timestamp at which the scan completed |
+| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `aws-0057`). |
 
 ### ProviderConfig fields
 
@@ -281,23 +677,15 @@ Holds Trivy source scan (`trivy fs`) results for a provider's `go.mod` dependenc
 
 | Field | Type | Description |
 |---|---|---|
-| `binaryScan` | `ProviderBinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
-| `sourceScan` | `ModuleSourceScan` | IaC scan result for this module archive. Populated only for module `Version` resources when scanning is enabled. |
+| `binaryScan` | `BinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
+| `sourceScan` | `SourceScan` | Scan result for this version. Contains IaC misconfigurations for module `Version` resources and `go.mod` dependency vulnerabilities for provider `Version` resources. Populated when scanning is enabled. |
+| `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
 
 ### ProviderStatus fields
 
 | Field | Type | Description |
 |---|---|---|
-| `sourceScan` | `ProviderSourceScan` | Most recent source vulnerability scan result. Populated by the Version controller after scanning the provider's `go.mod`. Deduplicated across all OS/architecture `Version` resources for the same provider version. |
-
-### ModuleSourceScan
-
-Holds Trivy IaC scan (`trivy fs`) results for a module archive. Stored in `Version.status.sourceScan`. Findings represent HCL misconfigurations detected by Trivy's config-class rules.
-
-| Field | Type | Description |
-|---|---|---|
-| `scannedAt` | `string` | RFC3339 timestamp at which the IaC scan completed |
-| `findings` | `[]SecurityFinding` | Misconfigurations found in the module's HCL source. `vulnerabilityID` contains a Trivy rule ID (e.g. `AVD-AWS-0057`) rather than a CVE. |
+| `resolvedSourceRepository` | `string` | The VCS source URL resolved by the Version controller. Set automatically on first scan; `spec.providerConfig.sourceRepository` takes precedence if set. See [Provider Source Repository Resolution](../configuration/scanning.md#provider-source-repository-resolution). |
 
 ### GroupBinding
 
@@ -330,6 +718,59 @@ spec:
     - "aws"
     - "google"
 ```
+
+### BrowseStats
+
+Returned by `GET /opendepot/ui/v1/stats`.
+
+| Field | Type | Description |
+|---|---|---|
+| `totalModules` | `int` | Number of visible `Module` resources |
+| `totalProviders` | `int` | Number of visible `Provider` resources |
+| `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
+| `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
+| `totalDownloads` | `int64` | Cumulative download events recorded in the stats DB; `0` when the stats DB is not configured |
+| `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
+| `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
+| `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
+| `mostDownloaded` | `[]PopularResource` | Top 10 most-downloaded resources, filtered to the caller's visibility set |
+
+### SyncHealthStats
+
+| Field | Type | Description |
+|---|---|---|
+| `syncedVersions` | `int` | Versions with `status.synced: true` |
+| `unsyncedVersions` | `int` | Versions not yet synced |
+| `failedVersions` | `int` | Versions where sync has failed or errored |
+
+### SecurityPostureStats
+
+| Field | Type | Description |
+|---|---|---|
+| `critical` | `int` | Findings at CRITICAL severity |
+| `high` | `int` | Findings at HIGH severity |
+| `medium` | `int` | Findings at MEDIUM severity |
+| `low` | `int` | Findings at LOW severity |
+| `unknown` | `int` | Findings at UNKNOWN severity |
+| `totalAffectedResources` | `int` | Number of distinct resources with at least one finding |
+
+### StorageBackendStat
+
+| Field | Type | Description |
+|---|---|---|
+| `backend` | `string` | Storage backend identifier (e.g. `s3`, `azure`, `gcs`, `filesystem`) |
+| `count` | `int` | Number of versions stored on this backend |
+
+### PopularResource
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | `string` | Kubernetes namespace of the resource |
+| `kind` | `string` | `module` or `provider` |
+| `name` | `string` | Resource name |
+| `version` | `string` | Most-downloaded version |
+| `downloadCount` | `int64` | Total download events for this resource/version |
+| `lastDownloadedAt` | `string` | RFC3339 timestamp of the most recent download; omitted when no downloads recorded |
 
 ### PresignConfig fields
 

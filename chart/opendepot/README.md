@@ -79,6 +79,7 @@ helm install opendepot ./chart/opendepot \
 |-----------|---------|-------------|
 | `module.enabled` | `true` | Deploy the Module controller |
 | `module.replicaCount` | `1` | Number of replicas |
+| `module.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `module.image.repository` | `ghcr.io/tonedefdev/opendepot/module-controller` | Image repository |
 | `module.image.tag` | `""` | Per-service tag override |
 | `module.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
@@ -92,6 +93,7 @@ helm install opendepot ./chart/opendepot \
 |-----------|---------|-------------|
 | `depot.enabled` | `true` | Deploy the Depot controller |
 | `depot.replicaCount` | `1` | Number of replicas |
+| `depot.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `depot.image.repository` | `ghcr.io/tonedefdev/opendepot/depot-controller` | Image repository |
 | `depot.image.tag` | `""` | Per-service tag override |
 | `depot.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
@@ -107,6 +109,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 |-----------|---------|-------------|
 | `provider.enabled` | `false` | Deploy the Provider controller |
 | `provider.replicaCount` | `1` | Number of replicas |
+| `provider.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `provider.image.repository` | `ghcr.io/tonedefdev/opendepot/provider-controller` | Image repository |
 | `provider.image.tag` | `""` | Per-service tag override |
 | `provider.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
@@ -211,7 +214,7 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `rbac.create` | `true` | Create `ClusterRole`/`ClusterRoleBinding` (or `Role`/`RoleBinding`) for each service |
-| `rbac.scopeToNamespace` | `false` | Use namespace-scoped `Role`/`RoleBinding` instead of cluster-scoped. Also sets `WATCH_NAMESPACE` on controller deployments |
+| `rbac.scopeToNamespace` | `false` | **Recommended for production: `true`**. Use namespace-scoped `Role`/`RoleBinding` instead of cluster-scoped. Also sets `WATCH_NAMESPACE` on controller deployments. Setting `true` constrains all RBAC permissions (including `secrets: [get]` for GitHub App auth) to the install namespace. |
 
 ### Service Accounts
 
@@ -412,3 +415,13 @@ kubectl delete -f chart/opendepot/crds/
 - Do not commit `server.oidc.clientSecret` or Dex connector secrets in plain text. Use an external secret operator (Sealed Secrets, External Secrets Operator) or pre-create the Secret and reference it via `server.oidc.clientSecretName`.
 - `dex.config.enablePasswordDB` and `dex.config.staticPasswords` exist for automated e2e testing only. Never enable them in production.
 - GPG private key material should always be stored in a Kubernetes `Secret`, never in `values.yaml`.
+
+## Upgrade Notes
+
+### Breaking Changes
+
+#### `ProviderStatus.sourceScan` renamed to `ProviderStatus.sourceScans` (field type changed)
+
+The `Provider` CRD field `status.sourceScan` (a single `*ProviderSourceScan` pointer) has been renamed to `status.sourceScans` (a `[]ProviderSourceScan` slice) to support accumulating scan results across multiple provider versions.
+
+**Migration**: Before upgrading, existing `status.sourceScan` values on `Provider` resources will be silently dropped. No data migration path is provided. The version controller will re-populate `status.sourceScans` on the next reconcile for each provider that has scanning enabled.

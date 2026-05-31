@@ -239,12 +239,37 @@ func GetGithubApplicationSecret(ctx context.Context, k8sClient client.Client, se
 	return githubClientConfig, nil
 }
 
-// GetProviderGoMod fetches the go.mod file for a provider version from its GitHub source repository
-// using the provided GitHub client (authenticated or unauthenticated). Both 'v{version}' and bare
-// '{version}' ref formats are tried, matching the retry pattern used by GetModuleArchiveFromRef.
+// GetProviderGoMod fetches the go.mod file for a provider version from its GitHub source repository.
+// Both 'v{version}' and bare '{version}' ref formats are tried. The raw.githubusercontent.com CDN
+// is tried first (no API rate limit); the authenticated GitHub client is used as a fallback (required
+// for private repositories or when the CDN is unavailable).
 func GetProviderGoMod(ctx context.Context, githubClient *github.Client, owner, repo, version string) ([]byte, error) {
 	bare := strings.TrimPrefix(version, "v")
-	for _, ref := range []string{"v" + bare, bare} {
+	refs := []string{"v" + bare, bare}
+
+	// Try raw.githubusercontent.com first — not subject to GitHub API rate limits.
+	for _, ref := range refs {
+		rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/go.mod", owner, repo, ref)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			data, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read go.mod from %s: %w", rawURL, err)
+			}
+			return data, nil
+		}
+	}
+
+	// Fall back to GitHub API (required for private repos; subject to 60 req/hr unauthenticated limit).
+	for _, ref := range refs {
 		fileContent, _, _, err := githubClient.Repositories.GetContents(ctx, owner, repo, "go.mod",
 			&github.RepositoryContentGetOptions{Ref: ref})
 		if err != nil {

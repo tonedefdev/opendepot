@@ -1,0 +1,26 @@
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: terraform-azurerm-avm-res-containerservice-managedcluster
+  namespace: opendepot-system
+spec:
+  moduleConfig:
+    fileFormat: zip
+    immutable: true
+    name: terraform-azurerm-avm-res-containerservice-managedcluster
+    provider: azurerm
+    repoOwner: Azure
+    repoUrl: https://github.com/Azure/terraform-azurerm-avm-res-containerservice-managedcluster
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+    versionConstraints: '>= 0.5.0'
+  versions:
+  - version: 0.5.7
+  - version: 0.5.6
+  - version: 0.5.5
+  - version: 0.5.4
+  - version: 0.5.3
+  - version: 0.5.2
+  - version: 0.5.1
+  - version: 0.5.0

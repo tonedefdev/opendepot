@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // serviceDiscoveryHandler serves the Terraform service-discovery document at
@@ -42,12 +41,6 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(response)
-}
-
-// normalizeVersion strips a leading "v" prefix and surrounding whitespace from a
-// version string so that "v1.2.3" and "1.2.3" compare as equal.
-func normalizeVersion(versionString string) string {
-	return strings.TrimPrefix(strings.TrimSpace(versionString), "v")
 }
 
 // requestBaseURL derives the scheme and host of the incoming request. It honours

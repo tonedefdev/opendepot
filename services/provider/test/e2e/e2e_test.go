@@ -159,6 +159,21 @@ spec:
 			return nil
 		}, 30*time.Second, 2*time.Second).Should(Succeed(), "port-forward did not become ready within 30s")
 
+		By("waiting for spec.fileName and status.checksum to be set on the Version CR")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "version", providerVersionCRName,
+				"-n", providerNamespace,
+				"-o", `jsonpath={.spec.fileName},{.status.checksum},{.status.synced}`,
+			)
+			out, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			parts := strings.SplitN(strings.TrimSpace(out), ",", 3)
+			g.Expect(parts).To(HaveLen(3), "unexpected jsonpath output: %s", out)
+			g.Expect(parts[0]).NotTo(BeEmpty(), "spec.fileName not yet set: %s", out)
+			g.Expect(parts[1]).NotTo(BeEmpty(), "status.checksum not yet set: %s", out)
+			g.Expect(parts[2]).To(Equal("true"), "status.synced not yet true: %s", out)
+		}, 60*time.Second, 5*time.Second).Should(Succeed())
+
 		By("checking /.well-known/terraform.json")
 		body := httpGetBody(base + "/.well-known/terraform.json")
 		Expect(body).To(ContainSubstring("providers.v1"))
@@ -169,11 +184,23 @@ spec:
 		Expect(body).To(ContainSubstring(providerVersion))
 
 		By("checking provider download endpoint")
-		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/download/linux/amd64",
-			base, providerNamespace, providerCRName, providerVersion))
-		Expect(body).To(ContainSubstring("download_url"))
-		Expect(body).To(ContainSubstring("shasum"))
-		Expect(body).To(ContainSubstring("signing_keys"))
+		var downloadBody string
+		Eventually(func(g Gomega) {
+			resp, err := http.Get(fmt.Sprintf( //nolint:noctx
+				"%s/opendepot/providers/v1/%s/%s/%s/download/linux/amd64",
+				base, providerNamespace, providerCRName, providerVersion,
+			))
+			g.Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			raw, readErr := io.ReadAll(resp.Body)
+			g.Expect(readErr).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(BeNumerically("<", 300),
+				"unexpected status %d from download endpoint; body: %s", resp.StatusCode, string(raw))
+			downloadBody = string(raw)
+		}, 30*time.Second, 2*time.Second).Should(Succeed())
+		Expect(downloadBody).To(ContainSubstring("download_url"))
+		Expect(downloadBody).To(ContainSubstring("shasum"))
+		Expect(downloadBody).To(ContainSubstring("signing_keys"))
 
 		By("checking SHA256SUMS endpoint")
 		body = httpGetBody(fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS/linux/amd64",
@@ -407,12 +434,18 @@ var _ = Describe("Provider Scanning", Ordered, func() {
 		cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 			"--namespace", scanNamespace,
 			"--reuse-values",
+			// providerScanning=true creates the Trivy cache PVC and passes
+			// --scan-offline=false + --trivy-cache-dir to the controller so
+			// Trivy downloads a real vulnerability DB and returns actual CVEs.
 			"--set", "scanning.enabled=true",
+			"--set", "scanning.providerScanning=true",
 			"--set", "scanning.offline=false",
 			// Kind's default storage class only supports ReadWriteOnce.
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			// Extra memory headroom for the version controller running Trivy.
 			"--set", "version.resources.limits.memory=1Gi",
+			// Enable verbose debug logging so Trivy output is visible in test logs.
+			"--set", "version.zapLogLevel=5",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -459,6 +492,8 @@ spec:
 			"--namespace", scanNamespace,
 			"--reuse-values",
 			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
+			"--set", "version.zapLogLevel=",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -491,9 +526,9 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScan on the Provider CR", func() {
+	It("should populate sourceScan on the Version CR", func() {
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+			cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
 				"-n", scanNamespace,
 				"-o", "jsonpath={.status.sourceScan.scannedAt}",
 			)
@@ -503,15 +538,32 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should record the scanned version on the Provider sourceScan", func() {
-		cmd := exec.Command("kubectl", "get", "provider", scanProviderName,
+	It("should report at least one binary finding on the Version CR", func() {
+		// null v3.2.3 was released 2021; its embedded Go deps are old enough to
+		// guarantee known CVEs in the Trivy DB. A zero-finding result here means
+		// the scan ran but the source-skip bug wrote a tombstone, or the DB is stale.
+		cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
 			"-n", scanNamespace,
-			"-o", "jsonpath={.status.sourceScan.version}",
+			"-o", `jsonpath={.status.binaryScan.findings[0].vulnerabilityID}`,
 		)
 		output, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output).To(Equal(scanVersion), "sourceScan.version should match the synced provider version")
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"binaryScan.findings should contain at least one finding for null v%s", scanVersion)
 	})
+
+	It("should report at least one source finding on the Version CR", func() {
+		// go.mod for null v3.2.3 uses vintage sdk deps that carry known CVEs.
+		cmd := exec.Command("kubectl", "get", "version", scanVersionCRName,
+			"-n", scanNamespace,
+			"-o", `jsonpath={.status.sourceScan.findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"sourceScan.findings should contain at least one finding for null v%s", scanVersion)
+	})
+
 })
 
 var _ = Describe("Community Provider", Ordered, func() {
@@ -539,12 +591,18 @@ var _ = Describe("Community Provider", Ordered, func() {
 		cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 			"--namespace", communityNamespace,
 			"--reuse-values",
+			// providerScanning=true creates the Trivy cache PVC and passes
+			// --scan-offline=false + --trivy-cache-dir to the controller so
+			// Trivy downloads a real vulnerability DB and returns actual CVEs.
 			"--set", "scanning.enabled=true",
+			"--set", "scanning.providerScanning=true",
 			"--set", "scanning.offline=false",
 			// Kind's default storage class only supports ReadWriteOnce.
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			// Extra memory headroom for Trivy running inside the version controller.
 			"--set", "version.resources.limits.memory=1Gi",
+			// Enable verbose debug logging so Trivy output is visible in test logs.
+			"--set", "version.zapLogLevel=5",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -592,6 +650,8 @@ spec:
 			"--namespace", communityNamespace,
 			"--reuse-values",
 			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
+			"--set", "version.zapLogLevel=",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -639,10 +699,10 @@ spec:
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
 	})
 
-	It("should populate sourceScan on the community Provider CR", func() {
+	It("should populate sourceScan on the community provider Version CR", func() {
 		// Validates that Trivy can clone and scan the source repository of a community provider.
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "provider", communityProviderName,
+			cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
 				"-n", communityNamespace,
 				"-o", "jsonpath={.status.sourceScan.scannedAt}",
 			)
@@ -650,5 +710,108 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).NotTo(BeEmpty(), "sourceScan.scannedAt should be set after source scan completes")
 		}, 10*time.Minute, 15*time.Second).Should(Succeed())
+	})
+
+	It("should report at least one binary finding on the community provider Version CR", func() {
+		cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
+			"-n", communityNamespace,
+			"-o", `jsonpath={.status.binaryScan.findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"binaryScan.findings should contain at least one finding for github v%s", communityVersion)
+	})
+
+	It("should report at least one source finding on the community provider Version CR", func() {
+		cmd := exec.Command("kubectl", "get", "version", communityVersionCRName,
+			"-n", communityNamespace,
+			"-o", `jsonpath={.status.sourceScan.findings[0].vulnerabilityID}`,
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+			"sourceScan.findings should contain at least one finding for github v%s", communityVersion)
+	})
+
+})
+
+var _ = Describe("Provider Version History Limit", Ordered, func() {
+	const (
+		vhlNamespace    = "opendepot-system"
+		vhlProviderName = "null-vhl"
+		vhlStoragePath  = "/data/modules"
+		// Two versions; the controller should keep only the newer one.
+		vhlOlderVersion = "3.2.1"
+		vhlNewerVersion = "3.2.2"
+	)
+
+	BeforeAll(func() {
+		By("applying the null-vhl Provider CR with versionHistoryLimit: 1 and two versions")
+		providerYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: "%s"
+  namespace: %s
+spec:
+  providerConfig:
+    name: "%s"
+    operatingSystems:
+      - linux
+    architectures:
+      - amd64
+    versionHistoryLimit: 1
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - version: "%s"
+    - version: "%s"
+`, vhlProviderName, vhlNamespace, vhlProviderName, vhlStoragePath, vhlOlderVersion, vhlNewerVersion)
+
+		providerFile := filepath.Join(GinkgoT().TempDir(), "vhl-provider.yaml")
+		Expect(os.WriteFile(providerFile, []byte(providerYAML), 0600)).To(Succeed())
+		cmd := exec.Command("kubectl", "apply", "-f", providerFile)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply vhl Provider CR")
+	})
+
+	AfterAll(func() {
+		cmd := exec.Command("kubectl", "delete", "provider", vhlProviderName,
+			"-n", vhlNamespace, "--ignore-not-found",
+		)
+		_, _ = utils.Run(cmd)
+	})
+
+	It("should trim provider Spec.Versions to the history limit", func() {
+		By("waiting for the provider controller to trim Spec.Versions to 1 entry")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "provider", vhlProviderName,
+				"-n", vhlNamespace,
+				"-o", "jsonpath={.spec.versions}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			// A single-element array serialises as e.g. [{"version":"v3.2.2"}]
+			g.Expect(strings.Count(output, "version")).To(Equal(1), "expected exactly 1 version in Spec.Versions after trim")
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
+	})
+
+	It("should create only one Version CR for the newer version", func() {
+		By("waiting for exactly one Version CR to exist for the provider")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "versions",
+				"-l", fmt.Sprintf("opendepot.defdev.io/provider=%s", vhlProviderName),
+				"-n", vhlNamespace,
+				"--no-headers",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			lines := utils.GetNonEmptyLines(output)
+			g.Expect(lines).To(HaveLen(1), "expected exactly 1 Version CR after versionHistoryLimit enforcement")
+			g.Expect(lines[0]).To(ContainSubstring(strings.ReplaceAll(vhlNewerVersion, ".", "-")),
+				"surviving Version CR should be for the newer version %s", vhlNewerVersion)
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
 	})
 })

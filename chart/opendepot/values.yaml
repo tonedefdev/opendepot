@@ -33,6 +33,9 @@ version:
 module:
   enabled: true
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/module-controller
     tag: ""  # Overrides global.image.tag when set
@@ -50,6 +53,9 @@ module:
 depot:
   enabled: true  # Set to true to enable the Depot controller
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/depot-controller
     tag: ""  # Overrides global.image.tag when set
@@ -67,6 +73,9 @@ depot:
 provider:
   enabled: false
   replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/provider-controller
     tag: ""  # Overrides global.image.tag when set
@@ -172,6 +181,15 @@ server:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  stats:
+    persistence:
+      # enabled controls whether a PersistentVolumeClaim is created for the stats
+      # SQLite database. When false the --stats-db-path flag is not set and download
+      # tracking is disabled.
+      enabled: false
+      storageClassName: ""
+      size: 1Gi
+      accessMode: ReadWriteOnce
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false
@@ -190,6 +208,9 @@ rbac:
   create: true
   # When true, use namespace-scoped Role/RoleBinding instead of ClusterRole/ClusterRoleBinding.
   # Controllers will only watch resources in global.namespace.
+  # RECOMMENDED for production: set to true to limit controller permissions to a single namespace.
+  # Using true also eliminates the KSV-0041 finding for secrets access in the ClusterRole
+  # (secrets: [get] is required for GitHub App authentication and is always a named-object lookup).
   scopeToNamespace: false
 
 ## Storage configuration
@@ -286,6 +307,18 @@ dex:
           - http://localhost:10008
           - http://localhost:10009
           - http://localhost:10010
+    # When ui.oidc.enabled=true, add the UI client here and include
+    # trustedPeers pointing to the server client ID (e.g. "opendepot").
+    # This ensures Dex includes the server's audience in UI-issued tokens
+    # so the server's OIDC verifier can validate them and match GroupBindings.
+    # Example:
+    #   - id: opendepot-ui
+    #     name: OpenDepot UI
+    #     secret: <ui-client-secret>
+    #     trustedPeers:
+    #       - opendepot
+    #     redirectURIs:
+    #       - https://<ui-host>/auth/callback
     # connectors is where operators add upstream IdP connector configuration.
     # Example GitHub connector:
     #   connectors:
@@ -304,3 +337,75 @@ dex:
     - secretRef:
         name: opendepot-dex-client-secret
         optional: true
+
+## UI Service (Registry Explorer)
+# Set ui.enabled=true to deploy the registry explorer frontend alongside the server.
+# Requires server.enabled=true. Routing: NGINX fronts the UI container; the
+# /opendepot/* and /.well-known/terraform.json paths are proxied to the server service.
+ui:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/ui
+    tag: ""  # Overrides global.image.tag when set
+  # serverHost is the upstream address (host:port) that NGINX inside the UI
+  # container will proxy registry protocol requests to.
+  # Defaults to server.<global.namespace>.svc.cluster.local:80 when empty.
+  serverHost: ""
+  oidc:
+    # enabled toggles OIDC login support in the UI.
+    enabled: false
+    # issuerUrl is the OIDC issuer URL used by the UI server for OIDC discovery
+    # and token exchange. When running in-cluster this should be the in-cluster
+    # Dex service URL (e.g. http://opendepot-dex.<namespace>.svc.cluster.local:5556/dex).
+    issuerUrl: ""
+    # authzUrl overrides the authorization endpoint from OIDC discovery.
+    # Use this in local Kind environments where issuerUrl is an in-cluster address
+    # that browsers cannot reach. Set to the port-forwarded Dex authz URL
+    # (e.g. http://localhost:5556/dex/auth) so browsers can complete the PKCE flow.
+    # Ignored when empty — the authorization_endpoint from discovery is used.
+    authzUrl: ""
+    # clientId is the OIDC client ID for the UI (separate from the tofu login client).
+    clientId: "opendepot-ui"
+    # clientSecretName is the name of the Kubernetes Secret holding the
+    # OIDC_CLIENT_SECRET key for the UI's confidential client flow.
+    clientSecretName: ""
+    # scopes is the space-separated list of scopes to request.
+    scopes: "openid profile email groups"
+    # callbackPath is the OIDC redirect URI path registered with the identity provider.
+    callbackPath: "/auth/callback"
+  auth:
+    devTokenInput:
+      # enabled shows a developer token input field in the UI.
+      # Must be false in production.
+      enabled: false
+  # baseUrl is the externally reachable base URL of the UI (e.g. https://opendepot.example.com).
+  # Used to construct OIDC callback redirect URIs. When empty, the UI infers the base URL
+  # from the request host. Must be set when ui.oidc.enabled=true.
+  baseUrl: ""
+  # sessionPassword is the secret used to encrypt iron-session cookies.
+  # Must be at least 32 characters. Provide via a Secret reference in production.
+  sessionPasswordSecretName: ""
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: opendepot.defdev.io
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

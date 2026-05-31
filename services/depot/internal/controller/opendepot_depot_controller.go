@@ -18,11 +18,9 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -37,10 +35,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
-)
-
-const (
-	hashicorpReleasesAPI = "https://api.releases.hashicorp.com"
+	"github.com/tonedefdev/opendepot/pkg/registry"
 )
 
 // Depot reconciles a Depot object
@@ -255,9 +250,32 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				return ctrl.Result{}, fmt.Errorf("provider config name is required")
 			}
 
-			matchedVersions, err := r.listHashiCorpProviderVersions(ctx, providerName, providerConfig.VersionConstraints)
+			ns := registry.DefaultNamespace
+			if providerConfig.Namespace != nil && strings.TrimSpace(*providerConfig.Namespace) != "" {
+				ns = strings.TrimSpace(*providerConfig.Namespace)
+			}
+
+			allVersions, err := registry.ListProviderVersions(ctx, ns, providerName)
 			if err != nil {
 				return ctrl.Result{}, err
+			}
+
+			constraints, err := version.NewConstraint(providerConfig.VersionConstraints)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("invalid version constraints %q: %w", providerConfig.VersionConstraints, err)
+			}
+
+			var matchedVersions []string
+			for _, v := range allVersions {
+				parsed, parseErr := version.NewVersion(v)
+				if parseErr != nil {
+					r.Log.V(5).Info("Skipping non-semver provider version", "version", v)
+					continue
+				}
+
+				if constraints.Check(parsed) && !slices.Contains(matchedVersions, parsed.String()) {
+					matchedVersions = append(matchedVersions, parsed.String())
+				}
 			}
 
 			r.Log.Info("Matched versions for provider", "provider", providerName, "versions", matchedVersions)
@@ -342,137 +360,6 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// hashicorpReleaseListItem is a single release entry returned by the HashiCorp Releases list endpoint.
-type hashicorpReleaseListItem struct {
-	Version          string `json:"version"`
-	TimestampCreated string `json:"timestamp_created"`
-}
-
-// listHashiCorpProviderVersions queries the HashiCorp Releases API and returns all versions
-// that satisfy the given version constraints string.
-func (r *DepotReconciler) listHashiCorpProviderVersions(ctx context.Context, providerName, versionConstraints string) ([]string, error) {
-	constraints, err := version.NewConstraint(versionConstraints)
-	if err != nil {
-		return nil, fmt.Errorf("invalid version constraints %q: %w", versionConstraints, err)
-	}
-
-	candidates := getProviderProductCandidates(providerName)
-
-	var releases []hashicorpReleaseListItem
-	var lastErr error
-
-	for _, productName := range candidates {
-		releases, lastErr = r.fetchHashiCorpReleaseList(ctx, productName)
-		if lastErr == nil {
-			break
-		}
-	}
-
-	if lastErr != nil {
-		return nil, fmt.Errorf("failed to list provider versions from HashiCorp Releases API for %q: %w", providerName, lastErr)
-	}
-
-	var matched []string
-	for _, rel := range releases {
-		v, err := version.NewVersion(rel.Version)
-		if err != nil {
-			r.Log.V(5).Info("Skipping non-semver provider release", "version", rel.Version)
-			continue
-		}
-
-		if !constraints.Check(v) {
-			continue
-		}
-
-		if slices.Contains(matched, v.String()) {
-			continue
-		}
-
-		matched = append(matched, v.String())
-	}
-
-	return matched, nil
-}
-
-// fetchHashiCorpReleaseList retrieves all release versions from the HashiCorp Releases API for a product,
-// paginating through all pages.
-func (r *DepotReconciler) fetchHashiCorpReleaseList(ctx context.Context, productName string) ([]hashicorpReleaseListItem, error) {
-	var all []hashicorpReleaseListItem
-	pageToken := ""
-
-	for {
-		url := fmt.Sprintf("%s/v1/releases/%s?limit=20", hashicorpReleasesAPI, productName)
-		if pageToken != "" {
-			url += "&after=" + pageToken
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		httpClient := &http.Client{Timeout: 30 * time.Second}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("request failed for %q: %w", url, err)
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response for %q: %w", url, err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("request to %q failed with status %d", url, resp.StatusCode)
-		}
-
-		var page []hashicorpReleaseListItem
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("failed to parse response from %q: %w", url, err)
-		}
-
-		all = append(all, page...)
-
-		// The API returns at most `limit` entries per page. When fewer than
-		// the limit are returned we have reached the end.
-		if len(page) < 20 {
-			break
-		}
-
-		// Use the timestamp_created of the last item as the cursor for the next page.
-		pageToken = page[len(page)-1].TimestampCreated
-	}
-
-	return all, nil
-}
-
-// getProviderProductCandidates returns ordered HashiCorp product name candidates for a provider.
-func getProviderProductCandidates(providerName string) []string {
-	if providerName == "" {
-		return nil
-	}
-
-	seen := map[string]struct{}{}
-	var candidates []string
-
-	add := func(s string) {
-		if s == "" {
-			return
-		}
-		if _, ok := seen[s]; ok {
-			return
-		}
-		seen[s] = struct{}{}
-		candidates = append(candidates, s)
-	}
-
-	add(providerName)
-	add(fmt.Sprintf("terraform-provider-%s", providerName))
-
-	return candidates
 }
 
 // SetupWithManager sets up the controller with the Manager.

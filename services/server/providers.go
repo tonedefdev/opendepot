@@ -19,6 +19,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
+	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 )
 
 // getProviderVersionResource scans all Version resources in the given namespace and
@@ -41,7 +42,7 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 		return nil, fmt.Errorf("unable to unmarshal versions list for %s: %w", ctxName, err)
 	}
 
-	normalizedRequestedVersion := normalizeVersion(requestedVersion)
+	normalizedRequestedVersion := opendepotUtils.SanitizeVersion(requestedVersion)
 	for _, item := range versionList.Items {
 		if item.Spec.ProviderConfigRef == nil || item.Spec.ProviderConfigRef.Name == nil {
 			continue
@@ -51,7 +52,7 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 			continue
 		}
 
-		if normalizeVersion(item.Spec.Version) != normalizedRequestedVersion {
+		if opendepotUtils.SanitizeVersion(item.Spec.Version) != normalizedRequestedVersion {
 			continue
 		}
 
@@ -169,7 +170,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		normalized := normalizeVersion(item.Spec.Version)
+		normalized := opendepotUtils.SanitizeVersion(item.Spec.Version)
 		if normalized == "" {
 			continue
 		}
@@ -248,7 +249,7 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseURL := requestBaseURL(r)
-	versionString := normalizeVersion(versionResource.Spec.Version)
+	versionString := opendepotUtils.SanitizeVersion(versionResource.Spec.Version)
 
 	response := ProviderPackageMetadataResponse{
 		Protocols:           []string{"5.0"},
@@ -340,6 +341,7 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 				}
 				logger.Info("failed to init storage backend for presign, falling back to proxy", "error", initErr)
 			} else if presignErr := storageBackend.PresignObject(r.Context(), soi); presignErr == nil {
+				_ = recordDownload(r.Context(), statsDB, namespace, "provider", providerType, requestedVersion)
 				http.Redirect(w, r, *soi.PresignedURL, http.StatusTemporaryRedirect)
 				return
 			} else {
@@ -362,6 +364,7 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checksumQuery := url.QueryEscape(*versionResource.Status.Checksum)
+	_ = recordDownload(r.Context(), statsDB, namespace, "provider", providerType, requestedVersion)
 	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
 }
 

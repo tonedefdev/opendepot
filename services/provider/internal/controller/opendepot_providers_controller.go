@@ -80,6 +80,30 @@ func (r *ProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("the provider architectures field cannot be empty")
 	}
 
+	trimmedVersions, err := utils.VersionsToKeep(nil, provider)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if trimmedVersions != nil && len(trimmedVersions) < len(provider.Spec.Versions) {
+		providerVersionsToKeep := make([]opendepotv1alpha1.ProviderVersion, 0, len(trimmedVersions))
+		for _, v := range trimmedVersions {
+			providerVersionsToKeep = append(providerVersionsToKeep, opendepotv1alpha1.ProviderVersion{Version: v})
+		}
+
+		if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			if err := r.Get(ctx, req.NamespacedName, provider); err != nil {
+				return err
+			}
+
+			provider.Spec.Versions = providerVersionsToKeep
+			return r.Update(ctx, provider, &client.UpdateOptions{FieldManager: opendepotControllerName})
+		}); err != nil {
+			r.Log.Error(err, "Failed to trim provider versions to history limit", "provider", provider.Name)
+			return ctrl.Result{}, err
+		}
+	}
+
 	desiredVersionNames := map[string]struct{}{}
 	providerVersionRefs := make(map[string]*opendepotv1alpha1.ProviderVersion)
 
@@ -158,9 +182,15 @@ func (r *ProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		provider.Status.ProviderVersionRefs = providerVersionRefs
 		provider.Status.Synced = true
 		provider.Status.SyncStatus = "Successfully synced provider"
+
+		if lv, _ := utils.GetLatestVersion(nil, provider); lv != nil {
+			provider.Status.LatestVersion = lv
+		}
+
 		if err := r.Status().Update(ctx, provider); err != nil {
 			return err
 		}
+
 		return nil
 	}); err != nil {
 		r.Log.Error(err, "Failed to update Provider status", "provider", provider.Name)
@@ -198,6 +228,7 @@ func (r *ProviderReconciler) ReconcileVersionRemovals(ctx context.Context, provi
 		if _, exists := desiredVersionNames[version.Name]; exists {
 			continue
 		}
+
 		r.Log.Info("Deleting stale provider version", "provider", provider.ObjectMeta.Name, "version", version.Spec.Version, "name", version.Name)
 		if err = r.Delete(ctx, version); err != nil {
 			return err

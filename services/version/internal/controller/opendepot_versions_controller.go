@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,15 +34,16 @@ import (
 	"github.com/google/uuid"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
+	"github.com/tonedefdev/opendepot/pkg/registry"
 	"github.com/tonedefdev/opendepot/pkg/storage"
 	"github.com/tonedefdev/opendepot/pkg/storage/types"
 )
@@ -106,6 +106,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			if err := r.Update(ctx, version); err != nil {
 				return ctrl.Result{}, err
 			}
+
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 	} else {
@@ -117,14 +118,17 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if !version.Status.Synced && version.Status.SyncStatus == terminalMsg {
 			return ctrl.Result{}, nil
 		}
+
 		r.Log.V(5).Info("name guard: Version name contains '.' characters; writing terminal status",
 			"version", version.Name,
 		)
+
 		version.Status.Synced = false
 		version.Status.SyncStatus = terminalMsg
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
+
 		return ctrl.Result{}, nil
 	}
 
@@ -152,11 +156,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.Log.V(5).Info("dual-config guard: both moduleConfigRef and providerConfigRef are set; writing terminal status",
 			"version", version.Name,
 		)
+
 		version.Status.Synced = false
 		version.Status.SyncStatus = "Only one of 'ModuleConfigRef' or 'ProviderConfigRef' can be provided: both are defined"
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
+
 		// This is a permanent user configuration error that cannot be resolved by
 		// requeuing. Return without an error so controller-runtime does not log a
 		// "Reconciler error" and does not schedule unnecessary backoff retries.
@@ -169,6 +175,35 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
+		// Fast path: if the Version has already been synced and the artifact exists in
+		// storage with a matching checksum, skip the GitHub download and any re-scan.
+		// Without this, the controller re-downloads the archive from GitHub and re-runs
+		// Trivy on every reconcile (e.g. after every controller restart), which hammers
+		// the GitHub API and wastes scan CPU even when nothing has changed.
+		if version.Status.Checksum != nil && version.Status.Synced && version.Spec.FileName != nil {
+			existingFilePath, pathErr := getVersionFilePath(version)
+			if pathErr == nil {
+				earlySoi := &types.StorageObjectInput{
+					Method:   types.Get,
+					FilePath: existingFilePath,
+					Version:  version,
+				}
+
+				if checkErr := r.InitStorageFactory(ctx, earlySoi); checkErr == nil &&
+					earlySoi.FileExists &&
+					earlySoi.ObjectChecksum != nil &&
+					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+					if version.Spec.ForceSync {
+						r.Log.V(5).Info("module fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
+						break
+					}
+
+					r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
+					return ctrl.Result{}, nil
+				}
+			}
+		}
+
 		r.Log.V(5).Info("fetching module archive", "version", version.Name, "versionStr", version.Spec.Version)
 		moduleBytes, checksum, err := r.fetchModuleArchive(ctx, version)
 		if err != nil {
@@ -207,16 +242,19 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					FilePath: existingFilePath,
 					Version:  version,
 				}
+
 				if checkErr := r.InitStorageFactory(ctx, earlySoi); checkErr == nil &&
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+
 					if version.Spec.ForceSync {
 						r.Log.V(5).Info("provider fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
 						break
 					}
+
 					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
-					return reconcile.Result{}, nil
+					return ctrl.Result{}, nil
 				}
 			}
 		}
@@ -376,10 +414,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// provider archive and the ~2 GB Trivy vulnerability DB are never resident
 	// in the Go heap simultaneously. The scan reads the zip directly from the
 	// temp file on disk instead.
-	var binaryScan *opendepotv1alpha1.ProviderBinaryScan
+	var binaryScan *opendepotv1alpha1.BinaryScan
+	var sourceScan *opendepotv1alpha1.SourceScan
+	var resolvedRepo string
+
 	if r.ScanningEnabled && version.Spec.Type == opendepotv1alpha1.OpenDepotProvider && providerTmpPath != "" {
 		var scanErr error
-		binaryScan, scanErr = r.runProviderScan(ctx, version, providerTmpPath, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
+		resolvedRepo, binaryScan, sourceScan, scanErr = r.runProviderScan(ctx, version, providerTmpPath, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
 		r.Log.V(5).Info("provider binary scan complete", "version", version.Name, "findingsPresent", binaryScan != nil)
 
 		if scanErr != nil {
@@ -392,11 +433,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Run Trivy IaC scan for module archives when scanning and module scanning are enabled.
 	// The scan result is returned here and written atomically in the final status update below.
-	var moduleScan *opendepotv1alpha1.ModuleSourceScan
 	if r.ScanningEnabled && r.ScanModules && version.Spec.Type == opendepotv1alpha1.OpenDepotModule && len(fileBytes) > 0 {
 		var scanErr error
-		moduleScan, scanErr = r.runModuleScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
-		r.Log.V(5).Info("module source scan complete", "version", version.Name, "findingsPresent", moduleScan != nil)
+		sourceScan, scanErr = r.runModuleScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
+		r.Log.V(5).Info("module source scan complete", "version", version.Name, "findingsPresent", sourceScan != nil)
 
 		if scanErr != nil {
 			version.Status.Synced = false
@@ -417,13 +457,25 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			currentVersion.Status.Checksum = archiveChecksum
 		}
 
+		if soi.BytesWritten > 0 {
+			currentVersion.Status.ArchiveSizeBytes = &soi.BytesWritten
+		} else if len(fileBytes) > 0 {
+			size := int64(len(fileBytes))
+			currentVersion.Status.ArchiveSizeBytes = &size
+		} else if providerTmpPath != "" {
+			if info, statErr := os.Stat(providerTmpPath); statErr == nil {
+				size := info.Size()
+				currentVersion.Status.ArchiveSizeBytes = &size
+			}
+		}
+
 		currentVersion.Status.SyncStatus = "Successfully synced version"
 		if binaryScan != nil {
 			currentVersion.Status.BinaryScan = binaryScan
 		}
 
-		if moduleScan != nil {
-			currentVersion.Status.SourceScan = moduleScan
+		if sourceScan != nil {
+			currentVersion.Status.SourceScan = sourceScan
 		}
 
 		if err := r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
@@ -454,7 +506,46 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	return reconcile.Result{}, nil
+	if err := r.patchProviderResolvedRepo(ctx, version, resolvedRepo); err != nil {
+		r.Log.V(5).Info("patchProviderResolvedRepo failed — non-fatal", "error", err)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// patchProviderResolvedRepo writes repoURL to the Provider's status.resolvedSourceRepository
+// field. It is idempotent: if the field is already set the update is skipped. Errors are
+// logged at verbosity 5 and are non-fatal so that a transient API-server hiccup does not
+// prevent the Version from completing its own reconciliation.
+func (r *VersionReconciler) patchProviderResolvedRepo(ctx context.Context, version *opendepotv1alpha1.Version, repoURL string) error {
+	if repoURL == "" || version.Spec.ProviderConfigRef == nil || version.Spec.ProviderConfigRef.Name == nil {
+		r.Log.V(5).Info("repo url was empty", "version", version.Name, "repoURL", repoURL)
+		return nil
+	}
+
+	provider := &opendepotv1alpha1.Provider{}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		if err := r.Get(ctx, k8stypes.NamespacedName{Name: *version.Spec.ProviderConfigRef.Name, Namespace: version.Namespace}, provider); err != nil {
+			if k8serr.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("patchProviderResolvedRepo: failed to get provider: %w", err)
+		}
+
+		if provider.Status.ResolvedSourceRepository != "" {
+			return nil
+		}
+
+		provider.Status.ResolvedSourceRepository = repoURL
+		if err := r.Status().Update(ctx, provider, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		}); err != nil {
+			return fmt.Errorf("patchProviderResolvedRepo: failed to update provider status: %w", err)
+		}
+
+		r.Log.V(5).Info("patched provider with resolved source repository", "provider", provider.Name, "repoURL", repoURL)
+		return nil
+	})
 }
 
 // reconcileDeletion removes the stored artifact and finalizer when a Version is being deleted.
@@ -682,7 +773,7 @@ func (r *VersionReconciler) fetchProviderArchive(ctx context.Context, version *o
 		}
 	}
 
-	download, err := lookupProviderDownload(ctx, providerNamespace, providerName, providerVersion,
+	download, err := registry.LookupProviderDownload(ctx, providerNamespace, providerName, providerVersion,
 		version.Spec.OperatingSystem, version.Spec.Architecture)
 	if err != nil {
 		return "", func() {}, nil, nil, err
@@ -719,48 +810,6 @@ func (r *VersionReconciler) fetchProviderArchive(ctx context.Context, version *o
 	}
 
 	return tmpPath, cleanupFn, &checksumB64, &fn, nil
-}
-
-// httpGetJSON performs an HTTP GET and unmarshals the response payload into out.
-func httpGetJSON(ctx context.Context, requestURL string, out any) error {
-	bytes, err := httpGetBytes(ctx, requestURL)
-	if err != nil {
-		return err
-	}
-
-	if err := json.Unmarshal(bytes, out); err != nil {
-		return fmt.Errorf("unable to parse JSON from '%s': %w", requestURL, err)
-	}
-
-	return nil
-}
-
-// httpGetBytes performs an HTTP GET and returns the raw response body bytes.
-// Use httpStreamToFile for large downloads (e.g. provider binaries) to avoid
-// buffering the full body in the Go heap.
-func httpGetBytes(ctx context.Context, requestURL string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed for '%s': %w", requestURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request to '%s' failed with status %d", requestURL, resp.StatusCode)
-	}
-
-	fileBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read response body for '%s': %w", requestURL, err)
-	}
-
-	return fileBytes, nil
 }
 
 // httpStreamToFile streams an HTTP GET response body to a temporary file on disk

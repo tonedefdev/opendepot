@@ -27,6 +27,10 @@ spec:
       - name: deployment-controller
         image: "{{ .Values.module.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.module.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- if .Values.module.zapLogLevel }}
+        args:
+        - --zap-log-level={{ .Values.module.zapLogLevel }}
+        {{- end }}
         {{- if .Values.rbac.scopeToNamespace }}
         env:
         - name: WATCH_NAMESPACE

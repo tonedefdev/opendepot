@@ -72,4 +72,10 @@ Guides for platform and infrastructure teams operating OpenDepot.
 
     Restrict which modules and providers each OIDC group may access using `GroupBinding` resources and expr-lang expressions.
 
+- :material-web: &nbsp;[__Registry Explorer UI__](registry-explorer.md)
+
+    ---
+
+    Enable the browsable registry frontend, configure public visibility labels, and set up OIDC login and `GroupBinding`-based access for the UI.
+
 </div>

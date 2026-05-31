@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"golang.org/x/mod/semver"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -40,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/utils"
 )
 
 const (
@@ -224,21 +224,33 @@ func (r *ModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	latestVersion := getLatestVersion(*module)
-	if latestVersion == nil {
+	latestVersion, err := utils.GetLatestVersion(module, nil)
+	if err != nil || latestVersion == nil {
 		return ctrl.Result{}, fmt.Errorf("latestVersion is nil: %v", module.Spec)
 	}
 
-	if module.Spec.ModuleConfig.VersionHistoryLimit != nil {
-		versions := versionsToKeep(*module)
-		moduleVersionsToKeep := make([]opendepotv1alpha1.ModuleVersion, 0, len(versions))
-		for _, version := range versions {
-			moduleVersion := opendepotv1alpha1.ModuleVersion{
-				Version: version,
-			}
-			moduleVersionsToKeep = append(moduleVersionsToKeep, moduleVersion)
+	trimmedVersions, err := utils.VersionsToKeep(module, nil)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if trimmedVersions != nil && len(trimmedVersions) < len(module.Spec.Versions) {
+		moduleVersionsToKeep := make([]opendepotv1alpha1.ModuleVersion, 0, len(trimmedVersions))
+		for _, v := range trimmedVersions {
+			moduleVersionsToKeep = append(moduleVersionsToKeep, opendepotv1alpha1.ModuleVersion{Version: v})
 		}
-		module.Spec.Versions = moduleVersionsToKeep
+
+		if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			if err = r.Get(ctx, req.NamespacedName, module); err != nil {
+				return err
+			}
+
+			module.Spec.Versions = moduleVersionsToKeep
+			return r.Update(ctx, module, &client.UpdateOptions{FieldManager: opendepotControllerName})
+		}); err != nil {
+			r.Log.Error(err, "Failed to trim module versions to history limit", "module", module.Name)
+			return ctrl.Result{}, err
+		}
 	}
 
 	// If ForceSync is true set it to false
@@ -373,47 +385,6 @@ func generateFileName(module *opendepotv1alpha1.Module) (*string, error) {
 	return &moduleVersionFileName, nil
 }
 
-// getLatestVersion returns the latest semantic version of a Module
-func getLatestVersion(module opendepotv1alpha1.Module) *string {
-	versions := make([]string, 0, len(module.Spec.Versions))
-	for _, version := range module.Spec.Versions {
-		var semverString string
-		if version.Version[0] != 'v' {
-			semverString = fmt.Sprintf("v%s", version.Version)
-		} else {
-			semverString = version.Version
-		}
-		semverString = semver.Canonical(semverString)
-		versions = append(versions, semverString)
-	}
-
-	semver.Sort(versions)
-	latestVersion := versions[len(versions)-1]
-	return &latestVersion
-}
-
-func versionsToKeep(module opendepotv1alpha1.Module) []string {
-	if module.Spec.ModuleConfig.VersionHistoryLimit == nil || *module.Spec.ModuleConfig.VersionHistoryLimit <= 0 {
-		return nil
-	}
-	versionHistoryLimit := *module.Spec.ModuleConfig.VersionHistoryLimit
-
-	versions := make([]string, 0, len(module.Spec.Versions))
-	for _, version := range module.Spec.Versions {
-		var semverString string
-		if version.Version[0] != 'v' {
-			semverString = fmt.Sprintf("v%s", version.Version)
-		} else {
-			semverString = version.Version
-		}
-		semverString = semver.Canonical(semverString)
-		versions = append(versions, semverString)
-	}
-
-	semver.Sort(versions)
-	return versions[len(versions)-versionHistoryLimit:]
-}
-
 // getModuleName returns the module name as the Module resource's name if
 // the configuration field for ModuleConfig.Name is nil.
 func getModuleName(module *opendepotv1alpha1.Module) *string {
@@ -468,7 +439,8 @@ func (r *ModuleReconciler) versionForModule(module *opendepotv1alpha1.Module, mo
 			Type:     opendepotv1alpha1.OpenDepotModule,
 			Version:  version.Version,
 			ModuleConfigRef: &opendepotv1alpha1.ModuleConfig{
-				Name: moduleName,
+				Name:          moduleName,
+				StorageConfig: module.Spec.ModuleConfig.StorageConfig,
 			},
 		},
 	}

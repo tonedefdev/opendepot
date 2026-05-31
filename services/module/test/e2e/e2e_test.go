@@ -130,6 +130,17 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal("true"))
 		}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+		By("waiting for spec.fileName to be set on the Version CR")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "version", moduleVersionCRName,
+				"-n", moduleNamespace,
+				"-o", `jsonpath={.spec.fileName}`,
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty(), "spec.fileName not yet set: %s", output)
+		}, 60*time.Second, 5*time.Second).Should(Succeed())
 	})
 
 	It("should serve module registry API endpoints", func() {
@@ -174,11 +185,23 @@ spec:
 		Expect(body).To(ContainSubstring(moduleVersion))
 
 		By("checking module download endpoint returns X-Terraform-Get header")
-		resp := httpGetRaw(fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/%s/download",
-			base, moduleNamespace, moduleCRName, moduleProvider, moduleVersion))
-		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
-		Expect(resp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/opendepot/modules/v1/download/"))
+		downloadURL := fmt.Sprintf("%s/opendepot/modules/v1/%s/%s/%s/%s/download",
+			base, moduleNamespace, moduleCRName, moduleProvider, moduleVersion)
+		var downloadResp *http.Response
+		Eventually(func(g Gomega) {
+			resp, err := http.DefaultClient.Get(downloadURL) //nolint:noctx
+			g.Expect(err).NotTo(HaveOccurred(), "download endpoint returned error: %v", err)
+			if resp.StatusCode != http.StatusNoContent {
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				g.Expect(resp.StatusCode).To(Equal(http.StatusNoContent),
+					"unexpected status %d: %s", resp.StatusCode, string(body))
+				return
+			}
+			downloadResp = resp
+		}, 30*time.Second, 2*time.Second).Should(Succeed(), "download endpoint did not return 204 within 30s")
+		defer downloadResp.Body.Close()
+		Expect(downloadResp.Header.Get("X-Terraform-Get")).To(ContainSubstring("/opendepot/modules/v1/download/"))
 	})
 
 	It("should successfully run tofu init against the opendepot registry", func() {
@@ -474,3 +497,84 @@ func httpGetRaw(url string) *http.Response {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "HTTP GET failed for %s", url)
 	return resp
 }
+
+var _ = Describe("Module Version History Limit", Ordered, func() {
+	const (
+		vhlNamespace   = "opendepot-system"
+		vhlModuleName  = "terraform-aws-key-pair-vhl"
+		vhlStoragePath = "/data/modules"
+		// Two releases of the same module; the controller should keep only the newer one.
+		vhlOlderVersion = "1.0.0"
+		vhlNewerVersion = "2.0.0"
+	)
+
+	BeforeAll(func() {
+		By("applying the vhl Module CR with versionHistoryLimit: 1 and two versions")
+		moduleYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  moduleConfig:
+    fileFormat: zip
+    githubClientConfig:
+      useAuthenticatedClient: false
+    provider: aws
+    repoOwner: terraform-aws-modules
+    repoUrl: https://github.com/terraform-aws-modules/terraform-aws-key-pair
+    versionHistoryLimit: 1
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - version: "%s"
+    - version: "%s"
+`, vhlModuleName, vhlNamespace, vhlStoragePath, vhlOlderVersion, vhlNewerVersion)
+
+		moduleFile := filepath.Join(GinkgoT().TempDir(), "vhl-module.yaml")
+		Expect(os.WriteFile(moduleFile, []byte(moduleYAML), 0600)).To(Succeed())
+		cmd := exec.Command("kubectl", "apply", "-f", moduleFile)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply vhl Module CR")
+	})
+
+	AfterAll(func() {
+		cmd := exec.Command("kubectl", "delete", "module", vhlModuleName,
+			"-n", vhlNamespace, "--ignore-not-found",
+		)
+		_, _ = utils.Run(cmd)
+	})
+
+	It("should trim module Spec.Versions to the history limit", func() {
+		By("waiting for the module controller to trim Spec.Versions to 1 entry")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "module", vhlModuleName,
+				"-n", vhlNamespace,
+				"-o", "jsonpath={.spec.versions}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			// A single-element array serialises as e.g. [{"version":"v2.0.0"}]
+			g.Expect(strings.Count(output, "version")).To(Equal(1), "expected exactly 1 version in Spec.Versions after trim")
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
+	})
+
+	It("should create only one Version CR for the newer version", func() {
+		By("waiting for exactly one Version CR to exist for the module")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "versions",
+				"-l", fmt.Sprintf("opendepot.defdev.io/module=%s", vhlModuleName),
+				"-n", vhlNamespace,
+				"--no-headers",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			lines := utils.GetNonEmptyLines(output)
+			g.Expect(lines).To(HaveLen(1), "expected exactly 1 Version CR after versionHistoryLimit enforcement")
+			g.Expect(lines[0]).To(ContainSubstring(strings.ReplaceAll(vhlNewerVersion, ".", "-")),
+				"surviving Version CR should be for the newer version %s", vhlNewerVersion)
+		}, 60*time.Second, 3*time.Second).Should(Succeed())
+	})
+})

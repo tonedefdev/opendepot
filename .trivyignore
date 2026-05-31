@@ -1,0 +1,32 @@
+# KSV-0041: ClusterRole with secrets access
+#
+# Both the depot-controller and version-controller ClusterRoles include
+# secrets: [get] for GetGithubApplicationSecret, which performs a single
+# named-object lookup (k8sClient.Get) within the controller's own namespace.
+# KSV-0041 fires on any secrets access in a ClusterRole regardless of verb scope.
+#
+# Production deployments SHOULD use rbac.scopeToNamespace=true, which renders
+# these as namespaced Role objects (not ClusterRole) and eliminates this finding.
+# The ClusterRole path is only used in the default single-namespace install.
+#
+# See chart/opendepot/values.yaml rbac.scopeToNamespace for guidance.
+KSV-0041
+
+# CVEs in embedded Trivy binary (/usr/local/bin/trivy) only.
+# The version-controller application binary itself is 0-CVE clean.
+# Trivy v0.70.0 is the latest upstream release as of 2026-05-29; no newer
+# version is available that resolves these dependencies.
+# These suppressions must be removed when Trivy v0.71.0+ ships with fixes for:
+#   - containerd >= 1.7.32, go-billy/v5 >= 5.9.0, go-git/v5 >= 5.19.0, stdlib >= 1.25.10
+# Tracking: https://github.com/tonedefdev/opendepot/issues/65
+CVE-2026-46680
+CVE-2026-44973
+CVE-2026-45022
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39823
+CVE-2026-39825
+CVE-2026-39826
+CVE-2026-39836
+CVE-2026-42499

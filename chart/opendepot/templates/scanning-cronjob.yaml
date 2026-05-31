@@ -35,7 +35,9 @@ spec:
             - {{ .Values.scanning.cacheMountPath }}
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
+              # trivy needs to write to the cache directory, so we cannot set readOnlyRootFilesystem to true. 
+              #Instead, we ensure that the container runs as a non-root user and drops all capabilities for security hardening.
+              readOnlyRootFilesystem: false 
               capabilities:
                 drop:
                 - ALL

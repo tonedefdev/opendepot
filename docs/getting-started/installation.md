@@ -126,6 +126,20 @@ helm install opendepot opendepot/opendepot \
 | `server.oidc.authzUrl` | `""` | Override `login.v1.authz` URL advertised in service discovery |
 | `server.oidc.tokenUrl` | `""` | Override `login.v1.token` URL advertised in service discovery |
 
+### Server Stats Persistence
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `server.stats.persistence.enabled` | `false` | Create a PVC for the download-events SQLite database. When `false`, events are tracked in memory and lost on restart. |
+| `server.stats.persistence.storageClassName` | `""` | StorageClass for the stats PVC. Leave blank to use the cluster default. |
+| `server.stats.persistence.size` | `1Gi` | PVC storage size |
+| `server.stats.persistence.accessMode` | `ReadWriteOnce` | PVC access mode. Do not change unless your storage class supports multi-writer access. |
+
+When `server.stats.persistence.enabled: true`, the chart creates a PVC named `server-stats` and mounts it at `/data/stats/` in the server deployment. The server is started with `--stats-db-path=/data/stats/stats.db` automatically.
+
+!!! warning "Single replica"
+    The stats PVC uses `ReadWriteOnce`. Keep `server.replicaCount: 1` when stats persistence is enabled.
+
 ## Controllers
 
 These values apply to `version`, `module`, `depot`, and `provider` independently:

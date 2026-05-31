@@ -2,7 +2,7 @@
 description: "Use when: reviewing that the Developer agent implemented everything to spec, validating implementation completeness against the plan, checking for missed steps, ensuring acceptance criteria are met, or passing off to Documentation once implementation is confirmed complete. Sits between the Developer agent and Documentation agent in the OpenDepot workflow."
 name: "OpenDepot Code Review"
 model: "Claude Sonnet 4.6 (copilot)"
-tools: [read, search, execute, agent, todo, vscode/memory]
+tools: [read, search, execute, agent, todo, vscode/memory, browser]
 agents: ["OpenDepot Developer"]
 argument-hint: "Summary of what was implemented by the Developer agent"
 ---

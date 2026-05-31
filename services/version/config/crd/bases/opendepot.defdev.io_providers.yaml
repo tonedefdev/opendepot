@@ -274,57 +274,64 @@ spec:
                 description: A slice of the ProviderVersionRefs that have been successfully
                   created by the controller
                 type: object
-              sourceScan:
+              sourceScans:
                 description: |-
-                  The most recent source vulnerability scan result for this provider.
-                  Populated by the Version controller after scanning the provider's source code (go.mod).
-                  Deduplicated across all OS/arch Version resources for the same provider version.
-                properties:
-                  findings:
-                    description: The list of vulnerabilities found in the provider's
-                      source dependencies (go.mod).
-                    items:
-                      description: SecurityFinding represents a single vulnerability
-                        finding from a Trivy scan.
-                      properties:
-                        fixedVersion:
-                          description: The minimum version of the package that resolves
-                            the vulnerability, if known.
-                          type: string
-                        installedVersion:
-                          description: The version of the package currently in use.
-                          type: string
-                        pkgName:
-                          description: The name of the package containing the vulnerability.
-                          type: string
-                        severity:
-                          description: 'The severity of the vulnerability: CRITICAL,
-                            HIGH, MEDIUM, LOW, or UNKNOWN.'
-                          type: string
-                        title:
-                          description: A short description of the vulnerability.
-                          type: string
-                        vulnerabilityID:
-                          description: The CVE or GHSA identifier for the vulnerability.
-                          type: string
-                      required:
-                      - installedVersion
-                      - pkgName
-                      - severity
-                      - vulnerabilityID
-                      type: object
-                    type: array
-                  scannedAt:
-                    description: The RFC3339 timestamp at which the source scan completed.
-                    type: string
-                  version:
-                    description: The provider version that was scanned. Used for deduplication
-                      across OS/arch Version resources.
-                    type: string
-                required:
-                - scannedAt
-                - version
-                type: object
+                  Per-version source vulnerability scan results for this provider.
+                  One entry per scanned version, accumulated by the Version controller after scanning the
+                  provider's source code (go.mod). Entries for versions no longer present in Spec.Versions
+                  are pruned automatically. All OS/arch Version resources for the same version share a single entry.
+                items:
+                  description: |-
+                    ProviderSourceScan holds the results of a Trivy source scan (go.mod) for a specific provider version.
+                    One entry per scanned version is accumulated in ProviderStatus.SourceScans.
+                  properties:
+                    findings:
+                      description: The list of vulnerabilities found in the provider's
+                        source dependencies (go.mod).
+                      items:
+                        description: SecurityFinding represents a single vulnerability
+                          finding from a Trivy scan.
+                        properties:
+                          fixedVersion:
+                            description: The minimum version of the package that resolves
+                              the vulnerability, if known.
+                            type: string
+                          installedVersion:
+                            description: The version of the package currently in use.
+                            type: string
+                          pkgName:
+                            description: The name of the package containing the vulnerability.
+                            type: string
+                          severity:
+                            description: 'The severity of the vulnerability: CRITICAL,
+                              HIGH, MEDIUM, LOW, or UNKNOWN.'
+                            type: string
+                          title:
+                            description: A short description of the vulnerability.
+                            type: string
+                          vulnerabilityID:
+                            description: The CVE or GHSA identifier for the vulnerability.
+                            type: string
+                        required:
+                        - installedVersion
+                        - pkgName
+                        - severity
+                        - vulnerabilityID
+                        type: object
+                      type: array
+                    scannedAt:
+                      description: The RFC3339 timestamp at which the source scan
+                        completed.
+                      type: string
+                    version:
+                      description: The provider version that was scanned. Used for
+                        deduplication across OS/arch Version resources.
+                      type: string
+                  required:
+                  - scannedAt
+                  - version
+                  type: object
+                type: array
               syncStatus:
                 description: A field for declaring current status information about
                   how the resource is being reconciled

@@ -370,6 +370,12 @@ spec:
           status:
             description: VersionStatus defines the current status of the resource.
             properties:
+              archiveSizeBytes:
+                description: |-
+                  ArchiveSizeBytes is the size in bytes of the stored archive, set by the Version
+                  controller after a successful PutObject. Nil when the archive has not yet been uploaded.
+                format: int64
+                type: integer
               binaryScan:
                 description: |-
                   The binary vulnerability scan result for this specific provider artifact.
@@ -421,12 +427,11 @@ spec:
                 type: string
               sourceScan:
                 description: |-
-                  The IaC source scan result for this specific module version archive.
-                  Only populated for module Version resources when scanning is enabled.
+                  The source vulnerability scan result for this Version. Populated for provider Versions
+                  (go.mod scan) and module Versions (IaC filesystem scan) when scanning is enabled.
                 properties:
                   findings:
-                    description: The list of IaC findings found in the module's HCL
-                      source.
+                    description: The list of findings produced by the scan.
                     items:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.

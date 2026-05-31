@@ -1,0 +1,80 @@
+{{- if .Values.ui.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui-nginx-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: ui
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        sendfile      on;
+        keepalive_timeout 65;
+        server_tokens off;
+
+        access_log /dev/stdout combined;
+
+        upstream opendepot_server {
+            server ${OPENDEPOT_SERVER_HOST};
+        }
+
+        upstream nextjs {
+            server 127.0.0.1:3000;
+        }
+
+        server {
+            listen 8080;
+            server_name _;
+
+            add_header X-Content-Type-Options nosniff;
+            add_header X-Frame-Options SAMEORIGIN;
+            add_header Referrer-Policy strict-origin-when-cross-origin;
+
+            location /opendepot/ {
+                proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
+                {{- if .Values.server.tls.enabled }}
+                proxy_ssl_verify   off;
+                {{- end }}
+                proxy_set_header   Host              $host;
+                proxy_set_header   X-Forwarded-For   $remote_addr;
+                proxy_set_header   X-Forwarded-Proto $scheme;
+                proxy_set_header   X-Request-ID      $request_id;
+                proxy_set_header   Authorization     $http_authorization;
+            }
+
+            location /.well-known/terraform.json {
+                proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
+                {{- if .Values.server.tls.enabled }}
+                proxy_ssl_verify   off;
+                {{- end }}
+                proxy_set_header   Host              $host;
+                proxy_set_header   X-Forwarded-For   $remote_addr;
+                proxy_set_header   X-Forwarded-Proto $scheme;
+                proxy_set_header   X-Request-ID      $request_id;
+            }
+
+            location / {
+                proxy_pass          http://nextjs;
+                proxy_http_version  1.1;
+                proxy_set_header    Upgrade           $http_upgrade;
+                proxy_set_header    Connection        "upgrade";
+                proxy_set_header    Host              $host;
+                proxy_set_header    X-Forwarded-For   $remote_addr;
+                proxy_set_header    X-Forwarded-Proto $scheme;
+                proxy_set_header    X-Request-ID      $request_id;
+                proxy_read_timeout  60s;
+            }
+        }
+    }
+{{- end }}

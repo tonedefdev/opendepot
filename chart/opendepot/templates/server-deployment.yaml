@@ -64,6 +64,9 @@ spec:
         {{- if .Values.server.oidc.allowClientCredentials }}
         - --oidc-allow-client-credentials
         {{- end }}
+        {{- if and .Values.ui.enabled .Values.ui.oidc.enabled .Values.ui.oidc.clientId }}
+        - --oidc-ui-client-id={{ .Values.ui.oidc.clientId }}
+        {{- end }}
         {{- if .Values.server.oidc.authzUrl }}
         - --oidc-authz-url={{ .Values.server.oidc.authzUrl }}
         {{- end }}
@@ -74,6 +77,9 @@ spec:
         {{- end }}
         {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.mountPath }}
         - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
+        {{- end }}
+        {{- if and .Values.server.stats.persistence.enabled }}
+        - --stats-db-path=/data/stats/stats.db
         {{- end }}
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}
@@ -95,7 +101,7 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.server.resources | nindent 10 }}
-        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled }}
         volumeMounts:
         {{- if .Values.server.tls.enabled }}
         - name: tls
@@ -106,8 +112,12 @@ spec:
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
         {{- end }}
+        {{- if .Values.server.stats.persistence.enabled }}
+        - name: stats-db
+          mountPath: /data/stats
         {{- end }}
-      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
+        {{- end }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled }}
       volumes:
       {{- if .Values.server.tls.enabled }}
       - name: tls
@@ -124,6 +134,11 @@ spec:
         persistentVolumeClaim:
           claimName: opendepot-modules
         {{- end }}
+      {{- end }}
+      {{- if .Values.server.stats.persistence.enabled }}
+      - name: stats-db
+        persistentVolumeClaim:
+          claimName: server-stats
       {{- end }}
       {{- end }}
       {{- with .Values.server.nodeSelector }}

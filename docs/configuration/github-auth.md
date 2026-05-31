@@ -50,3 +50,6 @@ spec:
     If the `opendepot-github-application-secret` Secret is missing or the authenticated client cannot be created, the Version controller falls back to an unauthenticated client automatically. Source scanning continues without interruption.
 
 No new Secret is required if modules in the same namespace already use GitHub App authentication — the controller reads the same Secret for both.
+
+!!! note
+    The Version and Depot controllers require `secrets: [get]` to read this Secret. When `rbac.scopeToNamespace: true` is set, this permission is scoped to the install namespace only, so the Secret is never accessible outside of it. See [Namespace-Scoped RBAC](../rbac.md#namespace-scoped-rbac-production-recommendation) for details.

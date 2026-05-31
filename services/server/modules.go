@@ -92,6 +92,13 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if moduleVersion.Spec.ModuleConfigRef == nil ||
+		moduleVersion.Spec.ModuleConfigRef.StorageConfig == nil ||
+		moduleVersion.Spec.FileName == nil {
+		http.Error(w, "module version artifact not yet available", http.StatusServiceUnavailable)
+		return
+	}
+
 	var downloadPath string
 	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage != nil {
 		downloadPath = fmt.Sprintf("azure/%s/%s/%s/%s/%s/%s",
@@ -135,6 +142,11 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 
 	checksumQuery := url.QueryEscape(*moduleVersion.Status.Checksum)
 	w.Header().Set("X-Terraform-Get", fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery))
+	// Download is recorded here (at the protocol redirect step) rather than in the
+	// serveModuleFrom* handlers because the Terraform module protocol requires clients
+	// to call this endpoint first; namespace and version are only available here.
+	// The serveModuleFrom* routes do not carry namespace or version URL params.
+	_ = recordDownload(r.Context(), statsDB, chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), chi.URLParam(r, "version"))
 	w.WriteHeader(http.StatusNoContent)
 }
 

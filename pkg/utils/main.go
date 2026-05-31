@@ -2,29 +2,67 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 
 	"golang.org/x/mod/semver"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
-// getLatestVersion returns the latest semantic version of a Module
-func GetLatestVersion(module opendepotv1alpha1.Module) *string {
-	versions := make([]string, 0, len(module.Spec.Versions))
-	for _, version := range module.Spec.Versions {
-		var semverString string
-		if version.Version[0] != 'v' {
-			semverString = fmt.Sprintf("v%s", version.Version)
-		} else {
-			semverString = version.Version
+// GetLatestVersion returns the latest semantic version of a Module or Provider.
+// Pass the non-nil argument for the resource type being queried; the other must be nil.
+// Returns nil, nil when the resource has no versions.
+// Returns an error when both arguments are nil.
+func GetLatestVersion(module *opendepotv1alpha1.Module, provider *opendepotv1alpha1.Provider) (*string, error) {
+	if module != nil {
+		if len(module.Spec.Versions) == 0 {
+			return nil, nil
 		}
-		semverString = semver.Canonical(semverString)
-		versions = append(versions, semverString)
+		versions := make([]string, 0, len(module.Spec.Versions))
+		for _, version := range module.Spec.Versions {
+			var semverString string
+			if version.Version[0] != 'v' {
+				semverString = fmt.Sprintf("v%s", version.Version)
+			} else {
+				semverString = version.Version
+			}
+			semverString = semver.Canonical(semverString)
+			versions = append(versions, semverString)
+		}
+		semver.Sort(versions)
+		latest := versions[len(versions)-1]
+		return &latest, nil
 	}
 
-	semver.Sort(versions)
-	latestVersion := versions[len(versions)-1]
-	return &latestVersion
+	if provider != nil {
+		if len(provider.Spec.Versions) == 0 {
+			return nil, nil
+		}
+		seen := make(map[string]struct{})
+		versions := make([]string, 0, len(provider.Spec.Versions))
+		for _, v := range provider.Spec.Versions {
+			if _, ok := seen[v.Version]; ok {
+				continue
+			}
+			seen[v.Version] = struct{}{}
+			var semverString string
+			if v.Version[0] != 'v' {
+				semverString = fmt.Sprintf("v%s", v.Version)
+			} else {
+				semverString = v.Version
+			}
+			semverString = semver.Canonical(semverString)
+			versions = append(versions, semverString)
+		}
+		if len(versions) == 0 {
+			return nil, nil
+		}
+		semver.Sort(versions)
+		latest := versions[len(versions)-1]
+		return &latest, nil
+	}
+
+	return nil, fmt.Errorf("both module and provider were nil, cannot determine latest version")
 }
 
 // VersionsToKeep returns a slice of version strings that should be kept based on the version history limit specified in
@@ -136,8 +174,10 @@ func GetVersionName(module *opendepotv1alpha1.Module, provider *opendepotv1alpha
 	return "", fmt.Errorf("both module and provider were nil, cannot determine version name")
 }
 
-// SanitizeVersion removes leading 'v' from version strings for terraform/tofu version compatibility.
+// SanitizeVersion removes leading 'v' from version strings and trims surrounding whitespace
+// for terraform/tofu version compatibility.
 func SanitizeVersion(version string) string {
+	version = strings.TrimSpace(version)
 	if len(version) > 0 && version[0] == 'v' {
 		version = version[1:]
 	}

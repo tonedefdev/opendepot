@@ -1,0 +1,82 @@
+name: UI Playwright Tests
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+    paths:
+      - 'services/ui/**'
+      - '.github/workflows/ui-playwright.yaml'
+
+jobs:
+  playwright:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: services/ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: corepack enable && yarn install --immutable
+
+      - name: Install Playwright browsers
+        run: yarn playwright install chromium --with-deps
+
+      - name: Build Next.js
+        run: yarn build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_BASE_URL: 'http://localhost:3000'
+
+      - name: Start Next.js server
+        run: nohup yarn start > /tmp/nextjs.log 2>&1 &
+        env:
+          PORT: '3000'
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_BASE_URL: 'http://localhost:3000'
+          # SESSION_PASSWORD must be at least 32 characters for iron-session.
+          SESSION_PASSWORD: 'playwright-ci-test-password-32chars!'
+
+      - name: Wait for Next.js to be ready
+        run: |
+          echo "Waiting for Next.js on http://localhost:3000 ..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ > /dev/null 2>&1; then
+              echo "Server is ready."
+              exit 0
+            fi
+            echo "  attempt $i/30 — retrying in 2s"
+            sleep 2
+          done
+          echo "Server did not become ready in time."
+          cat /tmp/nextjs.log
+          exit 1
+
+      - name: Run Playwright tests
+        run: yarn test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: 'http://localhost:3000'
+          PLAYWRIGHT_WORKERS: '5'
+          # PLAYWRIGHT_OIDC_ENABLED is intentionally not set here.
+          # OIDC-dependent tests in oidc-flow.spec.ts are skipped unless a full
+          # stack (Dex, server, GroupBinding resources) is available. Those tests
+          # are exercised manually or via the full e2e workflow.
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: services/ui/test-results/
+          retention-days: 7
