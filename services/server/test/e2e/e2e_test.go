@@ -2108,7 +2108,7 @@ spec:
 			deployServer(
 				"--set", "valkey.auth.enabled=true",
 				"--set", fmt.Sprintf("valkey.auth.usersExistingSecret=%s", valkeyAuthSecret),
-				"--set", "valkey.auth.aclUsers.default.permissions=~* &* +@all",
+				"--set", "valkey.auth.aclUsers.default.permissions=~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT",
 				"--set", fmt.Sprintf("server.stats.valkeyPasswordSecretName=%s", valkeyAuthSecret),
 				"--set", "valkey.dataStorage.enabled=false",
 			)

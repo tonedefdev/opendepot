@@ -411,6 +411,10 @@ ui:
 ## Deployed via the official valkey-io/valkey-helm subchart when server.enabled=true.
 valkey:
   fullnameOverride: valkey  # Forces Service name to exactly "valkey" — do not change
+  # Pin to the Valkey 8 LTS tag. Tag "8" receives rolling security patches from
+  # the Valkey project and avoids unmitigated CVEs present in the 9.x branch.
+  image:
+    tag: "8"
   auth:
     # Set to true to require ACL password authentication.
     # Recommended for production environments (finance, banking, DoD, etc.).
@@ -424,7 +428,10 @@ valkey:
     usersExistingSecret: ""
     aclUsers:
       default:
-        permissions: "~* &* +@all"
+        # Minimal ACL: access only stats:* keys, deny all commands except those
+        # used by the server stats subsystem. Operators MUST use this default
+        # unless they have a specific requirement for broader access.
+        permissions: "~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT"
   dataStorage:
     enabled: true
     requestedSize: 1Gi
@@ -434,6 +441,7 @@ valkey:
       cpu: 50m
       memory: 64Mi
     limits:
+      cpu: 200m
       memory: 256Mi
   nodeSelector: {}
   tolerations: []

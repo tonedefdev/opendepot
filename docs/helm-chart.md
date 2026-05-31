@@ -141,7 +141,7 @@ Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Red
 | `valkey.dataStorage.requestedSize` | string | PVC storage size. Default: `1Gi` |
 | `valkey.auth.enabled` | bool | Enable Valkey ACL password authentication. Default: `false` |
 | `valkey.auth.usersExistingSecret` | string | Name of a pre-existing Secret whose keys are ACL usernames and values are plaintext passwords. Required when `valkey.auth.enabled: true`. Default: `""` |
-| `valkey.auth.aclUsers.default.permissions` | string | ACL permissions string for the default user. Default: `~* &* +@all` |
+| `valkey.auth.aclUsers.default.permissions` | string | ACL permissions string for the default user. The default is scoped to `stats:*` keys and the exact commands used by the server (e.g. `~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT`). Do not widen to `+@all` in production. |
 | `server.stats.valkeyPasswordSecretName` | string | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server pod. Must match `valkey.auth.usersExistingSecret` when auth is enabled. Default: `""` |
 | `valkey.nodeSelector` | map | Node selector for the Valkey pod |
 | `valkey.tolerations` | list | Tolerations for the Valkey pod |

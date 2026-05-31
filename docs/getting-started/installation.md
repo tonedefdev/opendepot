@@ -138,7 +138,7 @@ Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Red
 | `valkey.dataStorage.requestedSize` | `1Gi` | PVC storage size |
 | `valkey.auth.enabled` | `false` | Enable Valkey ACL password authentication |
 | `valkey.auth.usersExistingSecret` | `""` | Name of a pre-existing Secret whose keys are ACL usernames. Required when auth is enabled |
-| `valkey.auth.aclUsers.default.permissions` | `~* &* +@all` | ACL permissions string for the default user |
+| `valkey.auth.aclUsers.default.permissions` | `~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT` | ACL permissions string for the default user. Scoped to `stats:*` keys and only the commands used by the server — do not widen to `+@all` in production |
 | `server.stats.valkeyPasswordSecretName` | `""` | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server. Must match `valkey.auth.usersExistingSecret` |
 | `valkey.nodeSelector` | `{}` | Node selector for the Valkey pod |
 | `valkey.tolerations` | `[]` | Tolerations for the Valkey pod |
