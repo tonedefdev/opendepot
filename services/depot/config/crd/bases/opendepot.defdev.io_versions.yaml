@@ -427,12 +427,11 @@ spec:
                 type: string
               sourceScan:
                 description: |-
-                  The IaC source scan result for this specific module version archive.
-                  Only populated for module Version resources when scanning is enabled.
+                  The source vulnerability scan result for this Version. Populated for provider Versions
+                  (go.mod scan) and module Versions (IaC filesystem scan) when scanning is enabled.
                 properties:
                   findings:
-                    description: The list of IaC findings found in the module's HCL
-                      source.
+                    description: The list of findings produced by the scan.
                     items:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.
