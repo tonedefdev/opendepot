@@ -62,28 +62,7 @@ function buildModuleSnippet(
 }`;
 }
 
-// ── Prism theme override using brand palette ──────────────────────────────────
-// We start from the dracula base and replace colours with OpenDepot's palette.
 
-const brandTheme: typeof themes.dracula = {
-  ...themes.dracula,
-  plain: {
-    backgroundColor: "transparent",
-    color: "rgba(240,246,252,0.87)",
-  },
-  styles: [
-    // keywords: terraform, module, required_providers
-    { types: ["keyword", "builtin"], style: { color: "#04cfd0" } },
-    // attribute keys (property names)
-    { types: ["property", "attr-name"], style: { color: "#047df1" } },
-    // string values
-    { types: ["string", "attr-value"], style: { color: "#03deb8" } },
-    // punctuation — braces, equals, commas
-    { types: ["punctuation", "operator"], style: { color: "rgba(240,246,252,0.45)" } },
-    // fallback for anything else
-    { types: ["plain"], style: { color: "rgba(240,246,252,0.87)" } },
-  ],
-};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -104,7 +83,7 @@ export default function UsageSnippet({
     <Box sx={{ position: "relative" }}>
       <Highlight
         prism={Prism as typeof Prism}
-        theme={brandTheme}
+        theme={themes.dracula}
         code={snippet}
         language={"hcl" as Language}
       >
@@ -116,7 +95,6 @@ export default function UsageSnippet({
               p: 2,
               pr: 6,
               borderRadius: 1.5,
-              background: "rgba(0,0,0,0.35)",
               border: "1px solid rgba(240,246,252,0.08)",
               fontFamily: "monospace",
               fontSize: "0.8125rem",
@@ -124,7 +102,6 @@ export default function UsageSnippet({
               overflowX: "auto",
               whiteSpace: "pre",
               ...style,
-              backgroundColor: undefined, // use our bg above, not the theme's
             }}
           >
             {tokens.map((line, i) => (
