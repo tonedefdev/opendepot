@@ -2,7 +2,7 @@ apiVersion: v2
 name: opendepot
 description: A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry
 type: application
-version: 0.5.0
+version: 0.5.1
 appVersion: "0.5.0"
 keywords:
   - terraform

@@ -425,6 +425,7 @@ ui-deploy-anon: ui-session-secret
 	  --set scanning.providerScanning=true \
 	  --set scanning.cache.storageClassName="standard" \
 	  --set scanning.cache.accessMode=ReadWriteOnce \
+	  --set server.stats.emptyDir=true \
 	  --set version.zapLogLevel=5 \
 	  --wait \
 	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
@@ -513,6 +514,8 @@ endif
 	  '    clientId: "$(OIDC_CLIENT_ID)"' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
 	  '    groupsClaim: "groups"' \
+	  '  stats:' \
+	  '    emptyDir: true' \
 	  'provider:' \
 	  '  enabled: true' \
 	  '  image:' \
