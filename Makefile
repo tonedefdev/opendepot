@@ -365,7 +365,30 @@ UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop
+.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop
+
+## Generate a throwaway GPG keypair and create the provider signing secret for local testing.
+## Idempotent — skips if the secret already exists.
+ui-gpg-secret:
+	@kubectl create namespace $(OIDC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f - >/dev/null; \
+	if kubectl get secret opendepot-provider-gpg -n $(OIDC_NAMESPACE) >/dev/null 2>&1; then \
+	  echo "opendepot-provider-gpg already exists — skipping"; \
+	else \
+	  tmpdir=$$(mktemp -d -t opendepot-gpg); \
+	  printf '%%no-protection\nKey-Type: RSA\nKey-Length: 2048\nName-Real: OpenDepot Local\nName-Email: opendepot@local.test\nExpire-Date: 0\n%%commit\n' \
+	    > "$$tmpdir/keygen.conf"; \
+	  GNUPGHOME="$$tmpdir" gpg --batch --gen-key "$$tmpdir/keygen.conf" 2>/dev/null; \
+	  KEY_ID=$$(GNUPGHOME="$$tmpdir" gpg --list-keys --with-colons 2>/dev/null | awk -F: '/^fpr/{print $$10; exit}'); \
+	  ASCII_ARMOR=$$(GNUPGHOME="$$tmpdir" gpg --armor --export "$$KEY_ID" 2>/dev/null); \
+	  PRIV_B64=$$(GNUPGHOME="$$tmpdir" gpg --armor --export-secret-keys "$$KEY_ID" 2>/dev/null | base64 | tr -d '\n'); \
+	  kubectl create secret generic opendepot-provider-gpg \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_KEY_ID="$$KEY_ID" \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR="$$ASCII_ARMOR" \
+	    --from-literal=OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64="$$PRIV_B64" \
+	    -n $(OIDC_NAMESPACE); \
+	  rm -rf "$$tmpdir"; \
+	  echo "Created opendepot-provider-gpg (key: $$KEY_ID)"; \
+	fi
 
 ## Create the session-cookie encryption secret for the UI. Idempotent — skips if it already exists.
 ui-session-secret:
@@ -412,7 +435,7 @@ ui-deploy-anon: ui-session-secret
 ## UI (OIDC), and Dex. Configures a test user ($(OIDC_EMAIL)) who can log in via the UI
 ## and use `tofu login` through the UI proxy at http://opendepot.localtest.me:$(UI_PORT).
 ## Usage: make ui-deploy PASS=yourpassword
-ui-deploy: ui-session-secret
+ui-deploy: ui-session-secret ui-gpg-secret
 ifndef PASS
 	$(error PASS is required. Usage: make ui-deploy PASS=yourpassword)
 endif
@@ -480,6 +503,8 @@ endif
 	  '  image:' \
 	  '    repository: $(REGISTRY)/server' \
 	  "    tag: \"$(TAG)\"" \
+	  '  gpg:' \
+	  '    secretName: opendepot-provider-gpg' \
 	  '  oidc:' \
 	  '    enabled: true' \
 	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
