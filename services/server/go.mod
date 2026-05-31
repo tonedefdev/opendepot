@@ -3,12 +3,14 @@ module github.com/tonedefdev/opendepot/services/server
 go 1.25.5
 
 require (
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/expr-lang/expr v1.17.8
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
+	github.com/redis/go-redis/v9 v9.20.0
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	github.com/tonedefdev/opendepot/pkg/storage v0.2.7
 	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
@@ -18,11 +20,9 @@ require (
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/alicebob/miniredis/v2 v2.38.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
-	github.com/redis/go-redis/v9 v9.20.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect

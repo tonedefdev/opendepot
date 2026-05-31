@@ -2057,6 +2057,25 @@ spec:
 			Expect(len(stats.MostDownloaded)).To(BeNumerically(">=", 1),
 				"mostDownloaded must be non-empty after a recorded download")
 
+			By("asserting the browse resources endpoint shows totalDownloads >= 1 for the downloaded module")
+			browseURL := fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources?namespace=%s&search=%s",
+				serverLocalPort, statsModuleNS, statsModuleName)
+			browseResp, err := http.Get(browseURL)
+			Expect(err).NotTo(HaveOccurred())
+			defer browseResp.Body.Close()
+			Expect(browseResp.StatusCode).To(Equal(http.StatusOK))
+
+			var browseBody struct {
+				Items []struct {
+					Name           string `json:"name"`
+					TotalDownloads int64  `json:"totalDownloads"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(browseResp.Body).Decode(&browseBody)).To(Succeed())
+			Expect(browseBody.Items).NotTo(BeEmpty(), "browse resources must return the downloaded module")
+			Expect(browseBody.Items[0].TotalDownloads).To(BeNumerically(">=", 1),
+				"browse resource totalDownloads must be >= 1 after a recorded download")
+
 			By("cleaning up the smoke test Version and Module CRs")
 			cleanCmd := exec.Command("kubectl", "delete", "version", versionCRName,
 				"-n", statsModuleNS, "--ignore-not-found")
