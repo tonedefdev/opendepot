@@ -7,7 +7,7 @@ tags:
 
 # Architecture
 
-OpenDepot consists of four Kubernetes controllers, a server, and an optional UI frontend, all deployed via the Helm chart.
+OpenDepot consists of four Kubernetes controllers, a server, a bundled Valkey stats store, and an optional UI frontend, all deployed via the Helm chart.
 
 ## Event Flow
 
@@ -15,7 +15,7 @@ OpenDepot consists of four Kubernetes controllers, a server, and an optional UI 
 2. **Module controller** watches `Module` resources, creates a `Version` resource for each version listed in `spec.versions`, generates unique filenames, and tracks the latest version
 3. **Provider controller** watches `Provider` resources, creates a `Version` resource for each version and OS/architecture combination in `spec.versions`, and tracks the latest version
 4. **Version controller** watches `Version` resources, fetches module source from GitHub or provider binaries via the OpenTofu registry download API, computes SHA256 checksums, generates GPG signatures (for providers), and uploads archives to the configured storage backend
-5. **Server** handles OpenTofu/Terraform read requests, queries Kubernetes for `Module`, `Provider`, `Version`, and (when OIDC is enabled) `GroupBinding` resources, and serves or redirects artifact downloads
+5. **Server** handles OpenTofu/Terraform read requests, queries Kubernetes for `Module`, `Provider`, `Version`, and (when OIDC is enabled) `GroupBinding` resources, serves or redirects artifact downloads, and records download events in the bundled Valkey stats store
 6. **Registry Explorer UI** (optional, `ui.enabled: true`) — a Next.js frontend with an NGINX sidecar that provides a browsable registry explorer. NGINX splits traffic between the UI and the server using path-based routing
 
 ## Services
@@ -129,6 +129,14 @@ Provider artifact endpoints (binary download, `SHA256SUMS`, `SHA256SUMS.sig`) ar
 
 !!! warning
     To prevent unauthenticated users from easily enumerating provider and module artifacts, files are stored with UUID7-based filenames.
+
+### Valkey Stats Store
+
+A [Valkey](https://valkey.io/) (Redis-compatible) instance deployed automatically alongside the server via the official `valkey-io/valkey-helm` subchart. The server records download events in Valkey using a scoped key namespace (`stats:*`) and reads aggregate counts for the Registry Explorer Stats page.
+
+Valkey runs as a StatefulSet with a PVC for persistence by default (`valkey.dataStorage.enabled: true`). Disable persistence for local development or ephemeral environments where no StorageClass is available.
+
+Optional ACL password authentication can be enabled via `valkey.auth.enabled: true`. When enabled, the server reads the password from the `OPENDEPOT_VALKEY_PASSWORD` environment variable, injected via a Kubernetes `secretKeyRef`. See [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) for the full configuration reference.
 
 ### Registry Explorer UI
 
