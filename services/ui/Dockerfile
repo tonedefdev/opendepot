@@ -16,7 +16,7 @@ RUN yarn build
 FROM nginx:1.27-alpine AS runner
 
 # Install Node.js for the Next.js standalone server.
-RUN apk add --no-cache nodejs
+RUN apk upgrade --no-cache && apk add --no-cache nodejs
 
 # Pre-create nginx writable directories for non-root (UID 101) operation.
 RUN mkdir -p /var/cache/nginx/client_temp \

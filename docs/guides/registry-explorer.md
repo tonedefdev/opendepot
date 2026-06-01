@@ -365,29 +365,24 @@ The dashboard shows:
 | Storage distribution | Per-backend version counts |
 | Most downloaded | Table of the top 10 most-downloaded resources, with version, namespace, download count, and last-downloaded timestamp |
 
-Summary counts (modules, providers, versions, sync health, security posture, storage distribution) are computed on-demand from Kubernetes CRDs and are always current. Download counts and the most-downloaded table require a persistent stats DB — see [Enabling download tracking](#enabling-download-tracking) below.
+Summary counts (modules, providers, versions, sync health, security posture, storage distribution) are computed on-demand from Kubernetes CRDs and are always current. Download counts and the most-downloaded table are sourced from the bundled Valkey stats store and are always active.
 
 !!! note "Visibility"
     The stats page applies the same visibility rules as the rest of the Registry Explorer. Unauthenticated visitors see statistics derived only from publicly-labelled resources. OIDC-authenticated users with a matching `GroupBinding` additionally see statistics for the resources allowed by that binding.
 
-## Enabling Download Tracking
+## Download Tracking
 
-By default, download events are tracked in memory and lost on server restart. To persist them across restarts, enable the stats PVC in your Helm values:
+Download events are recorded automatically in the bundled Valkey instance that is deployed alongside the server. No extra configuration is required to enable tracking.
+
+By default, Valkey persists data to a PVC so stats survive pod restarts. For local development or Kind clusters without a StorageClass, disable persistence in your Helm values:
 
 ```yaml
-server:
-  stats:
-    persistence:
-      enabled: true
-      storageClassName: ""  # leave blank to use the cluster default
-      size: 1Gi
-      accessMode: ReadWriteOnce
+valkey:
+  dataStorage:
+    enabled: false  # ephemeral storage; stats lost on restart
 ```
 
-When `enabled: true`, the chart creates a PVC named `server-stats` and mounts it at `/data/stats/` in the server deployment, passing `--stats-db-path=/data/stats/stats.db` automatically.
-
-!!! warning "Single replica only"
-    The stats PVC uses `ReadWriteOnce`. Do not increase `server.replicaCount` above `1` when stats persistence is enabled, as multiple replicas cannot share a `ReadWriteOnce` volume.
+For production, leave `valkey.dataStorage.enabled: true` (the default). See the [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) Helm values reference for the full set of options.
 
 Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:
 

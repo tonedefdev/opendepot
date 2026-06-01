@@ -77,6 +77,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
+			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
@@ -85,6 +86,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--set", "server.enabled=true",
 			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
+			"--set", "valkey.dataStorage.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -1927,9 +1929,8 @@ server:
 		})
 
 		It("browse resources response includes totalDownloads and lastDownloadedAt fields", func() {
-			// The stats fields are zero-valued when no downloads have been recorded yet
-			// (server deployed without --stats-db-path in this context). The test
-			// verifies the fields are present and parseable — not that they are non-zero.
+			// The stats fields are zero-valued when no downloads have been recorded yet.
+			// The test verifies the fields are present and parseable — not that they are non-zero.
 			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources?pageSize=1", serverLocalPort))
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
@@ -1968,6 +1969,169 @@ server:
 					"versions endpoint must return 200 or 404, not an internal error")
 			}
 		})
+
+		It("totalDownloads increments after a real module download and mostDownloaded is populated", func() {
+			const (
+				statsModuleName    = "stats-smoke-module"
+				statsModuleVersion = "2.0.0"
+				statsModuleNS      = "opendepot-system"
+			)
+			// Version CR name follows the sanitizeModuleVersionForLookup convention:
+			// dots replaced with hyphens → "stats-smoke-module-2-0-0".
+			versionCRName := fmt.Sprintf("%s-2-0-0", statsModuleName)
+
+			By("creating a Module CR so the stats visibility filter can match it")
+			moduleYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Module
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  moduleConfig:
+    provider: aws
+    storageConfig:
+      fileSystem:
+        directoryPath: "/data/modules"
+  versions:
+  - version: "2.0.0"
+`, statsModuleName, statsModuleNS)
+			moduleCmd := exec.Command("kubectl", "apply", "-f", "-")
+			moduleCmd.Stdin = strings.NewReader(moduleYAML)
+			_, err := utils.Run(moduleCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating a Version CR with filesystem storage and a checksum")
+			dirPath := "/data/modules"
+			fileName := "stats-smoke-module.tar.gz"
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: "%s"
+  fileName: "%s"
+  moduleConfigRef:
+    name: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: "%s"
+`, versionCRName, statsModuleNS, statsModuleVersion, fileName, statsModuleName, dirPath)
+			applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+			applyCmd.Stdin = strings.NewReader(versionYAML)
+			_, err = utils.Run(applyCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("patching the Version CR status to set a checksum")
+			patchCmd := exec.Command("kubectl", "patch", "version", versionCRName,
+				"-n", statsModuleNS,
+				"--subresource=status",
+				"--type=merge",
+				`--patch={"status":{"synced":true,"syncStatus":"Synced","checksum":"abc123"}}`)
+			_, err = utils.Run(patchCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("triggering the module download endpoint to record a stat")
+			downloadURL := fmt.Sprintf("http://localhost:%d/opendepot/modules/v1/%s/%s/aws/%s/download",
+				serverLocalPort, statsModuleNS, statsModuleName, statsModuleVersion)
+			resp, err := http.Get(downloadURL)
+			Expect(err).NotTo(HaveOccurred())
+			resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent),
+				"download redirect must return 204 so that recordDownload is called")
+
+			By("asserting totalDownloads >= 1 from the stats endpoint")
+			statsResp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer statsResp.Body.Close()
+			Expect(statsResp.StatusCode).To(Equal(http.StatusOK))
+
+			var stats struct {
+				TotalDownloads int           `json:"totalDownloads"`
+				MostDownloaded []interface{} `json:"mostDownloaded"`
+			}
+			Expect(json.NewDecoder(statsResp.Body).Decode(&stats)).To(Succeed())
+			Expect(stats.TotalDownloads).To(BeNumerically(">=", 1),
+				"totalDownloads must be at least 1 after a recorded download")
+			Expect(len(stats.MostDownloaded)).To(BeNumerically(">=", 1),
+				"mostDownloaded must be non-empty after a recorded download")
+
+			By("asserting the browse resources endpoint shows totalDownloads >= 1 for the downloaded module")
+			browseURL := fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/resources?namespace=%s&search=%s",
+				serverLocalPort, statsModuleNS, statsModuleName)
+			browseResp, err := http.Get(browseURL)
+			Expect(err).NotTo(HaveOccurred())
+			defer browseResp.Body.Close()
+			Expect(browseResp.StatusCode).To(Equal(http.StatusOK))
+
+			var browseBody struct {
+				Items []struct {
+					Name           string `json:"name"`
+					TotalDownloads int64  `json:"totalDownloads"`
+				} `json:"items"`
+			}
+			Expect(json.NewDecoder(browseResp.Body).Decode(&browseBody)).To(Succeed())
+			Expect(browseBody.Items).NotTo(BeEmpty(), "browse resources must return the downloaded module")
+			Expect(browseBody.Items[0].TotalDownloads).To(BeNumerically(">=", 1),
+				"browse resource totalDownloads must be >= 1 after a recorded download")
+
+			By("cleaning up the smoke test Version and Module CRs")
+			cleanCmd := exec.Command("kubectl", "delete", "version", versionCRName,
+				"-n", statsModuleNS, "--ignore-not-found")
+			_, _ = utils.Run(cleanCmd)
+			cleanModuleCmd := exec.Command("kubectl", "delete", "module", statsModuleName,
+				"-n", statsModuleNS, "--ignore-not-found")
+			_, _ = utils.Run(cleanModuleCmd)
+		})
+	})
+
+	Context("with Valkey ACL auth enabled", Ordered, func() {
+		const valkeyAuthSecret = "valkey-auth-test"
+		var pfCancel context.CancelFunc
+
+		BeforeAll(func() {
+			By("creating valkey ACL password Secret")
+			createCmd := exec.Command("kubectl", "create", "secret", "generic", valkeyAuthSecret,
+				"--from-literal=default=testpassword123",
+				"-n", namespace,
+				"--dry-run=client", "-o", "yaml",
+			)
+			applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+			createOut, err := createCmd.Output()
+			Expect(err).NotTo(HaveOccurred())
+			applyCmd.Stdin = strings.NewReader(string(createOut))
+			_, err = utils.Run(applyCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deploying server with Valkey ACL auth enabled")
+			deployServer(
+				"--set", "valkey.auth.enabled=true",
+				"--set", fmt.Sprintf("valkey.auth.usersExistingSecret=%s", valkeyAuthSecret),
+				"--set", "valkey.auth.aclUsers.default.permissions=~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT",
+				"--set", fmt.Sprintf("server.stats.valkeyPasswordSecretName=%s", valkeyAuthSecret),
+				"--set", "valkey.dataStorage.enabled=false",
+			)
+
+			pfCancel = startPortForward()
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancel)
+
+			By("deleting valkey ACL password Secret")
+			deleteCmd := exec.Command("kubectl", "delete", "secret", valkeyAuthSecret,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(deleteCmd)
+		})
+
+		It("should return 200 from the stats endpoint when Valkey auth is configured", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK),
+				"stats endpoint must return 200 when server authenticates to Valkey with ACL password")
+		})
 	})
 })
 
@@ -1998,6 +2162,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
+			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
@@ -2009,6 +2174,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			// Anonymous auth so the SA client path is exercised.
 			"--set", "server.anonymousAuth=true",
 			"--set", "server.useBearerToken=false",
+			"--set", "valkey.dataStorage.enabled=false",
 			"--wait",
 			"--timeout", "2m",
 		}
@@ -2540,11 +2706,6 @@ spec:
 			}
 			pfCancel = nil
 
-			By("uninstalling previous Helm release before OIDC redeployment")
-			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
-				"--namespace", namespace, "--ignore-not-found")
-			_, _ = utils.Run(uninstallCmd)
-
 			By("generating bcrypt hash for the GroupBinding browse test password")
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbBrowseUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
@@ -2597,6 +2758,7 @@ server:
 				"--create-namespace",
 				"--namespace", namespace,
 				"--skip-crds",
+				"--force-conflicts",
 				"--set", "global.image.tag=",
 				"--set", "depot.enabled=false",
 				"--set", "module.enabled=false",
@@ -2607,6 +2769,7 @@ server:
 				"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
+				"--set", "valkey.dataStorage.enabled=false",
 				"-f", valuesFile,
 				"--wait",
 				"--timeout", "10m",

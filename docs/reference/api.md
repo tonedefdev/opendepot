@@ -425,7 +425,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 
 `availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
 
-`downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded (stats DB is nil or no events exist). `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
+`downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded. `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
 
 ### Resource Scan Findings
 
@@ -630,7 +630,7 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 }
 ```
 
-`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` require a persistent stats DB (`--stats-db-path`); both are `0` / empty when the flag is not set. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are sourced from the bundled Valkey stats store; both are `0` / empty until at least one download has been recorded. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
 
 ## Kubernetes Resource Types
 
@@ -731,7 +731,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `totalProviders` | `int` | Number of visible `Provider` resources |
 | `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
 | `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
-| `totalDownloads` | `int64` | Cumulative download events recorded in the stats DB; `0` when the stats DB is not configured |
+| `totalDownloads` | `int64` | Cumulative download events recorded in Valkey; `0` until at least one download has been recorded |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |

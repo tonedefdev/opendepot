@@ -129,18 +129,30 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.ingress.hosts` | list | Host and path rules. |
 | `ui.ingress.tls` | list | TLS configuration for the Ingress. |
 
-## Server Stats Persistence
+## Valkey Stats Store
 
-Controls the embedded SQLite database used to persist download events. When disabled (default), events are tracked in memory and lost on restart.
+Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Redis-compatible) instance deployed automatically alongside the server. No additional setup is required — Valkey is always deployed as part of the chart.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `server.stats.persistence.enabled` | bool | Create a PVC for the stats SQLite database. Default: `false` |
-| `server.stats.persistence.storageClassName` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
-| `server.stats.persistence.size` | string | PVC size. Default: `1Gi` |
-| `server.stats.persistence.accessMode` | string | PVC access mode. Default: `ReadWriteOnce` |
+| `valkey.resources` | map | Resource requests and limits for the Valkey pod |
+| `valkey.dataStorage.enabled` | bool | Create a PVC for Valkey data. Default: `true` |
+| `valkey.dataStorage.className` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
+| `valkey.dataStorage.requestedSize` | string | PVC storage size. Default: `1Gi` |
+| `valkey.auth.enabled` | bool | Enable Valkey ACL password authentication. Default: `false` |
+| `valkey.auth.usersExistingSecret` | string | Name of a pre-existing Secret whose keys are ACL usernames and values are plaintext passwords. Required when `valkey.auth.enabled: true`. Default: `""` |
+| `valkey.auth.aclUsers.default.permissions` | string | ACL permissions string for the default user. The default is scoped to `stats:*` keys and the exact commands used by the server (e.g. `~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT`). Do not widen to `+@all` in production. |
+| `server.stats.valkeyPasswordSecretName` | string | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server pod. Must match `valkey.auth.usersExistingSecret` when auth is enabled. Default: `""` |
+| `valkey.nodeSelector` | map | Node selector for the Valkey pod |
+| `valkey.tolerations` | list | Tolerations for the Valkey pod |
+| `valkey.affinity` | map | Affinity rules for the Valkey pod |
 
-When `enabled: true`, the chart creates a PVC named `server-stats`, mounts it at `/data/stats/`, and passes `--stats-db-path=/data/stats/stats.db` to the server. See [Enabling download tracking](guides/registry-explorer.md#enabling-download-tracking) for details.
+When `valkey.dataStorage.enabled: true` (the default), a PVC is created and mounted at `/data` in the Valkey pod. Set `valkey.dataStorage.enabled: false` to use ephemeral in-pod storage — suitable for local development or Kind clusters where no StorageClass is available. Stats are lost on pod restart when persistence is disabled.
+
+!!! warning "Production Security"
+    Valkey ACL authentication is **disabled by default**. For production deployments, create a Kubernetes Secret containing the password, then configure `valkey.auth.enabled: true`, `valkey.auth.usersExistingSecret`, and `server.stats.valkeyPasswordSecretName` to point at it. For regulated environments, use [External Secrets Operator](https://external-secrets.io/) or HashiCorp Vault to provision the Secret rather than storing the password in `values.yaml`.
+
+See [Download Tracking](guides/registry-explorer.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
 
 ## Scanning Values
 

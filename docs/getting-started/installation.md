@@ -126,22 +126,28 @@ helm install opendepot opendepot/opendepot \
 | `server.oidc.authzUrl` | `""` | Override `login.v1.authz` URL advertised in service discovery |
 | `server.oidc.tokenUrl` | `""` | Override `login.v1.token` URL advertised in service discovery |
 
-### Server Stats Persistence
+### Valkey Stats Store
+
+Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Redis-compatible) instance that is always deployed as part of the chart. No extra configuration is required to enable stats — they are always on.
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `server.stats.emptyDir` | `false` | Mount an ephemeral in-pod volume for the stats SQLite database. Data is lost on pod restart — suitable for local development and Kind clusters where no StorageClass is available. |
-| `server.stats.persistence.enabled` | `false` | Create a PVC for the download-events SQLite database. Recommended for production deployments. |
-| `server.stats.persistence.storageClassName` | `""` | StorageClass for the stats PVC. Leave blank to use the cluster default. |
-| `server.stats.persistence.size` | `1Gi` | PVC storage size |
-| `server.stats.persistence.accessMode` | `ReadWriteOnce` | PVC access mode. Do not change unless your storage class supports multi-writer access. |
+| `valkey.resources` | see values.yaml | Resource requests and limits for the Valkey pod |
+| `valkey.dataStorage.enabled` | `true` | Create a PVC for Valkey data. When `false`, stats are stored on an ephemeral in-pod volume and lost on restart |
+| `valkey.dataStorage.className` | `""` | StorageClass for the PVC. Leave blank to use the cluster default |
+| `valkey.dataStorage.requestedSize` | `1Gi` | PVC storage size |
+| `valkey.auth.enabled` | `false` | Enable Valkey ACL password authentication |
+| `valkey.auth.usersExistingSecret` | `""` | Name of a pre-existing Secret whose keys are ACL usernames. Required when auth is enabled |
+| `valkey.auth.aclUsers.default.permissions` | `~stats:* &* -@all +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT` | ACL permissions string for the default user. Scoped to `stats:*` keys and only the commands used by the server — do not widen to `+@all` in production |
+| `server.stats.valkeyPasswordSecretName` | `""` | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server. Must match `valkey.auth.usersExistingSecret` |
+| `valkey.nodeSelector` | `{}` | Node selector for the Valkey pod |
+| `valkey.tolerations` | `[]` | Tolerations for the Valkey pod |
+| `valkey.affinity` | `{}` | Affinity rules for the Valkey pod |
 
-When either `server.stats.emptyDir: true` or `server.stats.persistence.enabled: true`, the chart mounts a volume at `/data/stats/` in the server deployment and starts the server with `--stats-db-path=/data/stats/stats.db`. When both are `false` (the default), download tracking is disabled entirely — no events are recorded.
+Set `valkey.dataStorage.enabled: false` for local Kind clusters or ephemeral environments where no StorageClass is available. For production, leave persistence enabled (the default) so stats survive pod restarts.
 
-Use `server.stats.emptyDir: true` for local Kind clusters. Use `server.stats.persistence.enabled: true` for production deployments where stats must survive pod restarts.
-
-!!! warning "Single replica"
-    The stats PVC uses `ReadWriteOnce`. Keep `server.replicaCount: 1` when stats persistence is enabled.
+!!! warning "Production Security"
+    Valkey ACL authentication is **disabled by default**. For production deployments, create a Kubernetes Secret containing the password, then set `valkey.auth.enabled: true`, `valkey.auth.usersExistingSecret`, and `server.stats.valkeyPasswordSecretName` to match. Use [External Secrets Operator](https://external-secrets.io/) or HashiCorp Vault to provision the Secret in regulated environments.
 
 ## Controllers
 

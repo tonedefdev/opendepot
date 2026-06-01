@@ -70,6 +70,48 @@ Follow these patterns exactly as they exist in the codebase:
 - Use `fmt.Errorf("context: %w", err)` for error wrapping
 - Return errors from `Reconcile` to trigger requeue with backoff
 
+**Go formatting — control flow spacing**:
+- Always add a blank line **before** `if`, `for`, `return`, and `select` statements when they follow other statements in the same block. This applies inside function bodies, closures, and loop bodies.
+- Always add a blank line **after** a closure body (the closing `}`) before the next statement in the outer block.
+- Example — correct:
+  ```go
+  cmds := make([]*redis.MapStringStringCmd, len(keys))
+  _, err := client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+      for i, k := range keys {
+          ns, kind, name, ok := splitResourceKey(k)
+          if !ok {
+              continue
+          }
+
+          cmds[i] = pipe.HGetAll(ctx, keyResourceHash(ns, kind, name))
+      }
+
+      return nil
+  })
+
+  if err != nil && err != redis.Nil {
+      return nil, fmt.Errorf("stats: batch resource stats: %w", err)
+  }
+  ```
+- Example — incorrect (no breathing room):
+  ```go
+  cmds := make([]*redis.MapStringStringCmd, len(keys))
+  _, err := client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+      for i, k := range keys {
+          ns, kind, name, ok := splitResourceKey(k)
+          if !ok {
+              continue
+          }
+          cmds[i] = pipe.HGetAll(ctx, keyResourceHash(ns, kind, name))
+      }
+      return nil
+  })
+  if err != nil && err != redis.Nil {
+      return nil, fmt.Errorf("stats: batch resource stats: %w", err)
+  }
+  ```
+- The rule does not apply to the first statement in a block, or to single-statement blocks.
+
 **Types and packages**:
 - CRD types live in `api/v1alpha1/` — never define new types elsewhere
 - Storage backends are in `pkg/storage/`

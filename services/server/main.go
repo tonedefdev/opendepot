@@ -2,16 +2,17 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -29,9 +30,9 @@ var (
 	opendepotServerNamespace            *string
 	opendepotFilesystemMountPath        *string
 
-	// statsDB is the optional SQLite database used to track download events.
-	// It is nil when --stats-db-path is empty (stats tracking disabled).
-	statsDB *sql.DB
+	// statsClient is the Valkey/Redis client used to track download events.
+	// Stats tracking is always enabled; the server will not start if Valkey is unreachable.
+	statsClient *redis.Client
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -68,20 +69,38 @@ func main() {
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
-	opendepotStatsDBPath := flag.String("stats-db-path", "", "path to SQLite stats database file; when empty download tracking is disabled")
+	opendepotValkeyAddr := flag.String("stats-valkey-addr", "valkey:6379", "address of the Valkey/Redis instance used for download stats tracking")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
 
-	if *opendepotStatsDBPath != "" {
-		db, err := initStatsDB(*opendepotStatsDBPath)
-		if err != nil {
-			logger.Error("failed to initialise stats database", "path", *opendepotStatsDBPath, "error", err)
-			os.Exit(1)
+	client := redis.NewClient(&redis.Options{
+		Addr:     *opendepotValkeyAddr,
+		Password: os.Getenv("OPENDEPOT_VALKEY_PASSWORD"),
+	})
+
+	const maxAttempts = 10
+	var pingErr error
+	for i := range maxAttempts {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingErr = client.Ping(pingCtx).Err()
+		cancel()
+
+		if pingErr == nil {
+			break
 		}
-		statsDB = db
-		logger.Info("stats tracking enabled", "path", *opendepotStatsDBPath)
+
+		logger.Warn("stats: waiting for Valkey", "addr", *opendepotValkeyAddr, "attempt", i+1, "error", pingErr)
+		time.Sleep(3 * time.Second)
 	}
+
+	if pingErr != nil {
+		logger.Error("stats: failed to connect to Valkey", "addr", *opendepotValkeyAddr, "error", pingErr)
+		os.Exit(1)
+	}
+
+	statsClient = client
+	logger.Info("stats tracking enabled", "addr", *opendepotValkeyAddr)
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")

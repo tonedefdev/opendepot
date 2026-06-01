@@ -2,8 +2,8 @@ apiVersion: v2
 name: opendepot
 description: A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry
 type: application
-version: 0.5.0
-appVersion: "0.5.0"
+version: 0.6.0
+appVersion: "0.6.0"
 keywords:
   - terraform
   - opentofu
@@ -18,3 +18,7 @@ dependencies:
     version: "0.24.*"
     repository: https://charts.dexidp.io
     condition: dex.enabled
+  - name: valkey
+    version: "0.9.*"
+    repository: https://valkey-io.github.io/valkey-helm/
+    condition: server.enabled

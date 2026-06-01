@@ -38,8 +38,6 @@ import { useEffect, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 56;
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-
 interface Namespace {
   name: string;
   public: boolean;
@@ -81,7 +79,7 @@ export default function Sidebar({
   // Fetch namespaces client-side if none passed as props
   useEffect(() => {
     if (initialNamespaces.length > 0) return;
-    fetch(`${API_BASE_URL}/opendepot/ui/v1/namespaces`)
+    fetch(`/opendepot/ui/v1/namespaces`)
       .then((r) => r.json())
       .then((data: { items: Namespace[] }) => {
         setNamespaces(data.items ?? []);

@@ -78,9 +78,7 @@ spec:
         {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.mountPath }}
         - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
         {{- end }}
-        {{- if or .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
-        - --stats-db-path=/data/stats/stats.db
-        {{- end }}
+        - --stats-valkey-addr=valkey.{{ .Values.global.namespace }}.svc.cluster.local:6379
         {{- if .Values.server.tls.enabled }}
         - --tls-cert-path={{ .Values.server.tls.certPath }}
         - --tls-cert-key={{ .Values.server.tls.keyPath }}
@@ -89,6 +87,14 @@ spec:
         envFrom:
         - secretRef:
             name: {{ .Values.server.gpg.secretName }}
+        {{- end }}
+        {{- if .Values.server.stats.valkeyPasswordSecretName }}
+        env:
+        - name: OPENDEPOT_VALKEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.server.stats.valkeyPasswordSecretName }}
+              key: default
         {{- end }}
         ports:
         - name: http
@@ -101,7 +107,7 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.server.resources | nindent 10 }}
-        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
         volumeMounts:
         {{- if .Values.server.tls.enabled }}
         - name: tls
@@ -112,12 +118,8 @@ spec:
         - name: modules
           mountPath: {{ .Values.storage.filesystem.mountPath }}
         {{- end }}
-        {{- if or .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
-        - name: stats-db
-          mountPath: /data/stats
         {{- end }}
-        {{- end }}
-      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.server.stats.persistence.enabled .Values.server.stats.emptyDir }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled }}
       volumes:
       {{- if .Values.server.tls.enabled }}
       - name: tls
@@ -134,14 +136,6 @@ spec:
         persistentVolumeClaim:
           claimName: opendepot-modules
         {{- end }}
-      {{- end }}
-      {{- if .Values.server.stats.persistence.enabled }}
-      - name: stats-db
-        persistentVolumeClaim:
-          claimName: server-stats
-      {{- else if .Values.server.stats.emptyDir }}
-      - name: stats-db
-        emptyDir: {}
       {{- end }}
       {{- end }}
       {{- with .Values.server.nodeSelector }}
