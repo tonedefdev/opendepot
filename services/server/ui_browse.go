@@ -894,9 +894,11 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 			if v.Spec.ProviderConfigRef == nil || v.Spec.ProviderConfigRef.Name == nil {
 				continue
 			}
+
 			if *v.Spec.ProviderConfigRef.Name != p.Name {
 				continue
 			}
+
 			nv := opendepotUtils.SanitizeVersion(v.Spec.Version)
 			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
 				latestVersionStr = nv
@@ -953,6 +955,7 @@ func enrichProviderCard(card *BrowseResource, p opendepotv1alpha1.Provider, vers
 		for k := range latestBinaryByPlatform {
 			binaryKeys = append(binaryKeys, k)
 		}
+
 		sort.Strings(binaryKeys)
 		chosen := latestBinaryByPlatform[binaryKeys[0]]
 		scanFindings = append(scanFindings, chosen.Status.BinaryScan.Findings...)
@@ -1831,12 +1834,14 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			result.ScannedVersions = scannedVersions
 		}
 
-		// Build binaryVersions from distinct semver values that have a BinaryScan result.
+		// Build binaryVersions from distinct semver values that have a BinaryScan result
+		// with at least one finding. Versions scanned clean (BinaryScan != nil but Findings
+		// empty) are excluded so the dropdown only lists versions that actually have findings.
 		seenBinary := make(map[string]struct{})
 		var binaryVersions []string
 		for i := range versions {
 			v := &versions[i]
-			if v.Status.BinaryScan == nil {
+			if v.Status.BinaryScan == nil || len(v.Status.BinaryScan.Findings) == 0 {
 				continue
 			}
 

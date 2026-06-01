@@ -577,7 +577,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
         </AccordionDetails>
       </Accordion>
 
-      {allBinaryFindings.length > 0 && (
+      {(binaryVersions.length > 0 || allBinaryFindings.length > 0) && (
         <Accordion
           expanded={binaryExpanded}
           onChange={(_, v) => setBinaryExpanded(v)}

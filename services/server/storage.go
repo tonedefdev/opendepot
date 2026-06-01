@@ -17,7 +17,7 @@ import (
 // buildDownloadPathFromVersion constructs the storage-backend path segment appended to
 // /opendepot/modules/v1/download/ for a given Version resource. It inspects both
 // ModuleConfigRef and ProviderConfigRef storage configs and returns an error if
-// neither is populated or the storage backend is not recognised.
+// neither is populated or the storage backend is not recognized.
 func buildDownloadPathFromVersion(versionResource *opendepotv1alpha1.Version) (string, error) {
 	var storageConfig *opendepotv1alpha1.StorageConfig
 	var name *string

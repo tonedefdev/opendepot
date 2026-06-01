@@ -238,3 +238,87 @@ func Test_compareVersionDesc(t *testing.T) {
 		}
 	}
 }
+
+func makeFinding(id string) opendepotv1alpha1.SecurityFinding {
+	return opendepotv1alpha1.SecurityFinding{VulnerabilityID: id, Severity: "HIGH"}
+}
+
+func makeBinaryScan(findings ...opendepotv1alpha1.SecurityFinding) *opendepotv1alpha1.BinaryScan {
+	return &opendepotv1alpha1.BinaryScan{Findings: findings}
+}
+
+func makeProviderVersion(semver, os, arch string, scan *opendepotv1alpha1.BinaryScan) opendepotv1alpha1.Version {
+	v := opendepotv1alpha1.Version{}
+	v.Spec.Version = semver
+	v.Spec.OperatingSystem = os
+	v.Spec.Architecture = arch
+	v.Status.BinaryScan = scan
+
+	return v
+}
+
+// Test_collectBinaryFindingsForVersion_excludesEmptyFindings asserts that a Version whose
+// BinaryScan is non-nil but has zero Findings is excluded from the result map.
+func Test_collectBinaryFindingsForVersion_excludesEmptyFindings(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		makeProviderVersion("6.47.0", "darwin", "arm64", makeBinaryScan()),
+		makeProviderVersion("6.20.0", "darwin", "arm64", makeBinaryScan(makeFinding("CVE-2026-33186"))),
+	}
+
+	result := collectBinaryFindingsForVersion(versions, "")
+	if _, ok := result["darwin/arm64"]; !ok {
+		t.Fatal("expected darwin/arm64 key in result")
+	}
+
+	findings := result["darwin/arm64"]
+	if len(findings) != 1 || findings[0].VulnerabilityID != "CVE-2026-33186" {
+		t.Errorf("expected finding CVE-2026-33186 for darwin/arm64, got %v", findings)
+	}
+}
+
+// Test_collectBinaryFindingsForVersion_nilScanExcluded asserts that a Version with a nil
+// BinaryScan is excluded from the result map.
+func Test_collectBinaryFindingsForVersion_nilScanExcluded(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		makeProviderVersion("6.47.0", "darwin", "arm64", nil),
+		makeProviderVersion("6.20.0", "linux", "amd64", makeBinaryScan(makeFinding("CVE-2026-99999"))),
+	}
+
+	result := collectBinaryFindingsForVersion(versions, "")
+	if _, ok := result["darwin/arm64"]; ok {
+		t.Error("darwin/arm64 should be excluded (nil BinaryScan)")
+	}
+
+	if _, ok := result["linux/amd64"]; !ok {
+		t.Error("linux/amd64 should be present")
+	}
+}
+
+// Test_collectBinaryFindingsForVersion_semverFilter asserts that when a specific semver is
+// requested, only versions matching that semver are included.
+func Test_collectBinaryFindingsForVersion_semverFilter(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		makeProviderVersion("6.47.0", "darwin", "arm64", makeBinaryScan(makeFinding("CVE-LATEST"))),
+		makeProviderVersion("6.20.0", "darwin", "arm64", makeBinaryScan(makeFinding("CVE-OLD"))),
+	}
+
+	result := collectBinaryFindingsForVersion(versions, "6.20.0")
+	findings := result["darwin/arm64"]
+	if len(findings) != 1 || findings[0].VulnerabilityID != "CVE-OLD" {
+		t.Errorf("expected only CVE-OLD for 6.20.0, got %v", findings)
+	}
+}
+
+// Test_collectBinaryFindingsForVersion_noVersionsWithFindings asserts that nil is returned
+// when no versions have any binary findings.
+func Test_collectBinaryFindingsForVersion_noVersionsWithFindings(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		makeProviderVersion("6.47.0", "darwin", "arm64", makeBinaryScan()),
+		makeProviderVersion("6.46.0", "darwin", "arm64", nil),
+	}
+
+	result := collectBinaryFindingsForVersion(versions, "")
+	if result != nil {
+		t.Errorf("expected nil result when no versions have findings, got %v", result)
+	}
+}
