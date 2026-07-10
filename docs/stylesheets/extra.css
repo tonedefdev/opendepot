@@ -47,12 +47,16 @@
   color: #fff !important;
 }
 
-/* Make navbar logo white to show on the gradient header */
+/* Site name is redundant now that the logo artwork includes the wordmark */
+.md-header__topic:not([data-md-component="header-topic"]) {
+  display: none;
+}
+
+/* Logo sizing on the gradient header/nav — artwork already renders correctly, no color filter needed */
 .md-header__button.md-logo img,
 .md-header__button.md-logo svg,
 .md-nav__title .md-logo img,
 .md-nav__title .md-logo svg {
-  filter: brightness(0) invert(1);
   height: 2rem;
   width: auto;
 }

@@ -175,14 +175,12 @@ export default function Sidebar({
           href="/"
           sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", "&:hover": { opacity: 0.85 } }}
         >
-          <Box>
-            <Typography
-              variant="body1"
-              sx={{ fontWeight: 700, color: "#fff", lineHeight: 1.2, fontSize: "1.200rem" }}
-            >
-              OpenDepot
-            </Typography>
-          </Box>
+          <Box
+            component="img"
+            src="/img/opendepot_dark_mode.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.75rem", width: "auto" }}
+          />
         </Box>
         <Tooltip title="Collapse sidebar" placement="right">
           <IconButton
@@ -559,6 +557,18 @@ export default function Sidebar({
 
   const collapsedContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
+      <Box
+        component={Link}
+        href="/"
+        sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, "&:hover": { opacity: 0.85 } }}
+      >
+        <Box
+          component="img"
+          src="/img/opendepot_icon.svg"
+          alt="OpenDepot"
+          sx={{ height: "1.5rem", width: "auto" }}
+        />
+      </Box>
       <Tooltip title="Expand sidebar" placement="right">
         <IconButton
           size="small"
