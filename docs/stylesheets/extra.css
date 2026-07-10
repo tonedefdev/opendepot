@@ -137,14 +137,17 @@
 }
 
 .mdx-hero__image {
-  flex: 0 1 500px;
-  padding-bottom: 8rem;
-  text-align: center;
+  flex: 1 1 380px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 420px;
 }
 
 .mdx-hero__image img {
-  max-width: 500px;
+  max-width: 100%;
   width: 100%;
+  height: auto;
 }
 
 /* Light/dark logo switching in the hero */
@@ -152,10 +155,11 @@
 [data-md-color-scheme="slate"] .mdx-logo--light { display: none; }
 [data-md-color-scheme="slate"] .mdx-logo--dark { display: block; }
 
-/* On narrower viewports the hero stacks; reduce padding and hide the logo image */
+/* On narrower viewports the hero stacks; keep the logo visible but scaled down */
 @media (max-width: 60em) {
   .mdx-hero__image {
-    display: none;
+    max-width: 280px;
+    margin: 0 auto;
   }
 }
 
