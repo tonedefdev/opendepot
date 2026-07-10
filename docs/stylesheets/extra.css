@@ -137,14 +137,26 @@
 }
 
 .mdx-hero__image {
-  flex: 0 0 600px;
-  padding-bottom: 12rem;
+  flex: 0 1 500px;
+  padding-bottom: 8rem;
   text-align: center;
 }
 
 .mdx-hero__image img {
-  max-width: 600px;
+  max-width: 500px;
   width: 100%;
+}
+
+/* Light/dark logo switching in the hero */
+.mdx-logo--dark { display: none; }
+[data-md-color-scheme="slate"] .mdx-logo--light { display: none; }
+[data-md-color-scheme="slate"] .mdx-logo--dark { display: block; }
+
+/* On narrower viewports the hero stacks; reduce padding and hide the logo image */
+@media (max-width: 60em) {
+  .mdx-hero__image {
+    display: none;
+  }
 }
 
 /* Hero stats pills */
