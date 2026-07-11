@@ -67,7 +67,6 @@ nav:
     - GPG Signing: configuration/gpg.md
     - Vulnerability Scanning: configuration/scanning.md
     - OIDC Authentication: configuration/oidc.md
-    - Registry Explorer UI: configuration/ui.md
   - Guides:
     - guides/index.md
     - Users:
@@ -89,6 +88,7 @@ nav:
     - Version Constraints: reference/version-constraints.md
   - Contributing: contributing.md
   - Helm Chart: helm-chart.md
+  - Upgrading: upgrading.md
 
 plugins:
   - search:

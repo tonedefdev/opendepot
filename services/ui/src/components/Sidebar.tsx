@@ -32,7 +32,6 @@ import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
@@ -574,11 +573,11 @@ export default function Sidebar({
 
   const collapsedContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.25, mb: 0.5 }}>
-        <Box
-          component={Link}
-          href="/"
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center", "&:hover": { opacity: 0.85 } }}
+      <Tooltip title="Click to expand" placement="right">
+        <IconButton
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand sidebar"
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, p: 0.5, "&:hover": { opacity: 0.85, bgcolor: "rgba(4,207,208,0.1)" } }}
         >
           <Box
             component="img"
@@ -586,17 +585,8 @@ export default function Sidebar({
             alt="OpenDepot"
             sx={{ height: "1.25rem", width: "auto" }}
           />
-        </Box>
-        <Tooltip title="Expand sidebar" placement="right">
-          <IconButton
-            size="small"
-            onClick={() => setCollapsed(false)}
-            sx={{ color: "text.secondary", "&:hover": { color: "text.primary" }, p: 0.25 }}
-          >
-            <ChevronRightIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
-      </Box>
+        </IconButton>
+      </Tooltip>
       <Divider sx={{ width: "80%", mb: 0.5 }} />
       <Tooltip title="Registry" placement="right">
         <IconButton

@@ -24,9 +24,11 @@
       <div class="mdx-hero__content">
         <h1>Self-hosted registry for OpenTofu &amp; Terraform</h1>
         <p>
-          A Kubernetes-native module and provider registry with zero extra
-          infrastructure. Authentication, RBAC, and self-healing come free —
-          no database, no API keys, no separate identity store.
+          A Kubernetes-native module and provider registry with no external
+          database to manage. Kubernetes RBAC governs every write, self-healing
+          controllers keep everything in sync, and SSO ships bundled via Dex —
+          deployed from the same Helm chart, with no separate identity
+          infrastructure to stand up.
         </p>
         <a href="{{ base_url }}/getting-started/installation/" class="md-button md-button--primary">
           Get Started &nbsp;→

@@ -288,57 +288,7 @@ jobs:
 
 The Module controller creates the `Version` resource, and the Version controller fetches the archive from GitHub and uploads it to storage — no manual archive upload needed.
 
-## Adding Versions to an Existing Module
-
-To publish a new version of a module that already exists in OpenDepot, append the version to the `spec.versions` list. Existing versions are preserved — the Module controller only creates `Version` resources for entries it hasn't seen before.
-
-**Using `kubectl patch` (quick):**
-
-```bash
-kubectl patch module terraform-aws-eks -n opendepot-system \
-  --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"version":"21.13.0"}}]'
-```
-
-**Using `kubectl apply` (declarative):**
-
-Include all existing versions alongside the new one. The Module controller is idempotent — it won't re-create versions that already exist.
-
-```yaml
-apiVersion: opendepot.defdev.io/v1alpha1
-kind: Module
-metadata:
-  name: terraform-aws-eks
-  namespace: opendepot-system
-spec:
-  moduleConfig:
-    name: terraform-aws-eks
-    provider: aws
-    repoOwner: terraform-aws-modules
-    repoUrl: https://github.com/terraform-aws-modules/terraform-aws-eks
-    fileFormat: zip
-    storageConfig:
-      s3:
-        bucket: opendepot-modules
-        region: us-west-2
-  versions:
-    - version: "21.10.1"
-    - version: "21.11.0"
-    - version: "21.12.0"
-    - version: "21.13.0"   # new version
-```
-
-**GitHub Actions Example (Append on Release):**
-
-```yaml
-- name: Add version to existing module
-  run: |
-    VERSION=${{ github.event.release.tag_name }}
-    kubectl patch module my-module -n opendepot-system \
-      --type json \
-      -p "[{\"op\":\"add\",\"path\":\"/spec/versions/-\",\"value\":{\"version\":\"${VERSION}\"}}]"
-```
-
-**Removing a version:** Remove the entry from `spec.versions` and re-apply. The Module controller garbage-collects orphaned `Version` resources. If `versionHistoryLimit` is set, older versions are automatically pruned when the limit is exceeded.
+To publish subsequent versions of an existing module from a pipeline, see [Adding versions to an existing module](operations.md#adding-versions-to-an-existing-module).
 
 ## Related Admin Operations
 

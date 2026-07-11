@@ -102,6 +102,36 @@
   .md-nav--primary .md-nav__title {
     font-size: 0;
   }
+
+  /* The theme hides the header wordmark logo entirely below the desktop breakpoint
+     (it only reappears inside the drawer once opened). Without it, all that's left
+     in the mobile header is the page title — so inner pages show no OpenDepot
+     branding at all. Bring the compact white wordmark back into the header bar,
+     sized down slightly to leave room for the page title next to it. */
+  .md-header__button.md-logo {
+    display: block !important;
+    height: 1.1rem;
+    margin: auto .5rem auto 0 !important;
+    padding: 0 !important;
+  }
+
+  .md-header__button.md-logo img,
+  .md-header__button.md-logo svg {
+    height: 1.1rem;
+  }
+
+  /* Put the hamburger before the logo in visual order so the drawer toggle
+     reads left-to-right, then the wordmark — matches how users expect the
+     menu control and brand mark to be laid out together. Negative order
+     values keep both ahead of the title/search/theme-toggle buttons, which
+     default to order 0. */
+  .md-header__button.md-logo {
+    order: -1;
+  }
+
+  .md-header__button[for="__drawer"] {
+    order: -2;
+  }
 }
 
 .md-header__button.md-logo {
@@ -146,7 +176,7 @@
 }
 
 .mdx-hero__content h1 {
-  font-size: clamp(2.6rem, 2rem + 2vw, 3.6rem);
+  font-size: 2.75rem;
   font-weight: 800;
   line-height: 1.15;
   margin-bottom: 1rem;
@@ -157,14 +187,13 @@
 }
 
 [data-md-color-scheme="slate"] .mdx-hero__content h1 {
-  background: linear-gradient(135deg, #04cfd0 0%, #03deb8 100%);
+  background: linear-gradient(135deg, #04cfd0 0%, #ffffff 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .mdx-hero__content p {
-  font-size: clamp(1.15rem, 1rem + 0.4vw, 1.35rem);
   line-height: 1.7;
   color: var(--md-default-fg-color--light);
   margin-bottom: 1.75rem;
@@ -396,7 +425,10 @@
   .mdx-hero__content h1 {
     font-size: 1.7rem;
   }
+}
+
+@media screen and (max-width: 480px) {
   .mdx-hero__image {
-    max-width: 280px;
+    max-width: 75%;
   }
 }

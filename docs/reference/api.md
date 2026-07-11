@@ -6,14 +6,7 @@ tags:
 
 # API Reference
 
-## Breaking Changes
-
-### v0.5.0
-
-| Change | Affected field | Action required |
-|--------|---------------|----------------|
-| `Provider.status.sourceScans` removed; per-version provider source scans moved to `Version.status.sourceScan` | `ProviderStatus`, `VersionStatus` | Update any automation or scripts that read `.status.sourceScans` on a `Provider` resource. Provider source scan results are now stored on each `Version` resource in `status.sourceScan`, alongside module IaC scan results. |
-| `Provider.status.resolvedSourceRepository` added (read-only, string) | `ProviderStatus` | No action required. The field is populated automatically by the Version controller after the first scan. |
+For breaking changes between versions, see [Upgrading](../upgrading.md).
 
 ## Service Discovery
 

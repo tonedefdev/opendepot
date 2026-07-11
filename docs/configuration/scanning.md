@@ -200,19 +200,4 @@ spec:
 
 See [GitHub Authentication](github-auth.md) for instructions on creating the `opendepot-github-application-secret` Secret.
 
-## Helm Values Reference
-
-| Value | Default | Description |
-|---|---|---|
-| `scanning.enabled` | `false` | Enable Trivy-based scanning. Switches the version-controller to the `-scanning` image variant and activates module IaC scanning. No PVC or CronJob is created at this level |
-| `scanning.providerScanning` | `false` | Enable provider binary and source scanning. Requires `scanning.enabled=true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume |
-| `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path inside the version-controller container for the Trivy DB cache |
-| `scanning.offline` | `true` | Pass `--offline-scan` to Trivy. Prevents network calls during scans. Only applies to provider scanning |
-| `scanning.blockOnCritical` | `false` | Halt reconciliation when CRITICAL findings are present (modules or providers) |
-| `scanning.blockOnHigh` | `false` | Halt reconciliation when HIGH findings are present (modules or providers) |
-| `scanning.cache.storageClassName` | `""` | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades |
-| `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for the Trivy cache PVC |
-| `scanning.cache.size` | `1Gi` | Size of the Trivy DB cache PVC |
-| `scanning.dbUpdater.schedule` | `"0 2 * * *"` | Cron schedule for the Trivy DB update job |
-| `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Trivy image repository for the db-updater CronJob |
-| `scanning.dbUpdater.image.tag` | `"0.70.0"` | Trivy image tag for the db-updater CronJob |
+See [Helm Chart — Scanning Values](../helm-chart.md#scanning-values) for the full `scanning.*` Helm values reference.

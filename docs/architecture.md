@@ -136,7 +136,7 @@ A [Valkey](https://valkey.io/) (Redis-compatible) instance deployed automaticall
 
 Valkey runs as a StatefulSet with a PVC for persistence by default (`valkey.dataStorage.enabled: true`). Disable persistence for local development or ephemeral environments where no StorageClass is available.
 
-Optional ACL password authentication can be enabled via `valkey.auth.enabled: true`. When enabled, the server reads the password from the `OPENDEPOT_VALKEY_PASSWORD` environment variable, injected via a Kubernetes `secretKeyRef`. See [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) for the full configuration reference.
+Optional ACL password authentication can be enabled via `valkey.auth.enabled: true`. When enabled, the server reads the password from the `OPENDEPOT_VALKEY_PASSWORD` environment variable, injected via a Kubernetes `secretKeyRef`. See [Valkey Stats Store](helm-chart.md#valkey-stats-store) for the full configuration reference.
 
 ### Registry Explorer UI
 

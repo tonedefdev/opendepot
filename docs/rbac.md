@@ -102,11 +102,6 @@ subjects:
 
 ## GroupBinding and Stats Page Visibility
 
-The Stats page (`GET /opendepot/ui/v1/stats`) aggregates only the resources visible to the authenticated user. For OIDC users with a `GroupBinding`:
+The Stats page (`GET /opendepot/ui/v1/stats`) aggregates only the resources visible to the authenticated user — for OIDC users with a matching `GroupBinding`, module/provider counts, version counts, storage bytes, and security findings are all scoped to that binding's permitted resources. Users without a `GroupBinding` (or in anonymous-auth / bearer-token mode) see all resources in labelled namespaces.
 
-- **Modules and providers** — only the modules and providers permitted by the binding's `moduleResources` and `providerResources` patterns are counted.
-- **Versions** — only `Version` resources whose parent module or provider is in the user's visible set are counted. `totalVersions` and sync health breakdowns reflect this filtered set.
-- **Storage bytes** — `totalStorageBytes` sums `VersionStatus.archiveSizeBytes` across visible versions only.
-- **Security posture** — finding counts aggregate across visible resources only.
-
-For users without a `GroupBinding` (or in anonymous-auth / bearer-token mode), all resources in labelled namespaces are counted.
+See [GroupBinding Access Control](guides/groupbinding.md) for full expression syntax and setup instructions.

@@ -13,109 +13,9 @@ OpenDepot supports three authentication methods: OIDC JWTs via Dex, Kubernetes b
 
 ### Method 1: OIDC via Dex (Recommended for Production)
 
-OIDC authentication enables single sign-on (SSO) via existing identity providers without distributing credentials or kubeconfigs. The `tofu login` workflow guides users through browser-based authentication to obtain a JWT.
+OIDC authentication enables single sign-on (SSO) via existing identity providers without distributing credentials or kubeconfigs. Dex is bundled as a Helm subchart that acts as an OIDC identity broker, federating upstream IdPs (Entra ID, Okta, GitHub, LDAP, etc.) and issuing standard OIDC JWTs. The OpenDepot server validates these JWTs locally via JWKS, enabling the `tofu login` workflow.
 
-#### Overview
-
-Dex is bundled as a Helm subchart that acts as an OIDC identity broker, federating upstream IdPs (Entra ID, Okta, GitHub, LDAP, etc.) and issuing standard OIDC JWTs. The OpenDepot server validates these JWTs locally via JWKS, enabling the `tofu login` workflow.
-
-#### Helm Setup
-
-Enable Dex and OIDC on the server:
-
-```yaml
-dex:
-  enabled: true
-  config:
-    issuer: https://dex.example.com/dex
-    connectors:
-      - type: github
-        id: github
-        name: GitHub
-        config:
-          clientID: <github-app-client-id>
-          clientSecret: <github-app-client-secret>
-          redirectURI: https://dex.example.com/dex/callback
-
-server:
-  oidc:
-    enabled: true
-    issuerUrl: https://dex.example.com/dex
-    clientId: opendepot
-    clientSecret: <strong-random-value>
-```
-
-!!! warning
-    Never commit `clientSecret` in plain text. Use an external secret operator (e.g., Sealed Secrets, External Secrets) to manage the value in production.
-
-When `issuerUrl` is blank and `dex.enabled: true`, the chart automatically derives the in-cluster Dex service URL (`http://opendepot-dex.<namespace>.svc.cluster.local:5556/dex`). **This is not reachable from a browser.** The server derives the `login.v1.authz` and `login.v1.token` URLs in service discovery directly from the issuer URL, so if the in-cluster address is used, `tofu login` will attempt to open a browser tab to a URL that cannot be resolved from the user's machine.
-
-**Always set both `dex.config.issuer` and `server.oidc.issuerUrl` to the same URL that is reachable from the user's browser** when `tofu login` is required. Options include an Ingress hostname, a LoadBalancer Service address, minikube tunnel, or `kubectl port-forward` to `localhost` (both Dex and OpenTofu accept `http://localhost` natively, so no TLS is needed for local development).
-
-#### Connector Examples
-
-=== "Entra ID (Azure AD)"
-
-    ```yaml
-    dex:
-      enabled: true
-      config:
-        connectors:
-          - type: microsoft
-            id: microsoft
-            name: "Azure AD"
-            config:
-              clientID: <azure-app-id>
-              clientSecret: <azure-app-secret>
-              redirectURI: https://dex.example.com/dex/callback
-              tenant: <azure-tenant-id>
-    ```
-
-=== "GitHub"
-
-    ```yaml
-    dex:
-      enabled: true
-      config:
-        connectors:
-          - type: github
-            id: github
-            name: GitHub
-            config:
-              clientID: <github-oauth-app-client-id>
-              clientSecret: <github-oauth-app-secret>
-              redirectURI: https://dex.example.com/dex/callback
-              org: my-org
-    ```
-
-!!! note
-    `staticPasswords` is provided for automated e2e testing only. Do not enable in production.
-
-#### Using `tofu login`
-
-After Dex and OIDC are configured, users authenticate once and obtain a JWT:
-
-```bash
-tofu login opendepot.defdev.io
-```
-
-The server advertises the `login.v1` service discovery endpoint with authorization and token URLs derived from `server.oidc.issuerUrl`. `tofu login` uses the OAuth2 authorization code + PKCE flow: it opens a browser to Dex's authorization URL and listens on a local port (`10000`–`10010`) for the redirect. **Dex must therefore be reachable from the user's browser** — not just from inside the cluster. Verify that `login.v1.authz` in the service discovery response resolves to an externally accessible hostname before asking users to run `tofu login`:
-
-```bash
-curl -s https://opendepot.defdev.io/.well-known/terraform.json | jq '."login.v1".authz'
-```
-
-If the output contains an in-cluster service name rather than a public hostname, `server.oidc.issuerUrl` was not set or was set incorrectly. Correct it and redeploy before proceeding.
-
-Once confirmed, subsequent `tofu` commands use the JWT as the bearer token.
-
-**Example `.tofurc` configuration:**
-
-```hcl
-credentials "opendepot.defdev.io" {
-  token = "<jwt-from-tofu-login>"
-}
-```
+For full setup instructions — enabling Dex, configuring connectors, registering the static client, and authenticating with `tofu login` — see [OIDC Authentication (Dex)](configuration/oidc.md).
 
 #### Browse Endpoint Authentication Enforcement
 
@@ -164,18 +64,12 @@ dex:
 
 #### GroupBinding Access Control
 
-When [GroupBinding](guides/groupbinding.md/) resources are deployed, the server enforces fine-grained access control after OIDC authentication. The user's groups claim is extracted from the JWT and matched against GroupBinding expressions to determine which modules and providers the user may access.
-
-The groups claim is **required** — the three possible outcomes are:
-
-- **Groups claim absent** — request is **denied with 403 Forbidden**. The claim must be present.
-- **Groups claim present, no GroupBinding matches** — request is **denied with 403 Forbidden**.
-- **Groups claim present, a GroupBinding matches** — access is governed by that binding's `moduleResources` glob patterns and `providerResources` exact-name list.
+When [GroupBinding](guides/groupbinding.md) resources are deployed, the server enforces fine-grained access control after OIDC authentication: the user's groups claim is extracted from the JWT and matched against `GroupBinding` expressions to determine which modules and providers they may access. The groups claim is **required** — requests with no claim, or with a claim that matches no `GroupBinding`, are denied with `403 Forbidden`.
 
 !!! warning
     If no `GroupBinding` resources exist in the server namespace, **all** OIDC-authenticated users are denied regardless of their groups. Deploy at least one `GroupBinding` before enabling OIDC in production.
 
-To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm values. See [Fine-Grained Access Control with GroupBinding](guides/groupbinding.md/) for full setup instructions.
+See [Fine-Grained Access Control with GroupBinding](guides/groupbinding.md) for full expression syntax and setup instructions.
 
 #### CI/CD with ServiceAccount Fallback
 
@@ -187,23 +81,7 @@ To use a non-standard claim name, set `server.oidc.groupsClaim` in your Helm val
     - If pipelines only need to **publish** modules, use the [GitOps workflow](guides/gitops.md) — no pipeline credentials required at all.
     - If pipelines need to **read** the registry without cluster access, use [Dex Client Credentials](guides/cicd.md#registry-reads-with-dex-client-credentials) — pipelines get a Dex-issued token that respects GroupBinding.
 
-By default, OIDC and bearer-token modes are mutually exclusive. If you need CI/CD pipelines to authenticate using a Kubernetes ServiceAccount while human users authenticate via OIDC, enable the SA fallback:
-
-```yaml
-server:
-  oidc:
-    allowServiceAccountFallback: true
-```
-
-With this flag, K8s SA tokens (identified by a non-OIDC `iss` claim) are routed to the bearer-token path, and the SA's own RBAC controls access. GroupBinding is not evaluated for SA tokens. See [CI/CD with ServiceAccount Fallback](configuration/oidc.md#cicd-with-serviceaccount-fallback) for full setup details.
-
-#### Security Notes
-
-- **HTTPS required**: In production, issuer URLs must use HTTPS. HTTP is allowed only for localhost (127.0.0.1) and testing.
-- **No credential distribution**: Users authenticate directly with Dex; the server never sees or stores user passwords.
-- **JWT validation**: JWTs are validated locally using the issuer's JWKS. No call to Dex is made on every request.
-- **Token expiry**: JWTs have a short lifespan (typically 1 hour). Users re-run `tofu login` to refresh.
-- **Never enable `staticPasswords` in production**: Use real IdP connectors instead.
+See [CI/CD with ServiceAccount Fallback](configuration/oidc.md#cicd-with-serviceaccount-fallback) for setup details and the required RBAC.
 
 #### Troubleshooting
 
@@ -373,4 +251,4 @@ When `ui.auth.devTokenInput.enabled: true`, the Sidebar shows a text input label
 
 This allows testing the UI against a live cluster without configuring a full OIDC provider — paste a `kubectl create token` output and browse immediately.
 
-See [Developer Token Input](configuration/ui.md#developer-token-input) for configuration details.
+See [Developer Token Input](guides/registry-explorer.md#3-set-helm-values) for configuration details.

@@ -9,9 +9,9 @@ tags:
 
 ## Why OpenDepot?
 
-Enterprise registries like JFrog Artifactory and HCP Terraform charge for features that should come standard — vulnerability scanning, automatic version discovery, and secure auth. They also bring heavyweight operational baggage: external databases, proprietary identity stores, and infrastructure your team has to maintain.
+Most self-hosted Terraform/OpenTofu registries ask you to run and maintain more than the registry itself — an external database, a separate identity provider, or both. OpenDepot is built to avoid that: it's **free, open source, and Kubernetes-native**, with vulnerability scanning, automatic version discovery, and OIDC-based SSO included out of the box.
 
-OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those features out of the box, is designed around OIDC as the preferred authentication path, and keeps the server read-only by design. Kubernetes RBAC remains the authorization layer for create, update, and delete operations, and deployment still requires nothing beyond a Helm chart and a storage backend.
+The server is read-only by design, and Kubernetes RBAC remains the authorization layer for create, update, and delete operations. Deployment requires nothing beyond a Helm chart and a storage backend.
 
 <div class="grid cards" markdown>
 
@@ -92,7 +92,7 @@ OpenDepot is **free, open source, and Kubernetes-native**. It ships all of those
 
 
 !!! tip
-    Enterprise registries charge for features OpenDepot ships for free — automatic version discovery, built-in vulnerability scanning, and Kubernetes-native auth with no external identity store. If you're already running Kubernetes, OpenDepot gives you all of that with no license fees, no extra infrastructure, and no extra attack surface.
+    If you're already running Kubernetes, OpenDepot gives you automatic version discovery, built-in vulnerability scanning, and Kubernetes-native auth without adding a license fee or a new piece of infrastructure to operate.
 
 ## How It Works
 

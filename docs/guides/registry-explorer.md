@@ -10,6 +10,26 @@ tags:
 
 The Registry Explorer is a browsable, searchable frontend for OpenDepot. Enable it by setting `ui.enabled: true` in the Helm chart.
 
+!!! note
+    The UI is disabled by default. Existing server-only deployments are unaffected when `ui.enabled` remains `false`.
+
+## Routing Architecture
+
+When `ui.enabled: true`, OpenDepot deploys a Next.js frontend alongside the server. NGINX runs inside the UI pod and splits traffic between the registry protocol server and the browser UI:
+
+| Path prefix | Destination |
+|-------------|-------------|
+| `/opendepot/*` | Server — registry protocol and browse API |
+| `/.well-known/*` | Server — service discovery |
+| `/` (all other paths) | Next.js UI at port 3000 |
+
+When `ui.ingress.enabled: true`, the Kubernetes Ingress applies the same split-path rules at the load balancer. The `/opendepot` and `/.well-known` paths route directly to the `server` Service; all other paths go to the `ui` Service. NGINX re-proxies browser-originated same-origin API calls from the UI back to the server.
+
+When `server.ingress.istio.enabled: true` and `ui.enabled: true`, the Istio `VirtualService` template automatically adds the same split HTTP match rules — `/opendepot` and `/.well-known` route to the `server` Service; the catch-all default routes to the `ui` Service. No additional Istio configuration is required.
+
+!!! warning
+    When `ui.enabled: true`, the `server-ingress.yaml` template is automatically disabled. If you were previously routing directly through the server Ingress, migrate to `ui.ingress` before enabling the UI.
+
 ## Local Quick Start (Kind)
 
 The fastest way to try the UI is with a local [Kind](https://kind.sigs.k8s.io/) cluster using the anonymous-auth mode — no OIDC configuration required.
@@ -100,7 +120,7 @@ This target is called automatically by `make ui-deploy` (and therefore by `make 
 
 ### 1. Create the session secret
 
-The UI requires an encrypted session cookie secret of at least 32 characters:
+The UI uses encrypted server-side session cookies. Provide a secret of at least 32 characters before deploying:
 
 ```bash
 kubectl create secret generic ui-session-secret \
@@ -108,7 +128,38 @@ kubectl create secret generic ui-session-secret \
   -n opendepot-system
 ```
 
-### 2. Set Helm values
+### 2. (Optional) Register an OIDC client
+
+When `ui.oidc.enabled: true`, the UI uses the OIDC authorization code flow to authenticate users. The groups claim from the resulting token is matched against [`GroupBinding`](groupbinding.md) resources to determine which resources the user can browse beyond the publicly-labelled set. Skip this step if you only need anonymous browsing.
+
+Add a `staticClient` to your Dex configuration. The UI requires the `authorization_code` grant type and a registered callback URI:
+
+```yaml
+dex:
+  config:
+    staticClients:
+      - id: opendepot-ui
+        name: OpenDepot UI
+        secretEnv: OPENDEPOT_UI_CLIENT_SECRET  # (1)!
+        redirectURIs:
+          - https://opendepot.example.com/auth/callback
+        responseTypes:
+          - code
+        grantTypes:
+          - authorization_code
+```
+
+1. Reference the client secret from an environment variable. Expose it via `dex.envFrom` pointing to a Kubernetes Secret — never set it as a plain string literal.
+
+Create the client secret:
+
+```bash
+kubectl create secret generic ui-oidc-secret \
+  --from-literal=clientSecret=<your-client-secret> \
+  -n opendepot-system
+```
+
+### 3. Set Helm values
 
 At minimum:
 
@@ -119,6 +170,8 @@ ui:
   ingress:
     enabled: true
     className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
     hosts:
       - host: opendepot.example.com
         paths:
@@ -130,7 +183,27 @@ ui:
           - opendepot.example.com
 ```
 
-### 3. Apply the chart
+To enable OIDC login (Step 2 above), add:
+
+```yaml
+ui:
+  oidc:
+    enabled: true
+    issuerUrl: https://dex.example.com/dex
+    clientId: opendepot-ui
+    clientSecretName: ui-oidc-secret
+    scopes: "openid profile email groups"
+    callbackPath: /auth/callback
+```
+
+The `groups` scope (or whichever scope emits the groups claim in your IdP) must be included for `GroupBinding` evaluation to function.
+
+!!! danger "Developer token input — never enable in production"
+    `ui.auth.devTokenInput.enabled: true` renders a token input field in the Sidebar that accepts any arbitrary bearer token, useful for testing the UI against a live cluster without configuring a full OIDC provider. The default is `false`. Do not change it outside of non-production environments.
+
+See [Helm Chart — UI Configuration](../helm-chart.md#ui-configuration) for the full `ui.*` Helm values reference, including all `ui.ingress.*` and `ui.oidc.*` fields.
+
+### 4. Apply the chart
 
 ```bash
 helm upgrade opendepot opendepot/opendepot \
@@ -239,15 +312,6 @@ spec:
 ```
 
 See [GroupBinding Access Control](groupbinding.md) for full expression syntax, client credentials support, and first-match semantics.
-
-## OIDC Login in the UI
-
-To allow users to log in through the browser:
-
-1. Follow the [UI OIDC configuration](../configuration/ui.md#oidc-login) steps to register an OIDC client and create the client secret.
-2. Set `ui.oidc.enabled: true` in your Helm values.
-
-After logging in, users can browse all resources allowed by their `GroupBinding` in addition to the publicly-labelled set.
 
 ## HCL Usage Snippets
 
@@ -382,7 +446,7 @@ valkey:
     enabled: false  # ephemeral storage; stats lost on restart
 ```
 
-For production, leave `valkey.dataStorage.enabled: true` (the default). See the [Valkey Stats Store](../getting-started/installation.md#valkey-stats-store) Helm values reference for the full set of options.
+For production, leave `valkey.dataStorage.enabled: true` (the default). See the [Valkey Stats Store](../helm-chart.md#valkey-stats-store) Helm values reference for the full set of options.
 
 Existing server-only deployments require no changes until you set `ui.enabled: true`. When you are ready to enable the UI:
 

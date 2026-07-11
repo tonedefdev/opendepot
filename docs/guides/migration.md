@@ -26,26 +26,4 @@ tags:
 
 This pattern lets you adopt OpenDepot incrementally without disrupting existing workflows. The Depot bridges the gap between the public registries and a fully self-hosted solution.
 
-## Upgrading to v0.6.0
-
-v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance.
-
-### Breaking changes
-
-- **`--stats-db-path` is removed.** The server flag no longer exists. Any custom Helm values overrides that reference `server.stats.*` must be removed — the chart will reject unknown values.
-- **`server.stats` values block is removed.** Remove `server.stats.emptyDir`, `server.stats.persistence.*`, or any `server.stats` key from your `values.yaml` before upgrading.
-- **Stats history is not migrated.** Valkey starts with a clean slate — download counts accumulated in the previous SQLite database are not carried over. Historic data can be discarded or archived manually before upgrading.
-
-### Upgrade steps
-
-1. Apply the updated CRDs:
-   ```bash
-   helm show crds opendepot/opendepot | kubectl apply --server-side -f -
-   ```
-2. Remove any `server.stats` keys from your `values.yaml`.
-3. Upgrade the chart:
-   ```bash
-   helm upgrade opendepot opendepot/opendepot -n opendepot-system -f my-values.yaml
-   ```
-
-Valkey is deployed automatically as part of the chart. Download tracking resumes immediately after the server pod becomes ready. For production clusters, `valkey.dataStorage.enabled: true` (the default) ensures stats survive pod restarts — no additional configuration is required.
+For version-specific breaking changes and upgrade steps, see [Upgrading](../upgrading.md).
