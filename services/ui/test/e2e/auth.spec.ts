@@ -170,8 +170,9 @@ test.describe("logout prefetch regression", () => {
   // which called session.destroy() immediately after login, wiping the session
   // before the user ever interacted with the page.
   //
-  // The fix: the logout button uses component="a" (a plain anchor) rather than
-  // Next.js <Link>, which is never prefetched by the App Router.
+  // The fix: the logout control is a plain button with an onClick handler
+  // (no href), so there is nothing for the App Router to prefetch and the
+  // request is only sent when the user explicitly clicks Sign out.
 
   test("page load does not send any request to /auth/logout", async ({
     page,

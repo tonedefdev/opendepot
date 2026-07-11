@@ -19,6 +19,7 @@ import Button from "@mui/material/Button";
 import Avatar from "@mui/material/Avatar";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
+import Snackbar from "@mui/material/Snackbar";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
@@ -75,6 +76,10 @@ export default function Sidebar({
   const [devToken, setDevToken] = useState("");
   const [devTokenSaving, setDevTokenSaving] = useState(false);
   const [devTokenMessage, setDevTokenMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Sign-out toast — logout is handled client-side so the user never navigates
+  // away to a dedicated /auth/logout page.
+  const [logoutToastOpen, setLogoutToastOpen] = useState(false);
 
   // Fetch namespaces client-side if none passed as props
   useEffect(() => {
@@ -136,6 +141,19 @@ export default function Sidebar({
     } finally {
       setDevTokenSaving(false);
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/auth/logout");
+    } catch {
+      // ignore — still clear client state and redirect below
+    }
+    setLogoutToastOpen(true);
+    setTimeout(() => {
+      router.push("/");
+      router.refresh();
+    }, 800);
   };
 
   const theme = useTheme();
@@ -526,8 +544,7 @@ export default function Sidebar({
               </Box>
               <Tooltip title="Sign out">
                 <IconButton
-                  component="a"
-                  href="/auth/logout"
+                  onClick={() => void handleLogout()}
                   size="small"
                   aria-label="Sign out"
                   sx={{ flexShrink: 0, color: "text.secondary", "&:hover": { color: "error.main" } }}
@@ -691,6 +708,16 @@ export default function Sidebar({
       >
         {collapsed ? collapsedContent : drawerContent}
       </Drawer>
+      <Snackbar
+        open={logoutToastOpen}
+        autoHideDuration={4000}
+        onClose={() => setLogoutToastOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setLogoutToastOpen(false)} sx={{ width: "100%" }}>
+          Successfully signed out
+        </Alert>
+      </Snackbar>
     </>
   );
 }
