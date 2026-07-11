@@ -195,7 +195,7 @@ export default function Sidebar({
         >
           <Box
             component="img"
-            src="/img/opendepot_dark_mode.svg"
+            src="/img/opendepot_white.svg"
             alt="OpenDepot"
             sx={{ height: "1.75rem", width: "auto" }}
           />
@@ -574,27 +574,29 @@ export default function Sidebar({
 
   const collapsedContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
-      <Box
-        component={Link}
-        href="/"
-        sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, "&:hover": { opacity: 0.85 } }}
-      >
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.25, mb: 0.5 }}>
         <Box
-          component="img"
-          src="/img/opendepot_icon.svg"
-          alt="OpenDepot"
-          sx={{ height: "1.5rem", width: "auto" }}
-        />
-      </Box>
-      <Tooltip title="Expand sidebar" placement="right">
-        <IconButton
-          size="small"
-          onClick={() => setCollapsed(false)}
-          sx={{ color: "text.secondary", "&:hover": { color: "text.primary" }, mb: 0.5 }}
+          component={Link}
+          href="/"
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", "&:hover": { opacity: 0.85 } }}
         >
-          <ChevronRightIcon sx={{ fontSize: 18 }} />
-        </IconButton>
-      </Tooltip>
+          <Box
+            component="img"
+            src="/img/opendepot_icon.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.25rem", width: "auto" }}
+          />
+        </Box>
+        <Tooltip title="Expand sidebar" placement="right">
+          <IconButton
+            size="small"
+            onClick={() => setCollapsed(false)}
+            sx={{ color: "text.secondary", "&:hover": { color: "text.primary" }, p: 0.25 }}
+          >
+            <ChevronRightIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
       <Divider sx={{ width: "80%", mb: 0.5 }} />
       <Tooltip title="Registry" placement="right">
         <IconButton
