@@ -19,6 +19,7 @@ import Button from "@mui/material/Button";
 import Avatar from "@mui/material/Avatar";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
+import Snackbar from "@mui/material/Snackbar";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
@@ -31,7 +32,6 @@ import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
@@ -75,6 +75,10 @@ export default function Sidebar({
   const [devToken, setDevToken] = useState("");
   const [devTokenSaving, setDevTokenSaving] = useState(false);
   const [devTokenMessage, setDevTokenMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Sign-out toast — logout is handled client-side so the user never navigates
+  // away to a dedicated /auth/logout page.
+  const [logoutToastOpen, setLogoutToastOpen] = useState(false);
 
   // Fetch namespaces client-side if none passed as props
   useEffect(() => {
@@ -138,6 +142,19 @@ export default function Sidebar({
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/auth/logout");
+    } catch {
+      // ignore — still clear client state and redirect below
+    }
+    setLogoutToastOpen(true);
+    setTimeout(() => {
+      router.push("/");
+      router.refresh();
+    }, 800);
+  };
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -175,14 +192,12 @@ export default function Sidebar({
           href="/"
           sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", "&:hover": { opacity: 0.85 } }}
         >
-          <Box>
-            <Typography
-              variant="body1"
-              sx={{ fontWeight: 700, color: "#fff", lineHeight: 1.2, fontSize: "1.200rem" }}
-            >
-              OpenDepot
-            </Typography>
-          </Box>
+          <Box
+            component="img"
+            src="/img/opendepot_white.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.75rem", width: "auto" }}
+          />
         </Box>
         <Tooltip title="Collapse sidebar" placement="right">
           <IconButton
@@ -528,8 +543,7 @@ export default function Sidebar({
               </Box>
               <Tooltip title="Sign out">
                 <IconButton
-                  component="a"
-                  href="/auth/logout"
+                  onClick={() => void handleLogout()}
                   size="small"
                   aria-label="Sign out"
                   sx={{ flexShrink: 0, color: "text.secondary", "&:hover": { color: "error.main" } }}
@@ -559,13 +573,18 @@ export default function Sidebar({
 
   const collapsedContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
-      <Tooltip title="Expand sidebar" placement="right">
+      <Tooltip title="Click to expand" placement="right">
         <IconButton
-          size="small"
           onClick={() => setCollapsed(false)}
-          sx={{ color: "text.secondary", "&:hover": { color: "text.primary" }, mb: 0.5 }}
+          aria-label="Expand sidebar"
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, p: 0.5, "&:hover": { opacity: 0.85, bgcolor: "rgba(4,207,208,0.1)" } }}
         >
-          <ChevronRightIcon sx={{ fontSize: 18 }} />
+          <Box
+            component="img"
+            src="/img/opendepot_icon.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.25rem", width: "auto" }}
+          />
         </IconButton>
       </Tooltip>
       <Divider sx={{ width: "80%", mb: 0.5 }} />
@@ -681,6 +700,16 @@ export default function Sidebar({
       >
         {collapsed ? collapsedContent : drawerContent}
       </Drawer>
+      <Snackbar
+        open={logoutToastOpen}
+        autoHideDuration={4000}
+        onClose={() => setLogoutToastOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setLogoutToastOpen(false)} sx={{ width: "100%" }}>
+          Successfully signed out
+        </Alert>
+      </Snackbar>
     </>
   );
 }

@@ -80,8 +80,8 @@ test.describe("OIDC login — no immediate logout via prefetch", () => {
   // which called session.destroy() immediately after the sidebar rendered with
   // user info, wiping the session before the user interacted with the page.
   //
-  // Fix: logout button uses component="a" (plain anchor) which is never
-  // prefetched by the App Router.
+  // Fix: the Sign out control is a plain button with an onClick handler (no
+  // href at all), so the App Router has nothing to prefetch.
 
   test.skip(!oidcEnabled, "set PLAYWRIGHT_OIDC_ENABLED=true to run");
 
@@ -131,6 +131,41 @@ test.describe("OIDC login — no immediate logout via prefetch", () => {
     await page.waitForLoadState("networkidle");
 
     expect(logoutRequests).toHaveLength(0);
+  });
+});
+
+test.describe("OIDC logout — toast and no page navigation", () => {
+  // Regression test for: clicking Sign out navigated the browser to
+  // /auth/logout, which resulted in a 404 (the route only ever redirects
+  // away, so there is nothing to render at that URL if navigation stalls).
+  //
+  // Fix: Sign out is handled client-side via fetch() so the browser never
+  // navigates to /auth/logout; a success toast is shown and the app then
+  // routes back to "/".
+
+  test.skip(!oidcEnabled, "set PLAYWRIGHT_OIDC_ENABLED=true to run");
+
+  test("clicking Sign out shows a success toast and never navigates to /auth/logout", async ({
+    page,
+  }) => {
+    await performLogin(page);
+    await page.waitForLoadState("networkidle");
+
+    const navigatedToLogoutRoute: string[] = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && frame.url().includes("/auth/logout")) {
+        navigatedToLogoutRoute.push(frame.url());
+      }
+    });
+
+    await page.getByRole("button", { name: "Sign out" }).click();
+
+    await expect(page.getByText("Successfully signed out")).toBeVisible();
+    expect(navigatedToLogoutRoute).toHaveLength(0);
+
+    // The app should settle back on the root, signed-out state.
+    await page.waitForURL("/", { timeout: 5_000 });
+    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
   });
 });
 

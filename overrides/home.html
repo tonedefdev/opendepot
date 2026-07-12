@@ -6,12 +6,29 @@
   <div class="md-grid md-typeset">
     <div class="mdx-hero">
 
+      <div class="mdx-hero__image">
+        <img
+          class="mdx-logo--light"
+          src="{{ base_url }}/img/opendepot_light_mode.svg"
+          alt="OpenDepot logo"
+          draggable="false"
+        />
+        <img
+          class="mdx-logo--dark"
+          src="{{ base_url }}/img/opendepot_dark_mode.svg"
+          alt="OpenDepot logo"
+          draggable="false"
+        />
+      </div>
+
       <div class="mdx-hero__content">
         <h1>Self-hosted registry for OpenTofu &amp; Terraform</h1>
         <p>
-          A Kubernetes-native module and provider registry with zero extra
-          infrastructure. Authentication, RBAC, and self-healing come free —
-          no database, no API keys, no separate identity store.
+          A Kubernetes-native module and provider registry with no external
+          database to manage. Kubernetes RBAC governs every write, self-healing
+          controllers keep everything in sync, and SSO ships bundled via Dex —
+          deployed from the same Helm chart, with no separate identity
+          infrastructure to stand up.
         </p>
         <a href="{{ base_url }}/getting-started/installation/" class="md-button md-button--primary">
           Get Started &nbsp;→
@@ -58,14 +75,6 @@
             Pre-signed Redirects
           </span>
         </div>
-      </div>
-
-      <div class="mdx-hero__image">
-        <img
-          src="{{ base_url }}/img/opendepot.svg"
-          alt="OpenDepot logo"
-          draggable="false"
-        />
       </div>
 
     </div>

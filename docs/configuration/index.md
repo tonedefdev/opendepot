@@ -49,10 +49,4 @@ Configure OpenDepot for your environment. All configuration is done through Helm
 
     Terminate TLS on the OpenDepot server using a Kubernetes Secret, or delegate to an Ingress controller or service mesh.
 
-- :material-monitor-dashboard: &nbsp;[__Registry Explorer UI__](ui.md)
-
-    ---
-
-    Deploy the browsable, searchable registry frontend. Configure OIDC login, session secrets, and Ingress split-path routing for the Next.js + NGINX UI pod.
-
 </div>

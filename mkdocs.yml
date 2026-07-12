@@ -10,8 +10,8 @@ docs_dir: docs
 theme:
   name: material
   custom_dir: overrides
-  logo: img/opendepot_small_logo.svg
-  favicon: img/opendepot_small_logo.svg
+  logo: img/opendepot_dark_mode.svg
+  favicon: img/opendepot_icon.svg
   font:
     text: Inter
     code: JetBrains Mono
@@ -67,7 +67,6 @@ nav:
     - GPG Signing: configuration/gpg.md
     - Vulnerability Scanning: configuration/scanning.md
     - OIDC Authentication: configuration/oidc.md
-    - Registry Explorer UI: configuration/ui.md
   - Guides:
     - guides/index.md
     - Users:
@@ -89,6 +88,7 @@ nav:
     - Version Constraints: reference/version-constraints.md
   - Contributing: contributing.md
   - Helm Chart: helm-chart.md
+  - Upgrading: upgrading.md
 
 plugins:
   - search:

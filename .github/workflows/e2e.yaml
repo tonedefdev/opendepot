@@ -73,8 +73,13 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+      - name: Manual Trivy Setup
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          cache: true
+          version: v0.72.0
+
       - name: Run Trivy vulnerability scanner
-        if: ${{ matrix.service != 'version-controller-scanning' }}
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
@@ -83,6 +88,8 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+          skip-setup-trivy: true
+          trivyignores: '.trivyignore'
 
       - name: Push ${{ matrix.service }}
         run: docker push ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}

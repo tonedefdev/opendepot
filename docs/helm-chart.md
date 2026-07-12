@@ -15,9 +15,46 @@ helm repo update
 
 The chart source is also available at [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot) in the repository.
 
-See [Installation](getting-started/installation.md) for the full Helm values reference and deployment instructions.
+See [Installation](getting-started/installation.md) for prerequisites and deployment instructions.
+
+## Global
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `global.namespace` | string | Namespace for all resources. Default: `opendepot-system` |
+| `global.imagePullPolicy` | string | Image pull policy. Default: `IfNotPresent` |
+| `global.image.tag` | string | Image tag for all services. Defaults to `Chart.AppVersion` when blank. |
 
 ## Server Configuration
+
+### General
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.enabled` | bool | Deploy the server. Default: `true` |
+| `server.replicaCount` | int | Number of replicas. Default: `1` |
+| `server.anonymousAuth` | bool | Use the server's service account for unauthenticated module access. Default: `false` |
+| `server.useBearerToken` | bool | Use bearer token auth instead of kubeconfig. Default: `true` |
+| `server.image.repository` | string | Server image repository. Default: `ghcr.io/tonedefdev/opendepot/server` |
+| `server.service.type` | string | Kubernetes Service type. Default: `LoadBalancer` |
+| `server.service.port` | int | Service port. Default: `80` |
+| `server.service.targetPort` | int | Container port. Default: `8080` |
+| `server.tls.enabled` | bool | Enable TLS on the server. Default: `false` |
+| `server.tls.certPath` | string | Path to TLS certificate. Default: `/etc/tls/tls.crt` |
+| `server.tls.keyPath` | string | Path to TLS key. Default: `/etc/tls/tls.key` |
+| `server.ingress.enabled` | bool | Enable Kubernetes Ingress. Default: `false` |
+| `server.ingress.hosts` | list | Standard Ingress host/path rules. |
+| `server.ingress.tls` | list | Standard Ingress TLS configuration. Default: `[]` |
+| `server.ingress.istio.enabled` | bool | Enable Istio VirtualService. Default: `false` |
+| `server.ingress.istio.hosts` | list | Istio VirtualService hosts. Default: `[opendepot.defdev.io]` |
+| `server.resources.requests.cpu` | string | CPU request. Default: `100m` |
+| `server.resources.requests.memory` | string | Memory request. Default: `128Mi` |
+| `server.resources.limits.memory` | string | Memory limit. Default: `512Mi` |
+| `server.nodeSelector` | map | Node selector. Default: `{}` |
+| `server.tolerations` | list | Tolerations. Default: `[]` |
+| `server.affinity` | map | Affinity rules. Default: `{}` |
+| `server.podDisruptionBudget.enabled` | bool | Enable PodDisruptionBudget. Default: `false` |
+| `server.podDisruptionBudget.minAvailable` | int | Minimum available pods. Default: `2` |
 
 ### OIDC Authentication
 
@@ -104,9 +141,58 @@ For connector configuration details, refer to the [Dex Connector Documentation](
 !!! warning
     Never set `enablePasswordDB: true` or `staticPasswords` in production. Use real IdP connectors instead.
 
+## Controllers
+
+These values apply to `version`, `module`, `depot`, and `provider` independently — substitute `<service>` with the controller name:
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `<service>.enabled` | bool | Deploy the controller. Default: `true` (`provider`: `false`) |
+| `<service>.replicaCount` | int | Number of replicas. Default: `1` |
+| `<service>.image.repository` | string | Image repository. Default: `ghcr.io/tonedefdev/opendepot/<service>-controller` |
+| `<service>.image.tag` | string | Overrides `global.image.tag` when set. |
+| `<service>.resources.requests.cpu` | string | CPU request. Default: `100m` |
+| `<service>.resources.requests.memory` | string | Memory request. Default: `512Mi` for `version`, `128Mi` for others |
+| `<service>.resources.limits.memory` | string | Memory limit. Default: `4Gi` for `version`, `512Mi` for others |
+| `<service>.nodeSelector` | map | Node selector. Default: `{}` |
+| `<service>.tolerations` | list | Tolerations. Default: `[]` |
+| `<service>.affinity` | map | Affinity rules. Default: `{}` |
+
+!!! note
+    The provider controller is disabled by default (`provider.enabled: false`). Enable it explicitly when you are ready to sync provider binaries — provider archives can be several hundred megabytes each.
+
+## GPG Signing (Providers)
+
+The server signs `SHA256SUMS` files for provider packages using a GPG key you supply. OpenTofu verifies this signature as part of the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). See [GPG Signing for Providers](configuration/gpg.md) for full setup instructions.
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.gpg.secretName` | string | Name of the Kubernetes Secret containing GPG signing credentials (`OPENDEPOT_PROVIDER_GPG_KEY_ID`, `OPENDEPOT_PROVIDER_GPG_ASCII_ARMOR`, `OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64`). Default: `""` |
+
+## Service Account & RBAC
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `serviceAccount.create` | bool | Create service accounts. Default: `true` |
+| `serviceAccount.annotations` | map | Annotations (use for IRSA/Workload Identity). Default: `{}` |
+| `rbac.create` | bool | Create RBAC roles and bindings. Default: `true` |
+| `rbac.scopeToNamespace` | bool | Use namespace-scoped Role/RoleBinding instead of ClusterRole/ClusterRoleBinding. Default: `false` |
+
+## Storage
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `storage.filesystem.enabled` | bool | Enable shared volume for filesystem storage. Default: `false` |
+| `storage.filesystem.mountPath` | string | Mount path inside containers. Default: `/data/modules` |
+| `storage.filesystem.hostPath` | string | Use a hostPath volume (for local dev with kind). Default: `""` |
+| `storage.filesystem.storageClassName` | string | StorageClass for PVC (requires `ReadWriteMany`). Default: `""` |
+| `storage.filesystem.size` | string | PVC storage size. Default: `10Gi` |
+
+See [Storage Backends](storage.md) for S3, Azure, and GCS configuration, which are set via environment variables rather than Helm values.
+
 ## UI Configuration
 
-The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](configuration/ui.md) for setup details and the [Registry Explorer guide](guides/registry-explorer.md) for enabling public visibility and browse access.
+The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](guides/registry-explorer.md) for setup, OIDC login, and public visibility configuration.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -118,7 +204,7 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
 | `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
 | `ui.oidc.issuerUrl` | string | Public OIDC issuer URL (must be reachable from browsers). |
-| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](../authentication.md#registry-explorer-ui-oidc). |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](authentication.md#registry-explorer-ui-oidc). |
 | `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
 | `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
 | `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |
@@ -156,24 +242,20 @@ See [Download Tracking](guides/registry-explorer.md#download-tracking) for detai
 
 ## Scanning Values
 
-The `scanning` section controls Trivy-based provider vulnerability scanning. See [Vulnerability Scanning](configuration/scanning.md) for full details.
+The `scanning` section controls Trivy-based vulnerability scanning for modules and providers. See [Vulnerability Scanning](configuration/scanning.md) for full details.
 
-```yaml
-scanning:
-  enabled: false
-  providerScanning: false
-  cacheMountPath: /var/cache/trivy
-  offline: true
-  blockOnCritical: false
-  blockOnHigh: false
-  cache:
-    storageClassName: ""
-    accessMode: ReadWriteMany
-    size: 1Gi
-  dbUpdater:
-    schedule: "0 2 * * *"
-    image:
-      repository: aquasec/trivy
-      tag: "0.70.0"
-```
+| Value | Type | Description |
+|-------|------|-------------|
+| `scanning.enabled` | bool | Enable Trivy-based scanning. Switches the version-controller to the `-scanning` image variant and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `false` |
+| `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `false` |
+| `scanning.cacheMountPath` | string | Mount path inside the version-controller container for the Trivy DB cache. Default: `/var/cache/trivy` |
+| `scanning.offline` | bool | Pass `--offline-scan` to Trivy, preventing network calls during scans. Only applies to provider scanning. Default: `true` |
+| `scanning.blockOnCritical` | bool | Halt reconciliation when CRITICAL findings are present (modules or providers). Default: `false` |
+| `scanning.blockOnHigh` | bool | Halt reconciliation when HIGH findings are present (modules or providers). Default: `false` |
+| `scanning.cache.storageClassName` | string | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades. Default: `""` |
+| `scanning.cache.accessMode` | string | Access mode for the Trivy cache PVC. Default: `ReadWriteMany` |
+| `scanning.cache.size` | string | Size of the Trivy DB cache PVC. Default: `1Gi` |
+| `scanning.dbUpdater.schedule` | string | Cron schedule for the Trivy DB update job. Default: `"0 2 * * *"` |
+| `scanning.dbUpdater.image.repository` | string | Trivy image repository for the db-updater CronJob. Default: `aquasec/trivy` |
+| `scanning.dbUpdater.image.tag` | string | Trivy image tag for the db-updater CronJob. Default: `"0.70.0"` |
 

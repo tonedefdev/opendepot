@@ -41,7 +41,7 @@ COPY services/version/internal/ services/version/internal/
 RUN cd services/version && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/version-controller cmd/main.go
 
 # trivy-source: pulled at build time; only copied into the final image when INCLUDE_TRIVY=true
-FROM aquasec/trivy:0.70.0 AS trivy-source
+FROM aquasec/trivy:0.72.0 AS trivy-source
 
 # final image without Trivy binary
 FROM gcr.io/distroless/static:nonroot AS final-false

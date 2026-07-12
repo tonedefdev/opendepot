@@ -1,8 +1,8 @@
 ---
 description: "Use when: implementing a feature, writing Go code, updating Kubernetes controllers, adding CRD fields, writing or fixing e2e tests, debugging test failures, updating the Helm chart, or executing any code changes in the OpenDepot project. Requires a plan in session memory from the planner agent or a clear description from the user."
 name: "OpenDepot Developer"
-model: "Claude Sonnet 4.6 (copilot)"
-tools: [read, edit, search, execute, agent, todo, vscode/memory, browser]
+model: "Claude Sonnet 5 (copilot)"
+tools: [agent, execute/runNotebookCell, execute/getTerminalOutput, execute/killTerminal, execute/sendToTerminal, execute/runTask, execute/createAndRunTask, execute/runInTerminal, execute/runTests, execute/testFailure, read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/readNotebookCellOutput, read/terminalSelection, read/terminalLastCommand, read/getTaskOutput, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, edit/rename, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/usages, web/fetch, web/githubTextSearch, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/navigatePage, browser/clickElement, browser/dragElement, browser/hoverElement, browser/typeInPage, browser/runPlaywrightCode, browser/handleDialog, todo]
 agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation"]
 argument-hint: "Feature to implement (ideally after running the planner agent)"
 ---
