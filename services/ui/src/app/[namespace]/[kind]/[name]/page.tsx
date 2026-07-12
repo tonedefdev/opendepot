@@ -29,6 +29,13 @@ import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
+// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
+// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
+// secondary palette between light and dark mode, otherwise "provider" and
+// "module" chips would trade colors depending on the active scheme.
+const MODULE_COLOR = "#03deb8";
+const PROVIDER_COLOR = "#047df1";
+
 interface PageProps {
   params: Promise<{
     namespace: string;
@@ -214,7 +221,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           </Typography>
 
           <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
-            <Chip label={capitalizeKind} color={kind === "provider" ? "secondary" : "primary"} size="small" />
+            <Chip
+              label={capitalizeKind}
+              size="small"
+              sx={{
+                bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                color: "#fff",
+              }}
+            />
             {detail.provider && (
               <Chip
                 label={detail.provider}
@@ -229,9 +243,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 label={displayVersion(detail.latestVersion)}
                 size="small"
                 variant="outlined"
-                color={kind === "provider" ? "secondary" : "primary"}
                 sx={{
                   fontFamily: "monospace",
+                  color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
                 }}
               />
             )}

@@ -19,6 +19,13 @@ import SeverityBadge from "./SeverityBadge";
 import ProviderLogo from "./ProviderLogo";
 import type { BrowseResource } from "@/lib/api";
 
+// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
+// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
+// secondary palette between light and dark mode, otherwise "provider" and
+// "module" chips would trade colors depending on the active scheme.
+const MODULE_COLOR = "#03deb8";
+const PROVIDER_COLOR = "#047df1";
+
 interface Props {
   resource: BrowseResource;
 }
@@ -100,8 +107,11 @@ export default function ResourceCard({ resource }: Props) {
               size="small"
               label={resource.kind}
               variant="outlined"
-              color={resource.kind === "provider" ? "secondary" : "primary"}
-              sx={{ textTransform: "capitalize" }}
+              sx={{
+                textTransform: "capitalize",
+                color: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                borderColor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+              }}
             />
             {resource.latestVersion && (
               <Chip
