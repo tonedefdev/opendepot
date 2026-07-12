@@ -5,7 +5,7 @@
 [![Helm](https://img.shields.io/badge/Helm_Chart-0.7.0-0F1689?logo=helm&logoColor=white)](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot)
 [![Docs](https://img.shields.io/badge/Docs-tonedefdev.github.io-047df1?logo=materialformkdocs&logoColor=white)](https://tonedefdev.github.io/opendepot/)
 
-<p align="center">
+<p>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/opendepot_dark_mode.svg" />
     <source media="(prefers-color-scheme: light)" srcset="docs/img/opendepot_light_mode.svg" />
