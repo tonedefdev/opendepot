@@ -47,25 +47,90 @@
   color: #fff !important;
 }
 
-/* Make navbar logo white to show on the gradient header */
+/* Site name is redundant now that the logo artwork includes the wordmark */
+.md-header__topic:not([data-md-component="header-topic"]) {
+  display: none;
+}
+
+/* Logo sizing on the gradient header/nav — artwork already renders correctly, no color filter needed */
 .md-header__button.md-logo img,
-.md-header__button.md-logo svg,
-.md-nav__title .md-logo img,
-.md-nav__title .md-logo svg {
-  filter: brightness(0) invert(1);
-  height: 2rem;
+.md-header__button.md-logo svg {
+  height: 1.4rem;
   width: auto;
 }
 
+.md-nav__title .md-nav__button.md-logo img,
+.md-nav__title .md-nav__button.md-logo svg {
+  height: 1.5rem;
+  width: auto;
+}
+
+/* The header sits on the gradient brand bar, so use the all-white wordmark to avoid
+   the full-color artwork clashing with the gradient */
+.md-header__button.md-logo img {
+  content: url("../img/opendepot_white.svg");
+}
+
 @media (max-width: 76.2344em) {
+  /* Material reserves 5.6rem of height with top padding for the site-name text
+     wrapping below the logo; since that text is hidden, shrink the bar and
+     left-align the logo like a normal title instead of stretching/centering it */
+  .md-nav--primary .md-nav__title {
+    display: flex;
+    align-items: center;
+    height: 3.4rem;
+    padding: 0 .8rem;
+  }
+
   .md-nav--primary .md-nav__title .md-logo {
     display: block;
-    left: .2rem;
-    margin: .2rem;
-    padding: .4rem;
-    position: absolute;
-    right: .2rem;
-    top: .80rem;
+    position: static;
+    left: auto;
+    right: auto;
+    top: auto;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* The drawer title bar sits on the solid brand color, not the header gradient,
+     so swap in the all-white wordmark to avoid clashing with the colored artwork */
+  .md-nav--primary .md-nav__title .md-logo img {
+    content: url("../img/opendepot_white.svg");
+  }
+
+  /* Hide the redundant site-name text next to the drawer logo (logo already has the wordmark) */
+  .md-nav--primary .md-nav__title {
+    font-size: 0;
+  }
+
+  /* The theme hides the header wordmark logo entirely below the desktop breakpoint
+     (it only reappears inside the drawer once opened). Without it, all that's left
+     in the mobile header is the page title — so inner pages show no OpenDepot
+     branding at all. Bring the compact white wordmark back into the header bar,
+     sized down slightly to leave room for the page title next to it. */
+  .md-header__button.md-logo {
+    display: block !important;
+    height: 1.1rem;
+    margin: auto .5rem auto 0 !important;
+    padding: 0 !important;
+  }
+
+  .md-header__button.md-logo img,
+  .md-header__button.md-logo svg {
+    height: 1.1rem;
+  }
+
+  /* Put the hamburger before the logo in visual order so the drawer toggle
+     reads left-to-right, then the wordmark — matches how users expect the
+     menu control and brand mark to be laid out together. Negative order
+     values keep both ahead of the title/search/theme-toggle buttons, which
+     default to order 0. */
+  .md-header__button.md-logo {
+    order: -1;
+  }
+
+  .md-header__button[for="__drawer"] {
+    order: -2;
   }
 }
 
@@ -93,22 +158,25 @@
 /* ---------------------------------------------------------------------------
    Hero section (home page override)
    --------------------------------------------------------------------------- */
+.mdx-container .md-grid {
+  max-width: 78rem;
+}
+
 .mdx-hero {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 2rem;
+  text-align: center;
+  gap: 0.25rem;
   padding: 1rem 0 3rem;
-  flex-wrap: wrap;
 }
 
 .mdx-hero__content {
-  flex: 1 1 340px;
-  max-width: 560px;
+  max-width: min(880px, 90%);
 }
 
 .mdx-hero__content h1 {
-  font-size: 2.6rem;
+  font-size: 2.75rem;
   font-weight: 800;
   line-height: 1.15;
   margin-bottom: 1rem;
@@ -119,34 +187,44 @@
 }
 
 [data-md-color-scheme="slate"] .mdx-hero__content h1 {
-  background: linear-gradient(135deg, #04cfd0 0%, #03deb8 100%);
+  background: linear-gradient(135deg, #04cfd0 0%, #ffffff 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .mdx-hero__content p {
-  font-size: 1.15rem;
   line-height: 1.7;
   color: var(--md-default-fg-color--light);
   margin-bottom: 1.75rem;
 }
 
 .mdx-hero__image {
-  flex: 0 0 600px;
-  padding-bottom: 12rem;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: clamp(420px, 30vw, 560px);
+  margin: 0 auto 1rem;
+  margin-top: 0.1rem;
 }
 
 .mdx-hero__image img {
-  max-width: 600px;
+  max-width: 100%;
   width: 100%;
+  height: auto;
 }
+
+/* Light/dark logo switching in the hero */
+.mdx-logo--dark { display: none; }
+[data-md-color-scheme="slate"] .mdx-logo--light { display: none; }
+[data-md-color-scheme="slate"] .mdx-logo--dark { display: block; }
 
 /* Hero stats pills */
 .mdx-hero__stats {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.6rem;
   margin-top: 2.5rem;
   padding-top: 2rem;
@@ -334,36 +412,23 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Responsive — hero stacks on small screens
+   Responsive — tighten spacing and type scale on small screens
    --------------------------------------------------------------------------- */
 @media screen and (max-width: 76.1875em) {
   .mdx-container {
     padding-top: 0;
   }
   .mdx-hero {
-    flex-direction: column-reverse;
-    text-align: center;
-    padding: 0;
-    gap: 0;
-  }
-  .mdx-hero__content {
-    max-width: 100%;
+    padding: 0.5rem 0 2rem;
+    padding-top: 1rem;
   }
   .mdx-hero__content h1 {
-    font-size: 2rem;
+    font-size: 1.7rem;
   }
-  .mdx-hero__stats {
-    justify-content: center;
-  }
+}
+
+@media screen and (max-width: 480px) {
   .mdx-hero__image {
-    flex: 0 0 auto;
-    width: 100%;
-    padding-bottom: 0;
-  }
-  .mdx-hero__image img {
-    max-width: 480px;
-    width: 90%;
-    margin: 0 auto;
-    display: block;
+    max-width: 75%;
   }
 }
