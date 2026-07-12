@@ -89,6 +89,7 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           skip-setup-trivy: true
+          trivyignores: '.trivyignore'
 
       - name: Push ${{ matrix.service }}
         run: docker push ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
