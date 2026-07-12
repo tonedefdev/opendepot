@@ -226,7 +226,7 @@ function FindingsTable({
         gap={1.5}
         mb={2}
         alignItems="center"
-        sx={{ p: 1.5, borderRadius: 1.5, background: "rgba(240,246,252,0.04)", border: "1px solid rgba(240,246,252,0.06)" }}
+        sx={{ p: 1.5, borderRadius: 1.5, background: "action.hover", border: "1px solid", borderColor: "divider" }}
       >
         <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
 
@@ -362,7 +362,7 @@ function FindingsTable({
         )}
       </Box>
 
-      <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid rgba(240,246,252,0.08)", borderRadius: 1.5 }}>
+      <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
         <Table size="small" sx={{ tableLayout: "fixed", minWidth: includeArtifactColumns ? 1060 : 580 }}>
           <TableHead>
             <TableRow>

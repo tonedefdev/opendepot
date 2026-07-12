@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Box from "@mui/material/Box";
+import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
@@ -79,11 +80,15 @@ export default function UsageSnippet({
       ? buildProviderSnippet(registryHost, namespace, name, latestVersion)
       : buildModuleSnippet(registryHost, namespace, name, provider, latestVersion);
 
+  const { mode, systemMode } = useColorScheme();
+  const resolvedMode = mode === "system" ? systemMode : mode;
+  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+
   return (
     <Box sx={{ position: "relative" }}>
       <Highlight
         prism={Prism as typeof Prism}
-        theme={themes.nightOwl}
+        theme={prismTheme}
         code={snippet}
         language={"hcl" as Language}
       >
@@ -95,7 +100,8 @@ export default function UsageSnippet({
               p: 2,
               pr: 6,
               borderRadius: 1.5,
-              border: "1px solid rgba(240,246,252,0.08)",
+              border: "1px solid",
+              borderColor: "divider",
               fontFamily: "monospace",
               fontSize: "0.8125rem",
               lineHeight: 1.65,

@@ -176,7 +176,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 							onClick={() => setSelectedDepotKeys([])}
 							variant="outlined"
 							size="small"
-							sx={{ borderColor: "rgba(240,246,252,0.3)", color: "text.secondary", flexShrink: 0 }}
+							sx={{ borderColor: "divider", color: "text.secondary", flexShrink: 0 }}
 						/>
 					)}
 				</Box>

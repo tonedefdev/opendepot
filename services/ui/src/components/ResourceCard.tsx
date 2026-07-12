@@ -41,7 +41,7 @@ export default function ResourceCard({ resource }: Props) {
   return (
     <Card
       data-testid="resource-card"
-      sx={{
+      sx={(theme) => ({
         height: "100%",
         display: "flex",
         flexDirection: "column",
@@ -50,10 +50,13 @@ export default function ResourceCard({ resource }: Props) {
               "&:hover": {
                 borderColor: "rgba(4,125,241,0.5)",
                 boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.4)",
+                ...theme.applyStyles("light", {
+                  boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.08)",
+                }),
               },
             }
           : {}),
-      }}
+      })}
     >
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
         <CardContent sx={{ pb: "12px !important" }}>

@@ -38,8 +38,9 @@ function LogoBadge({ size, child }: { size: number; child: React.ReactNode }) {
         width: size,
         height: size,
         borderRadius: "6px",
-        border: "1px solid rgba(240,246,252,0.14)",
-        bgcolor: "rgba(240,246,252,0.04)",
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: "action.hover",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -62,7 +63,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
           sx={{
             fontSize: size * 0.45,
             fontWeight: 700,
-            color: "#04cfd0",
+            color: "primary.main",
             fontFamily: "monospace",
           }}
         >
@@ -83,10 +84,12 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   google: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   gcp: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   googlecloud: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
-  // Simple Icons
-  argocd: { type: "icon", icon: SiArgo, color: "#E6EDF3" },
-  github: { type: "icon", icon: SiGithub, color: "#E6EDF3" },
-  githubactions: { type: "icon", icon: SiGithub, color: "#E6EDF3" },
+  // Simple Icons — argocd/github marks are monochrome outlines, so they use
+  // "currentColor" to inherit LogoBadge's theme-reactive text color instead
+  // of a fixed hex tuned only for dark backgrounds.
+  argocd: { type: "icon", icon: SiArgo, color: "currentColor" },
+  github: { type: "icon", icon: SiGithub, color: "currentColor" },
+  githubactions: { type: "icon", icon: SiGithub, color: "currentColor" },
   kubernetes: { type: "icon", icon: SiKubernetes, color: "#326CE5" },
   k8s: { type: "icon", icon: SiKubernetes, color: "#326CE5" },
   helm: { type: "icon", icon: SiHelm, color: "#277A9F" },
@@ -126,7 +129,7 @@ export default function ProviderLogo({ provider, size = 28 }: Props) {
                     width: Math.max(14, size * 0.68),
                     height: Math.max(14, size * 0.68),
                     objectFit: "contain",
-                    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.35))",
+                    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.2))",
                   }}
                 />
               ) : (
