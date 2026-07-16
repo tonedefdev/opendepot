@@ -3,6 +3,7 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
+import { useColorScheme } from "@mui/material/styles";
 import {
   SiGithub,
   SiArgo,
@@ -77,6 +78,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
 const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   // Local SVGs — not available on simple-icons
   aws: { type: "img", src: "/img/aws-dark.svg", alt: "AWS" },
+  awsLight: { type: "img", src: "/img/aws.svg", alt: "AWS" },
   azure: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azurerm: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azuread: { type: "img", src: "/img/azure.svg", alt: "Azure" },
@@ -111,7 +113,9 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
 
 export default function ProviderLogo({ provider, size = 28 }: Props) {
   const key = provider.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const entry = KNOWN_PROVIDERS[key];
+  const { mode, systemMode } = useColorScheme();
+  const resolvedMode = mode === "system" ? systemMode : mode;
+  const entry = key === "aws" && resolvedMode === "light" ? KNOWN_PROVIDERS.awsLight : KNOWN_PROVIDERS[key];
 
   return (
     <Tooltip title={provider} placement="top">

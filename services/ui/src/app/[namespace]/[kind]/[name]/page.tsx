@@ -224,10 +224,15 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             <Chip
               label={capitalizeKind}
               size="small"
-              sx={{
-                bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
-                color: "#fff",
-              }}
+              variant="outlined"
+              sx={(theme) => ({
+                color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                ...theme.applyStyles("light", {
+                  color: "#fff",
+                  bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                }),
+              })}
             />
             {detail.provider && (
               <Chip
