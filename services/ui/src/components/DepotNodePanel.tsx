@@ -144,6 +144,7 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
                 color: kindColor,
                 borderColor: kindColor,
                 "& .MuiChip-label": { px: 0.75 },
+                '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: kindColor },
               }}
               variant="outlined"
             />

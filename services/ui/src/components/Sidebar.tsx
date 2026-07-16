@@ -478,6 +478,11 @@ export default function Sidebar({
                           "& .MuiChip-label": { px: 0.75 },
                           color: "secondary.light",
                           borderColor: secondaryTintBorder,
+                          '[data-mui-color-scheme="light"] &': {
+                            color: "#fff",
+                            bgcolor: "secondary.light",
+                            borderColor: "secondary.light",
+                          },
                         }}
                         variant="outlined"
                       />

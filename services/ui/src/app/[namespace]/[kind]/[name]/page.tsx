@@ -240,7 +240,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 size="small"
                 variant="outlined"
                 color="primary"
-                sx={{ fontFamily: "monospace" }}
+                sx={{
+                  fontFamily: "monospace",
+                  '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: "primary.main" },
+                }}
               />
             )}
             {detail.latestVersion && (
@@ -252,6 +255,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                   fontFamily: "monospace",
                   color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
                   borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  '[data-mui-color-scheme="light"] &': {
+                    color: "#fff",
+                    bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  },
                 }}
               />
             )}
@@ -370,7 +377,12 @@ export default async function ResourceDetailPage({ params }: PageProps) {
               label={`${detail.depotRef.namespace} / ${detail.depotRef.name}`}
               variant="outlined"
               size="small"
-              sx={{ fontFamily: "monospace", borderColor: "rgba(3,222,184,0.4)", color: "#03deb8" }}
+              sx={{
+                fontFamily: "monospace",
+                borderColor: "rgba(3,222,184,0.4)",
+                color: "#03deb8",
+                '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: "#03deb8", borderColor: "#03deb8" },
+              }}
             />
           </Box>
         </SectionCard>
