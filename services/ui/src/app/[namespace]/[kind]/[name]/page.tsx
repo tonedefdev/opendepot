@@ -225,14 +225,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
               label={capitalizeKind}
               size="small"
               variant="outlined"
-              sx={(theme) => ({
+              sx={{
                 color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
                 borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
-                ...theme.applyStyles("light", {
+                '[data-mui-color-scheme="light"] &': {
                   color: "#fff",
                   bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
-                }),
-              })}
+                },
+              }}
             />
             {detail.provider && (
               <Chip
