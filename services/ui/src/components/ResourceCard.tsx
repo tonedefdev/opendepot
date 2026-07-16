@@ -106,11 +106,10 @@ export default function ResourceCard({ resource }: Props) {
             <Chip
               size="small"
               label={resource.kind}
-              variant="outlined"
               sx={{
                 textTransform: "capitalize",
-                color: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
-                borderColor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                color: "#fff",
+                bgcolor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
               }}
             />
             {resource.latestVersion && (
