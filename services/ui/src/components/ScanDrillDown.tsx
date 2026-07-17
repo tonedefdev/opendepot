@@ -551,7 +551,17 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
       <Accordion
         expanded={sourceExpanded}
         onChange={(_, v) => setSourceExpanded(v)}
-        sx={{ borderRadius: '8px !important', '&::before': { display: 'none' } }}
+        sx={(theme) => ({
+          borderRadius: '8px !important',
+          '&::before': { display: 'none' },
+          ...theme.applyStyles('light', {
+            backgroundColor: 'transparent',
+            backgroundImage: 'none',
+            boxShadow: 'none',
+            border: '1px solid',
+            borderColor: 'divider',
+          }),
+        })}
       >
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Box display="flex" alignItems="center" gap={1}>
@@ -581,7 +591,18 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
         <Accordion
           expanded={binaryExpanded}
           onChange={(_, v) => setBinaryExpanded(v)}
-          sx={{ mt: 1, borderRadius: '8px !important', '&::before': { display: 'none' } }}
+          sx={(theme) => ({
+            mt: 1,
+            borderRadius: '8px !important',
+            '&::before': { display: 'none' },
+            ...theme.applyStyles('light', {
+              backgroundColor: 'transparent',
+              backgroundImage: 'none',
+              boxShadow: 'none',
+              border: '1px solid',
+              borderColor: 'divider',
+            }),
+          })}
         >
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box display="flex" alignItems="center" gap={1}>
