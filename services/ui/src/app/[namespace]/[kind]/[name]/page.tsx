@@ -381,7 +381,11 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 fontFamily: "monospace",
                 borderColor: "rgba(3,222,184,0.4)",
                 color: "#03deb8",
-                '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: "#03deb8", borderColor: "#03deb8" },
+                '[data-mui-color-scheme="light"] &': {
+                  color: "#fff",
+                  bgcolor: "primary.main",
+                  borderColor: "primary.main",
+                },
               }}
             />
           </Box>
