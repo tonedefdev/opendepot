@@ -31,6 +31,7 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Version | `versions/finalizers` | update |
 | Version | `versions/status` | get, patch, update |
 | Version | `secrets` | get |
+| Version | `configmaps` | create, get, list, patch, update, watch |
 | Provider | `providers` | create, delete, get, list, patch, update, watch |
 | Provider | `providers/finalizers` | update |
 | Provider | `providers/status` | get, patch, update |
@@ -41,6 +42,7 @@ The Helm chart creates ServiceAccounts and RBAC resources for each controller au
 | Server | `depots` | get, list, watch |
 | Server | `groupbindings` | get, list, watch |
 | Server | `namespaces` | get, list, watch |
+| Server | `configmaps` | get, list, watch |
 
 !!! note
     The `depots` rule is only added to the server `ClusterRole` when `ui.enabled: true`. When the UI is disabled the server never calls the depots API and the rule is omitted.

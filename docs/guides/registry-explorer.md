@@ -341,6 +341,14 @@ module "<name>" {
 
 The registry host is derived automatically from `NEXT_PUBLIC_BASE_URL` (set by the Helm chart via `ui.baseUrl`). If the latest version is not yet synced, the `version` attribute is omitted from the snippet. No new Helm chart values or environment variables are required.
 
+## Module READMEs
+
+When a module's README could be resolved for its latest version, the resource detail page renders a **README** card above the Overview section, formatted as markdown with GitHub-flavored table, task list, and strikethrough support. The card is omitted entirely when no README is available for the resource.
+
+The markdown is rendered client-side with `react-markdown` and `remark-gfm` — raw HTML embedded in a README is never executed, only standard markdown syntax is rendered.
+
+See [Module READMEs](operations.md#module-readmes) for how OpenDepot resolves and stores README content.
+
 ## Version Sync Warnings
 
 Resource cards in the browse grid and the resource detail page header show an amber warning icon when any `Version` CR under a `Module` or `Provider` has a sync problem, even if the parent resource itself is marked as synced. Hovering the icon displays the tooltip **"Some versions are out of sync"**.
@@ -569,11 +577,14 @@ Returns full detail for a single resource, including all versions and scan findi
       "severity": "HIGH",
       "title": "Example vulnerability"
     }
-  ]
+  ],
+  "readmeContent": "# terraform-aws-vpc\n\nTerraform module..."
 }
 ```
 
 The `sourceScanFindings` and `binaryScanFindings` fields in this response are scoped to the latest version. Use the [Resource Scan Findings](#resource-scan-findings) endpoint to fetch findings for a specific version on demand without reloading the full detail page.
+
+`readmeContent` is only present for `module` resources, and only when a README could be resolved for the latest version — see [Module READMEs](operations.md#module-readmes). The Registry Explorer renders it as formatted markdown on the resource detail page.
 
 ### List Resource Versions
 

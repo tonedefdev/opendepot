@@ -363,9 +363,12 @@ Returns full detail for a single resource including all versions and scan findin
   ],
   "binaryScanFindings": {
     "linux/amd64": []
-  }
+  },
+  "readmeContent": "# terraform-aws-vpc\n\nTerraform module..."
 }
 ```
+
+`readmeContent` is the decoded (plain markdown) README for the module's latest version. It is only present for `module` resources, and only when a README could be resolved — see [`VersionStatus.readmeConfigMapRef`](#versionstatus-fields). The field is omitted for providers and for modules with no resolvable README.
 
 ### List Resource Versions
 
@@ -668,6 +671,15 @@ Holds Trivy source scan results. Used for both provider `go.mod` dependency scan
 | `namespace` | `string` | The organisation namespace in the OpenTofu registry (e.g. `hashicorp`, `integrations`, `DataDog`). Defaults to `hashicorp`. Used for binary download and source repository lookup. Existing `Provider` resources without this field continue to work unchanged. |
 | `sourceRepository` | `string` | Full GitHub URL of the provider's source repository (e.g. `https://github.com/hashicorp/terraform-provider-aws`). When omitted, OpenDepot queries the OpenTofu registry (`api.opentofu.org`) for the repository URL, falling back to `https://github.com/{namespace}/terraform-provider-{name}` if the registry lookup fails. Set this field to override an incorrect or unavailable registry result. |
 
+### ReadmeConfigMapRef
+
+References the ConfigMap and data key holding a module `Version`'s base64 encoded README content. Stored in `Version.status.readmeConfigMapRef`. The ConfigMap is owned by the `Version` resource (via `ownerReferences`), so it is garbage collected automatically when the `Version` is deleted.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Name of the ConfigMap holding the README content. |
+| `key` | `string` | Key within the ConfigMap's `data` holding the base64 encoded README content. |
+
 ### VersionStatus fields
 
 | Field | Type | Description |
@@ -675,6 +687,7 @@ Holds Trivy source scan results. Used for both provider `go.mod` dependency scan
 | `binaryScan` | `BinaryScan` | Binary vulnerability scan result for this specific provider artifact. Populated only for provider `Version` resources when scanning is enabled. |
 | `sourceScan` | `SourceScan` | Scan result for this version. Contains IaC misconfigurations for module `Version` resources and `go.mod` dependency vulnerabilities for provider `Version` resources. Populated when scanning is enabled. |
 | `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
+| `readmeConfigMapRef` | `ReadmeConfigMapRef` | Reference to the ConfigMap holding this version's base64 encoded README content. Only populated for module `Version` resources when a README could be resolved from GitHub or the module archive. See [Module READMEs](../guides/operations.md#module-readmes). |
 
 ### ProviderStatus fields
 

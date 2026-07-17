@@ -15,6 +15,31 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.8.0
+
+v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer.md#module-readmes).
+
+### New RBAC Permissions
+
+The version-controller ServiceAccount now requires `configmaps` (`create`, `get`, `list`, `patch`, `update`, `watch`) to store resolved READMEs, and the server ServiceAccount now requires `configmaps` (`get`, `list`, `watch`) to serve them through the browse API. Both rules are added automatically by the Helm chart — no values changes are required. See [Kubernetes RBAC](rbac.md#controller-permissions).
+
+### Upgrade Steps
+
+1. Apply the updated CRDs:
+   ```bash
+   helm show crds opendepot/opendepot | kubectl apply --server-side -f -
+   ```
+2. Upgrade the chart:
+   ```bash
+   helm upgrade opendepot opendepot/opendepot -n opendepot-system -f my-values.yaml
+   ```
+
+No manual action is required for existing `Module` and `Version` resources — the version controller resolves and stores READMEs automatically on each Version's next reconcile, or immediately when `forceSync: true` is set.
+
+### Dependency Updates
+
+The UI's `vitest` dependency was bumped to `^3.2.6`, with `vite` and `undici` pinned via `resolutions`, resolving HIGH/CRITICAL npm advisories. This affects the UI's build and test tooling only — no runtime or Helm values changes are required.
+
 ## v0.6.0
 
 v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance.
