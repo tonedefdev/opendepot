@@ -294,7 +294,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 rel="noopener noreferrer"
                 aria-label="Open source repository"
                 sx={{
-                  border: "1px solid rgba(240,246,252,0.2)",
+                  border: "1px solid",
+                  borderColor: "divider",
                   borderRadius: 1.25,
                 }}
               >

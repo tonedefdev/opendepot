@@ -108,6 +108,7 @@ export default function UsageSnippet({
               overflowX: "auto",
               whiteSpace: "pre",
               ...style,
+              ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
             }}
           >
             {tokens.map((line, i) => (

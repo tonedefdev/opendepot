@@ -127,13 +127,6 @@ const theme = createTheme({
           backgroundColor: theme.vars.palette.background.paper,
           border: `1px solid ${theme.vars.palette.divider}`,
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-          // Default (light-mode-friendly) elevation relies on MUI's built-in
-          // Paper shadow, which reads clearly against a light page
-          // background. That same dark shadow disappears against the
-          // near-black dark background, so dark mode gets an explicit
-          // "card stock" treatment instead: a subtle top highlight (light
-          // catching the raised edge) plus a tuned drop shadow that's dark
-          // enough to show up against the page.
           ...theme.applyStyles("dark", {
             backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 140px)",
             boxShadow: "0 1px 0 0 rgba(255,255,255,0.06) inset, 0 10px 24px -8px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)",
