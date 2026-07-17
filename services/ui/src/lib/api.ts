@@ -125,6 +125,7 @@ export interface BrowseResourceDetail extends BrowseResource {
   versionHistoryLimit?: number;
   versionConstraints?: string;
   sourceRepository?: string;
+  readmeContent?: string;
 }
 
 export interface BrowseDepot {

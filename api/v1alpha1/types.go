@@ -374,6 +374,19 @@ type VersionStatus struct {
 	// The source vulnerability scan result for this Version. Populated for provider Versions
 	// (go.mod scan) and module Versions (IaC filesystem scan) when scanning is enabled.
 	SourceScan *SourceScan `json:"sourceScan,omitempty"`
+	// ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
+	// encoded README.md content. Only populated for module Version resources when a
+	// README could be resolved from Github or the module archive.
+	ReadmeConfigMapRef *ReadmeConfigMapRef `json:"readmeConfigMapRef,omitempty"`
+}
+
+// ReadmeConfigMapRef references the ConfigMap and data key holding a module Version's
+// base64 encoded README.md content.
+type ReadmeConfigMapRef struct {
+	// The name of the ConfigMap holding the README content.
+	Name string `json:"name"`
+	// The key within the ConfigMap's data holding the base64 encoded README content.
+	Key string `json:"key"`
 }
 
 // +kubebuilder:object:root=true

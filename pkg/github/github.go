@@ -287,6 +287,42 @@ func GetProviderGoMod(ctx context.Context, githubClient *github.Client, owner, r
 	return nil, fmt.Errorf("go.mod not found in %s/%s at version %s", owner, repo, version)
 }
 
+// GetModuleReadme fetches a module version's README content from its GitHub source repository.
+// Both 'v{version}' and bare '{version}' ref formats are tried using go-github's dedicated
+// README resolver, which handles filename casing and extension variants (README.md, readme.rst,
+// etc.) automatically. Returns a nil error with nil content only when no README could be resolved
+// at any tried ref; callers should treat that as a non-fatal "not found" case.
+func GetModuleReadme(ctx context.Context, githubClient *github.Client, owner, repo, version string) ([]byte, error) {
+	bare := strings.TrimPrefix(version, "v")
+	refs := []string{"v" + bare, bare}
+
+	var lastErr error
+	for _, ref := range refs {
+		readme, _, err := githubClient.Repositories.GetReadme(ctx, owner, repo, &github.RepositoryContentGetOptions{Ref: ref})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if readme == nil {
+			continue
+		}
+
+		data, err := readme.GetContent()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode README content for %s/%s@%s: %w", owner, repo, ref, err)
+		}
+
+		return []byte(data), nil
+	}
+
+	if lastErr != nil {
+		return nil, fmt.Errorf("README not found in %s/%s at version %s: %w", owner, repo, version, lastErr)
+	}
+
+	return nil, fmt.Errorf("README not found in %s/%s at version %s", owner, repo, version)
+}
+
 // RoundTrip sets the authorization header and executes a single HTTP transaction, returning a Response for the provided Request.
 func (t *jwtTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.JWT))

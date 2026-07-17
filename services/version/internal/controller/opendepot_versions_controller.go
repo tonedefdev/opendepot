@@ -81,6 +81,7 @@ type VersionReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 
 func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	version := &opendepotv1alpha1.Version{}
@@ -172,6 +173,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var fileBytes []byte
 	var archiveChecksum *string
 	var providerTmpPath string
+	var readmeConfigMapRef *opendepotv1alpha1.ReadmeConfigMapRef
 
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
@@ -227,6 +229,24 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			version.Status.Synced = false
 			_ = r.Status().Update(ctx, version)
 			return ctrl.Result{}, statusMsg
+		}
+
+		// Only (re)fetch the README on the module's first sync or when ForceSync is set.
+		// This avoids hammering the GitHub API on every reconcile once a README has been
+		// resolved. Any failure to resolve or store a README is non-fatal: the Version can
+		// still sync successfully without one.
+		if version.Status.ReadmeConfigMapRef == nil || version.Spec.ForceSync {
+			readmeBytes, readmeErr := r.fetchModuleReadme(ctx, version, fileBytes)
+			if readmeErr != nil {
+				r.Log.V(5).Info("failed to resolve module readme; skipping", "version", version.Name, "error", readmeErr.Error())
+			} else if len(readmeBytes) > 0 {
+				ref, upsertErr := r.upsertReadmeConfigMap(ctx, version, readmeBytes)
+				if upsertErr != nil {
+					r.Log.V(5).Info("failed to upsert readme configmap; skipping", "version", version.Name, "error", upsertErr.Error())
+				} else {
+					readmeConfigMapRef = ref
+				}
+			}
 		}
 	case opendepotv1alpha1.OpenDepotProvider:
 		r.Log.V(5).Info("checking provider fast-path", "version", version.Name, "synced", version.Status.Synced, "checksumSet", version.Status.Checksum != nil)
@@ -476,6 +496,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if sourceScan != nil {
 			currentVersion.Status.SourceScan = sourceScan
+		}
+
+		if readmeConfigMapRef != nil {
+			currentVersion.Status.ReadmeConfigMapRef = readmeConfigMapRef
 		}
 
 		if err := r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{

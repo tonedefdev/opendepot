@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,6 +35,11 @@ type k8sNamespace struct {
 // k8sNamespaceList is a minimal struct for deserializing the namespace list API response.
 type k8sNamespaceList struct {
 	Items []k8sNamespace `json:"items"`
+}
+
+// k8sConfigMap is a minimal struct for deserializing ConfigMap objects.
+type k8sConfigMap struct {
+	Data map[string]string `json:"data"`
 }
 
 // isPublicNamespace reports whether the given label set marks a namespace as public.
@@ -746,6 +752,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.RepoOwner = m.Spec.ModuleConfig.RepoOwner
 		detail.VersionHistoryLimit = m.Spec.ModuleConfig.VersionHistoryLimit
 		detail.VersionConstraints = m.Spec.ModuleConfig.VersionConstraints
+		detail.ReadmeContent = browseModuleReadme(cs, r, namespace, versions, resolveLatestModuleVersion(&card, versions))
 
 		if m.Spec.ModuleConfig.GithubClientConfig != nil {
 			detail.GithubConfig = &BrowseGithubConfig{
@@ -856,18 +863,7 @@ func providerToCard(p opendepotv1alpha1.Provider, public bool) BrowseResource {
 func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version) {
 	card.HasUnsyncedVersions = anyVersionUnsynced(versions)
 
-	// Identify the latest version: prefer card.LatestVersion set from the Module status;
-	// fall back to finding the highest semver in the slice.
-	// Normalize to strip any leading "v" prefix so that "v44.2.0" matches "44.2.0".
-	latestVersionStr := opendepotUtils.SanitizeVersion(card.LatestVersion)
-	if latestVersionStr == "" {
-		for _, v := range versions {
-			nv := opendepotUtils.SanitizeVersion(v.Spec.Version)
-			if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
-				latestVersionStr = nv
-			}
-		}
-	}
+	latestVersionStr := resolveLatestModuleVersion(card, versions)
 
 	for i := range versions {
 		v := &versions[i]
@@ -879,6 +875,75 @@ func enrichModuleCard(card *BrowseResource, versions []opendepotv1alpha1.Version
 		card.LastScanned = v.Status.SourceScan.ScannedAt
 		return
 	}
+}
+
+// resolveLatestModuleVersion returns the sanitized latest version string for a module, preferring
+// card.LatestVersion (set from the Module's status) and falling back to the highest semver found
+// in versions. Normalize to strip any leading "v" prefix so that "v44.2.0" matches "44.2.0".
+func resolveLatestModuleVersion(card *BrowseResource, versions []opendepotv1alpha1.Version) string {
+	latestVersionStr := opendepotUtils.SanitizeVersion(card.LatestVersion)
+	if latestVersionStr != "" {
+		return latestVersionStr
+	}
+
+	for _, v := range versions {
+		nv := opendepotUtils.SanitizeVersion(v.Spec.Version)
+		if latestVersionStr == "" || compareVersionDesc(nv, latestVersionStr) {
+			latestVersionStr = nv
+		}
+	}
+
+	return latestVersionStr
+}
+
+// browseModuleReadme resolves the base64-decoded README content for a module's latest version,
+// if that Version has a ReadmeConfigMapRef set. Any failure to resolve the ConfigMap is non-fatal
+// and results in a nil return so the UI simply omits the README section.
+func browseModuleReadme(cs *kubernetes.Clientset, r *http.Request, namespace string, versions []opendepotv1alpha1.Version, latestVersionStr string) *string {
+	var ref *opendepotv1alpha1.ReadmeConfigMapRef
+	for i := range versions {
+		if opendepotUtils.SanitizeVersion(versions[i].Spec.Version) != latestVersionStr {
+			continue
+		}
+
+		if versions[i].Status.ReadmeConfigMapRef != nil {
+			ref = versions[i].Status.ReadmeConfigMapRef
+			break
+		}
+	}
+
+	if ref == nil {
+		return nil
+	}
+
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/api/v1").
+		Namespace(namespace).
+		Resource("configmaps").
+		Name(ref.Name).
+		DoRaw(r.Context())
+	if err != nil {
+		return nil
+	}
+
+	var cm k8sConfigMap
+	if err := json.Unmarshal(raw, &cm); err != nil {
+		return nil
+	}
+
+	encoded, ok := cm.Data[ref.Key]
+	if !ok {
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil
+	}
+
+	content := string(decoded)
+	return &content
 }
 
 // enrichProviderCard sets Platforms, ScanCounts, and LastScanned on a provider card.

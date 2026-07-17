@@ -425,6 +425,23 @@ spec:
                 description: The SHA256 checksum of the module as a base64 encoded
                   string.
                 type: string
+              readmeConfigMapRef:
+                description: |-
+                  ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
+                  encoded README.md content. Only populated for module Version resources when a
+                  README could be resolved from Github or the module archive.
+                properties:
+                  key:
+                    description: The key within the ConfigMap's data holding the base64
+                      encoded README content.
+                    type: string
+                  name:
+                    description: The name of the ConfigMap holding the README content.
+                    type: string
+                required:
+                - key
+                - name
+                type: object
               sourceScan:
                 description: |-
                   The source vulnerability scan result for this Version. Populated for provider Versions

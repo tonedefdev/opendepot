@@ -17,10 +17,12 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -622,6 +624,164 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(), "expected at least one source finding on %s", scanVersionCR1)
 			}, 5*time.Minute, 15*time.Second).Should(Succeed())
+		})
+	})
+
+	Context("Module README", Ordered, func() {
+		const (
+			readmeVersionName = "readme-s3-bucket-4-3-0"
+			readmeModuleName  = "terraform-aws-s3-bucket"
+			readmeVersion     = "4.3.0"
+			readmeRepoOwner   = "terraform-aws-modules"
+			readmeRepoURL     = "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
+			readmeStorageDir  = "/data/modules"
+		)
+
+		var readmeConfigMapName string
+
+		AfterAll(func() {
+			By("removing the Module README Version CR")
+			cmd := exec.Command("kubectl", "delete", "version", readmeVersionName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should sync a module Version CR and populate status.readmeConfigMapRef", func() {
+			By("applying an inline module Version CR for terraform-aws-s3-bucket 4.3.0")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: %q
+  moduleConfigRef:
+    name: %q
+    repoOwner: %q
+    repoUrl: %q
+    githubClientConfig:
+      useAuthenticatedClient: false
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, readmeVersionName, namespace, readmeVersion, readmeModuleName, readmeRepoOwner, readmeRepoURL, readmeStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "readme-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply Module README Version CR")
+
+			By("waiting for the Version CR to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", readmeVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"),
+					"expected Version CR to reach synced=true")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("waiting for status.readmeConfigMapRef to be populated")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", readmeVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.readmeConfigMapRef.name}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty(), "expected status.readmeConfigMapRef.name to be set")
+				readmeConfigMapName = strings.TrimSpace(output)
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting status.readmeConfigMapRef.key is 'README.md'")
+			cmd = exec.Command("kubectl", "get", "version", readmeVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.readmeConfigMapRef.key}",
+			)
+			key, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(key)).To(Equal("README.md"))
+		})
+
+		It("should create a ConfigMap owned by the Version CR with base64 encoded README content", func() {
+			Expect(readmeConfigMapName).NotTo(BeEmpty(), "readmeConfigMapName must have been captured by the previous spec")
+
+			By("asserting the ConfigMap exists with a non-empty, base64 decodable README entry")
+			cmd := exec.Command("kubectl", "get", "configmap", readmeConfigMapName,
+				"-n", namespace,
+				"-o", `jsonpath={.data['README\.md']}`,
+			)
+			encoded, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(encoded).NotTo(BeEmpty(), "expected ConfigMap to contain a non-empty README.md entry")
+
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+			Expect(err).NotTo(HaveOccurred(), "expected README.md entry to be valid base64")
+			Expect(len(decoded)).To(BeNumerically(">", 0), "expected decoded README content to be non-empty")
+
+			By("asserting the ConfigMap is owned by the Version CR for cascading delete")
+			cmd = exec.Command("kubectl", "get", "configmap", readmeConfigMapName,
+				"-n", namespace,
+				"-o", "jsonpath={.metadata.ownerReferences[0].kind}",
+			)
+			ownerKind, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ownerKind)).To(Equal("Version"))
+
+			cmd = exec.Command("kubectl", "get", "configmap", readmeConfigMapName,
+				"-n", namespace,
+				"-o", "jsonpath={.metadata.ownerReferences[0].name}",
+			)
+			ownerName, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ownerName)).To(Equal(readmeVersionName))
+		})
+
+		It("should re-fetch the README and remain synced when forceSync is set", func() {
+			By("patching the Version CR to set forceSync=true")
+			cmd := exec.Command("kubectl", "patch", "version", readmeVersionName,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"forceSync":true}}`,
+			)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to patch Version CR with forceSync=true")
+
+			By("waiting for the controller to reset forceSync back to false after a successful re-sync")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", readmeVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.spec.forceSync}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				// forceSync has omitempty, so a reset-to-false value is omitted from the
+				// jsonpath output entirely rather than rendered as the literal string "false".
+				g.Expect(strings.TrimSpace(output)).NotTo(Equal("true"),
+					"expected forceSync to be reset to false after a successful re-sync")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting the Version CR remains synced and readmeConfigMapRef is still populated")
+			cmd = exec.Command("kubectl", "get", "version", readmeVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.synced}",
+			)
+			synced, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(synced)).To(Equal("true"))
+
+			cmd = exec.Command("kubectl", "get", "version", readmeVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.readmeConfigMapRef.name}",
+			)
+			ref, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ref)).To(Equal(readmeConfigMapName))
 		})
 	})
 })

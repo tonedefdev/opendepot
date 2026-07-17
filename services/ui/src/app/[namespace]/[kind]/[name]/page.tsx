@@ -17,6 +17,7 @@ import StorageIcon from "@mui/icons-material/Storage";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
+import DescriptionIcon from "@mui/icons-material/Description";
 import Link from "next/link";
 import CodeIcon from "@mui/icons-material/Code";
 import SeverityBadge from "@/components/SeverityBadge";
@@ -25,6 +26,7 @@ import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
+import ResourceReadme from "@/components/ResourceReadme";
 import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -305,6 +307,13 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           </Box>
         )}
       </Box>
+
+      {/* README */}
+      {detail.readmeContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
+          <ResourceReadme content={detail.readmeContent} />
+        </SectionCard>
+      )}
 
       {/* Overview */}
       <SectionCard icon={<InventoryIcon fontSize="small" />} title="Overview">
