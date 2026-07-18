@@ -308,13 +308,6 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         )}
       </Box>
 
-      {/* README */}
-      {detail.readmeContent && (
-        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
-          <ResourceReadme content={detail.readmeContent} />
-        </SectionCard>
-      )}
-
       {/* Overview */}
       <SectionCard icon={<InventoryIcon fontSize="small" />} title="Overview">
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
@@ -336,6 +329,20 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         </Box>
       </SectionCard>
 
+      {/* README */}
+      {detail.readmeContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
+          <ResourceReadme
+            content={detail.readmeContent}
+            kind={isProviderKind ? "provider" : "module"}
+            namespace={detail.namespace}
+            name={detail.name}
+            provider={detail.provider}
+            registryHost={registryHost}
+          />
+        </SectionCard>
+      )}
+
       {/* Usage */}
       <SectionCard icon={<CodeIcon fontSize="small" />} title="Usage">
         <UsageSnippet
@@ -344,6 +351,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           name={detail.name}
           provider={detail.provider}
           latestVersion={detail.latestVersion}
+          versionConstraints={detail.versionConstraints}
           registryHost={registryHost}
         />
       </SectionCard>

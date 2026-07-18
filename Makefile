@@ -68,7 +68,7 @@ kind-restart:
 	@echo "=== Applying Istio gateway ==="
 	kubectl apply -f $(CHART_PATH)/gateway.yaml
 	@echo "=== Deploying Helm chart ==="
-	helm upgrade --install opendepot $(CHART_PATH) -n opendepot-system --create-namespace --wait
+	helm upgrade --install opendepot $(CHART_PATH) -n opendepot-system --create-namespace --wait --force-conflicts
 	@echo "=== Starting cloud-provider-kind ==="
 	@pkill -f cloud-provider-kind 2>/dev/null || true
 	@sleep 1
@@ -274,7 +274,7 @@ endif
 	helm upgrade --install opendepot $(CHART_PATH) \
 	  -n opendepot-system --create-namespace \
 	  --set global.image.tag=$(TAG) \
-	  -f "$$tmpfile" --wait; \
+	  -f "$$tmpfile" --wait --force-conflicts; \
 	rm -f "$$tmpfile"
 
 ## Start kubectl port-forwards for local OIDC testing.
@@ -432,7 +432,7 @@ ui-deploy-anon: ui-session-secret
 	  --set scanning.cache.storageClassName="standard" \
 	  --set scanning.cache.accessMode=ReadWriteOnce \
 	  --set version.zapLogLevel=5 \
-	  --wait \
+	  --wait --force-conflicts \
 	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
 
 ## Full e2e deployment: UI + OIDC login + module/provider scanning + tofu login support.
@@ -558,7 +558,7 @@ endif
 	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
 	  -n $(OIDC_NAMESPACE) --create-namespace \
 	  --set global.image.tag=$(TAG) \
-	  -f "$$tmpfile" --wait; \
+	  -f "$$tmpfile" --wait --force-conflicts; \
 	rm -f "$$tmpfile"; \
 	echo "=== Seeding Trivy vulnerability DB cache ==="; \
 	kubectl create job trivy-cache-db --from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) --dry-run=client -o yaml \

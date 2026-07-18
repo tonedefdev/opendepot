@@ -6,7 +6,6 @@ import Tooltip from "@mui/material/Tooltip";
 import { useColorScheme } from "@mui/material/styles";
 import {
   SiGithub,
-  SiArgo,
   SiKubernetes,
   SiHelm,
   SiVault,
@@ -86,10 +85,10 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   google: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   gcp: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   googlecloud: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
-  // Simple Icons — argocd/github marks are monochrome outlines, so they use
+  argocd: { type: "img", src: "/img/argocd.svg", alt: "ArgoCD" },
+  // Simple Icons — the github mark is monochrome by brand design, so it uses
   // "currentColor" to inherit LogoBadge's theme-reactive text color instead
   // of a fixed hex tuned only for dark backgrounds.
-  argocd: { type: "icon", icon: SiArgo, color: "currentColor" },
   github: { type: "icon", icon: SiGithub, color: "currentColor" },
   githubactions: { type: "icon", icon: SiGithub, color: "currentColor" },
   kubernetes: { type: "icon", icon: SiKubernetes, color: "#326CE5" },
