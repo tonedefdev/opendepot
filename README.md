@@ -1,10 +1,3 @@
-# OpenDepot
-
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/tonedefdev/opendepot/blob/main/LICENSE)
-[![Helm](https://img.shields.io/badge/Helm_Chart-0.7.0-0F1689?logo=helm&logoColor=white)](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot)
-[![Docs](https://img.shields.io/badge/Docs-tonedefdev.github.io-047df1?logo=materialformkdocs&logoColor=white)](https://tonedefdev.github.io/opendepot/)
-
 <p>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/opendepot_dark_mode.svg" />
@@ -12,6 +5,11 @@
     <img src="docs/img/opendepot_light_mode.svg" width="400" />
   </picture>
 </p>
+
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/tonedefdev/opendepot/blob/main/LICENSE)
+[![Helm](https://img.shields.io/badge/Helm_Chart-0.8.0-0F1689?logo=helm&logoColor=white)](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot)
+[![Docs](https://img.shields.io/badge/Docs-tonedefdev.github.io-047df1?logo=materialformkdocs&logoColor=white)](https://tonedefdev.github.io/opendepot/)
 
 A Kubernetes-native, self-hosted OpenTofu/Terraform module and provider registry that implements both the [Module Registry Protocol](https://opentofu.org/docs/internals/module-registry-protocol/) and the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). OpenDepot gives organizations complete control over distribution, versioning, and storage — without relying on the public registry.
 
