@@ -3,9 +3,9 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
+import { useColorScheme } from "@mui/material/styles";
 import {
   SiGithub,
-  SiArgo,
   SiKubernetes,
   SiHelm,
   SiVault,
@@ -38,8 +38,9 @@ function LogoBadge({ size, child }: { size: number; child: React.ReactNode }) {
         width: size,
         height: size,
         borderRadius: "6px",
-        border: "1px solid rgba(240,246,252,0.14)",
-        bgcolor: "rgba(240,246,252,0.04)",
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: "action.hover",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -62,7 +63,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
           sx={{
             fontSize: size * 0.45,
             fontWeight: 700,
-            color: "#04cfd0",
+            color: "primary.main",
             fontFamily: "monospace",
           }}
         >
@@ -76,6 +77,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
 const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   // Local SVGs — not available on simple-icons
   aws: { type: "img", src: "/img/aws-dark.svg", alt: "AWS" },
+  awsLight: { type: "img", src: "/img/aws.svg", alt: "AWS" },
   azure: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azurerm: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azuread: { type: "img", src: "/img/azure.svg", alt: "Azure" },
@@ -83,10 +85,12 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   google: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   gcp: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
   googlecloud: { type: "img", src: "/img/gcp.svg", alt: "Google Cloud" },
-  // Simple Icons
-  argocd: { type: "icon", icon: SiArgo, color: "#E6EDF3" },
-  github: { type: "icon", icon: SiGithub, color: "#E6EDF3" },
-  githubactions: { type: "icon", icon: SiGithub, color: "#E6EDF3" },
+  argocd: { type: "img", src: "/img/argocd.svg", alt: "ArgoCD" },
+  // Simple Icons — the github mark is monochrome by brand design, so it uses
+  // "currentColor" to inherit LogoBadge's theme-reactive text color instead
+  // of a fixed hex tuned only for dark backgrounds.
+  github: { type: "icon", icon: SiGithub, color: "currentColor" },
+  githubactions: { type: "icon", icon: SiGithub, color: "currentColor" },
   kubernetes: { type: "icon", icon: SiKubernetes, color: "#326CE5" },
   k8s: { type: "icon", icon: SiKubernetes, color: "#326CE5" },
   helm: { type: "icon", icon: SiHelm, color: "#277A9F" },
@@ -108,7 +112,9 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
 
 export default function ProviderLogo({ provider, size = 28 }: Props) {
   const key = provider.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const entry = KNOWN_PROVIDERS[key];
+  const { mode, systemMode } = useColorScheme();
+  const resolvedMode = mode === "system" ? systemMode : mode;
+  const entry = key === "aws" && resolvedMode === "light" ? KNOWN_PROVIDERS.awsLight : KNOWN_PROVIDERS[key];
 
   return (
     <Tooltip title={provider} placement="top">
@@ -126,7 +132,7 @@ export default function ProviderLogo({ provider, size = 28 }: Props) {
                     width: Math.max(14, size * 0.68),
                     height: Math.max(14, size * 0.68),
                     objectFit: "contain",
-                    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.35))",
+                    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.2))",
                   }}
                 />
               ) : (

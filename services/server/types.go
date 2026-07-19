@@ -221,6 +221,9 @@ type BrowseResourceDetail struct {
 	VersionHistoryLimit *int                                           `json:"versionHistoryLimit,omitempty"`
 	VersionConstraints  string                                         `json:"versionConstraints,omitempty"`
 	SourceRepository    string                                         `json:"sourceRepository,omitempty"`
+	// ReadmeContent is the decoded (plain markdown) README.md content for the module's
+	// latest version, if one could be resolved. Only populated for module resources.
+	ReadmeContent *string `json:"readmeContent,omitempty"`
 }
 
 // BrowseScanFindings is the JSON body returned by the scan-findings endpoint.

@@ -570,9 +570,9 @@ commands will detect it and remind you to do so if necessary.
 
 For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).
 
-## Step 10: (Optional) Try the Registry Explorer UI
+## Try the Registry Explorer UI
 
-The Registry Explorer is a browsable frontend that visualises your modules, providers, and depots. The fastest way to launch it locally is:
+The Registry Explorer is a browseable frontend that visualizes your modules, providers, and depots. The fastest way to launch it locally is:
 
 ```bash
 make ui-setup

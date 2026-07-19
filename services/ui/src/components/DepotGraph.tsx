@@ -130,7 +130,7 @@ function nodeStyle(kind: NodeKind): React.CSSProperties {
     minWidth: NODE_WIDTH,
     maxWidth: NODE_WIDTH,
     minHeight: NODE_HEIGHT,
-    color: "#e6edf3",
+    color: "var(--mui-palette-text-primary)",
     fontFamily: "inherit",
     fontSize: 13,
     display: "flex",
@@ -151,7 +151,7 @@ function VersionFlowNode({ data }: { data: NodeData }) {
       <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {primaryText}
       </span>
-      <span style={{ fontSize: 11, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {secondaryText}
       </span>
     </div>
@@ -166,7 +166,7 @@ function DepotFlowNode({ data }: { data: NodeData }) {
       <span style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.name}
       </span>
-      <span style={{ fontSize: 11, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.storageBackend ? ` · ${data.storageBackend}` : ""}
       </span>
@@ -182,7 +182,7 @@ function ModuleFlowNode({ data }: { data: NodeData }) {
       <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.name}
       </span>
-      <span style={{ fontSize: 11, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.provider ? ` · ${data.provider}` : ""}
         {!data.synced ? " · ⚠ unsynced" : ""}
@@ -199,7 +199,7 @@ function ProviderFlowNode({ data }: { data: NodeData }) {
       <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.name}
       </span>
-      <span style={{ fontSize: 11, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.providerNamespace ? `/${data.providerNamespace}` : ""}
         {!data.synced ? " · ⚠ unsynced" : ""}
@@ -229,7 +229,7 @@ function VersionOverflowFlowNode({ data }: { data: NodeData }) {
       ) : (
         <>
           <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 600 }}>+</span>
-          <span style={{ fontWeight: 500, fontSize: 12, color: "#8b949e" }}>
+          <span style={{ fontWeight: 500, fontSize: 12, color: "var(--mui-palette-text-secondary)" }}>
             {`${data.hiddenCount} more versions`}
           </span>
         </>
@@ -673,18 +673,22 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
           minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
-          style={{ background: "#0d1117" }}
+          style={{ background: "var(--mui-palette-background-default)" }}
         >
-          <Background color="#21262d" gap={20} />
+          <Background color="var(--mui-palette-divider)" gap={20} />
           <Controls
             style={{
-              background: "#161b22",
-              border: "1px solid rgba(240,246,252,0.12)",
+              background: "var(--mui-palette-background-paper)",
+              border: "1px solid var(--mui-palette-divider)",
               borderRadius: 6,
             }}
           />
           <MiniMap
-            style={{ background: "#161b22", border: "1px solid rgba(240,246,252,0.12)", borderRadius: 6 }}
+            style={{
+              background: "var(--mui-palette-background-paper)",
+              border: "1px solid var(--mui-palette-divider)",
+              borderRadius: 6,
+            }}
             nodeColor={(n) => {
               const d = n.data as NodeData;
               if (d.kind === "depot") return DEPOT_BORDER;

@@ -58,7 +58,8 @@ export default function ResourceListControls({
         gap: 2,
         mt: 3,
         pt: 2,
-        borderTop: "1px solid rgba(240,246,252,0.08)",
+        borderTop: "1px solid",
+        borderColor: "divider",
       }}
     >
       <Typography variant="body2" color="text.secondary">

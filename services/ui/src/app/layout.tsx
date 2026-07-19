@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Box from "@mui/material/Box";
+import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
+import { cookies } from "next/headers";
 import ThemeRegistry from "@/components/ThemeRegistry";
 import Sidebar, { DRAWER_WIDTH } from "@/components/Sidebar";
 import { listNamespaces } from "@/lib/api";
 import { getServerSessionToken, parseJWTClaims } from "@/lib/session";
+import { COLOR_MODE_COOKIE } from "@/theme";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
@@ -44,9 +47,19 @@ export default async function RootLayout({
 
   const devTokenEnabled = process.env.DEV_TOKEN_INPUT_ENABLED === "true";
 
+  // Read the persisted color-mode cookie so returning visitors get the
+  // correct scheme rendered server-side with zero flash. First-time visitors
+  // (no cookie yet) fall through to InitColorSchemeScript's blocking script,
+  // which detects the OS preference before paint.
+  const cookieStore = await cookies();
+  const savedColorScheme = cookieStore.get(COLOR_MODE_COOKIE)?.value;
+  const colorSchemeAttr =
+    savedColorScheme === "light" || savedColorScheme === "dark" ? savedColorScheme : undefined;
+
   return (
-    <html lang="en">
+    <html lang="en" data-mui-color-scheme={colorSchemeAttr}>
       <body>
+        <InitColorSchemeScript attribute="data-mui-color-scheme" />
         <ThemeRegistry>
           <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
             <Suspense fallback={null}>

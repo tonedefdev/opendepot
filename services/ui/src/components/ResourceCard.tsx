@@ -19,6 +19,13 @@ import SeverityBadge from "./SeverityBadge";
 import ProviderLogo from "./ProviderLogo";
 import type { BrowseResource } from "@/lib/api";
 
+// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
+// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
+// secondary palette between light and dark mode, otherwise "provider" and
+// "module" chips would trade colors depending on the active scheme.
+const MODULE_COLOR = "#03deb8";
+const PROVIDER_COLOR = "#047df1";
+
 interface Props {
   resource: BrowseResource;
 }
@@ -41,7 +48,7 @@ export default function ResourceCard({ resource }: Props) {
   return (
     <Card
       data-testid="resource-card"
-      sx={{
+      sx={(theme) => ({
         height: "100%",
         display: "flex",
         flexDirection: "column",
@@ -50,10 +57,13 @@ export default function ResourceCard({ resource }: Props) {
               "&:hover": {
                 borderColor: "rgba(4,125,241,0.5)",
                 boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.4)",
+                ...theme.applyStyles("light", {
+                  boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.08)",
+                }),
               },
             }
           : {}),
-      }}
+      })}
     >
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
         <CardContent sx={{ pb: "12px !important" }}>
@@ -97,8 +107,15 @@ export default function ResourceCard({ resource }: Props) {
               size="small"
               label={resource.kind}
               variant="outlined"
-              color={resource.kind === "provider" ? "secondary" : "primary"}
-              sx={{ textTransform: "capitalize" }}
+              sx={(theme) => ({
+                textTransform: "capitalize",
+                color: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                borderColor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                ...theme.applyStyles("light", {
+                  color: "#fff",
+                  bgcolor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                }),
+              })}
             />
             {resource.latestVersion && (
               <Chip

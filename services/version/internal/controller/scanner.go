@@ -549,6 +549,80 @@ func extractTarEntry(tr *tar.Reader, hdr *tar.Header, destDir string) error {
 	return nil
 }
 
+// extractReadmeFromArchive scans a module archive (zip or gzip tarball) in-memory for a README
+// file and returns its raw content. It matches case-insensitively against "readme" with any
+// extension (or none), at the archive root or one path segment deep (GitHub tarballs nest all
+// content under a single "<repo>-<sha>/" wrapper directory). Returns nil, nil if no README entry
+// is found; this is a non-fatal condition for callers.
+func extractReadmeFromArchive(archiveBytes []byte) ([]byte, error) {
+	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
+		for _, f := range zr.File {
+			if f.FileInfo().IsDir() || !isReadmeEntry(f.Name) {
+				continue
+			}
+
+			rc, err := f.Open()
+			if err != nil {
+				return nil, fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
+			}
+			defer rc.Close()
+
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read zip entry %s: %w", f.Name, err)
+			}
+
+			return data, nil
+		}
+
+		return nil, nil
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return nil, fmt.Errorf("archive is neither a valid zip nor a gzip tarball: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar entry: %w", err)
+		}
+
+		if hdr.Typeflag != tar.TypeReg || !isReadmeEntry(hdr.Name) {
+			continue
+		}
+
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar entry %s: %w", hdr.Name, err)
+		}
+
+		return data, nil
+	}
+
+	return nil, nil
+}
+
+// isReadmeEntry reports whether the archive entry path is a README file at the archive root
+// or one path segment deep (to account for GitHub's "<repo>-<sha>/" tarball wrapper directory).
+func isReadmeEntry(name string) bool {
+	segments := strings.Split(strings.Trim(name, "/"), "/")
+	if len(segments) > 2 {
+		return false
+	}
+
+	base := segments[len(segments)-1]
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	return strings.EqualFold(base, "readme")
+}
+
 // scanModuleArchive extracts a module archive into a temp directory and runs `trivy fs` against it.
 // It returns IaC (config-class) findings from the HCL source.
 func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes []byte, cacheDir string, offline bool) ([]opendepotv1alpha1.SecurityFinding, error) {

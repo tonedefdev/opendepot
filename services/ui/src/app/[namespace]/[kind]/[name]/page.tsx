@@ -17,6 +17,7 @@ import StorageIcon from "@mui/icons-material/Storage";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
+import DescriptionIcon from "@mui/icons-material/Description";
 import Link from "next/link";
 import CodeIcon from "@mui/icons-material/Code";
 import SeverityBadge from "@/components/SeverityBadge";
@@ -25,9 +26,17 @@ import ProviderLogo from "@/components/ProviderLogo";
 import CopyButton from "@/components/CopyButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
+import ResourceReadme from "@/components/ResourceReadme";
 import { getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
+
+// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
+// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
+// secondary palette between light and dark mode, otherwise "provider" and
+// "module" chips would trade colors depending on the active scheme.
+const MODULE_COLOR = "#03deb8";
+const PROVIDER_COLOR = "#047df1";
 
 interface PageProps {
   params: Promise<{
@@ -214,14 +223,29 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           </Typography>
 
           <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
-            <Chip label={capitalizeKind} color={kind === "provider" ? "secondary" : "primary"} size="small" />
+            <Chip
+              label={capitalizeKind}
+              size="small"
+              variant="outlined"
+              sx={{
+                color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                '[data-mui-color-scheme="light"] &': {
+                  color: "#fff",
+                  bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                },
+              }}
+            />
             {detail.provider && (
               <Chip
                 label={detail.provider}
                 size="small"
                 variant="outlined"
                 color="primary"
-                sx={{ fontFamily: "monospace" }}
+                sx={{
+                  fontFamily: "monospace",
+                  '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: "primary.main" },
+                }}
               />
             )}
             {detail.latestVersion && (
@@ -229,9 +253,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 label={displayVersion(detail.latestVersion)}
                 size="small"
                 variant="outlined"
-                color={kind === "provider" ? "secondary" : "primary"}
                 sx={{
                   fontFamily: "monospace",
+                  color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  '[data-mui-color-scheme="light"] &': {
+                    color: "#fff",
+                    bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  },
                 }}
               />
             )}
@@ -267,7 +296,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 rel="noopener noreferrer"
                 aria-label="Open source repository"
                 sx={{
-                  border: "1px solid rgba(240,246,252,0.2)",
+                  border: "1px solid",
+                  borderColor: "divider",
                   borderRadius: 1.25,
                 }}
               >
@@ -299,6 +329,20 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         </Box>
       </SectionCard>
 
+      {/* README */}
+      {detail.readmeContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
+          <ResourceReadme
+            content={detail.readmeContent}
+            kind={isProviderKind ? "provider" : "module"}
+            namespace={detail.namespace}
+            name={detail.name}
+            provider={detail.provider}
+            registryHost={registryHost}
+          />
+        </SectionCard>
+      )}
+
       {/* Usage */}
       <SectionCard icon={<CodeIcon fontSize="small" />} title="Usage">
         <UsageSnippet
@@ -307,6 +351,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           name={detail.name}
           provider={detail.provider}
           latestVersion={detail.latestVersion}
+          versionConstraints={detail.versionConstraints}
           registryHost={registryHost}
         />
       </SectionCard>
@@ -350,7 +395,16 @@ export default async function ResourceDetailPage({ params }: PageProps) {
               label={`${detail.depotRef.namespace} / ${detail.depotRef.name}`}
               variant="outlined"
               size="small"
-              sx={{ fontFamily: "monospace", borderColor: "rgba(3,222,184,0.4)", color: "#03deb8" }}
+              sx={{
+                fontFamily: "monospace",
+                borderColor: "rgba(3,222,184,0.4)",
+                color: "#03deb8",
+                '[data-mui-color-scheme="light"] &': {
+                  color: "#fff",
+                  bgcolor: "primary.main",
+                  borderColor: "primary.main",
+                },
+              }}
             />
           </Box>
         </SectionCard>

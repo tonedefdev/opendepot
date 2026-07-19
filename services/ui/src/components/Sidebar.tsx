@@ -28,11 +28,13 @@ import LoginIcon from "@mui/icons-material/Login";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GridViewIcon from "@mui/icons-material/GridView";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 
@@ -160,6 +162,22 @@ export default function Sidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
+  const { mode, systemMode, setMode } = useColorScheme();
+  const resolvedMode = mode === "system" ? systemMode : mode;
+  const toggleColorMode = () => {
+    setMode(resolvedMode === "dark" ? "light" : "dark");
+  };
+
+  // Primary-tinted overlay used for the "selected" nav item state. Built from
+  // the CSS variable's channel so it automatically follows whichever color
+  // scheme (and therefore which brand hue leads primary) is active.
+  const primaryTintChannel = theme.vars?.palette.primary.mainChannel;
+  const selectedBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.12)` : "rgba(4,207,208,0.12)";
+  const selectedHoverBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.18)` : "rgba(4,207,208,0.18)";
+  const hoverTintBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.1)` : "rgba(4,207,208,0.1)";
+  const secondaryLightChannel = theme.vars?.palette.secondary.lightChannel;
+  const secondaryTintBorder = secondaryLightChannel ? `rgba(${secondaryLightChannel} / 0.3)` : "rgba(3,222,184,0.3)";
+
   const isOnHome = pathname === "/";
 
   // Derive avatar initials from name or email
@@ -211,7 +229,7 @@ export default function Sidebar({
       </Box>
 
       {/* Search */}
-      <Box sx={{ px: 1.5, py: 1.5, borderBottom: "1px solid rgba(240,246,252,0.08)" }}>
+      <Box sx={{ px: 1.5, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Box
           component="form"
           onSubmit={handleSearchSubmit}
@@ -219,14 +237,15 @@ export default function Sidebar({
             display: "flex",
             alignItems: "center",
             gap: 0.5,
-            background: "rgba(240,246,252,0.06)",
-            border: "1px solid rgba(240,246,252,0.12)",
+            background: "action.hover",
+            border: "1px solid",
+            borderColor: "divider",
             borderRadius: "6px",
             px: 1.5,
             py: 0.5,
             "&:focus-within": {
-              borderColor: "rgba(4,207,208,0.5)",
-              background: "rgba(4,207,208,0.05)",
+              borderColor: "primary.main",
+              background: selectedBg,
             },
           }}
         >
@@ -271,8 +290,8 @@ export default function Sidebar({
                 mx: 1,
                 borderRadius: "6px",
                 py: 0.5,
-                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
-                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
               }}
             >
               <GridViewIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
@@ -291,8 +310,8 @@ export default function Sidebar({
                 mx: 1,
                 borderRadius: "6px",
                 py: 0.5,
-                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
-                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
               }}
             >
               <WarehouseIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
@@ -311,8 +330,8 @@ export default function Sidebar({
                 mx: 1,
                 borderRadius: "6px",
                 py: 0.5,
-                "&.Mui-selected": { background: "rgba(4,207,208,0.12)", color: "primary.main" },
-                "&.Mui-selected:hover": { background: "rgba(4,207,208,0.18)" },
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
               }}
             >
               <BarChartIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
@@ -382,11 +401,11 @@ export default function Sidebar({
                       borderRadius: "6px",
                       py: 0.5,
                       "&.Mui-selected": {
-                        background: "rgba(4,207,208,0.12)",
+                        background: selectedBg,
                         color: "primary.main",
                       },
                       "&.Mui-selected:hover": {
-                        background: "rgba(4,207,208,0.18)",
+                        background: selectedHoverBg,
                       },
                     }}
                   >
@@ -432,11 +451,11 @@ export default function Sidebar({
                       borderRadius: "6px",
                       py: 0.4,
                       "&.Mui-selected": {
-                        background: "rgba(4,207,208,0.12)",
+                        background: selectedBg,
                         color: "primary.main",
                       },
                       "&.Mui-selected:hover": {
-                        background: "rgba(4,207,208,0.18)",
+                        background: selectedHoverBg,
                       },
                     }}
                   >
@@ -458,7 +477,12 @@ export default function Sidebar({
                           height: 18,
                           "& .MuiChip-label": { px: 0.75 },
                           color: "secondary.light",
-                          borderColor: "rgba(3,222,184,0.3)",
+                          borderColor: secondaryTintBorder,
+                          '[data-mui-color-scheme="light"] &': {
+                            color: "#fff",
+                            bgcolor: "secondary.light",
+                            borderColor: "secondary.light",
+                          },
                         }}
                         variant="outlined"
                       />
@@ -472,7 +496,27 @@ export default function Sidebar({
       </Box>
 
       {/* Footer — Auth + Dev Token */}
-      <Box sx={{ borderTop: "1px solid rgba(240,246,252,0.08)" }}>
+      <Box sx={{ borderTop: "1px solid", borderColor: "divider" }}>
+        {/* Appearance toggle */}
+        <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Typography
+            variant="caption"
+            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+          >
+            Appearance
+          </Typography>
+          <Tooltip title={resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+            <IconButton
+              onClick={toggleColorMode}
+              aria-label="Toggle color mode"
+              size="small"
+              sx={{ color: "text.secondary", "&:hover": { bgcolor: hoverTintBg, color: "primary.main" } }}
+            >
+              {resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 16 }} /> : <DarkModeIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+
         {/* Dev token input (only when enabled) */}
         {devTokenEnabled && (
           <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
@@ -577,7 +621,7 @@ export default function Sidebar({
         <IconButton
           onClick={() => setCollapsed(false)}
           aria-label="Expand sidebar"
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, p: 0.5, "&:hover": { opacity: 0.85, bgcolor: "rgba(4,207,208,0.1)" } }}
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, p: 0.5, "&:hover": { opacity: 0.85, bgcolor: hoverTintBg } }}
         >
           <Box
             component="img"
@@ -595,8 +639,8 @@ export default function Sidebar({
           sx={{
             color: isOnHome ? "primary.main" : "text.secondary",
             borderRadius: "6px",
-            bgcolor: isOnHome ? "rgba(4,207,208,0.12)" : "transparent",
-            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+            bgcolor: isOnHome ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <GridViewIcon sx={{ fontSize: 20 }} />
@@ -609,8 +653,8 @@ export default function Sidebar({
           sx={{
             color: pathname === "/depots" ? "primary.main" : "text.secondary",
             borderRadius: "6px",
-            bgcolor: pathname === "/depots" ? "rgba(4,207,208,0.12)" : "transparent",
-            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+            bgcolor: pathname === "/depots" ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <WarehouseIcon sx={{ fontSize: 20 }} />
@@ -623,8 +667,8 @@ export default function Sidebar({
           sx={{
             color: pathname === "/stats" ? "primary.main" : "text.secondary",
             borderRadius: "6px",
-            bgcolor: pathname === "/stats" ? "rgba(4,207,208,0.12)" : "transparent",
-            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+            bgcolor: pathname === "/stats" ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <BarChartIcon sx={{ fontSize: 20 }} />
@@ -632,6 +676,16 @@ export default function Sidebar({
       </Tooltip>
       <Box sx={{ flex: 1 }} />
       <Divider sx={{ width: "80%", mb: 0.5 }} />
+      <Tooltip title={resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} placement="right">
+        <IconButton
+          onClick={toggleColorMode}
+          aria-label="Toggle color mode"
+          size="small"
+          sx={{ color: "text.secondary", mb: 0.5, "&:hover": { bgcolor: hoverTintBg } }}
+        >
+          {resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 18 }} /> : <DarkModeIcon sx={{ fontSize: 18 }} />}
+        </IconButton>
+      </Tooltip>
       {userInfo ? (
         <Tooltip title={userInfo.name ?? userInfo.email} placement="right">
           <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
@@ -661,8 +715,9 @@ export default function Sidebar({
             right: 8,
             zIndex: 1300,
             bgcolor: "background.paper",
-            border: "1px solid rgba(240,246,252,0.12)",
-            "&:hover": { bgcolor: "rgba(4,207,208,0.1)" },
+            border: "1px solid",
+            borderColor: "divider",
+            "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <MenuIcon sx={{ fontSize: 20 }} />

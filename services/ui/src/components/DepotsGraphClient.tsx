@@ -176,7 +176,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 							onClick={() => setSelectedDepotKeys([])}
 							variant="outlined"
 							size="small"
-							sx={{ borderColor: "rgba(240,246,252,0.3)", color: "text.secondary", flexShrink: 0 }}
+							sx={{ borderColor: "divider", color: "text.secondary", flexShrink: 0 }}
 						/>
 					)}
 				</Box>
@@ -186,25 +186,41 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 					label={`${filteredGraph.summary.totalDepots} depots`}
 					size="small"
 					variant="outlined"
-					sx={{ color: DEPOT_COLOR, borderColor: DEPOT_COLOR }}
+					sx={{
+						color: DEPOT_COLOR,
+						borderColor: DEPOT_COLOR,
+						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: DEPOT_COLOR },
+					}}
 				/>
 				<Chip
 					label={`${filteredGraph.summary.totalModules} modules`}
 					size="small"
 					variant="outlined"
-					sx={{ color: MODULE_COLOR, borderColor: MODULE_COLOR }}
+					sx={{
+						color: MODULE_COLOR,
+						borderColor: MODULE_COLOR,
+						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: MODULE_COLOR },
+					}}
 				/>
 				<Chip
 					label={`${filteredGraph.summary.totalProviders} providers`}
 					size="small"
 					variant="outlined"
-					sx={{ color: PROVIDER_COLOR, borderColor: PROVIDER_COLOR }}
+					sx={{
+						color: PROVIDER_COLOR,
+						borderColor: PROVIDER_COLOR,
+						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: PROVIDER_COLOR },
+					}}
 				/>
 				<Chip
 					label={`${totalVersions} versions`}
 					size="small"
 					variant="outlined"
-					sx={{ color: VERSION_COLOR, borderColor: VERSION_COLOR }}
+					sx={{
+						color: VERSION_COLOR,
+						borderColor: VERSION_COLOR,
+						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: VERSION_COLOR },
+					}}
 				/>
 			</Box>
 			</Box>
