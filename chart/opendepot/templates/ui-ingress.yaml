@@ -41,8 +41,11 @@ spec:
             port:
               number: {{ $serverPort }}
       {{- if and $.Values.server.oidc.enabled $.Values.server.oidc.dexProxy.enabled }}
-      # Dex is reverse-proxied through the server — never routed to the UI's
-      # NGINX, which has no handling for /dex/* paths.
+      # Dex is reverse-proxied through the server. Routed directly to the server
+      # Service here (bypassing the UI pod) since a real Ingress controller can
+      # split traffic before it reaches any pod; the UI's own nginx also has a
+      # /dex location as a fallback for environments without an Ingress
+      # controller (e.g. local Kind via kubectl port-forward svc/ui).
       - path: /dex
         pathType: Prefix
         backend:
