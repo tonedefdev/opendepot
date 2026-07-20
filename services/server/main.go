@@ -144,6 +144,12 @@ func main() {
 		var err error
 
 		if *opendepotOIDCDexProxyEnabled {
+			// InsecureIssuerURLContext skips go-oidc's discovery issuer check so
+			// discovery can be fetched from Dex's internal address while the
+			// external issuer URL is still used everywhere else. Issuer
+			// consistency is instead enforced by newInternalDexKeySet's jwks_uri
+			// prefix check, and every JWT's iss claim is verified against the
+			// external issuer via a manually-constructed gooidc.NewVerifier below.
 			discoveryCtx := gooidc.InsecureIssuerURLContext(ctx, *opendepotOIDCIssuerURL)
 			provider, err = gooidc.NewProvider(discoveryCtx, *opendepotOIDCDexInternalURL)
 		} else {
