@@ -136,7 +136,6 @@ OIDC_USER         ?= devuser
 OIDC_SECRET       ?= local-test-secret
 OIDC_CLIENT_ID    ?= opendepot
 OIDC_SERVER_PORT  ?= 8080
-OIDC_DEX_PORT     ?= 5556
 OIDC_RELEASE_NAME    ?= opendepot
 OIDC_NAMESPACE       ?= opendepot-system
 # Group assigned to the test user in Dex and matched by the test GroupBinding expression.
