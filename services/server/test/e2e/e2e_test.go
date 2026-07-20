@@ -755,6 +755,221 @@ server:
 		})
 	})
 
+	// Context: OIDC auth mode with Dex reverse-proxy
+	//
+	// These specs verify server.oidc.dexProxy.enabled: Dex is reachable only through
+	// the server's own /dex/* route, never via a direct port-forward to the Dex
+	// Service. dex.config.issuer and server.oidc.issuerUrl are both set to the same
+	// external, path-based URL (the server's own port-forward address, standing in
+	// for a real ingress hostname), while JWKS discovery and token validation still
+	// happen against Dex's in-cluster Service address under the hood.
+	//
+	// The negative case of --oidc-dex-proxy-enabled without --oidc-issuer-url or
+	// --oidc-dex-internal-url set (server.go process-exits at startup) is not
+	// covered by a live-cluster e2e case: the chart's server-deployment.yaml fail
+	// guards make this combination unreachable via Helm (issuerUrl/dex.enabled are
+	// validated at render time, and --oidc-dex-internal-url is always populated
+	// automatically by the chart whenever the flag is set). It is only reachable by
+	// invoking the server binary directly with hand-crafted flags, bypassing the
+	// chart entirely.
+	Context("OIDC auth mode with Dex reverse-proxy", Ordered, func() {
+		var (
+			pfCancelServer context.CancelFunc
+			oidcJWT        string
+			externalIssuer string
+		)
+
+		const (
+			proxyTestClientSecret = "test-client-secret-proxy-e2e"
+			proxyTestUserEmail    = "proxy-test@example.com"
+			proxyTestUserPassword = "proxytestpassword"
+			proxyTestUserID       = "proxy-test-user-oidc-e2e"
+		)
+
+		// acquireProxiedDexToken performs a Resource Owner Password Credentials grant
+		// against the Dex token endpoint reached through the server's /dex proxy —
+		// never against Dex's Service directly — and returns the raw OIDC ID token.
+		acquireProxiedDexToken := func(clientSecret, username, password string) (string, error) {
+			tokenURL := fmt.Sprintf("http://localhost:%d/dex/token", serverLocalPort)
+			form := url.Values{
+				"grant_type":    {"password"},
+				"username":      {username},
+				"password":      {password},
+				"scope":         {"openid"},
+				"client_id":     {"opendepot"},
+				"client_secret": {clientSecret},
+			}
+			resp, err := http.PostForm(tokenURL, form)
+			if err != nil {
+				return "", fmt.Errorf("token request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+			}
+			var tokenResp struct {
+				IDToken string `json:"id_token"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+				return "", fmt.Errorf("failed to decode token response: %w", err)
+			}
+			if tokenResp.IDToken == "" {
+				return "", fmt.Errorf("token response contained empty id_token")
+			}
+			return tokenResp.IDToken, nil
+		}
+
+		BeforeAll(func() {
+			By("uninstalling previous Helm release to avoid Dex server-side apply conflicts")
+			uninstallCmd := exec.Command("helm", "uninstall", helmReleaseName,
+				"--namespace", namespace, "--ignore-not-found")
+			_, _ = utils.Run(uninstallCmd)
+
+			externalIssuer = fmt.Sprintf("http://localhost:%d/dex", serverLocalPort)
+
+			By("generating bcrypt hash for the test password")
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(proxyTestUserPassword), 10)
+			Expect(err).NotTo(HaveOccurred())
+			passwordHash := string(hashBytes)
+
+			By("writing Dex reverse-proxy e2e values file")
+			dexValues := fmt.Sprintf(`
+dex:
+  enabled: true
+  config:
+    issuer: %s
+    storage:
+      type: memory
+    enablePasswordDB: true
+    oauth2:
+      responseTypes:
+        - code
+      grantTypes:
+        - authorization_code
+        - "urn:ietf:params:oauth:grant-type:device_code"
+        - password
+      skipApprovalScreen: true
+      passwordConnector: local
+    staticPasswords:
+      - email: %q
+        hash: %q
+        username: proxytestuser
+        userID: %q
+    staticClients:
+      - id: opendepot
+        name: OpenDepot
+        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        redirectURIs:
+          - http://localhost:10000
+          - http://localhost:10010
+    connectors: []
+server:
+  oidc:
+    enabled: true
+    clientSecret: %q
+    issuerUrl: %s
+    dexProxy:
+      enabled: true
+`, externalIssuer, proxyTestUserEmail, passwordHash, proxyTestUserID, proxyTestClientSecret, externalIssuer)
+
+			valuesFile := filepath.Join(GinkgoT().TempDir(), "dex-proxy-e2e-values.yaml")
+			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
+
+			By("deploying server with OIDC auth mode, Dex enabled, and dexProxy enabled")
+			deployServer(
+				"--set", "server.anonymousAuth=false",
+				"--set", "server.useBearerToken=false",
+				"-f", valuesFile,
+				"--timeout", "10m",
+			)
+
+			pfCancelServer = startPortForward()
+
+			By("waiting for Dex discovery to be reachable only through the server's /dex proxy")
+			Eventually(func() error {
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", serverLocalPort))
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return fmt.Errorf("discovery endpoint returned %d", resp.StatusCode)
+				}
+				return nil
+			}, 60*time.Second, 1*time.Second).Should(Succeed(), "timed out waiting for the server's /dex proxy to be ready")
+
+			By("acquiring a valid Dex JWT via ROPC through the server's /dex proxy")
+			Eventually(func() error {
+				token, err := acquireProxiedDexToken(proxyTestClientSecret, proxyTestUserEmail, proxyTestUserPassword)
+				if err != nil {
+					return err
+				}
+				oidcJWT = token
+				return nil
+			}, 30*time.Second, 2*time.Second).Should(Succeed(), "failed to acquire Dex JWT via ROPC through the /dex proxy")
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancelServer)
+		})
+
+		It("should serve Dex OIDC discovery through the server's /dex proxy with the external issuer", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/dex/.well-known/openid-configuration", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var discovery map[string]any
+			Expect(json.NewDecoder(resp.Body).Decode(&discovery)).To(Succeed())
+
+			Expect(discovery["issuer"]).To(Equal(externalIssuer),
+				"Dex's discovery document must report the external issuer, not the in-cluster address")
+			Expect(discovery["token_endpoint"]).To(Equal(externalIssuer+"/token"),
+				"the token endpoint advertised by Dex must be reachable through the server's /dex proxy")
+		})
+
+		It("should mint a JWT via the server's /dex proxy", func() {
+			Expect(oidcJWT).NotTo(BeEmpty())
+			Expect(strings.Count(oidcJWT, ".")).To(Equal(2), "a JWT must have three dot-separated segments")
+		})
+
+		It("service discovery login.v1 should advertise the proxied URLs without authzUrl/tokenUrl overrides", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/.well-known/terraform.json", serverLocalPort))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var discovery map[string]any
+			Expect(json.NewDecoder(resp.Body).Decode(&discovery)).To(Succeed())
+
+			loginV1, ok := discovery["login.v1"].(map[string]any)
+			Expect(ok).To(BeTrue(), "login.v1 must be a JSON object")
+			Expect(loginV1["authz"]).To(Equal(externalIssuer+"/auth"),
+				"login.v1.authz must be derived automatically from Dex's own external discovery document")
+			Expect(loginV1["token"]).To(Equal(externalIssuer+"/token"),
+				"login.v1.token must be derived automatically from Dex's own external discovery document")
+		})
+
+		// Dex static passwords do not emit a "groups" claim. This confirms JWT
+		// signature validation succeeds via the internally-fetched JWKS keyset even
+		// though the JWT's iss claim is the external, proxied issuer URL — access is
+		// still correctly denied with 403 (not 401) since the token itself is valid.
+		It("should return 403 with a valid proxied Dex JWT that has no groups claim", func() {
+			req, err := http.NewRequest(http.MethodGet, moduleVersionsURL(), nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			req.Header.Set("Authorization", "Bearer "+oidcJWT)
+			resp, err := http.DefaultClient.Do(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
+				"a valid proxied JWT with no groups claim must be denied with 403, proving JWKS validation succeeded")
+		})
+	})
+
 	// Context: OIDC auth mode with GroupBinding
 	//
 	// These specs verify application-level access control via GroupBinding CRDs when

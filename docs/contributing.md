@@ -95,3 +95,5 @@ commands will detect it and remind you to do so if necessary.
 
 
 The `oidc-deploy` target configures `authzUrl` and `tokenUrl` to point at the local port-forward (`http://localhost:5556/dex/auth` and `/token`). This is the split-network pattern described in [Split-Network OIDC](configuration/oidc.md#split-network-oidc-authzurl-tokenurl) - the server pod reaches Dex via the in-cluster service URL for token validation, while `tofu login` redirects the browser through the port-forward.
+
+Local Kind clusters have no ingress controller, so the [recommended server-proxied Dex](configuration/oidc.md#recommended-proxy-dex-through-the-server) mode isn't exercised by `oidc-deploy` — that mode is instead validated in e2e tests by port-forwarding the server itself and hitting `/dex/*` directly, without ever port-forwarding Dex.

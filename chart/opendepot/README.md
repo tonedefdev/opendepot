@@ -208,6 +208,9 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | `server.oidc.groupsClaim` | `""` | JWT claim name for groups. Defaults to `groups`; set to `cognito:groups`, `roles`, etc. for non-standard IdPs |
 | `server.oidc.allowServiceAccountFallback` | `false` | When `true`, Kubernetes ServiceAccount tokens are accepted alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on K8s RBAC directly |
 | `server.oidc.allowClientCredentials` | `false` | When `true`, Dex client credentials tokens are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against GroupBinding resources |
+| `server.oidc.authzUrl` | `""` | Override the authorization URL advertised in `login.v1`. Optional manual escape hatch; not needed when `server.oidc.dexProxy.enabled=true` |
+| `server.oidc.tokenUrl` | `""` | Override the token URL advertised in `login.v1`. Optional manual escape hatch; not needed when `server.oidc.dexProxy.enabled=true` |
+| `server.oidc.dexProxy.enabled` | `false` | When `true`, the server reverse-proxies `/dex/*` requests to the bundled Dex service so Dex never needs its own public ingress or hostname. Requires `dex.enabled=true` and `server.oidc.issuerUrl` set to the external, path-based URL matching `dex.config.issuer` |
 
 ### RBAC
 

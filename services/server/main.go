@@ -27,6 +27,8 @@ var (
 	opendepotOIDCUIClientID             *string
 	opendepotOIDCAuthzURL               *string
 	opendepotOIDCTokenURL               *string
+	opendepotOIDCDexProxyEnabled        *bool
+	opendepotOIDCDexInternalURL         *string
 	opendepotServerNamespace            *string
 	opendepotFilesystemMountPath        *string
 
@@ -67,6 +69,8 @@ func main() {
 	opendepotOIDCUIClientID = flag.String("oidc-ui-client-id", "", "when set, tokens issued to this OIDC client ID are also accepted by browse endpoints; use when the UI registers as a separate confidential client from the main --oidc-client-id")
 	opendepotOIDCAuthzURL = flag.String("oidc-authz-url", "", "override the authorization URL advertised in /.well-known/terraform.json login.v1; when blank uses the authz URL from the OIDC provider discovery document")
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
+	opendepotOIDCDexProxyEnabled = flag.Bool("oidc-dex-proxy-enabled", false, "when true, the server reverse-proxies /dex/* requests to the internal Dex service so Dex never needs to be exposed on its own public ingress; requires --oidc-issuer-url to be the external issuer URL and --oidc-dex-internal-url to be set")
+	opendepotOIDCDexInternalURL = flag.String("oidc-dex-internal-url", "", "internal (in-cluster) Dex base URL used for OIDC discovery, JWKS fetching, and reverse-proxying /dex/* requests; required when --oidc-dex-proxy-enabled is set")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
 	opendepotValkeyAddr := flag.String("stats-valkey-addr", "valkey:6379", "address of the Valkey/Redis instance used for download stats tracking")
@@ -107,9 +111,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *opendepotOIDCDexProxyEnabled {
+		if *opendepotOIDCIssuerURL == "" {
+			logger.Error("--oidc-dex-proxy-enabled requires --oidc-issuer-url to be set to the external, publicly reachable issuer URL")
+			os.Exit(1)
+		}
+
+		if *opendepotOIDCDexInternalURL == "" {
+			logger.Error("--oidc-dex-proxy-enabled requires --oidc-dex-internal-url to be set to Dex's internal (in-cluster) base URL")
+			os.Exit(1)
+		}
+	}
+
 	for flagName, rawURL := range map[string]string{
-		"--oidc-authz-url": *opendepotOIDCAuthzURL,
-		"--oidc-token-url": *opendepotOIDCTokenURL,
+		"--oidc-authz-url":        *opendepotOIDCAuthzURL,
+		"--oidc-token-url":        *opendepotOIDCTokenURL,
+		"--oidc-dex-internal-url": *opendepotOIDCDexInternalURL,
 	} {
 		if rawURL == "" {
 			continue
@@ -123,20 +140,49 @@ func main() {
 
 	if *opendepotOIDCIssuerURL != "" {
 		ctx := context.Background()
-		provider, err := gooidc.NewProvider(ctx, *opendepotOIDCIssuerURL)
+		var provider *gooidc.Provider
+		var err error
+
+		if *opendepotOIDCDexProxyEnabled {
+			discoveryCtx := gooidc.InsecureIssuerURLContext(ctx, *opendepotOIDCIssuerURL)
+			provider, err = gooidc.NewProvider(discoveryCtx, *opendepotOIDCDexInternalURL)
+		} else {
+			provider, err = gooidc.NewProvider(ctx, *opendepotOIDCIssuerURL)
+		}
+
 		if err != nil {
 			logger.Error("failed to discover OIDC provider", "issuerUrl", *opendepotOIDCIssuerURL, "error", err)
 			os.Exit(1)
 		}
 
 		oidcProvider = provider
-		oidcVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
+
+		var keySet gooidc.KeySet
+		if *opendepotOIDCDexProxyEnabled {
+			keySet, err = newInternalDexKeySet(ctx, provider, *opendepotOIDCIssuerURL, *opendepotOIDCDexInternalURL)
+			if err != nil {
+				logger.Error("failed to configure internal Dex JWKS key set", "error", err)
+				os.Exit(1)
+			}
+
+			logger.Info("Dex reverse proxy mode enabled", "internalDexUrl", *opendepotOIDCDexInternalURL)
+		}
+
+		newVerifier := func(cfg *gooidc.Config) *gooidc.IDTokenVerifier {
+			if *opendepotOIDCDexProxyEnabled {
+				return gooidc.NewVerifier(*opendepotOIDCIssuerURL, keySet, cfg)
+			}
+
+			return provider.Verifier(cfg)
+		}
+
+		oidcVerifier = newVerifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
 		if *opendepotOIDCAllowClientCredentials {
-			oidcCCVerifier = provider.Verifier(&gooidc.Config{SkipClientIDCheck: true})
+			oidcCCVerifier = newVerifier(&gooidc.Config{SkipClientIDCheck: true})
 		}
 
 		if *opendepotOIDCUIClientID != "" {
-			oidcUIVerifier = provider.Verifier(&gooidc.Config{ClientID: *opendepotOIDCUIClientID})
+			oidcUIVerifier = newVerifier(&gooidc.Config{ClientID: *opendepotOIDCUIClientID})
 			logger.Info("OIDC UI client ID configured", "uiClientId", *opendepotOIDCUIClientID)
 		}
 
@@ -168,6 +214,16 @@ func main() {
 	r.Get("/opendepot/ui/v1/depots", handleBrowseDepots)
 	r.Get("/opendepot/ui/v1/depots/graph", handleBrowseDepotsGraph)
 	r.Get("/opendepot/ui/v1/stats", handleBrowseStats)
+
+	if *opendepotOIDCDexProxyEnabled {
+		dexProxyHandler, err := newDexProxyHandler(*opendepotOIDCDexInternalURL)
+		if err != nil {
+			logger.Error("failed to configure Dex reverse proxy", "error", err)
+			os.Exit(1)
+		}
+
+		r.Handle("/dex/*", dexProxyHandler)
+	}
 
 	if *opendepotCertPath != "" && *opendepotCertKey != "" {
 		logger.Info("Server started and listening on port 8080 with TLS")

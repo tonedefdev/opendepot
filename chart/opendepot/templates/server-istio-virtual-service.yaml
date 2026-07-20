@@ -20,6 +20,10 @@ spec:
         prefix: /opendepot
     - uri:
         prefix: /.well-known
+    {{- if and .Values.server.oidc.enabled .Values.server.oidc.dexProxy.enabled }}
+    - uri:
+        prefix: /dex
+    {{- end }}
     route:
     - destination:
         host: server

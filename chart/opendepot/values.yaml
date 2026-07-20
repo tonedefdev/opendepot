@@ -142,6 +142,17 @@ server:
     # tokenUrl overrides the token URL advertised in the login.v1 block of
     # /.well-known/terraform.json. Same use-case as authzUrl above.
     tokenUrl: ""
+    # dexProxy, when enabled, causes the server to reverse-proxy /dex/* requests
+    # to the bundled Dex service so that Dex never needs its own public ingress
+    # or hostname. Requires dex.enabled=true and issuerUrl set to the external,
+    # path-based URL that dex.config.issuer also uses (e.g.
+    # https://opendepot.example.com/dex). The server discovers Dex and fetches
+    # its JWKS via the in-cluster address, avoiding a hairpin through its own
+    # ingress, while all URLs advertised to clients (login.v1, device-code
+    # verification_uri, etc.) use the external, proxied address because that is
+    # Dex's configured issuer. See the OIDC configuration guide for setup.
+    dexProxy:
+      enabled: false
   image:
     repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set
@@ -278,6 +289,9 @@ dex:
   config:
     # issuer is the public URL of the Dex service. Clients redirect here for
     # authorization. Change this to the external URL of your Dex deployment.
+    # When server.oidc.dexProxy.enabled=true, this MUST equal server.oidc.issuerUrl
+    # exactly (e.g. https://opendepot.example.com/dex) — Dex is never given its
+    # own ingress or hostname; the server reverse-proxies /dex/* requests to it.
     issuer: ""
     storage:
       type: memory
