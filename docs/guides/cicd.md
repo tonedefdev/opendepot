@@ -11,6 +11,8 @@ tags:
 
 If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach because it preserves separation of duties: OIDC stays read-only for registry access, while Kubernetes RBAC governs create, update, and delete permissions.
 
+The examples below assume the recommended [server-proxied Dex](../configuration/oidc.md#recommended-proxy-dex-through-the-server) setup (`server.oidc.dexProxy.enabled: true`), so the Dex token endpoint shares the same host as the registry API. If Dex is exposed separately instead, substitute that host (e.g. `https://dex.defdev.io/dex/token`).
+
 Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
 
 ```yaml
@@ -67,7 +69,7 @@ jobs:
         env:
           CC_CLIENT_SECRET: ${{ secrets.OPENDEPOT_CC_CLIENT_SECRET }}
         run: |
-          TOKEN=$(curl -sf -X POST https://dex.defdev.io/dex/token \
+          TOKEN=$(curl -sf -X POST https://opendepot.defdev.io/dex/token \
             -d grant_type=client_credentials \
             -d client_id=ci-pipeline \
             -d "client_secret=${CC_CLIENT_SECRET}" \

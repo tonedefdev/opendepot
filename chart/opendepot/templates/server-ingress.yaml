@@ -23,6 +23,15 @@ spec:
   - host: {{ .host | quote }}
     http:
       paths:
+      {{- if and $.Values.server.oidc.enabled $.Values.server.oidc.dexProxy.enabled }}
+      - path: /dex
+        pathType: Prefix
+        backend:
+          service:
+            name: server
+            port:
+              number: {{ $.Values.server.service.port }}
+      {{- end }}
       {{- range .paths }}
       - path: {{ .path }}
         pathType: {{ .pathType }}

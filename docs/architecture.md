@@ -119,7 +119,7 @@ Implements both the Module Registry Protocol and the Provider Registry Protocol 
 - **Bearer token** — Kubernetes ServiceAccount tokens or kubeconfig credentials forwarded directly to the Kubernetes API.
 - **Anonymous** — No authentication required. Intended for local development only.
 
-When OIDC is enabled, the service discovery endpoint (`/.well-known/terraform.json`) advertises a `login.v1` block, enabling `tofu login` to drive the authorization code or device code flow through Dex. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and more) so users authenticate with their existing organizational identity.
+When OIDC is enabled, the service discovery endpoint (`/.well-known/terraform.json`) advertises a `login.v1` block, enabling `tofu login` to drive the authorization code or device code flow through Dex. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and more) so users authenticate with their existing organizational identity. By default, Dex needs its own public ingress and hostname; with `server.oidc.dexProxy.enabled: true` ([recommended](configuration/oidc.md#recommended-proxy-dex-through-the-server)), the server reverse-proxies `/dex/*` requests instead, so Dex is only ever reachable through the server's existing ingress.
 
 The server also accepts [client credentials](configuration/oidc.md#client-credentials-machine-to-machine) tokens from Dex machine clients when `allowClientCredentials` is enabled. The token's `sub` claim is mapped to a virtual group (`"client:<sub>"`) and evaluated against GroupBinding resources, giving machine identities the same scoped access model as human users.
 
@@ -146,5 +146,12 @@ An optional Next.js frontend deployed when `ui.enabled: true`. The UI pod runs t
 - **NGINX** (port 80) — acts as a reverse proxy in front of both Next.js and the server
 
 NGINX applies split-path routing: requests to `/opendepot/*` and `/.well-known/*` are proxied to the server Service; all other requests are forwarded to Next.js on `localhost:3000`. This means the browser never needs to know the server's address — all API calls are same-origin.
+
+!!! note "Why NGINX instead of Next.js rewrites"
+    Next.js can proxy routes itself (via `rewrites()` or middleware), but NGINX is kept as a dedicated layer for a few reasons that don't map cleanly onto Next.js's request pipeline:
+
+    - **Process isolation** — the Next.js server binds to `127.0.0.1:3000` only (see `entrypoint.sh`), so NGINX is the sole process reachable from outside the pod. A bug in the Next.js app can't be reached directly over the network.
+    - **Streaming large artifacts** — module tarballs and provider binaries proxied through `/opendepot/*` are passed through by NGINX without being buffered into the Node/V8 process, which matters as file sizes and concurrency grow.
+    - **WebSocket upgrades and custom header proxying** — the catch-all location handles `Upgrade`/`Connection` headers and forwards `Authorization`/`X-Request-ID`, which Next.js's `rewrites()` config doesn't support; doing this in Next.js itself would require a custom server, which forfeits some of the benefits of `output: "standalone"`.
 
 The server exposes browse API endpoints (`/opendepot/ui/v1/*`) specifically for the UI. These endpoints apply visibility filtering based on `opendepot.defdev.io/public` labels and, for authenticated callers, `GroupBinding` evaluation. See [Registry Explorer UI](guides/registry-explorer.md) for full details.

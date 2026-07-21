@@ -63,26 +63,29 @@ The `server.oidc` section enables OIDC JWT validation for production-ready singl
 | Value | Type | Description |
 |-------|------|-------------|
 | `server.oidc.enabled` | bool | When true, enables OIDC JWT validation and advertises the `login.v1` service discovery endpoint. Default: `false` |
-| `server.oidc.issuerUrl` | string | OIDC issuer URL (e.g., `https://dex.example.com/dex`). When blank and `dex.enabled: true`, auto-derives the in-cluster Dex service URL. |
+| `server.oidc.issuerUrl` | string | OIDC issuer URL (e.g., `https://opendepot.example.com/dex`). When blank and `dex.enabled: true`, auto-derives the in-cluster Dex service URL. |
 | `server.oidc.clientId` | string | OIDC client ID. Must match the Dex static client `id`. Default: `"opendepot"` |
 | `server.oidc.clientSecretName` | string | Name of a Kubernetes Secret containing the `clientSecret` key. When blank, the chart creates a Secret from `server.oidc.clientSecret`. |
 | `server.oidc.clientSecret` | string | Dex client secret (only used if `clientSecretName` is blank). In production, use an external secret operator instead of storing plaintext here. |
 | `server.oidc.groupsClaim` | string | JWT claim name containing the user's groups, used for [GroupBinding](guides/groupbinding.md) evaluation. When blank, defaults to `groups`. Set to `cognito:groups`, `roles`, etc. for non-standard IdPs. |
 | `server.oidc.allowServiceAccountFallback` | bool | When true, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer-token path using the SA's own RBAC. GroupBinding is bypassed for SA tokens. Requires `server.oidc.enabled: true`. Default: `false` |
 | `server.oidc.allowClientCredentials` | bool | When true, Dex tokens whose audience does not match the primary client ID are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against `GroupBinding` resources. Requires a Dex `staticClient` with `grantTypes: ["client_credentials"]`. Default: `false` |
-| `server.oidc.authzUrl` | string | Overrides the authorization URL advertised in `login.v1` of `/.well-known/terraform.json`. Leave blank to use the URL from the OIDC provider discovery document. Use this when the server discovers Dex via an in-cluster address but CLI clients must reach Dex at a different address (e.g. a port-forwarded URL during local Kind testing). |
-| `server.oidc.tokenUrl` | string | Overrides the token URL advertised in `login.v1` of `/.well-known/terraform.json`. Same use-case as `authzUrl`. |
+| `server.oidc.dexProxy.enabled` | bool | When true, the server reverse-proxies `/dex/*` requests to the bundled Dex service so Dex never needs its own public ingress or hostname. Requires `dex.enabled: true` and `server.oidc.issuerUrl` set to the external, path-based URL matching `dex.config.issuer`. Default: `false` |
+| `server.oidc.authzUrl` | string | Overrides the authorization URL advertised in `login.v1` of `/.well-known/terraform.json`. Leave blank to use the URL from the OIDC provider discovery document. Not needed when `server.oidc.dexProxy.enabled: true`. Use this when the server discovers Dex via an in-cluster address but CLI clients must reach Dex at a different address (e.g. a port-forwarded URL during local Kind testing). |
+| `server.oidc.tokenUrl` | string | Overrides the token URL advertised in `login.v1` of `/.well-known/terraform.json`. Same use-case as `authzUrl`. Not needed when `server.oidc.dexProxy.enabled: true`. |
 
-**Example:**
+**Example (recommended — Dex proxied through the server):**
 
 ```yaml
 server:
   oidc:
     enabled: true
-    issuerUrl: https://dex.example.com/dex
+    issuerUrl: https://opendepot.example.com/dex
     clientId: opendepot
     clientSecret: $(openssl rand -base64 32)
     clientSecretName: ""  # Use the above value; or set to "my-secret" to use external secret
+    dexProxy:
+      enabled: true
 ```
 
 !!! warning
@@ -95,7 +98,7 @@ The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstre
 | Value | Type | Description |
 |-------|------|-------------|
 | `dex.enabled` | bool | When true, deploys Dex as a subchart. Default: `false` |
-| `dex.config.issuer` | string | Public issuer URL. In-cluster: `http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`. External: `https://dex.example.com/dex` |
+| `dex.config.issuer` | string | Public issuer URL. Recommended (server-proxied): same host as the server ingress, e.g. `https://opendepot.example.com/dex`. In-cluster (no proxy): `http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`. Separately exposed: `https://dex.example.com/dex` |
 | `dex.config.connectors` | array | Array of upstream IdP connector configurations. See examples below. Default: `[]` |
 | `dex.config.enablePasswordDB` | bool | When true, enables local username/password authentication (testing only). Default: `false` |
 | `dex.config.staticPasswords` | array | Array of test users for local auth. Never enable in production. Default: `[]` |
@@ -106,7 +109,7 @@ The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstre
 dex:
   enabled: true
   config:
-    issuer: https://dex.example.com/dex
+    issuer: https://opendepot.example.com/dex
     connectors:
       - type: github
         id: github
@@ -114,7 +117,7 @@ dex:
         config:
           clientID: <github-oauth-app-client-id>
           clientSecret: <github-oauth-app-secret>
-          redirectURI: https://dex.example.com/dex/callback
+          redirectURI: https://opendepot.example.com/dex/callback
           org: my-org  # (optional) restrict to an org
 ```
 
@@ -124,7 +127,7 @@ dex:
 dex:
   enabled: true
   config:
-    issuer: https://dex.example.com/dex
+    issuer: https://opendepot.example.com/dex
     connectors:
       - type: microsoft
         id: microsoft
@@ -132,7 +135,7 @@ dex:
         config:
           clientID: <azure-app-id>
           clientSecret: <azure-app-secret>
-          redirectURI: https://dex.example.com/dex/callback
+          redirectURI: https://opendepot.example.com/dex/callback
           tenant: <azure-tenant-id>
 ```
 

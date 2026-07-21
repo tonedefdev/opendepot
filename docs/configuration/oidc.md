@@ -19,7 +19,7 @@ When OIDC is enabled the server advertises the `login.v1` block in its service d
 ## Prerequisites
 
 - OpenDepot installed via Helm (see [Installation](../getting-started/installation.md))
-- A publicly reachable hostname for the Dex issuer URL (HTTPS required in production)
+- A publicly reachable hostname for OpenDepot (HTTPS required in production). Dex does not need its own separate hostname or ingress — see [Proxying Dex Through the Server](#recommended-proxy-dex-through-the-server) below.
 - An upstream IdP OAuth application (GitHub App, Azure App Registration, Okta app, etc.)
 
 ## How Authentication Works
@@ -60,7 +60,7 @@ Set `dex.enabled: true` and configure the `issuer` and at least one connector in
 dex:
   enabled: true
   config:
-    issuer: https://dex.example.com/dex
+    issuer: https://opendepot.example.com/dex  # same host as the server ingress; see "Recommended" section below
     connectors:
       - type: github
         id: github
@@ -68,7 +68,7 @@ dex:
         config:
           clientID: <github-oauth-app-client-id>
           clientSecret: $GITHUB_CLIENT_SECRET  # (1)!
-          redirectURI: https://dex.example.com/dex/callback
+          redirectURI: https://opendepot.example.com/dex/callback
           org: my-org  # (optional) restrict to an organization
   envFrom:
     - secretRef:
@@ -97,7 +97,7 @@ server:
   useBearerToken: false
   oidc:
     enabled: true
-    issuerUrl: https://dex.example.com/dex  # omit to auto-derive in-cluster Dex URL
+    issuerUrl: https://opendepot.example.com/dex  # omit to auto-derive in-cluster Dex URL
     clientId: opendepot
     clientSecret: $STRONG_RANDOM_VALUE  # (1)!
 ```
@@ -112,6 +112,38 @@ When `server.oidc.issuerUrl` is blank and `dex.enabled: true`, the chart auto-de
 ```
 http://<release-name>-dex.<namespace>.svc.cluster.local:5556/dex
 ```
+
+## Recommended: Proxy Dex Through the Server
+
+By default, exposing Dex requires giving it its own public ingress and hostname. Set `server.oidc.dexProxy.enabled: true` instead to have the server reverse-proxy `/dex/*` requests to the bundled Dex service. Dex is never given its own ingress — operators expose only the existing `server.ingress` (or `ui.ingress`), which already routes `/dex` alongside the registry protocol paths.
+
+Set Dex's `issuer` to the external, path-based URL the proxy will serve, and point `server.oidc.issuerUrl` at the exact same value:
+
+```yaml
+dex:
+  enabled: true
+  config:
+    issuer: https://opendepot.example.com/dex  # same host as the server ingress
+
+server:
+  oidc:
+    enabled: true
+    issuerUrl: https://opendepot.example.com/dex  # must match dex.config.issuer exactly
+    clientId: opendepot
+    clientSecret: $STRONG_RANDOM_VALUE
+    dexProxy:
+      enabled: true
+```
+
+Internally, the server still discovers Dex and fetches its JWKS via the in-cluster service address — it never calls back out through its own public ingress. Because Dex's `issuer` is the external URL, every value Dex reports (the OIDC discovery document, `authorization_endpoint`, `token_endpoint`, and the device-code flow's `verification_uri`) is already correct for external clients; the proxy performs no path rewriting or response modification.
+
+This mode supports all three flows — `tofu login`'s authorization code and device code grants, and the [client credentials grant](#client-credentials-machine-to-machine) used by CI/CD — purely through the server's existing ingress.
+
+!!! note
+    `server.oidc.authzUrl` and `server.oidc.tokenUrl` are no longer necessary with `dexProxy.enabled: true`, since `login.v1` is populated directly from Dex's own (now-external) discovery document. They remain available as manual overrides for edge cases — see [Split-Network OIDC](#split-network-oidc-authzurl--tokenurl) below.
+
+!!! warning "dex.enabled=true is required"
+    `dexProxy.enabled: true` only works with the bundled Dex subchart (`dex.enabled: true`). It has no effect — and the Helm render fails — if you point `server.oidc.issuerUrl` at an [external, shared Dex](#shared--external-dex-multi-tenant) instance instead.
 
 ## Step 3: Apply the Helm Upgrade
 
@@ -143,8 +175,8 @@ curl https://opendepot.example.com/.well-known/terraform.json
   "modules.v1": "/opendepot/modules/v1/",
   "providers.v1": "/opendepot/providers/v1/",
   "login.v1": {
-    "authz": "https://dex.example.com/dex/auth",
-    "token": "https://dex.example.com/dex/token",
+    "authz": "https://opendepot.example.com/dex/auth",
+    "token": "https://opendepot.example.com/dex/token",
     "grant_types": ["authz_code", "device_code"],
     "scopes": ["openid", "profile", "email", "groups"],
     "client": "opendepot"
@@ -152,11 +184,16 @@ curl https://opendepot.example.com/.well-known/terraform.json
 }
 ```
 
+The `authz` and `token` URLs shown above assume `server.oidc.dexProxy.enabled: true` (the recommended default), so they share the same host as the rest of the registry API. Without the proxy, these would instead point at wherever Dex itself is exposed.
+
 The `scopes` array tells the OpenTofu CLI which scopes to request during the OIDC login flow. The `groups` scope is required for the `groups` claim to be present in the issued JWT and therefore for `GroupBinding` evaluation to work.
 
 If `login.v1` is absent, OIDC is not enabled or the server has not restarted after the Helm upgrade.
 
 ### Split-Network OIDC (authzUrl / tokenUrl)
+
+!!! note
+    This section covers a manual, edge-case override. When [`server.oidc.dexProxy.enabled: true`](#recommended-proxy-dex-through-the-server) (the recommended default), `login.v1` already advertises the correct external URLs automatically and `authzUrl`/`tokenUrl` are not needed.
 
 In some deployments the server must discover Dex via an in-cluster URL (for JWKS fetching and token validation), but the `login.v1` endpoints advertised to CLI clients must be reachable from outside the cluster — for example, through an ingress or a port-forward.
 
@@ -169,18 +206,21 @@ server:
     # In-cluster Dex URL — used for JWKS discovery and token validation only.
     issuerUrl: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
     # External URLs advertised to tofu CLI clients via login.v1.
-    authzUrl: https://dex.example.com/dex/auth
-    tokenUrl: https://dex.example.com/dex/token
+    authzUrl: https://dex.defdev.io/dex/auth
+    tokenUrl: https://dex.defdev.io/dex/token
 ```
 
 When either value is blank the URL comes from the Dex OIDC discovery document. Both values are validated at server startup — the server exits immediately if either URL is not a well-formed `http` or `https` URL.
 
 !!! note "Local Kind testing"
-    When testing with a local Kind cluster there is no ingress. The `oidc-deploy` Make target sets `authzUrl` and `tokenUrl` to `http://localhost:<dex-port>/dex/auth` and `/token` respectively, so that the browser redirect during `tofu login` reaches the Dex port-forward rather than the unreachable in-cluster address. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
+    The local Kind Make targets (`oidc-deploy`, `ui-deploy`) use [`server.oidc.dexProxy.enabled: true`](#recommended-proxy-dex-through-the-server) instead of this pattern, since it only requires a single port-forward. See [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing) for the contributor workflow.
 
 ### Shared / External Dex (Multi-Tenant)
 
 Use this pattern when multiple OpenDepot releases share a cluster and you want a single Dex instance to manage identity for all of them, rather than deploying one Dex pod per registry.
+
+!!! note
+    The [server-proxied Dex](#recommended-proxy-dex-through-the-server) mode does not apply here — `dexProxy.enabled` requires the bundled Dex subchart (`dex.enabled: true`). A shared, externally managed Dex must be given its own reachable hostname (`dex.defdev.io` in the examples below).
 
 When `server.oidc.issuerUrl` is set explicitly the chart uses it directly — `dex.enabled` controls only whether the bundled Dex subchart is deployed. Set `dex.enabled: false` to skip the subchart entirely and point the server at any OIDC-compliant issuer:
 
@@ -191,7 +231,7 @@ dex:
 server:
   oidc:
     enabled: true
-    issuerUrl: "https://dex.example.com/dex"
+    issuerUrl: "https://dex.defdev.io/dex"
     clientId: "opendepot-team-a"  # must match a staticClient id in the shared Dex
 ```
 
@@ -233,8 +273,8 @@ Each OpenDepot release should use a distinct `server.oidc.clientId` registered i
 
 | Release | Namespace | `server.oidc.clientId` | `server.oidc.issuerUrl` |
 |---------|-----------|------------------------|-------------------------|
-| `opendepot-team-a` | `team-a` | `opendepot-team-a` | `https://dex.example.com/dex` |
-| `opendepot-team-b` | `team-b` | `opendepot-team-b` | `https://dex.example.com/dex` |
+| `opendepot-team-a` | `team-a` | `opendepot-team-a` | `https://dex.defdev.io/dex` |
+| `opendepot-team-b` | `team-b` | `opendepot-team-b` | `https://dex.defdev.io/dex` |
 
 If the shared Dex is reachable in-cluster at a different address than external `tofu login` clients need, combine `issuerUrl` with `authzUrl` and `tokenUrl` as described in [Split-Network OIDC](#split-network-oidc-authzurl--tokenurl) above.
 
@@ -258,7 +298,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
     dex:
       enabled: true
       config:
-        issuer: https://dex.example.com/dex
+        issuer: https://opendepot.example.com/dex
         connectors:
           - type: microsoft
             id: microsoft
@@ -266,7 +306,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
             config:
               clientID: <azure-app-id>
               clientSecret: $AZURE_CLIENT_SECRET
-              redirectURI: https://dex.example.com/dex/callback
+              redirectURI: https://opendepot.example.com/dex/callback
               tenant: <azure-tenant-id>
       envFrom:
         - secretRef:
@@ -285,7 +325,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
     dex:
       enabled: true
       config:
-        issuer: https://dex.example.com/dex
+        issuer: https://opendepot.example.com/dex
         connectors:
           - type: github
             id: github
@@ -293,7 +333,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
             config:
               clientID: <github-oauth-app-client-id>
               clientSecret: $GITHUB_CLIENT_SECRET
-              redirectURI: https://dex.example.com/dex/callback
+              redirectURI: https://opendepot.example.com/dex/callback
               org: my-org
       envFrom:
         - secretRef:
@@ -312,7 +352,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
     dex:
       enabled: true
       config:
-        issuer: https://dex.example.com/dex
+        issuer: https://opendepot.example.com/dex
         connectors:
           - type: oidc
             id: okta
@@ -321,7 +361,7 @@ On headless systems (CI, servers), the device code flow is used instead — Open
               issuer: https://<okta-domain>/oauth2/default
               clientID: <okta-client-id>
               clientSecret: $OKTA_CLIENT_SECRET
-              redirectURI: https://dex.example.com/dex/callback
+              redirectURI: https://opendepot.example.com/dex/callback
       envFrom:
         - secretRef:
             name: dex-connector-secrets
@@ -561,13 +601,15 @@ spec:
 Exchange the client credentials for an access token:
 
 ```bash
-TOKEN=$(curl -s -X POST https://dex.example.com/dex/token \
+TOKEN=$(curl -s -X POST https://opendepot.example.com/dex/token \
   -d grant_type=client_credentials \
   -d client_id=ci-pipeline \
   -d client_secret=<secret> \
   -d scope=openid \
   | jq -r '.access_token')
 ```
+
+The example above assumes `server.oidc.dexProxy.enabled: true`, so the token endpoint shares the main registry host. Against a [shared, externally exposed Dex](#shared--external-dex-multi-tenant), use that Dex's own hostname (e.g. `https://dex.defdev.io/dex/token`) instead.
 
 Use the token in `.tofurc`:
 

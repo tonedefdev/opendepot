@@ -94,4 +94,10 @@ commands will detect it and remind you to do so if necessary.
 ```
 
 
-The `oidc-deploy` target configures `authzUrl` and `tokenUrl` to point at the local port-forward (`http://localhost:5556/dex/auth` and `/token`). This is the split-network pattern described in [Split-Network OIDC](configuration/oidc.md#split-network-oidc-authzurl-tokenurl) - the server pod reaches Dex via the in-cluster service URL for token validation, while `tofu login` redirects the browser through the port-forward.
+The `oidc-deploy` target configures `server.oidc.dexProxy.enabled: true`, so Dex is reverse-proxied through the server itself — the [recommended](configuration/oidc.md#recommended-proxy-dex-through-the-server) setup. `make oidc-forward` port-forwards only the server (`localhost:8080`); Dex is reachable at `/dex/*` through that same port-forward, so there's no need to also forward Dex directly.
+
+The `ui-setup-oidc` target configures the same `dexProxy` setup for the CLI login path, and additionally routes the UI's own browser login through the UI's nginx, which has a `/dex` location proxying to the server for environments without a real Ingress controller (local Kind has none). `make ui-forward` port-forwards only the UI (`localhost:8080`); both `tofu login` and the UI's own OIDC login work through that single port-forward.
+
+`ui-setup-oidc` still writes `~/.tofurc` (via `make ui-tofurc`), since this local registry is plain HTTP and OpenTofu's service discovery only works over HTTPS — a CLI config `host` block is required regardless of `dexProxy`. The `login.v1` URLs in that block now point at Dex through the single UI port-forward instead of a separate Dex port-forward.
+
+The older split-network pattern — where the server reaches Dex via the in-cluster service URL while `authzUrl`/`tokenUrl` overrides redirect the browser through a separately port-forwarded Dex — is still available and described in [Split-Network OIDC](configuration/oidc.md#split-network-oidc-authzurl-tokenurl), but is no longer used by the local Kind Make targets since `dexProxy` covers the common case with fewer port-forwards.

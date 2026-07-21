@@ -23,12 +23,14 @@ GET /.well-known/terraform.json
   "login.v1": {
     "client": "opentofu-cli",
     "grant_types": ["authz_code", "device_code"],
-    "authz": "https://dex.example.com/dex/auth",
-    "token": "https://dex.example.com/dex/token",
+    "authz": "https://opendepot.example.com/dex/auth",
+    "token": "https://opendepot.example.com/dex/token",
     "ports": [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]
   }
 }
 ```
+
+The `authz` and `token` URLs above assume the recommended [server-proxied Dex](../configuration/oidc.md#recommended-proxy-dex-through-the-server) setup, so they share the same host as the rest of the registry API. Without the proxy, they point at wherever Dex itself is exposed.
 
 The `login.v1` field is only present when OIDC authentication is enabled. It advertises the OIDC endpoints and ports that the `tofu login` command uses to obtain a JWT.
 
@@ -53,7 +55,7 @@ Initiates the OAuth 2.0 device authorization grant flow. Used by `tofu login` on
 {
   "device_code": "AQABAGF...",
   "user_code": "WXYZ-ABCD",
-  "verification_uri": "https://dex.example.com/device",
+  "verification_uri": "https://opendepot.example.com/dex/device",
   "expires_in": 300,
   "interval": 5
 }
@@ -70,14 +72,14 @@ Exchanges an authorization code (authz_code flow) or device code (device_code fl
 **Request (authz_code grant):**
 
 ```
-POST /dex/token
+POST https://opendepot.example.com/dex/token
 grant_type=authorization_code&code=<AUTH_CODE>&client_id=<CLIENT_ID>&redirect_uri=http://localhost:10000
 ```
 
 **Request (device_code grant):**
 
 ```
-POST /dex/token
+POST https://opendepot.example.com/dex/token
 grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=<DEVICE_CODE>&client_id=<CLIENT_ID>
 ```
 

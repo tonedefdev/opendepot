@@ -52,12 +52,12 @@ In anonymous-auth mode every visitor sees all resources. This is fine for local 
 To test the full OIDC login flow locally (user accounts, GroupBinding visibility rules), run:
 
 ```bash
-# Build all images, deploy Dex + server OIDC + UI OIDC + scanning, start port-forwards,
-# and write ~/.tofurc so `tofu login` works immediately.
+# Build all images, deploy Dex + server OIDC + UI OIDC + scanning,
+# and start the port-forward.
 make ui-setup-oidc PASS=yourpassword
 ```
 
-This single target runs the full end-to-end setup: it builds and loads all service images (including the scanning-enabled version-controller variant), auto-creates a throwaway GPG signing secret for the provider shasums endpoint (`make ui-gpg-secret`), deploys the complete Helm release with Dex, OIDC, provider controller, and Trivy scanning, starts port-forwards, and writes `~/.tofurc` (`make ui-tofurc`) so `tofu login opendepot.localtest.me:8080` works without any extra configuration. No `mkcert` or TLS certificate is required for local testing.
+This single target runs the full end-to-end setup: it builds and loads all service images (including the scanning-enabled version-controller variant), auto-creates a throwaway GPG signing secret for the provider shasums endpoint (`make ui-gpg-secret`), deploys the complete Helm release with Dex, OIDC (using [`server.oidc.dexProxy.enabled`](../configuration/oidc.md#recommended-proxy-dex-through-the-server) so Dex is reverse-proxied through the server/UI rather than needing its own port-forward), provider controller, and Trivy scanning, starts the single UI port-forward, and writes `~/.tofurc` (`make ui-tofurc`) so `tofu login opendepot.localtest.me:8080` works immediately. No `mkcert` or TLS certificate is required for local testing.
 
 This registers two Dex static clients:
 
@@ -74,9 +74,8 @@ The default test user is `dev@example.com` / `PASS` and belongs to the group `lo
 | `OIDC_USER` | `devuser` | Test user display name |
 | `OIDC_GROUP` | `local-test-group` | Group name for GroupBinding tests |
 | `UI_PORT` | `8080` | Host port for the UI port-forward |
-| `OIDC_DEX_PORT` | `5556` | Host port for the Dex port-forward |
 
-Stop all port-forwards when done:
+Stop the port-forward when done:
 
 ```bash
 make ui-stop
@@ -84,7 +83,7 @@ make ui-stop
 
 #### `make ui-tofurc` — configure `tofu login`
 
-`make ui-tofurc` writes `~/.tofurc` with a `host` block that maps `opendepot.localtest.me:8080` to the HTTP endpoints exposed by the port-forward. This is called automatically by `make ui-setup-oidc`, but you can run it manually at any time to regenerate the file — for example, if `~/.tofurc` was overwritten or if you changed `OIDC_DEX_PORT`.
+`make ui-tofurc` writes `~/.tofurc` with a `host` block that maps `opendepot.localtest.me:8080` to the HTTP endpoints exposed by the single UI port-forward. This is called automatically by `make ui-setup-oidc`, but you can run it manually at any time to regenerate the file — for example, if `~/.tofurc` was overwritten or if you changed `UI_PORT`.
 
 The generated block looks like this:
 
@@ -96,8 +95,8 @@ host "opendepot.localtest.me:8080" {
     "login.v1" = {
       client      = "opendepot"
       grant_types = ["authz_code"]
-      authz       = "http://localhost:5556/dex/auth"
-      token       = "http://localhost:5556/dex/token"
+      authz       = "http://opendepot.localtest.me:8080/dex/auth"
+      token       = "http://opendepot.localtest.me:8080/dex/token"
       scopes      = ["openid", "email", "profile", "groups", "offline_access"]
       ports       = [10000, 10010]
     }
@@ -105,7 +104,7 @@ host "opendepot.localtest.me:8080" {
 }
 ```
 
-Because the port-forward exposes the registry at `opendepot.localtest.me:8080` (hostname with port), OpenTofu requires both the `modules.v1`/`providers.v1` service overrides **and** the `login.v1` block in the same `host` key — a bare `host "opendepot.localtest.me"` block without the port is insufficient for authentication.
+The `authz`/`token` URLs point at Dex through the single UI port-forward ([`server.oidc.dexProxy.enabled`](../configuration/oidc.md#recommended-proxy-dex-through-the-server)) rather than a separate Dex port-forward. Because the port-forward exposes the registry at `opendepot.localtest.me:8080` (hostname with port), OpenTofu requires both the `modules.v1`/`providers.v1` service overrides **and** the `login.v1` block in the same `host` key — a bare `host "opendepot.localtest.me"` block without the port is insufficient for authentication.
 
 #### `make ui-gpg-secret` — provider GPG signing key
 
@@ -113,8 +112,8 @@ Because the port-forward exposes the registry at `opendepot.localtest.me:8080` (
 
 This target is called automatically by `make ui-deploy` (and therefore by `make ui-setup-oidc`). It is idempotent — if the secret already exists, it prints a message and exits without overwriting it.
 
-!!! note "How the OIDC split-URL works"
-    The server pod discovers Dex at its in-cluster address (`http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex`), which is not reachable from your browser. OpenDepot solves this with `ui.oidc.authzUrl`: the UI overrides the `authorization_endpoint` from OIDC discovery with the port-forwarded address (`http://localhost:5556/dex/auth`), so the browser can complete the PKCE redirect while the server still validates tokens using the in-cluster issuer URL.
+!!! note "Why `~/.tofurc` is still needed"
+    This local registry is served over plain HTTP (no mkcert TLS), but OpenTofu's service discovery protocol only works over HTTPS. The `host` block in `~/.tofurc` bypasses discovery entirely by defining `modules.v1`/`providers.v1`/`login.v1` explicitly, which is why `login.v1` must be spelled out even though [`server.oidc.dexProxy.enabled`](../configuration/oidc.md#recommended-proxy-dex-through-the-server) already makes Dex reachable through the single UI port-forward.
 
 ## Enabling the UI
 

@@ -508,7 +508,7 @@ mkcert -install
 # Create the Kind cluster
 kind create cluster --name opendepot
 
-# Build + load images, generate TLS cert, deploy with Dex, and start port-forwards
+# Build + load images, generate TLS cert, deploy with Dex, and start the port-forward
 make oidc-setup PASS=mysecretpassword
 ```
 
@@ -568,7 +568,7 @@ rerun this command to reinitialize your working directory. If you forget, other
 commands will detect it and remind you to do so if necessary.
 ```
 
-For a complete reference of all available targets and how the split-network OIDC pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).
+For a complete reference of all available targets and how the `dexProxy` single port-forward pattern works here, see [Local OIDC E2E Testing](../contributing.md#local-oidc-e2e-testing).
 
 ## Try the Registry Explorer UI
 

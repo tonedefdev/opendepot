@@ -136,7 +136,6 @@ OIDC_USER         ?= devuser
 OIDC_SECRET       ?= local-test-secret
 OIDC_CLIENT_ID    ?= opendepot
 OIDC_SERVER_PORT  ?= 8080
-OIDC_DEX_PORT     ?= 5556
 OIDC_RELEASE_NAME    ?= opendepot
 OIDC_NAMESPACE       ?= opendepot-system
 # Group assigned to the test user in Dex and matched by the test GroupBinding expression.
@@ -145,18 +144,21 @@ OIDC_GROUP           ?= local-test-group
 # (OpenTofu requirement). opendepot.localtest.me resolves to 127.0.0.1 via public DNS —
 # no /etc/hosts editing required. Override to use a different local hostname.
 OIDC_REGISTRY_HOST   ?= opendepot.localtest.me
-# In-cluster Dex URL — used by the server pod for OIDC discovery and JWKS.
-# Must match dex.config.issuer so that go-oidc accepts the discovery document.
-# This is the correct value for local Kind testing where there is no ingress.
-# In production with bundled Dex, set dex.config.issuer (and server.oidc.issuerUrl)
-# to a real hostname fronted by an ingress, e.g. https://auth.company.com/dex.
+# In-cluster Dex URL — used by the UI backend (ui.oidc.issuerUrl) for its own
+# server-to-Dex OIDC discovery and token exchange, which happens entirely
+# in-cluster and never touches the browser.
 OIDC_DEX_INCLUSTER_URL = http://$(OIDC_RELEASE_NAME)-dex.$(OIDC_NAMESPACE).svc.cluster.local:5556/dex
-# Localhost URLs advertised to clients (tofu login / browser) via login.v1.
-# These override the authz/token URLs from the Dex discovery document so that
-# the browser is directed to the port-forwarded address rather than the
-# unreachable in-cluster hostname. Not needed when using a real ingress.
-OIDC_DEX_AUTHZ_URL = http://localhost:$(OIDC_DEX_PORT)/dex/auth
-OIDC_DEX_TOKEN_URL = http://localhost:$(OIDC_DEX_PORT)/dex/token
+# External, browser-reachable Dex URL for the server (CLI/tofu login) path. Dex
+# is reverse-proxied through the server itself (server.oidc.dexProxy.enabled),
+# so this is reachable via the single server port-forward — no separate Dex
+# port-forward needed. Kind has no ingress controller, so this stands in for a
+# real ingress hostname (see docs/configuration/oidc.md#recommended-proxy-dex-through-the-server).
+OIDC_DEX_EXTERNAL_URL = http://$(OIDC_REGISTRY_HOST):$(OIDC_SERVER_PORT)/dex
+# External, browser-reachable Dex URL for the UI's own login flow. Reverse-proxied
+# through the UI's nginx -> server -> Dex, reachable via the single UI
+# port-forward. Only overrides ui.oidc.authzUrl for the browser redirect; the UI
+# backend itself still talks to Dex in-cluster via OIDC_DEX_INCLUSTER_URL above.
+UI_DEX_EXTERNAL_URL = http://$(OIDC_REGISTRY_HOST):$(UI_PORT)/dex
 
 .PHONY: oidc-hash oidc-hosts oidc-login oidc-tls oidc-deploy oidc-forward oidc-stop oidc-verify oidc-setup oidc-test-resources oidc-test-clean
 
@@ -224,7 +226,7 @@ endif
 	  '  image:' \
 	  '    tag: v2.45.0' \
 	  '  config:' \
-	  "    issuer: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
+	  "    issuer: \"$(OIDC_DEX_EXTERNAL_URL)\"" \
 	  '    storage:' \
 	  '      type: memory' \
 	  '    enablePasswordDB: true' \
@@ -262,38 +264,36 @@ endif
 	  'server:' \
 	  '  oidc:' \
 	  '    enabled: true' \
-	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
-	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
+	  "    issuerUrl: \"$(OIDC_DEX_EXTERNAL_URL)\"" \
+	  '    dexProxy:' \
+	  '      enabled: true' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
 	  '    hostPath: /tmp/opendepot-modules' \
 	  > "$$tmpfile"; \
-	echo "=== Deploying with OIDC values (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
+	echo "=== Deploying with OIDC values (dex issuer: $(OIDC_DEX_EXTERNAL_URL)) ==="; \
 	helm upgrade --install opendepot $(CHART_PATH) \
 	  -n opendepot-system --create-namespace \
 	  --set global.image.tag=$(TAG) \
 	  -f "$$tmpfile" --wait --force-conflicts; \
 	rm -f "$$tmpfile"
 
-## Start kubectl port-forwards for local OIDC testing.
-## server → localhost:$(OIDC_SERVER_PORT)  |  Dex → localhost:$(OIDC_DEX_PORT)
+## Start the kubectl port-forward for local OIDC testing. Dex is reverse-proxied
+## through the server (server.oidc.dexProxy.enabled), so a single port-forward
+## covers both the registry API and Dex login/token exchange — server → localhost:$(OIDC_SERVER_PORT).
 ## When TLS is enabled (oidc-tls was run) the server listens on :8443 inside the
 ## container; we port-forward directly to the pod to reach that port.
 oidc-forward:
 	@echo "Starting port-forward: server → localhost:$(OIDC_SERVER_PORT)"
 	@kubectl port-forward -n opendepot-system svc/server $(OIDC_SERVER_PORT):80 &
-	@echo "Starting port-forward: dex → localhost:$(OIDC_DEX_PORT)"
-	@kubectl port-forward -n opendepot-system svc/opendepot-dex $(OIDC_DEX_PORT):5556 &
-	@echo "Port-forwards running. Stop with: make oidc-stop"
+	@echo "Port-forward running. Stop with: make oidc-stop"
 
-## Stop OIDC test port-forwards
+## Stop the OIDC test port-forward
 oidc-stop:
 	@pkill -f "kubectl port-forward.*svc/server.*:80" 2>/dev/null \
 	  && echo "Stopped server port-forward" || echo "Server port-forward was not running"
-	@pkill -f "kubectl port-forward.*svc/opendepot-dex" 2>/dev/null \
-	  && echo "Stopped Dex port-forward" || echo "Dex port-forward was not running"
 
 ## Authenticate tofu with the local registry. Run after oidc-forward.
 oidc-login:
@@ -463,7 +463,7 @@ endif
 	  '  image:' \
 	  '    tag: v2.45.0' \
 	  '  config:' \
-	  "    issuer: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
+	  "    issuer: \"$(UI_DEX_EXTERNAL_URL)\"" \
 	  '    storage:' \
 	  '      type: memory' \
 	  '    enablePasswordDB: true' \
@@ -513,9 +513,9 @@ endif
 	  '    secretName: opendepot-provider-gpg' \
 	  '  oidc:' \
 	  '    enabled: true' \
-	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
-	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
-	  "    tokenUrl: \"$(OIDC_DEX_TOKEN_URL)\"" \
+	  "    issuerUrl: \"$(UI_DEX_EXTERNAL_URL)\"" \
+	  '    dexProxy:' \
+	  '      enabled: true' \
 	  '    clientId: "$(OIDC_CLIENT_ID)"' \
 	  '    clientSecret: "$(OIDC_SECRET)"' \
 	  '    groupsClaim: "groups"' \
@@ -548,13 +548,13 @@ endif
 	  '  oidc:' \
 	  '    enabled: true' \
 	  "    issuerUrl: \"$(OIDC_DEX_INCLUSTER_URL)\"" \
-	  "    authzUrl: \"$(OIDC_DEX_AUTHZ_URL)\"" \
+	  "    authzUrl: \"$(UI_DEX_EXTERNAL_URL)/auth\"" \
 	  '    clientId: "$(UI_OIDC_CLIENT_ID)"' \
 	  '    clientSecretName: ui-oidc-secret' \
 	  '  nginx:' \
 	  '    preserveHostPort: true' \
 	  > "$$tmpfile"; \
-	echo "=== Deploying full e2e stack: UI + OIDC + scanning (dex issuer: $(OIDC_DEX_INCLUSTER_URL)) ==="; \
+	echo "=== Deploying full e2e stack: UI + OIDC + scanning (dex issuer: $(UI_DEX_EXTERNAL_URL)) ==="; \
 	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
 	  -n $(OIDC_NAMESPACE) --create-namespace \
 	  --set global.image.tag=$(TAG) \
@@ -570,52 +570,59 @@ endif
 	echo "  tofu login: tofu login opendepot.localtest.me:$(UI_PORT)"; \
 	echo "  Login:     $(OIDC_EMAIL) / <your PASS>"
 
-## Start port-forwards for the UI and (when Dex is deployed) Dex.
+## Start the port-forward for the UI. Dex is reverse-proxied through the UI's
+## nginx -> server -> Dex (server.oidc.dexProxy.enabled), so a single port-forward
+## covers the UI, the registry API, and Dex login/token exchange.
 ## After running, open http://opendepot.localtest.me:$(UI_PORT) in your browser.
 ## Usage: make ui-forward
 ui-forward:
 	@echo "Starting port-forward: ui → localhost:$(UI_PORT)"
 	@kubectl port-forward -n $(OIDC_NAMESPACE) svc/ui $(UI_PORT):80 &
-	@if kubectl get svc $(OIDC_RELEASE_NAME)-dex -n $(OIDC_NAMESPACE) >/dev/null 2>&1; then \
-	  echo "Starting port-forward: dex → localhost:$(OIDC_DEX_PORT)"; \
-	  kubectl port-forward -n $(OIDC_NAMESPACE) svc/$(OIDC_RELEASE_NAME)-dex $(OIDC_DEX_PORT):5556 & \
-	fi
 	@echo "UI available at: http://opendepot.localtest.me:$(UI_PORT)"
 
-## Stop UI and Dex port-forwards started by ui-forward.
+## Stop the UI port-forward started by ui-forward.
 ui-stop:
 	@pkill -f "kubectl port-forward.*svc/ui.*:80" 2>/dev/null \
 	  && echo "Stopped UI port-forward" || echo "UI port-forward was not running"
-	@pkill -f "kubectl port-forward.*svc/$(OIDC_RELEASE_NAME)-dex" 2>/dev/null \
-	  && echo "Stopped Dex port-forward" || echo "Dex port-forward was not running"
 
-## Write ~/.tofurc so that `tofu login opendepot.localtest.me:$(OIDC_SERVER_PORT)` works over HTTP.
-## Requires that `make ui-forward` (or ui-setup-oidc) is already running to expose Dex on localhost:$(OIDC_DEX_PORT).
+## Write ~/.tofurc so that `tofu login opendepot.localtest.me:$(UI_PORT)` works
+## over plain HTTP. This is still required even with the single-port-forward
+## dexProxy setup: OpenTofu's service discovery only works over HTTPS, and the
+## local registry here is plain HTTP, so a CLI config host block is needed to
+## define modules.v1/providers.v1 explicitly. A host block replaces discovery
+## entirely for every service under that host, so login.v1 must be defined
+## manually too — pointed at Dex through the single UI port-forward
+## ($(UI_DEX_EXTERNAL_URL)), no separate Dex port-forward needed.
 ## Usage: make ui-tofurc
 ui-tofurc:
 	@printf '%s\n' \
-	  'host "opendepot.localtest.me:$(OIDC_SERVER_PORT)" {' \
+	  'host "opendepot.localtest.me:$(UI_PORT)" {' \
 	  '  services = {' \
-	  '    "modules.v1"   = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/modules/v1/"' \
-	  '    "providers.v1" = "http://opendepot.localtest.me:$(OIDC_SERVER_PORT)/opendepot/providers/v1/"' \
+	  '    "modules.v1"   = "http://opendepot.localtest.me:$(UI_PORT)/opendepot/modules/v1/"' \
+	  '    "providers.v1" = "http://opendepot.localtest.me:$(UI_PORT)/opendepot/providers/v1/"' \
 	  '    "login.v1" = {' \
 	  '      client      = "$(OIDC_CLIENT_ID)"' \
 	  '      grant_types = ["authz_code"]' \
-	  '      authz       = "http://localhost:$(OIDC_DEX_PORT)/dex/auth"' \
-	  '      token       = "http://localhost:$(OIDC_DEX_PORT)/dex/token"' \
+	  "      authz       = \"$(UI_DEX_EXTERNAL_URL)/auth\"" \
+	  "      token       = \"$(UI_DEX_EXTERNAL_URL)/token\"" \
 	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
 	  '      ports       = [10000, 10010]' \
 	  '    }' \
 	  '  }' \
 	  '}' \
 	  > ~/.tofurc; \
-	echo "Wrote ~/.tofurc for opendepot.localtest.me:$(OIDC_SERVER_PORT) (Dex on localhost:$(OIDC_DEX_PORT))"
+	echo "Wrote ~/.tofurc for opendepot.localtest.me:$(UI_PORT) (Dex via the single UI port-forward at $(UI_DEX_EXTERNAL_URL))"
 
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
 ui-setup: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
-## Build all images, deploy the full e2e stack (UI + OIDC + scanning), and start port-forwards.
+## Build all images, deploy the full e2e stack (UI + OIDC + scanning), start
+## the port-forward, and write ~/.tofurc so `tofu login opendepot.localtest.me:$(UI_PORT)`
+## works immediately. ~/.tofurc is still required because this local registry is
+## plain HTTP (no mkcert TLS) — OpenTofu's service discovery only works over
+## HTTPS. Dex itself needs no separate port-forward: server.oidc.dexProxy.enabled
+## reverse-proxies it through the same single UI port-forward.
 ## Usage: make ui-setup-oidc PASS=yourpassword
 ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
 

@@ -15,6 +15,26 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.9.0
+
+v0.9.0 adds an opt-in reverse proxy so Dex never needs its own public ingress or hostname. See [Proxying Dex Through the Server](configuration/oidc.md#recommended-proxy-dex-through-the-server).
+
+Set `server.oidc.dexProxy.enabled: true` to have the server reverse-proxy `/dex/*` requests to the bundled Dex service. This is fully backward compatible — the flag defaults to `false`, and existing `dex.enabled: true` deployments with a separately exposed Dex continue to work unchanged.
+
+### Upgrade Steps
+
+1. Apply the updated CRDs:
+   ```bash
+   helm show crds opendepot/opendepot | kubectl apply --server-side -f -
+   ```
+2. Upgrade the chart:
+   ```bash
+   helm upgrade opendepot opendepot/opendepot -n opendepot-system -f my-values.yaml
+   ```
+3. (Optional) To adopt the recommended proxy mode, set `dex.config.issuer` and `server.oidc.issuerUrl` to the same external, path-based URL and enable `server.oidc.dexProxy.enabled: true`. See [Proxying Dex Through the Server](configuration/oidc.md#recommended-proxy-dex-through-the-server) for the full walkthrough.
+
+No action is required to keep existing behavior — `dexProxy.enabled` defaults to `false`.
+
 ## v0.8.0
 
 v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer.md#module-readmes).
