@@ -31,9 +31,10 @@ RUN mkdir -p /var/cache/nginx/client_temp \
 
 WORKDIR /app
 
-# Copy nginx configuration (template; OPENDEPOT_SERVER_HOST is substituted at
-# container start via envsubst).
-COPY nginx.conf /etc/nginx/nginx.conf.template
+# nginx.conf.template is provided at runtime by the Helm chart's ui-nginx-config
+# ConfigMap (chart/opendepot/templates/ui-configmap.yaml), mounted over this
+# path via subPath. This image is only ever run through that Helm chart, so no
+# config is baked in here — it would just be a second copy to keep in sync.
 
 # Copy the Next.js standalone build output.
 COPY --from=builder /app/.next/standalone ./

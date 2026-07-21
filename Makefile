@@ -365,7 +365,7 @@ UI_OIDC_CLIENT_ID ?= opendepot-ui
 # Static client secret used for the UI Dex client in local Kind testing only.
 UI_OIDC_SECRET    ?= ui-local-test-secret
 
-.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-setup ui-setup-oidc ui-dev ui-dev-stop chart-deps
+.PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop chart-deps
 
 ## Download and cache Helm chart dependencies (Dex, Valkey). Run once after cloning.
 ## make ui-setup and make ui-setup-oidc call this automatically.
@@ -585,18 +585,46 @@ ui-stop:
 	@pkill -f "kubectl port-forward.*svc/ui.*:80" 2>/dev/null \
 	  && echo "Stopped UI port-forward" || echo "UI port-forward was not running"
 
+## Write ~/.tofurc so that `tofu login opendepot.localtest.me:$(UI_PORT)` works
+## over plain HTTP. This is still required even with the single-port-forward
+## dexProxy setup: OpenTofu's service discovery only works over HTTPS, and the
+## local registry here is plain HTTP, so a CLI config host block is needed to
+## define modules.v1/providers.v1 explicitly. A host block replaces discovery
+## entirely for every service under that host, so login.v1 must be defined
+## manually too — pointed at Dex through the single UI port-forward
+## ($(UI_DEX_EXTERNAL_URL)), no separate Dex port-forward needed.
+## Usage: make ui-tofurc
+ui-tofurc:
+	@printf '%s\n' \
+	  'host "opendepot.localtest.me:$(UI_PORT)" {' \
+	  '  services = {' \
+	  '    "modules.v1"   = "http://opendepot.localtest.me:$(UI_PORT)/opendepot/modules/v1/"' \
+	  '    "providers.v1" = "http://opendepot.localtest.me:$(UI_PORT)/opendepot/providers/v1/"' \
+	  '    "login.v1" = {' \
+	  '      client      = "$(OIDC_CLIENT_ID)"' \
+	  '      grant_types = ["authz_code"]' \
+	  "      authz       = \"$(UI_DEX_EXTERNAL_URL)/auth\"" \
+	  "      token       = \"$(UI_DEX_EXTERNAL_URL)/token\"" \
+	  '      scopes      = ["openid", "email", "profile", "groups", "offline_access"]' \
+	  '      ports       = [10000, 10010]' \
+	  '    }' \
+	  '  }' \
+	  '}' \
+	  > ~/.tofurc; \
+	echo "Wrote ~/.tofurc for opendepot.localtest.me:$(UI_PORT) (Dex via the single UI port-forward at $(UI_DEX_EXTERNAL_URL))"
+
 ## Build all images, deploy the UI in anonymous-auth mode, and start the port-forward.
 ## Usage: make ui-setup
 ui-setup: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
-## Build all images, deploy the full e2e stack (UI + OIDC + scanning), and start
-## the port-forward. `tofu login opendepot.localtest.me:$(UI_PORT)` works
-## immediately via automatic OIDC discovery — no manual ~/.tofurc overrides
-## needed, since Dex is reverse-proxied through the UI's nginx -> server -> Dex
-## (server.oidc.dexProxy.enabled) and login.v1 in /.well-known/terraform.json
-## advertises the correct, browser-reachable URLs automatically.
+## Build all images, deploy the full e2e stack (UI + OIDC + scanning), start
+## the port-forward, and write ~/.tofurc so `tofu login opendepot.localtest.me:$(UI_PORT)`
+## works immediately. ~/.tofurc is still required because this local registry is
+## plain HTTP (no mkcert TLS) — OpenTofu's service discovery only works over
+## HTTPS. Dex itself needs no separate port-forward: server.oidc.dexProxy.enabled
+## reverse-proxies it through the same single UI port-forward.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward
+ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80

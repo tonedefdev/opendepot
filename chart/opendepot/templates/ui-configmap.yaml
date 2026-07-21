@@ -74,6 +74,26 @@ data:
                 proxy_set_header   X-Request-ID      $request_id;
             }
 
+            # Dex reverse-proxy (server.oidc.dexProxy.enabled) — proxied straight
+            # through to the server, which in turn proxies to Dex. In production
+            # behind a real Ingress, /dex is routed directly to the server Service
+            # and never reaches this pod; this location exists so that environments
+            # without an Ingress controller (e.g. local Kind) can still reach Dex
+            # through the UI's own port-forward.
+            location /dex/ {
+                proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
+                {{- if .Values.server.tls.enabled }}
+                # proxy_ssl_verify is disabled because the server uses a self-signed or
+                # cluster-internal certificate. Replace with a CA bundle reference if using
+                # a publicly trusted cert on the server service.
+                proxy_ssl_verify   off;
+                {{- end }}
+                proxy_set_header   Host              {{ if .Values.ui.nginx.preserveHostPort }}$http_host{{ else }}$host{{ end }};
+                proxy_set_header   X-Forwarded-For   $remote_addr;
+                proxy_set_header   X-Forwarded-Proto $scheme;
+                proxy_set_header   X-Request-ID      $request_id;
+            }
+
             location / {
                 proxy_pass          http://nextjs;
                 proxy_http_version  1.1;

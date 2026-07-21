@@ -147,4 +147,11 @@ An optional Next.js frontend deployed when `ui.enabled: true`. The UI pod runs t
 
 NGINX applies split-path routing: requests to `/opendepot/*` and `/.well-known/*` are proxied to the server Service; all other requests are forwarded to Next.js on `localhost:3000`. This means the browser never needs to know the server's address — all API calls are same-origin.
 
+!!! note "Why NGINX instead of Next.js rewrites"
+    Next.js can proxy routes itself (via `rewrites()` or middleware), but NGINX is kept as a dedicated layer for a few reasons that don't map cleanly onto Next.js's request pipeline:
+
+    - **Process isolation** — the Next.js server binds to `127.0.0.1:3000` only (see `entrypoint.sh`), so NGINX is the sole process reachable from outside the pod. A bug in the Next.js app can't be reached directly over the network.
+    - **Streaming large artifacts** — module tarballs and provider binaries proxied through `/opendepot/*` are passed through by NGINX without being buffered into the Node/V8 process, which matters as file sizes and concurrency grow.
+    - **WebSocket upgrades and custom header proxying** — the catch-all location handles `Upgrade`/`Connection` headers and forwards `Authorization`/`X-Request-ID`, which Next.js's `rewrites()` config doesn't support; doing this in Next.js itself would require a custom server, which forfeits some of the benefits of `output: "standalone"`.
+
 The server exposes browse API endpoints (`/opendepot/ui/v1/*`) specifically for the UI. These endpoints apply visibility filtering based on `opendepot.defdev.io/public` labels and, for authenticated callers, `GroupBinding` evaluation. See [Registry Explorer UI](guides/registry-explorer.md) for full details.
