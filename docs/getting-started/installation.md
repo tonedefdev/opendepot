@@ -34,7 +34,7 @@ See [OIDC Configuration](../configuration/oidc.md) for full setup details and ex
     For a quick start, the one-liner below is all you need. OpenDepot will use in-cluster defaults. Customise with `--set` flags or a values file once you're ready.
 
 ```bash
-helm repo add opendepot https://tonedefdev.github.io/opendepot
+helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 helm install opendepot opendepot/opendepot \
   -n opendepot-system \

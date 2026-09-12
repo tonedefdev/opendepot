@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OpenDepot is a self-hosted OpenTofu and Terraform module and provider registry for Kubernetes.">
+  <title>OpenDepot</title>
+  <link rel="icon" href="img/opendepot_icon.svg" type="image/svg+xml">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="container-xxl">
+    <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+    <a href="https://github.com/tonedefdev/opendepot">
+      <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
+      GitHub
+    </a>
+  </header>
+    <header hidden>
+      <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+      <a href="https://github.com/tonedefdev/opendepot">
+        <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
+      </header>
+      <header hidden>
+        <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+        <a href="https://github.com/tonedefdev/opendepot">
+          <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
+          GitHub
+        </a>
+      </header>
+  <main class="container-xxl">
+    <div class="row align-items-start gy-5 gx-5">
+    <section class="col-md-5 hero-copy">
+      <p class="eyebrow">Continuously reconciled IaC</p>
+      <h1>Infrastructure, <span>on your terms.</span></h1>
+      <p class="lede">OpenDepot is a self-hosted, Kubernetes-native registry where Depots continuously reconcile OpenTofu and Terraform modules and providers, keep them current, and scan every asset with Trivy. Define distribution in manifests, review changes in Git, and let Argo CD or Flux deploy them so OpenDepot can keep your registry in sync.</p>
+      <nav aria-label="OpenDepot links">
+        <a href="/docs/">
+          <svg class="docs-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1m0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5z"/>
+            <path d="M17.5 10.5c.88 0 1.73.09 2.5.26V9.24c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99M13 12.49v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26V11.9c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.3-4.5.83m4.5 1.84c-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26v-1.52c-.79-.16-1.64-.24-2.5-.24"/>
+          </svg>
+          Read the documentation
+        </a>
+        <a href="https://github.com/tonedefdev/opendepot">
+          <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
+          View on GitHub
+        </a>
+      </nav>
+    </section>
+    <figure class="signal col-md-7" aria-label="OpenDepot application screens">
+      <button class="screen screen-main" type="button" data-image-modal="img/registry-explorer.png" aria-label="View OpenDepot Registry Explorer screenshot">
+        <img src="img/registry-explorer.png" alt="OpenDepot Registry Explorer showing modules, providers, versions, and scan findings">
+      </button>
+      <button class="screen screen-secondary" type="button" data-image-modal="img/registry-stats.png" aria-label="View OpenDepot Registry Statistics screenshot">
+        <img src="img/registry-stats.png" alt="OpenDepot Registry Statistics showing sync health and security posture">
+      </button>
+      <button class="screen screen-tertiary" type="button" data-image-modal="img/registry-depots.png" aria-label="View OpenDepot Depots screenshot">
+        <img src="img/registry-depots.png" alt="OpenDepot Depots showing registry storage locations">
+      </button>
+      <figcaption>Open source. Kubernetes-native. Ready for OpenTofu and Terraform.</figcaption>
+    </figure>
+    </div>
+  </main>
+  <footer>
+    <div class="footer-inner">
+      <a class="footer-brand" href="https://defdev.io" target="_blank" rel="noopener noreferrer" aria-label="DefDev LLC website">
+        <img src="img/defdev_logo.svg" alt="DefDev LLC">
+        <span>&copy; <span id="footer-year"></span> DefDev LLC</span>
+      </a>
+      <nav class="footer-links" aria-label="OpenDepot footer links">
+        <a href="https://github.com/tonedefdev/opendepot" aria-label="OpenDepot on GitHub">
+          <svg class="footer-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
+        </a>
+        <a href="/docs/" aria-label="OpenDepot documentation">
+          <svg class="footer-docs-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1m0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5z"/></svg>
+        </a>
+      </nav>
+    </div>
+  </footer>
+  <div class="image-modal" id="image-modal" role="dialog" aria-modal="true" aria-label="Screenshot preview" aria-hidden="true">
+    <div class="image-modal-content">
+      <button class="image-modal-close" type="button" aria-label="Close screenshot preview">&times;</button>
+      <img src="" alt="">
+    </div>
+  </div>
+  <script>
+    const imageModal = document.querySelector("#image-modal");
+    const imageModalImage = imageModal.querySelector("img");
+    const imageModalClose = imageModal.querySelector(".image-modal-close");
+    let lastFocusedScreen;
+
+    const closeImageModal = () => {
+      imageModal.classList.remove("is-open");
+      imageModal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      imageModalImage.src = "";
+      lastFocusedScreen?.focus();
+    };
+
+    document.querySelectorAll("[data-image-modal]").forEach((screen) => {
+      screen.addEventListener("click", () => {
+        lastFocusedScreen = screen;
+        imageModalImage.src = screen.dataset.imageModal;
+        imageModalImage.alt = screen.querySelector("img").alt;
+        imageModal.classList.add("is-open");
+        imageModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+        imageModalClose.focus();
+      });
+    });
+
+    imageModalClose.addEventListener("click", closeImageModal);
+    imageModal.addEventListener("click", (event) => {
+      if (event.target === imageModal) closeImageModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && imageModal.classList.contains("is-open")) closeImageModal();
+    });
+    document.querySelector("#footer-year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

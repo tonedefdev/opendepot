@@ -9,7 +9,7 @@ tags:
 The OpenDepot Helm chart is published to a GitHub Pages Helm repository:
 
 ```bash
-helm repo add opendepot https://tonedefdev.github.io/opendepot
+helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
