@@ -45,6 +45,7 @@ jobs:
       - name: Assemble GitHub Pages root
         run: |
           cp site-root/index.html site/index.html
+          cp site-root/styles.css site/styles.css
           cp site-root/CNAME site/CNAME
           cp -R site-root/img site/img
 
