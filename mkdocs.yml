@@ -1,6 +1,6 @@
 site_name: OpenDepot
 site_description: Self-hosted OpenTofu/Terraform Module and Provider Registry for Kubernetes
-site_url: https://tonedefdev.github.io/opendepot/docs
+site_url: https://opendepot.defdev.io/docs/
 repo_url: https://github.com/tonedefdev/opendepot
 repo_name: tonedefdev/opendepot
 edit_uri: edit/main/docs/
