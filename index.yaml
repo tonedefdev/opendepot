@@ -1,42 +1,164 @@
 apiVersion: v1
 entries:
   opendepot:
-  - apiVersion: v2
-    appVersion: 0.2.7
-    created: "2026-05-10T01:34:14.431586548Z"
-    description: A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry
+  - apiVersion: "v2"
+    appVersion: "0.10.0"
+    created: "2026-08-27T06:35:53Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 8ff5e81f72df54471dc2f4dfa90dff8dc74ffe205a13a6a9a2726356fa3bc8e1
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.10.0/opendepot-0.10.0.tgz"
+    version: "0.10.0"
+  - apiVersion: "v2"
+    appVersion: "0.9.0"
+    created: "2026-07-21T06:50:54Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 0aa675e6b86bc8ae21b0dc5a8bd7e7d8987161639afefe6aa0efaa48fbe8b387
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.9.0/opendepot-0.9.0.tgz"
+    version: "0.9.0"
+  - apiVersion: "v2"
+    appVersion: "0.8.0"
+    created: "2026-07-19T15:07:25Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 7b39b525551e8e826d4d495b9883da3edce0a885fe34d906b81631d2705227a4
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.8.0/opendepot-0.8.0.tgz"
+    version: "0.8.0"
+  - apiVersion: "v2"
+    appVersion: "0.7.0"
+    created: "2026-07-12T08:45:07Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: bf8926564288f9afb2070b1d07006a06084f3f2ce31d845412b42abc53a55cfd
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.7.0/opendepot-0.7.0.tgz"
+    version: "0.7.0"
+  - apiVersion: "v2"
+    appVersion: "0.6.1"
+    created: "2026-06-01T15:07:59Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: e61a7fbe74aca985cd2f8af19dbdb860eb9d9560ce33456c4d2cdb81ae4579e9
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.6.1/opendepot-0.6.1.tgz"
+    version: "0.6.1"
+  - apiVersion: "v2"
+    appVersion: "0.6.0"
+    created: "2026-06-01T04:17:18Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 558eb0766c4557233b56d094f78b09713670efa6ca3a9ac4dd6e7d77d88e4166
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.6.0/opendepot-0.6.0.tgz"
+    version: "0.6.0"
+  - apiVersion: "v2"
+    appVersion: "0.5.0"
+    created: "2026-05-31T07:35:51Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: dbefdb072f394b69dd98d326d10e332ededa745f57a1aff36947a269e59b9421
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.5.0/opendepot-0.5.0.tgz"
+    version: "0.5.0"
+  - apiVersion: "v2"
+    appVersion: "0.4.0"
+    created: "2026-05-16T21:07:39Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 065394e6a59707632c70db3b5a0f279453e8175986358c625aeea15f480e525e
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.4.0/opendepot-0.4.0.tgz"
+    version: "0.4.0"
+  - apiVersion: "v2"
+    appVersion: "0.3.1"
+    created: "2026-05-14T03:20:39Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: e1a3f8ccc47a9efb03e80609237bd79c87d3250f20e1cf4cb62dfad516d2e72d
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.3.1/opendepot-0.3.1.tgz"
+    version: "0.3.1"
+  - apiVersion: "v2"
+    appVersion: "0.3.0"
+    created: "2026-05-11T01:01:07Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: d7bd6becf68772b79118c55db5604f6442b62f370d6396eb03b5e418b81b4867
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.3.0/opendepot-0.3.0.tgz"
+    version: "0.3.0"
+  - apiVersion: "v2"
+    appVersion: "0.2.7"
+    created: "2026-05-10T01:34:14Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
     digest: 8de9302d1cd34f2ee3151ba23946496e047440290ae7c06df02cc327e3e24182
-    keywords:
-    - terraform
-    - opentofu
-    - module-registry
-    - provider-registry
-    - kubernetes
-    maintainers:
-    - email: tony.owens@defdev.io
-      name: Tony Owens
-    name: opendepot
-    type: application
+    name: "opendepot"
+    type: "application"
     urls:
-    - https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.7/opendepot-0.2.7.tgz
-    version: 0.2.7
-  - apiVersion: v2
-    appVersion: 0.2.4
-    created: "2026-05-06T20:45:02.298251056Z"
-    description: A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.7/opendepot-0.2.7.tgz"
+    version: "0.2.7"
+  - apiVersion: "v2"
+    appVersion: "0.2.5"
+    created: "2026-05-06T23:58:21Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 238a43bbd9897db9c6c70909c6e0fdd01daa2397db77cafa99915a733c69e6f7
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.5/opendepot-0.2.5.tgz"
+    version: "0.2.5"
+  - apiVersion: "v2"
+    appVersion: "0.2.4"
+    created: "2026-05-06T20:45:01Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
     digest: 6057523eaee7ed0aff937e0adc373ce0cc7eecba93b182edb6bc4b3e786dc532
-    keywords:
-    - terraform
-    - opentofu
-    - module-registry
-    - provider-registry
-    - kubernetes
-    maintainers:
-    - email: tony.owens@defdev.io
-      name: Tony Owens
-    name: opendepot
-    type: application
+    name: "opendepot"
+    type: "application"
     urls:
-    - https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.4/opendepot-0.2.4.tgz
-    version: 0.2.4
-generated: "2026-05-10T01:34:14.43161424Z"
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.4/opendepot-0.2.4.tgz"
+    version: "0.2.4"
+  - apiVersion: "v2"
+    appVersion: "0.2.3"
+    created: "2026-05-04T15:14:05Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 536263188787ad35740810717e0ab3fb6c7d6e566222be60e2e2214c1ab89d0a
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.3/opendepot-0.2.3.tgz"
+    version: "0.2.3"
+  - apiVersion: "v2"
+    appVersion: "0.2.2"
+    created: "2026-05-03T19:09:20Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 30ae92b488326d4e4c3a0e33ca205677d989d009b4992a9954f0c9a6896d66c3
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.2/opendepot-0.2.2.tgz"
+    version: "0.2.2"
+  - apiVersion: "v2"
+    appVersion: "0.2.0"
+    created: "2026-05-03T05:11:10Z"
+    description: "A Helm chart for deploying OpenDepot, a cloud-native OpenTofu Registry"
+    digest: 0711dcc02b8b0c855d6a0e695a6d9f41144f50bbe8e03ecdf1a693c5589af2db
+    name: "opendepot"
+    type: "application"
+    urls:
+    - "https://github.com/tonedefdev/opendepot/releases/download/opendepot-0.2.0/opendepot-0.2.0.tgz"
+    version: "0.2.0"
+generated: "2026-09-12T22:48:09.344522Z"
