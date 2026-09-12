@@ -11,6 +11,17 @@ on:
       - mkdocs.yml
       - CONTRIBUTING.md
       - chart/opendepot/README.md
+  workflow_dispatch:
+    inputs:
+      rebuild_helm_index:
+        description: Rebuild the Helm index from all published chart assets
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: gh-pages-publisher
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -37,7 +48,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Fetch existing Helm chart index
-        run: git show origin/gh-pages:index.yaml > /tmp/helm-index.yaml 2>/dev/null || true
+        run: |
+          git fetch origin gh-pages
+          git show FETCH_HEAD:index.yaml > /tmp/helm-index.yaml 2>/dev/null || true
 
       - name: Build MkDocs site
         run: mkdocs build
@@ -47,6 +60,12 @@ jobs:
           if [ -s /tmp/helm-index.yaml ]; then
             cp /tmp/helm-index.yaml site/index.yaml
           fi
+
+      - name: Rebuild Helm chart index
+        if: inputs.rebuild_helm_index == true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/rebuild-helm-index.py --output site/index.yaml
 
       - name: Deploy to GitHub Pages
         run: |
