@@ -40,12 +40,25 @@ jobs:
         run: git show origin/gh-pages:index.yaml > /tmp/helm-index.yaml 2>/dev/null || true
 
       - name: Build MkDocs site
-        run: mkdocs build
+        run: mkdocs build --site-dir site/docs
+
+      - name: Assemble GitHub Pages root
+        run: |
+          cp site-root/index.html site/index.html
+          cp site-root/CNAME site/CNAME
+          cp site-root/defdev_logo.svg site/defdev_logo.svg
+          cp site-root/helm_logo.svg site/helm_logo.svg
+          cp site-root/opendepot_icon.svg site/opendepot_icon.svg
+          cp site-root/opendepot_light_mode.svg site/opendepot_light_mode.svg
+          cp site-root/opendepot_white.svg site/opendepot_white.svg
+          cp site-root/registry-*.png site/
 
       - name: Preserve Helm chart index
         run: |
           if [ -s /tmp/helm-index.yaml ]; then
             cp /tmp/helm-index.yaml site/index.yaml
+          else
+            : > site/index.yaml
           fi
 
       - name: Deploy to GitHub Pages
