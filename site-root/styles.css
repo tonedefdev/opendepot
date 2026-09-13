@@ -17,6 +17,10 @@
     src: local("Aspekta");
   }
   * { box-sizing: border-box; }
+  .container-xxl {
+    width: min(calc(100% - 48px), 1400px);
+    max-width: none;
+  }
   header[hidden] { display: none !important; }
   html,
   body {
@@ -326,7 +330,40 @@
     height: 21px;
     fill: currentColor;
   }
+  .footer-helm-icon {
+    width: 21px;
+    height: 21px;
+    filter: brightness(0) invert(1);
+    opacity: .38;
+    object-fit: contain;
+    transition: opacity .2s ease;
+  }
+  .footer-links a:hover .footer-helm-icon,
+  .footer-links a:focus-visible .footer-helm-icon {
+    opacity: 1;
+  }
+  @media (max-width: 1100px) {
+    main {
+      padding-top: 32px;
+    }
+    .row {
+      display: block;
+    }
+    .col-md-5,
+    .col-md-7 {
+      width: 100%;
+    }
+    .hero-copy {
+      transform: none;
+    }
+    .signal {
+      margin-top: 40px;
+    }
+  }
   @media (max-width: 760px) {
+    .container-xxl {
+      width: calc(100% - 40px);
+    }
     header { padding: 20px 0; }
     header img { width: 152px; }
     main {
