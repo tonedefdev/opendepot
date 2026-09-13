@@ -326,6 +326,11 @@
     height: 21px;
     fill: currentColor;
   }
+  .footer-helm-icon {
+    width: 21px;
+    height: 21px;
+    object-fit: contain;
+  }
   @media (max-width: 760px) {
     header { padding: 20px 0; }
     header img { width: 152px; }
