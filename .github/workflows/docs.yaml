@@ -47,12 +47,12 @@ jobs:
         run: |
           cp site-root/index.html site/index.html
           cp site-root/CNAME site/CNAME
-          cp site-root/defdev_logo.svg site/defdev_logo.svg
-          cp site-root/helm_logo.svg site/helm_logo.svg
-          cp site-root/opendepot_icon.svg site/opendepot_icon.svg
-          cp site-root/opendepot_light_mode.svg site/opendepot_light_mode.svg
-          cp site-root/opendepot_white.svg site/opendepot_white.svg
-          cp site-root/registry-*.png site/
+          cp site-root/img/defdev_logo.svg site/defdev_logo.svg
+          cp site-root/img/helm_logo.svg site/helm_logo.svg
+          cp site-root/img/opendepot_icon.svg site/opendepot_icon.svg
+          cp site-root/img/opendepot_light_mode.svg site/opendepot_light_mode.svg
+          cp site-root/img/opendepot_white.svg site/opendepot_white.svg
+          cp site-root/img/registry-*.png site/
 
       - name: Preserve Helm chart index
         run: |
