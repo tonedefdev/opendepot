@@ -1,29 +1,433 @@
 <!doctype html>
+<!-- Pages deployment smoke test. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="OpenDepot is a self-hosted OpenTofu and Terraform module and provider registry for Kubernetes.">
   <title>OpenDepot</title>
-  <link rel="icon" href="img/opendepot_icon.svg" type="image/svg+xml">
+  <link rel="icon" href="opendepot_icon.svg" type="image/svg+xml">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    :root {
+      color-scheme: light;
+      --black: #ffffff;
+      --blue: #0350c7;
+      --teal: #03deb8;
+      --ink: #ffffff;
+      --muted: rgba(255, 255, 255, .82);
+      --line: rgba(255, 255, 255, .3);
+      font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+      background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%);
+      color: var(--ink);
+    }
+    @font-face {
+      font-family: "Aspekta";
+      font-style: normal;
+      font-weight: 100 900;
+      src: local("Aspekta");
+    }
+    * { box-sizing: border-box; }
+    header[hidden] { display: none !important; }
+    html,
+    body {
+      margin: 0;
+      min-height: 100svh;
+      overflow-x: clip;
+      overscroll-behavior-x: none;
+      overscroll-behavior-y: none;
+      background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%);
+    }
+    body { overflow-x: visible; }
+    body::before {
+      position: fixed;
+      z-index: -1;
+      inset: 0;
+      background: radial-gradient(circle at 74% 14%, rgba(255, 255, 255, .18), transparent 26%), linear-gradient(138deg, rgba(0, 30, 160, .22), transparent 54%);
+      content: "";
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 auto;
+      padding: 32px 0;
+    }
+    header img {
+      width: 196px;
+      height: auto;
+    }
+    header a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+    header a:hover { color: #ffffff; }
+    main {
+      min-height: calc(100svh - 108px);
+      margin: 0 auto;
+      padding: 72px 0 96px;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 28px;
+      color: #ffffff;
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      width: 28px;
+      height: 4px;
+      background: var(--teal);
+      content: "";
+    }
+    h1 {
+      max-width: 8ch;
+      margin: 0;
+      color: var(--black);
+      font-size: clamp(3.8rem, 5vw, 5.8rem);
+      font-weight: 700;
+      letter-spacing: -.045em;
+      line-height: .9;
+    }
+    h1 span { color: #001f78; }
+    .lede {
+      max-width: 38rem;
+      margin: 36px 0 40px;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 1.5vw, 1.28rem);
+      line-height: 1.55;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 52px;
+      padding: 0 22px;
+      border: 1px solid var(--black);
+      color: var(--black);
+      font-size: .84rem;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: background-color .2s ease, color .2s ease, transform .2s ease;
+    }
+    nav a:first-child {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #ffffff;
+    }
+    nav a:hover {
+      background: var(--teal);
+      border-color: var(--teal);
+      color: var(--black);
+      transform: translateY(-2px);
+    }
+    .github-icon {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      fill: currentColor;
+    }
+    .docs-icon {
+      width: 19px;
+      height: 19px;
+      flex: 0 0 auto;
+      fill: currentColor;
+    }
+    .signal {
+      margin: 0 0 72px;
+    }
+    .hero-copy {
+      transform: translateY(-48px);
+    }
+    .screen {
+      position: relative;
+      display: block;
+      width: 100%;
+      padding: 0;
+      border: 7px solid #ffffff;
+      border-radius: 10px;
+      background: #ffffff;
+      cursor: zoom-in;
+      overflow: hidden;
+      box-shadow: 0 12px 24px rgba(0, 31, 120, .24), 16px 16px 0 var(--teal);
+      text-align: left;
+      transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .screen:hover,
+    .screen:focus-visible {
+      transform: translateY(-4px);
+      outline: none;
+      box-shadow: 0 16px 28px rgba(0, 31, 120, .28), 16px 16px 0 var(--teal);
+    }
+    .screen img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .screen-main {
+      z-index: 2;
+    }
+    .screen-secondary {
+      margin: -108px 24px 0 auto;
+      z-index: 3;
+      width: 54%;
+      border-color: #ffffff;
+      box-shadow: 0 10px 20px rgba(0, 31, 120, .22), 12px 12px 0 var(--blue);
+    }
+    .screen-secondary:hover,
+    .screen-secondary:focus-visible {
+      box-shadow: 0 14px 24px rgba(0, 31, 120, .26), 12px 12px 0 var(--blue);
+    }
+    .screen-tertiary {
+      margin: -72px auto 0 24px;
+      z-index: 4;
+      width: 48%;
+      border-color: #ffffff;
+      box-shadow: 0 10px 20px rgba(0, 31, 120, .22), 10px 10px 0 var(--teal);
+    }
+    .screen-tertiary:hover,
+    .screen-tertiary:focus-visible {
+      box-shadow: 0 14px 24px rgba(0, 31, 120, .26), 10px 10px 0 var(--teal);
+    }
+    .signal figcaption {
+      margin: 24px 0 0;
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      line-height: 1.5;
+      text-align: right;
+      text-transform: uppercase;
+    }
+    .image-modal {
+      position: fixed;
+      z-index: 10;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      background: rgba(0, 16, 64, .78);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .image-modal.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .image-modal-content {
+      position: relative;
+      max-width: min(1200px, 100%);
+      max-height: 100%;
+      padding: 8px;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 24px 70px rgba(0, 15, 70, .4);
+    }
+    .image-modal img {
+      display: block;
+      max-width: 100%;
+      max-height: calc(100svh - 80px);
+      width: auto;
+      height: auto;
+    }
+    .image-modal-close {
+      position: absolute;
+      top: -16px;
+      right: -16px;
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 1.5rem;
+      line-height: 1;
+    }
+    .image-modal-close:focus-visible {
+      outline: 3px solid var(--teal);
+      outline-offset: 3px;
+    }
+    footer {
+      border-top: 1px solid rgba(0, 16, 64, .18);
+      padding: 32px 24px;
+      background: #05070d;
+      color: rgba(255, 255, 255, .5);
+    }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+    .footer-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: rgba(255, 255, 255, .5);
+      font-size: .88rem;
+      text-decoration: none;
+    }
+    .footer-brand img {
+      width: 32px;
+      height: 32px;
+      opacity: .68;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .footer-links a {
+      display: inline-flex;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: rgba(255, 255, 255, .38);
+      font-size: inherit;
+      font-weight: inherit;
+      letter-spacing: normal;
+      text-transform: none;
+      transition: color .2s ease;
+    }
+    .footer-links a:first-child {
+      border-color: transparent;
+      background: transparent;
+      color: rgba(255, 255, 255, .38);
+    }
+    .footer-links a:hover,
+    .footer-links a:focus-visible {
+      border-color: transparent;
+      background: transparent;
+      color: #ffffff;
+      outline: none;
+      transform: none;
+    }
+    .footer-icon {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+    .footer-docs-icon {
+      width: 21px;
+      height: 21px;
+      fill: currentColor;
+    }
+    .footer-helm-icon {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      filter: grayscale(1) brightness(0) invert(1);
+      opacity: .38;
+      transition: opacity .2s ease;
+    }
+    .footer-links a:hover .footer-helm-icon,
+    .footer-links a:focus-visible .footer-helm-icon {
+      opacity: 1;
+    }
+    @media (max-width: 760px) {
+      header { padding: 20px 0; }
+      header img { width: 152px; }
+      main {
+        display: block;
+        min-height: auto;
+        padding: 44px 0 56px;
+      }
+      .row {
+        margin-left: 0;
+        margin-right: 0;
+      }
+      .hero-copy { transform: none; }
+      .eyebrow { margin-bottom: 18px; }
+      h1 {
+        max-width: none;
+        font-size: clamp(2.75rem, 13vw, 4rem);
+      }
+      .lede {
+        margin: 24px 0 28px;
+      }
+      nav { gap: 10px; }
+      .signal {
+        margin-top: 48px;
+        margin-bottom: 54px;
+      }
+      .screen {
+        border-width: 5px;
+        box-shadow: 0 8px 16px rgba(0, 31, 120, .22), 10px 10px 0 var(--teal);
+      }
+      .screen:hover,
+      .screen:focus-visible {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 20px rgba(0, 31, 120, .26), 10px 10px 0 var(--teal);
+      }
+      .screen-main { width: 100%; }
+      .screen-secondary {
+        margin: -58px 10px 0 auto;
+        width: 64%;
+        box-shadow: 0 7px 14px rgba(0, 31, 120, .2), 7px 7px 0 var(--blue);
+      }
+      .screen-tertiary {
+        margin: -40px auto 0 10px;
+        width: 58%;
+        box-shadow: 0 7px 14px rgba(0, 31, 120, .2), 6px 6px 0 var(--teal);
+      }
+      .screen-secondary:hover,
+      .screen-secondary:focus-visible {
+        box-shadow: 0 11px 18px rgba(0, 31, 120, .24), 7px 7px 0 var(--blue);
+      }
+      .screen-tertiary:hover,
+      .screen-tertiary:focus-visible {
+        box-shadow: 0 11px 18px rgba(0, 31, 120, .24), 6px 6px 0 var(--teal);
+      }
+      .signal figcaption { margin-top: 20px; text-align: left; }
+      .image-modal { padding: 20px; }
+      .image-modal-close { top: -14px; right: -10px; }
+      footer { padding: 24px 20px; }
+      .footer-inner {
+        gap: 16px;
+      }
+    }
+  </style>
 </head>
 <body>
   <header class="container-xxl">
-    <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+    <a href="/"><img src="opendepot_white.svg" alt="OpenDepot"></a>
     <a href="https://github.com/tonedefdev/opendepot">
       <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
       GitHub
     </a>
   </header>
     <header hidden>
-      <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+      <a href="/"><img src="opendepot_white.svg" alt="OpenDepot"></a>
       <a href="https://github.com/tonedefdev/opendepot">
         <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
       </header>
       <header hidden>
-        <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
+        <a href="/"><img src="opendepot_white.svg" alt="OpenDepot"></a>
         <a href="https://github.com/tonedefdev/opendepot">
           <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.477 2 2 6.589 2 12.253c0 4.533 2.865 8.375 6.839 9.733.5.095.682-.222.682-.494 0-.244-.009-.891-.014-1.75-2.782.619-3.369-1.377-3.369-1.377-.455-1.184-1.11-1.5-1.11-1.5-.908-.636.069-.623.069-.623 1.004.073 1.533 1.061 1.533 1.061.892 1.568 2.341 1.115 2.912.852.091-.663.349-1.115.635-1.372-2.22-.26-4.555-1.139-4.555-5.066 0-1.119.389-2.034 1.029-2.751-.103-.26-.446-1.304.098-2.715 0 0 .839-.275 2.75 1.05A9.3 9.3 0 0 1 12 6.831a9.3 9.3 0 0 1 2.5.349c1.909-1.325 2.746-1.05 2.746-1.05.546 1.411.203 2.455.1 2.715.64.717 1.027 1.632 1.027 2.751 0 3.937-2.339 4.803-4.566 5.058.359.317.678.94.678 1.896 0 1.369-.012 2.472-.012 2.807 0 .275.18.595.688.493C19.138 20.625 22 16.783 22 12.253 22 6.589 17.523 2 12 2Z"/></svg>
           GitHub
@@ -50,14 +454,14 @@
       </nav>
     </section>
     <figure class="signal col-md-7" aria-label="OpenDepot application screens">
-      <button class="screen screen-main" type="button" data-image-modal="img/registry-explorer.png" aria-label="View OpenDepot Registry Explorer screenshot">
-        <img src="img/registry-explorer.png" alt="OpenDepot Registry Explorer showing modules, providers, versions, and scan findings">
+      <button class="screen screen-main" type="button" data-image-modal="registry-explorer.png" aria-label="View OpenDepot Registry Explorer screenshot">
+        <img src="registry-explorer.png" alt="OpenDepot Registry Explorer showing modules, providers, versions, and scan findings">
       </button>
-      <button class="screen screen-secondary" type="button" data-image-modal="img/registry-stats.png" aria-label="View OpenDepot Registry Statistics screenshot">
-        <img src="img/registry-stats.png" alt="OpenDepot Registry Statistics showing sync health and security posture">
+      <button class="screen screen-secondary" type="button" data-image-modal="registry-stats.png" aria-label="View OpenDepot Registry Statistics screenshot">
+        <img src="registry-stats.png" alt="OpenDepot Registry Statistics showing sync health and security posture">
       </button>
-      <button class="screen screen-tertiary" type="button" data-image-modal="img/registry-depots.png" aria-label="View OpenDepot Depots screenshot">
-        <img src="img/registry-depots.png" alt="OpenDepot Depots showing registry storage locations">
+      <button class="screen screen-tertiary" type="button" data-image-modal="registry-depots.png" aria-label="View OpenDepot Depots screenshot">
+        <img src="registry-depots.png" alt="OpenDepot Depots showing registry storage locations">
       </button>
       <figcaption>Open source. Kubernetes-native. Ready for OpenTofu and Terraform.</figcaption>
     </figure>
@@ -66,7 +470,7 @@
   <footer>
     <div class="footer-inner">
       <a class="footer-brand" href="https://defdev.io" target="_blank" rel="noopener noreferrer" aria-label="DefDev LLC website">
-        <img src="img/defdev_logo.svg" alt="DefDev LLC">
+        <img src="defdev_logo.svg" alt="DefDev LLC">
         <span>&copy; <span id="footer-year"></span> DefDev LLC</span>
       </a>
       <nav class="footer-links" aria-label="OpenDepot footer links">
@@ -75,6 +479,9 @@
         </a>
         <a href="/docs/" aria-label="OpenDepot documentation">
           <svg class="footer-docs-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1m0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5z"/></svg>
+        </a>
+        <a href="https://opendepot.defdev.io/index.yaml" aria-label="OpenDepot Helm registry">
+          <img class="footer-helm-icon" src="helm_logo.svg" alt="">
         </a>
       </nav>
     </div>
