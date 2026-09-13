@@ -333,13 +333,14 @@
   .footer-helm-icon {
     width: 21px;
     height: 21px;
-    filter: brightness(0) invert(.65);
+    filter: brightness(0) invert(1);
+    opacity: .38;
     object-fit: contain;
-    transition: filter .2s ease;
+    transition: opacity .2s ease;
   }
   .footer-links a:hover .footer-helm-icon,
   .footer-links a:focus-visible .footer-helm-icon {
-    filter: brightness(0) invert(1);
+    opacity: 1;
   }
   @media (max-width: 1100px) {
     main {
