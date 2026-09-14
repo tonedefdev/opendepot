@@ -14,7 +14,7 @@ Helm subchart and federates upstream providers such as Entra ID, Okta, GitHub,
 and LDAP.
 
 For Helm values, Dex connectors, static clients, and the `tofu login` flow, see
-[OIDC Helm Configuration](../configuration/oidc/).
+[OIDC Helm Configuration](../configuration/oidc/index.md).
 
 ## Browse Endpoint Authentication Enforcement
 

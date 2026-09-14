@@ -8,7 +8,7 @@ tags:
 
 # Fine-Grained Access Control with GroupBinding
 
-`GroupBinding` is a namespaced CRD that restricts which modules and providers an OIDC-authenticated user may access, based on the groups present in their JWT. It requires [OIDC authentication](../configuration/oidc/) to be enabled.
+`GroupBinding` is a namespaced CRD that restricts which modules and providers an OIDC-authenticated user may access, based on the groups present in their JWT. It requires [OIDC authentication](../configuration/oidc/index.md) to be enabled.
 
 ## How It Works
 
@@ -197,6 +197,6 @@ kubectl logs -n opendepot-system -l app=server --follow
 
 ## See Also
 
-- [OIDC Helm Configuration](../configuration/oidc/) — enable OIDC before deploying GroupBindings
+- [OIDC Helm Configuration](../configuration/oidc/index.md) — enable OIDC before deploying GroupBindings
 - [API Reference — GroupBinding](../reference/api.md#groupbinding) — full field reference
 - [Kubernetes RBAC](../reference/rbac/index.md) — cluster-level access control
