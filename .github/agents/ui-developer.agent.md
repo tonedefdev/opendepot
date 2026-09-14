@@ -1,7 +1,7 @@
 ---
 description: "Use when: building or modifying the OpenDepot UI, adding React components, updating Material UI styling, implementing new pages in Next.js App Router, working on OIDC auth UI flows, iron-session, dev token mode, ReactFlow graphs, Playwright e2e UI tests, responsive layout, UI/UX polish, or any change scoped to services/ui/. Triggers: 'UI', 'frontend', 'Next.js', 'React', 'Material UI', 'MUI', 'component', 'page', 'Sidebar', 'Depot graph', 'ReactFlow', 'Playwright', 'iron-session', 'session', 'auth UI', 'responsive', 'dark theme', 'typography'."
 name: "OpenDepot UI Developer"
-model: "GPT-5.6 Sol"
+model: GPT-5.6 Luna (copilot)
 tools: [read, edit, search, execute, browser, todo, vscode/memory, agent, browser]
 agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation"]
 argument-hint: "UI feature or fix to implement (page, component, style change, or auth flow)"
@@ -40,19 +40,13 @@ When adding a new UI feature that requires a new server endpoint:
 - **Tests**: `@playwright/test` — e2e tests in `test/e2e/`
 - **Package manager**: `yarn@4.9.1` (`yarn dev`, `yarn build`, `yarn test:e2e`)
 
-## Brand Palette
+## Official OpenDepot Branding
 
-Always use these exact values — never introduce new colors:
+For any branding-related UI or asset work, read `.github/skills/opendepot-branding/SKILL.md` before editing. It is the canonical transcription of the OpenDepot Brand Guidelines 2026 and the source of truth for colors, typography, logo usage, clear space, mockups, stationery, and visual treatment.
 
-| Token | Value | Usage |
-|---|---|---|
-| Primary blue | `#047df1` | Primary buttons, active nav, links |
-| Accent mint | `#03deb8` | Highlights, success states |
-| Secondary teal | `#04cfd0` | Secondary accents |
-| Page background | `#0d1117` | `palette.background.default` |
-| Paper background | `#161b22` | `palette.background.paper`, cards |
+At a glance, use black `#000000`, blue `#0350C7`, mint `#03DEB8`, and white `#FFFFFF`, with `#048FC3` as the approved digital gradient accent; use Aspekta for primary text and Inter for quotes and supporting text; and never distort, recolor, crop, rearrange, outline, or crowd an approved logo asset. Do not invent brand colors, logo variants, typography rules, or patterns when the skill does not specify them.
 
-The theme is always dark. Never set `mode: "light"`.
+The existing product theme may retain its established neutral UI surfaces where required for usability and contrast, but brand accents and branded assets must use the official values above. Never set `palette.mode` to `light` unless the product requirement explicitly calls for a light UI mode.
 
 ## Project Layout
 

@@ -52,4 +52,4 @@ spec:
 No new Secret is required if modules in the same namespace already use GitHub App authentication — the controller reads the same Secret for both.
 
 !!! note
-  The Version and Depot controllers require `secrets: [get]` to read this Secret. The chart always grants that permission through dedicated `Role` objects in the install namespace, even when other controller permissions use cluster-scoped roles. The Secret is never accessible through OpenDepot RBAC outside the install namespace. See [Namespace-Scoped RBAC](../rbac.md#namespace-scoped-rbac-production-recommendation) for details.
+  The Version and Depot controllers require `secrets: [get]` to read this Secret. The chart always grants that permission through dedicated `Role` objects in the install namespace, even when other controller permissions use cluster-scoped roles. The Secret is never accessible through OpenDepot RBAC outside the install namespace. See [Namespace-Scoped RBAC](../reference/rbac/namespace-scoped.md) for details.

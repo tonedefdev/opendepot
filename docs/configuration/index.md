@@ -13,7 +13,21 @@ Configure OpenDepot for your environment. All configuration is done through Helm
 
 <div class="grid cards" markdown>
 
-- :material-shield-account: &nbsp;[__OIDC Authentication (Dex)__](oidc.md)
+- :material-shield-account-outline: &nbsp;[__Authentication__](../authentication/index.md)
+
+    ---
+
+    Choose OIDC, managed cluster tokens, kubeconfig credentials, or Registry
+    Explorer UI authentication for your deployment.
+
+- :material-database-cog: &nbsp;[__Storage Backends__](../storage/index.md)
+
+    ---
+
+    Configure S3, Azure Blob, GCS, filesystem storage, and pre-signed provider
+    downloads.
+
+- :material-shield-account: &nbsp;[__OIDC Helm Configuration__](oidc/index.md)
 
     ---
 

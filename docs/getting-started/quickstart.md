@@ -2,240 +2,226 @@
 tags:
   - quickstart
   - kind
-  - tilt
-  - local-development
+  - helm
+  - kubernetes
 search:
   boost: 2
 ---
 
-# Local Quickstart with Tilt
+# Quickstart
 
-The fastest way to run OpenDepot locally is the repository's [Tilt](https://tilt.dev/) environment. It creates a persistent Kind cluster and local image registry, builds the complete stack, configures local OIDC, and exposes the Registry Explorer at `https://opendepot.localtest.me:8443/`.
+Run OpenDepot locally with the released Helm chart and its publicly available
+container images. This Quickstart creates a Kind cluster, installs the complete
+registry experience, and uses anonymous access so you can start exploring
+without configuring an identity provider.
 
-The environment includes:
-
-- All OpenDepot controllers and the server
-- The Registry Explorer UI and NGINX proxy
-- Dex with a local test user
-- Valkey download statistics
-- Filesystem storage backed by the Kind node
-- Module and provider scanning with Trivy
-- Provider GPG signing
-- A trusted HTTPS proxy for Provider Network Mirror testing
-
-`opendepot.localtest.me` resolves to `127.0.0.1` through public DNS. You do not need to edit `/etc/hosts` or install an ingress controller.
+The main event is one `Depot` resource. It discovers a useful set of AWS
+modules and the AWS provider from upstream, then creates and reconciles the
+corresponding OpenDepot resources automatically.
 
 ## Prerequisites
 
-Clone the OpenDepot repository, then install the following tools:
+Install [Docker](https://docs.docker.com/get-docker/),
+[Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation),
+[`kubectl`](https://kubernetes.io/docs/tasks/tools/), and
+[Helm 3](https://helm.sh/docs/intro/install/).
 
-| Tool | Purpose |
-|------|---------|
-| [Docker](https://docs.docker.com/get-docker/) | Runs the local cluster and image registry |
-| [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | Provides the Kubernetes cluster |
-| [ctlptl](https://github.com/tilt-dev/ctlptl#installation) | Creates and reuses the cluster and registry |
-| [Tilt](https://docs.tilt.dev/install.html) 0.33.20 or later | Builds, deploys, and live-updates OpenDepot |
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Manages sample resources |
-| [Helm 3](https://helm.sh/docs/intro/install/) | Renders the OpenDepot chart |
-| [Go](https://go.dev/doc/install/) | Runs the local provider mirror proxy and resolves the host platform |
-| [GnuPG](https://gnupg.org/download/) and OpenSSL | Generate local signing and session secrets |
+## Step 1: Create a cluster
 
-The bootstrap script also needs either `htpasswd` or Python 3 with the `bcrypt` package to hash the local Dex password.
-
-Install [OpenTofu](https://opentofu.org/docs/intro/install/) or [Terraform](https://developer.hashicorp.com/terraform/install/) if you want to test registry consumption from a CLI. Provider Network Mirror testing also requires [mkcert](https://github.com/FiloSottile/mkcert).
-
-## Step 1: Start OpenDepot
-
-From the repository root, choose a password for the local Dex user and run the Tilt launcher:
+Create a local Kind cluster:
 
 ```bash
-export OPENDEPOT_DEV_PASSWORD='choose-a-local-password'
-tilt/scripts/up.sh
+kind create cluster --name opendepot
+kubectl config use-context kind-opendepot
 ```
 
-The launcher:
+!!! note "Using an existing cluster"
+    The same Helm installation works on an existing Kubernetes cluster. Skip
+    the Kind commands and use the context for your cluster:
 
-1. Verifies the required tools and Docker daemon.
-2. Creates or reuses the `kind-opendepot` cluster and the `opendepot-registry` local registry.
-3. Selects the `kind-opendepot` Kubernetes context.
-4. Creates the local UI, OIDC, and GPG secrets.
-5. Generates the ignored `tilt/.generated/values.yaml` file with the hashed Dex password.
-6. Starts Tilt and deploys the complete OpenDepot stack.
+    ```bash
+    kubectl config use-context <your-context>
+    ```
 
-The initial build downloads the development toolchain and Trivy components. Subsequent starts reuse the cluster, registry, and build cache.
-
-Wait until the `ui` resource is ready in the Tilt dashboard:
-
-- OpenDepot: [https://opendepot.localtest.me:8443/](https://opendepot.localtest.me:8443/)
-- Tilt dashboard: [http://localhost:10350](http://localhost:10350)
-
-## Step 2: Sign In
-
-Open the Registry Explorer and sign in with the local Dex user:
-
-| Field | Value |
-|-------|-------|
-| Email | `dev@example.com` |
-| Password | The value of `OPENDEPOT_DEV_PASSWORD` |
-
-The user belongs to `local-test-group`. The sample resource control creates a `GroupBinding` that grants this group access to the sample module.
-
-## Step 3: Create the Sample Module
-
-Trigger the sample resource control from the Tilt dashboard, or run:
+Create the OpenDepot namespace:
 
 ```bash
-tilt trigger seed-sample-resources
+kubectl create namespace opendepot-system
 ```
 
-This creates:
+## Step 2: Install OpenDepot
 
-- A `terraform-aws-key-pair` Module at version `v2.0.3`
-- A `local-test-access` GroupBinding for `local-test-group`
-
-Watch the generated Version resource until `SYNCED` is `true`:
+Add the OpenDepot chart repository:
 
 ```bash
-kubectl get versions -n opendepot-system -w
+helm repo add opendepot https://opendepot.defdev.io
+helm repo update
 ```
 
-Refresh the Registry Explorer to browse the module, version metadata, and scan results.
-
-## Step 4: Use the Module with OpenTofu
-
-The local endpoint uses HTTP. Configure OpenTofu with an explicit `host` block that advertises the registry and Dex endpoints:
+Install the released chart with the features used in this Quickstart:
 
 ```bash
-mkdir -p /tmp/opendepot-module-test
-cd /tmp/opendepot-module-test
-
-cat > main.tf <<'EOF'
-module "key_pair" {
-  source  = "opendepot.localtest.me:8443/opendepot-system/terraform-aws-key-pair/aws"
-  version = "2.0.3"
-}
-EOF
-
-cat > .tofurc <<'EOF'
-host "opendepot.localtest.me:8443" {
-  services = {
-    "modules.v1"   = "https://opendepot.localtest.me:8443//opendepot/modules/v1/"
-    "providers.v1" = "https://opendepot.localtest.me:8443//opendepot/providers/v1/"
-    "login.v1" = {
-      client      = "opendepot"
-      grant_types = ["authz_code"]
-      authz       = "https://opendepot.localtest.me:8443//dex/auth"
-      token       = "https://opendepot.localtest.me:8443//dex/token"
-      scopes      = ["openid", "email", "profile", "groups", "offline_access"]
-      ports       = [10000, 10010]
-    }
-  }
-}
-EOF
-
-TF_CLI_CONFIG_FILE=.tofurc tofu login opendepot.localtest.me:8443
-TF_CLI_CONFIG_FILE=.tofurc tofu init
+helm install opendepot opendepot/opendepot \
+  --namespace opendepot-system \
+  --set server.anonymousAuth=true \
+  --set server.service.type=ClusterIP \
+  --set provider.enabled=true \
+  --set depot.enabled=true \
+  --set ui.enabled=true \
+  --set storage.filesystem.enabled=true \
+  --set storage.filesystem.hostPath=/var/local/opendepot-modules \
+  --set scanning.enabled=true \
+  --set scanning.providerScanning=true \
+  --set scanning.cache.storageClassName=standard \
+  --set scanning.cache.accessMode=ReadWriteOnce \
+  --wait
 ```
 
-Complete the browser login with `dev@example.com` and your local password. OpenTofu stores the token in its credentials file, then downloads the module through OpenDepot.
-
-!!! note
-    Keep the port in both the module source and `host` block. OpenTofu treats `opendepot.localtest.me` and `opendepot.localtest.me:8443` as different registry hosts.
-
-## Step 5: Test a Depot
-
-A `Depot` discovers module and provider versions from their upstream sources. Apply a small pull-based example:
+Wait for the workloads and CRDs to become ready:
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
+kubectl get pods -n opendepot-system
+kubectl get crds | grep opendepot
+```
+
+The installation pulls the released controller, server, UI, and scanning
+images.
+
+## Step 3: Open the Registry Explorer
+
+In a second terminal, forward the UI service:
+
+```bash
+kubectl port-forward -n opendepot-system svc/ui 8080:80
+```
+
+Open [http://localhost:8080](http://localhost:8080). Anonymous access is
+enabled for this Quickstart, so no login or OIDC configuration is required.
+
+To access the registry API directly, forward the server service in another
+terminal:
+
+```bash
+kubectl port-forward -n opendepot-system svc/server 8081:80
+```
+
+## Step 4: Deploy the example Depot
+
+Apply the [quickstart-depot.yaml](quickstart-depot.yaml) manifest below. Save it
+locally first so you can inspect or edit the modules and provider before
+deploying them:
+
+```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
 metadata:
-  name: test-depot
+  name: ui-demo-depot
   namespace: opendepot-system
 spec:
   global:
     moduleConfig:
       fileFormat: zip
+      immutable: true
     storageConfig:
       fileSystem:
         directoryPath: /data/modules
   moduleConfigs:
-    - name: terraform-aws-s3-bucket
+    - name: terraform-aws-acm
       provider: aws
-      repoOwner: terraform-aws-modules
-      versionConstraints: ">= 4.3.0, <= 4.4.0"
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-acm
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-api-gateway
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-api-gateway
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-cloudfront
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-cloudfront
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-ecr
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-ecr
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-iam
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-iam
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-lambda
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-lambda
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-s3
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-s3
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-secrets-manager
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-secrets-manager
+      versionConstraints: ">= 0.0.0"
+    - name: terraform-aws-ses
+      provider: aws
+      repoOwner: defdevio
+      repoUrl: https://github.com/defdevio/terraform-aws-ses
+      versionConstraints: ">= 0.0.0"
+  pollingIntervalMinutes: 60
   providerConfigs:
-    - name: random
-      operatingSystems:
-        - linux
+    - name: aws
       architectures:
-        - amd64
-      versionConstraints: "= 3.6.0"
-      storageConfig:
-        fileSystem:
-          directoryPath: /data/modules
-EOF
-```
-
-The Depot controller queries GitHub for modules and the configured upstream registry for providers. Provider discovery defaults to `registry.opentofu.org`; set `upstreamRegistry: registry.terraform.io` on a provider config to use the Terraform Registry instead.
-
-Open the **Depots** page in the Registry Explorer to inspect the resources and relationships created by the controller.
-
-## Step 6: Test a Provider Network Mirror
-
-The Provider Network Mirror Protocol requires HTTPS. For the simplest protocol test, enable anonymous metadata access in the generated local values before starting Tilt:
-
-```bash
-export OPENDEPOT_DEV_PASSWORD='choose-a-local-password'
-export OPENDEPOT_DEV_ANONYMOUS_AUTH=true
-tilt/scripts/up.sh
-```
-
-If Tilt is already running, set `OPENDEPOT_DEV_ANONYMOUS_AUTH=true`, rerun `tilt/scripts/bootstrap.sh`, and wait for Tilt to apply the updated values.
-
-Install the local CA once, then start the HTTPS proxy from the Tilt dashboard or command line:
-
-```bash
-mkcert -install
-tilt trigger provider-mirror-tls
-```
-
-The mirror is available at:
-
-```text
-https://opendepot.localtest.me:8443/opendepot/providers/mirror/v1/<kubernetes-namespace>/
-```
-
-Create a small OpenTofu-origin provider for your local platform:
-
-```bash
-PROVIDER_OS=$(go env GOOS)
-PROVIDER_ARCH=$(go env GOARCH)
-
-cat <<EOF | kubectl apply -f -
+        - arm64
+      operatingSystems:
+        - darwin
+        - linux
+      versionConstraints: "~> 6.60.0"
+---
 apiVersion: opendepot.defdev.io/v1alpha1
-kind: Provider
+kind: GroupBinding
 metadata:
-  name: null
+  name: quickstart-public-access
   namespace: opendepot-system
 spec:
-  providerConfig:
-    name: null
-    upstreamRegistry: registry.opentofu.org
-    operatingSystems: [$PROVIDER_OS]
-    architectures: [$PROVIDER_ARCH]
-    storageConfig:
-      fileSystem:
-        directoryPath: /data/modules
-  versions:
-    - version: "3.2.3"
-EOF
-
-kubectl get versions -n opendepot-system -w
+  expression: "true"
+  moduleResources:
+    - "*"
+  providerResources:
+    - "*"
 ```
 
-After the platform-specific Version reports `SYNCED=true`, configure OpenTofu to use only the OpenDepot mirror:
+```bash
+kubectl apply -f quickstart-depot.yaml
+```
+
+The `GroupBinding` makes the generated modules and providers visible through
+the anonymous browse API. No separate `Module` or `Provider` resources are
+needed.
+
+Watch the controllers create and synchronize the generated resources:
+
+```bash
+kubectl get depots,modules,providers,versions -n opendepot-system
+```
+
+Open the **Depots** and **Modules** pages in the Registry Explorer to inspect
+the relationships, versions, scan results, and provider metadata as they become
+available.
+
+!!! note
+    The first reconciliation downloads artifacts from GitHub and the upstream
+    provider registry, so the catalog fills in over several minutes. The Depot
+    continues polling every 60 minutes after the initial sync.
+
+## Step 5: Configure OpenTofu for Modules and Providers
+
+The Depot keeps the module and provider source addresses familiar to OpenTofu
+while OpenDepot serves both kinds of artifact locally. Add a module reference
+to `main.tf`:
 
 ```bash
 mkdir -p /tmp/opendepot-provider-test
@@ -244,22 +230,33 @@ cd /tmp/opendepot-provider-test
 cat > main.tf <<'EOF'
 terraform {
   required_providers {
-    null = {
-      source  = "registry.opentofu.org/hashicorp/null"
-      version = "3.2.3"
+    aws = {
+      source  = "registry.opentofu.org/hashicorp/aws"
+      version = "6.60.0"
     }
+  }
+
+  module "s3" {
+    source  = "opendepot.localtest.me:8081/opendepot-system/terraform-aws-s3/aws"
+    version = ">= 0.0.0"
   }
 }
 EOF
 
 cat > .tofurc <<'EOF'
+host "opendepot.localtest.me:8081" {
+  services = {
+    "modules.v1" = "http://opendepot.localtest.me:8081/opendepot/modules/v1/"
+  }
+}
+
 provider_installation {
   network_mirror {
-    url     = "https://opendepot.localtest.me:8443/opendepot/providers/mirror/v1/opendepot-system/"
-    include = ["registry.opentofu.org/hashicorp/null"]
+    url     = "http://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/"
+    include = ["registry.opentofu.org/*/*"]
   }
   direct {
-    exclude = ["registry.opentofu.org/hashicorp/null"]
+    exclude = ["registry.opentofu.org/*/*"]
   }
 }
 EOF
@@ -267,74 +264,25 @@ EOF
 TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
 
-The generated `.terraform.lock.hcl` retains the canonical `registry.opentofu.org/hashicorp/null` identity even though OpenDepot supplied the archive.
+The module and provider archives now come from OpenDepot. The provider retains
+its canonical `registry.opentofu.org/hashicorp/aws` identity, while the module
+uses the local OpenDepot host in its source address.
 
-To test a Terraform-origin provider, set `upstreamRegistry: registry.terraform.io`, use a `registry.terraform.io/<namespace>/<type>` source, and match that hostname in the `include` and `exclude` patterns. See [Consuming Providers](../guides/providers.md) for complete examples for both CLIs.
-
-Unset anonymous access after the protocol test:
-
-```bash
-unset OPENDEPOT_DEV_ANONYMOUS_AUTH
-tilt/scripts/bootstrap.sh
-```
-
-## Step 7: Inspect Scan Results
-
-Tilt enables module and provider scanning by default and seeds the Trivy vulnerability database after the Version controller becomes ready.
-
-Inspect the sample module's IaC scan:
-
-```bash
-kubectl get version terraform-aws-key-pair-2-0-3 \
-  -n opendepot-system \
-  -o jsonpath='{.status.sourceScan}' | jq .
-```
-
-For a provider, inspect the platform-specific binary and source scans:
-
-```bash
-kubectl get version null-3-2-3-${PROVIDER_OS}-${PROVIDER_ARCH} \
-  -n opendepot-system \
-  -o jsonpath='{.status.binaryScan}' | jq .
-
-kubectl get version null-3-2-3-${PROVIDER_OS}-${PROVIDER_ARCH} \
-  -n opendepot-system \
-  -o jsonpath='{.status.sourceScan}' | jq .
-```
-
-Trigger an immediate database refresh when needed:
-
-```bash
-tilt trigger refresh-trivy-db
-```
-
-## Development Controls
-
-The Tilt dashboard exposes these controls, which are also available from the command line:
-
-| Control | Purpose |
-|---------|---------|
-| `tilt trigger seed-sample-resources` | Create the sample Module and GroupBinding |
-| `tilt trigger clear-sample-resources` | Remove the sample resources |
-| `tilt trigger refresh-trivy-db` | Refresh the Trivy vulnerability database |
-| `tilt trigger provider-mirror-tls` | Start the trusted provider mirror HTTPS proxy |
-
-Go source changes are synced into the corresponding running container, rebuilt, and restarted without replacing the pod. UI changes under `services/ui/src/` and `services/ui/public/` use Next.js hot module replacement.
+!!! note
+    For Terraform, use the equivalent `.terraformrc` host configuration and
+    run `terraform init`.
 
 ## Cleanup
 
-Stop the foreground Tilt process with ++ctrl+c++. Remove the deployed resources while preserving the reusable cluster and image registry:
+Remove the Helm release and local namespace:
 
 ```bash
-tilt down
+helm uninstall opendepot --namespace opendepot-system
+kubectl delete namespace opendepot-system
 ```
 
-Destroy and recreate the development cluster and registry, including all local OpenDepot data:
+Delete the Kind cluster when you are finished:
 
 ```bash
-tilt/scripts/reset-cluster.sh
+kind delete cluster --name opendepot
 ```
-
-After a reset, start the environment again with `tilt/scripts/up.sh`.
-
-See [Contributing](../contributing.md) for live-update details and the end-to-end test workflow.

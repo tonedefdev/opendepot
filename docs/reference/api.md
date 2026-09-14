@@ -30,7 +30,7 @@ GET /.well-known/terraform.json
 }
 ```
 
-The `authz` and `token` URLs above assume the recommended [server-proxied Dex](../configuration/oidc.md#recommended-proxy-dex-through-the-server) setup, so they share the same host as the rest of the registry API. Without the proxy, they point at wherever Dex itself is exposed.
+The `authz` and `token` URLs above assume the recommended [server-proxied Dex](../configuration/oidc/proxy.md#proxy-dex-through-the-server) setup, so they share the same host as the rest of the registry API. Without the proxy, they point at wherever Dex itself is exposed.
 
 The `login.v1` field is only present when OIDC authentication is enabled. It advertises the OIDC endpoints and ports that the `tofu login` command uses to obtain a JWT.
 
@@ -324,7 +324,7 @@ Streams the provider binary archive (`.zip`) directly from storage. Does **not**
 
 ## Browse API
 
-The browse endpoints power the [Registry Explorer UI](../guides/registry-explorer.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer.md#browse-visibility-rules).
+The browse endpoints power the [Registry Explorer UI](../guides/registry-explorer/index.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer/index.md#browse-visibility-rules).
 
 ### List Namespaces
 
@@ -558,7 +558,7 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 `selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
 
-This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer.md#scan-findings) refresh button to re-fetch findings without a full page reload.
+This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer/browse.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
 ### List Depots
 

@@ -60,6 +60,10 @@ Guides for platform and infrastructure teams operating OpenDepot.
 
     Day-2 admin runbooks for force re-sync, module/provider lifecycle operations, scanning checks, and pre-signed URL tuning.
 
+- :material-update: &nbsp;[__Upgrading OpenDepot__](../upgrading.md)
+
+    Apply release-specific CRDs, Helm upgrades, breaking-change remediation, and migration steps for existing installations.
+
 - :material-transfer: &nbsp;[__Migrating to OpenDepot__](migration.md)
 
     ---
@@ -72,7 +76,7 @@ Guides for platform and infrastructure teams operating OpenDepot.
 
     Restrict which modules and providers each OIDC group may access using `GroupBinding` resources and expr-lang expressions.
 
-- :material-web: &nbsp;[__Registry Explorer UI__](registry-explorer.md)
+- :material-web: &nbsp;[__Registry Explorer UI__](registry-explorer/index.md)
 
     ---
 

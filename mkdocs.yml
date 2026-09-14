@@ -34,10 +34,8 @@ theme:
     - navigation.tracking
     - navigation.tabs
     - navigation.tabs.sticky
-    - navigation.sections
     - navigation.path
     - navigation.indexes
-    - navigation.prune
     - navigation.top
     - toc.follow
     - search.highlight
@@ -58,15 +56,32 @@ nav:
     - Installation: getting-started/installation.md
     - Local Quickstart: getting-started/quickstart.md
   - Architecture: architecture.md
-  - Storage Backends: storage.md
   - Configuration:
     - configuration/index.md
-    - Namespace-Scoped Mode: configuration/namespace.md
-    - GitHub Authentication: configuration/github-auth.md
-    - TLS: configuration/tls.md
-    - GPG Signing: configuration/gpg.md
+    - Authentication:
+      - authentication/index.md
+      - OIDC via Dex: authentication/oidc.md
+      - Managed Cluster Tokens: authentication/managed-cluster-tokens.md
+      - Base64-Encoded Kubeconfig: authentication/kubeconfig.md
+      - Registry Explorer UI: authentication/registry-explorer.md
+    - Storage Backends:
+      - storage/index.md
+      - Amazon S3: storage/s3.md
+      - Azure Blob Storage: storage/azure.md
+      - Google Cloud Storage: storage/gcs.md
+      - Local Filesystem: storage/filesystem.md
+      - Pre-signed URL Redirects: storage/presigned-urls.md
+    - OIDC Helm Configuration:
+      - configuration/oidc/index.md
+      - Core Setup: configuration/oidc/setup.md
+      - Proxy and Deployment Modes: configuration/oidc/proxy.md
+      - Connectors and Secrets: configuration/oidc/connectors.md
+      - CI/CD Authentication: configuration/oidc/ci-cd.md
     - Vulnerability Scanning: configuration/scanning.md
-    - OIDC Authentication: configuration/oidc.md
+    - GPG Signing: configuration/gpg.md
+    - GitHub Authentication: configuration/github-auth.md
+    - Namespace-Scoped Mode: configuration/namespace.md
+    - TLS: configuration/tls.md
   - Guides:
     - guides/index.md
     - Users:
@@ -77,18 +92,25 @@ nav:
       - Depot (Pull-Based): guides/depot.md
       - CI/CD Pipelines: guides/cicd.md
       - Registry Operations: guides/operations.md
+      - Upgrading OpenDepot: upgrading.md
       - Migrating to OpenDepot: guides/migration.md
       - GroupBinding Access Control: guides/groupbinding.md
-      - Registry Explorer UI: guides/registry-explorer.md
-  - Authentication: authentication.md
-  - Kubernetes RBAC: rbac.md
+      - Registry Explorer UI:
+        - guides/registry-explorer/index.md
+        - Browse Resources and Dashboards: guides/registry-explorer/browse.md
+        - Browse API: guides/registry-explorer/api.md
   - Reference:
     - reference/index.md
     - API: reference/api.md
     - Version Constraints: reference/version-constraints.md
+    - Helm Chart: helm-chart.md
+    - Kubernetes RBAC:
+      - reference/rbac/index.md
+      - Controller Permissions: reference/rbac/controller-permissions.md
+      - Namespace-Scoped RBAC: reference/rbac/namespace-scoped.md
+      - Pipeline Publisher Role: reference/rbac/pipeline-publisher.md
+      - GroupBinding and Stats Visibility: reference/rbac/visibility.md
   - Contributing: contributing.md
-  - Helm Chart: helm-chart.md
-  - Upgrading: upgrading.md
 
 plugins:
   - search:

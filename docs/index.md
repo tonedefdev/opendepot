@@ -1,15 +1,15 @@
 ---
 template: home.html
 hide:
-  - navigation
-  - toc
+    - toc
+    - title
 tags:
-  - home
+    - home
 ---
 
 ## Why OpenDepot?
 
-Most self-hosted Terraform/OpenTofu registries ask you to run and maintain more than the registry itself — an external database, a separate identity provider, or both. OpenDepot is built to avoid that: it's **free, open source, and Kubernetes-native**, with vulnerability scanning, automatic version discovery, a comprehensive User Interface, and OIDC-based SSO included out of the box.
+Managing Terraform and OpenTofu modules and providers often means operating a separate registry, authentication flow, storage layer, and security workflow. OpenDepot brings those concerns into the Kubernetes operating model you already use: it's **free, open source, and Kubernetes-native**, with vulnerability scanning, automatic version discovery, a comprehensive User Interface, and OIDC-based SSO included out of the box.
 
 The server and UI is read-only by design, and Kubernetes RBAC remains the authorization layer for create, update, and delete operations. Deployment requires nothing beyond a Helm chart and a storage backend.
 
@@ -19,7 +19,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
     ---
 
-    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [Registry Explorer guide](guides/registry-explorer.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
+    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [Registry Explorer guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
 
 - :material-login: &nbsp;__OIDC Single Sign-On (SSO)__
 
@@ -72,76 +72,8 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
 </div>
 
-## How OpenDepot Compares
-
-| Feature                  | OpenDepot (OSS)         | HCP Terraform Registry      | JFrog Artifactory         | GitLab Terraform Registry | Harbor / OCI Registry      | Terrarium / Tapir / Hermit (OSS) |
-|--------------------------|-------------------------|----------------------------|---------------------------|--------------------------|----------------------------|-----------------------------------|
-| **License**              | Apache 2.0 (Free, OSS)  | Commercial SaaS/Enterprise | Commercial (Paid)         | GitLab EE/CE (Mixed)     | Apache 2.0 (OSS)           | OSS (varies)                      |
-| **Auth**                 | K8s RBAC + OIDC (Dex)   | HCP tokens, SSO            | Artifactory tokens, SSO   | GitLab users             | Registry users/OIDC         | API keys, basic auth              |
-| **Database Required**    | No external DB (K8s API + bundled Valkey) | SaaS-managed/PostgreSQL    | Yes (external DB)         | Yes                      | Yes                         | Yes                               |
-| **Deployment**           | Helm chart, K8s-native  | SaaS / Enterprise on-prem  | Docker/K8s/VM             | SaaS or self-hosted      | Docker/K8s                  | Docker/K8s                        |
-| **Self-healing**         | Yes (controller loop)   | Partial (SaaS-managed)     | No                        | No                       | No                          | No                                |
-| **Multi-cloud Storage**  | S3, Azure, GCS, FS      | SaaS-managed               | S3, Azure, GCS            | S3, GCS, Filesystem      | S3, GCS, Azure, Filesystem  | S3, GCS, Filesystem               |
-| **Version Discovery**    | Automatic (GitHub/upstream registry) | VCS-connected/manual | Manual upload/API         | Manual/CI                | Manual/CI                   | Manual upload                     |
-| **Immutability**         | Checksum every reconcile| At upload only             | Repo-level flag           | At upload only           | At upload only              | At upload only                    |
-| **Air-gapped Support**   | Yes (FS + PVC)          | Enterprise only            | Yes                       | Yes                      | Yes                         | Yes                               |
-| **Vuln Scanning**        | Built-in (Trivy)        | No                         | Paid add-on (Xray)        | No                       | No                          | No                                |
-| **Pre-signed URLs**      | Yes (S3, GCS, Azure)    | No                         | Yes (CDN)                 | No                       | No                          | No                                |
-| **Provider Support**     | Yes                     | Yes                        | Yes                       | No                       | No                          | No (modules only)                 |
-| **`tofu login` Flow**    | Yes (Dex, `login.v1`)   | Yes                        | Yes                       | No                       | No                          | No                                |
-| **Open Source**          | Yes                     | No                         | No                        | Partial                  | Yes                         | Yes                               |
-
-
 !!! tip
     If you're already running Kubernetes, OpenDepot gives you automatic version discovery, built-in vulnerability scanning, and Kubernetes-native auth without adding a license fee or a new piece of infrastructure to operate.
-
-## How It Works
-
-```mermaid
-%%{init: {'flowchart': {'defaultRenderer': 'elk'}} }%%
-graph TD
-    CLI["OpenTofu / Terraform CLI"]
-
-    Server["Server — Registry Protocol API\nService Discovery · List Versions\nDownload Redirect · GPG-signed SHA256SUMS"]
-
-    Dex["Dex\nOIDC Identity Broker"]
-    IdP["Upstream IdP\nGitHub · Entra ID · Okta"]
-
-    Depot["Depot\nController"]
-    SyncBus[" "]:::hidden
-    Module["Module\nController"]
-    Provider["Provider\nController"]
-    Version["Version\nController"]
-
-    Storage[("Storage Backend\nS3 · Azure · GCS · Filesystem")]
-
-    GitHub["GitHub\nReleases API"]
-    ProviderRegistry["Upstream Provider Registry\nOpenTofu · Terraform"]
-
-    CLI -->|"tofu login (authz / device code)"| Dex
-    Dex -->|"federates auth"| IdP
-    Server -.->|"JWKS fetch at startup"| Dex
-
-    CLI -->|"HTTP requests (JWT bearer)"| Server
-    Server -->|"reads Module + Provider"| Module & Provider
-
-    Depot -->|queries| GitHub
-    Depot -->|queries| ProviderRegistry
-    Depot -->|creates / updates| SyncBus
-    SyncBus --> Module
-    SyncBus --> Provider
-
-    Module -->|creates Version resources| Version
-    Provider -->|creates Version resources| Version
-
-    Version -->|fetches archives| GitHub
-    Version -->|fetches binaries| ProviderRegistry
-    Version -->|uploads to| Storage
-
-    classDef hidden fill:none,stroke:none,color:transparent;
-```
-
-See [Architecture](architecture.md) for a detailed description of each controller and the full reconciliation event flow.
 
 ## Next Steps
 
@@ -159,8 +91,16 @@ See [Architecture](architecture.md) for a detailed description of each controlle
 
     Understand how the four services interact and reconcile.
 
+- :material-cog-outline: &nbsp;[__Configuration__](configuration/index.md)
+
+    Configure authentication, storage, TLS, scanning, and other deployment options.
+
 - :material-book-open-variant: &nbsp;[__Guides__](guides/index.md)
 
-    GitOps, CI/CD, Depot, provider consumption, and migration workflows.
+    GitOps, CI/CD, Depot, provider consumption, migration, and upgrade workflows.
+
+- :material-book-check: &nbsp;[__Reference__](reference/index.md)
+
+    APIs, version constraints, Helm values, and Kubernetes RBAC reference material.
 
 </div>

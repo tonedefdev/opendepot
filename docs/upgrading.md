@@ -147,7 +147,7 @@ The provider retains its canonical source address, such as `registry.terraform.i
 
 ## v0.9.0
 
-v0.9.0 adds an opt-in reverse proxy so Dex never needs its own public ingress or hostname. See [Proxying Dex Through the Server](configuration/oidc.md#recommended-proxy-dex-through-the-server).
+v0.9.0 adds an opt-in reverse proxy so Dex never needs its own public ingress or hostname. See [Proxying Dex Through the Server](configuration/oidc/proxy.md#proxy-dex-through-the-server).
 
 Set `server.oidc.dexProxy.enabled: true` to have the server reverse-proxy `/dex/*` requests to the bundled Dex service. This is fully backward compatible — the flag defaults to `false`, and existing `dex.enabled: true` deployments with a separately exposed Dex continue to work unchanged.
 
@@ -161,17 +161,17 @@ Set `server.oidc.dexProxy.enabled: true` to have the server reverse-proxy `/dex/
    ```bash
    helm upgrade opendepot opendepot/opendepot -n opendepot-system -f my-values.yaml
    ```
-3. (Optional) To adopt the recommended proxy mode, set `dex.config.issuer` and `server.oidc.issuerUrl` to the same external, path-based URL and enable `server.oidc.dexProxy.enabled: true`. See [Proxying Dex Through the Server](configuration/oidc.md#recommended-proxy-dex-through-the-server) for the full walkthrough.
+3. (Optional) To adopt the recommended proxy mode, set `dex.config.issuer` and `server.oidc.issuerUrl` to the same external, path-based URL and enable `server.oidc.dexProxy.enabled: true`. See [Proxying Dex Through the Server](configuration/oidc/proxy.md#proxy-dex-through-the-server) for the full walkthrough.
 
 No action is required to keep existing behavior — `dexProxy.enabled` defaults to `false`.
 
 ## v0.8.0
 
-v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer.md#module-readmes).
+v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer/browse.md#module-readmes).
 
 ### New RBAC Permissions
 
-The version-controller ServiceAccount now requires `configmaps` (`create`, `get`, `list`, `patch`, `update`, `watch`) to store resolved READMEs, and the server ServiceAccount now requires `configmaps` (`get`, `list`, `watch`) to serve them through the browse API. Both rules are added automatically by the Helm chart — no values changes are required. See [Kubernetes RBAC](rbac.md#controller-permissions).
+The version-controller ServiceAccount now requires `configmaps` (`create`, `get`, `list`, `patch`, `update`, `watch`) to store resolved READMEs, and the server ServiceAccount now requires `configmaps` (`get`, `list`, `watch`) to serve them through the browse API. Both rules are added automatically by the Helm chart — no values changes are required. See [Controller Permissions](reference/rbac/controller-permissions.md).
 
 ### Upgrade Steps
 
