@@ -11,7 +11,7 @@ tags:
 
 If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach because it preserves separation of duties: OIDC stays read-only for registry access, while Kubernetes RBAC governs create, update, and delete permissions.
 
-The examples below assume the recommended [server-proxied Dex](../configuration/oidc.md#recommended-proxy-dex-through-the-server) setup (`server.oidc.dexProxy.enabled: true`), so the Dex token endpoint shares the same host as the registry API. If Dex is exposed separately instead, substitute that host (e.g. `https://dex.defdev.io/dex/token`).
+The examples below assume the recommended [server-proxied Dex](../configuration/oidc/proxy.md#proxy-dex-through-the-server) setup (`server.oidc.dexProxy.enabled: true`), so the Dex token endpoint shares the same host as the registry API. If Dex is exposed separately instead, substitute that host (e.g. `https://dex.defdev.io/dex/token`).
 
 Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
 
@@ -106,7 +106,7 @@ This configures OpenTofu to install providers from OpenDepot via the Network Mir
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
-For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine). For a side-by-side comparison of all supported authentication methods and their access-control mechanisms, see the [Authentication Comparison](../authentication.md#authentication-comparison) table.
+For full configuration details see [Client Credentials (Machine-to-Machine)](../configuration/oidc/ci-cd.md#client-credentials). For a side-by-side comparison of all supported authentication methods and their access-control mechanisms, see the [Authentication Comparison](../authentication/index.md#choosing-a-method) table.
 
 ## Registry Reads: SA Fallback with OIDC
 
@@ -228,7 +228,7 @@ This configures OpenTofu to install providers from OpenDepot via the Network Mir
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
-This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication.md#method-2-managed-cluster-tokens)).
+This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md)).
 
 ## Push-Based Workflows
 
@@ -319,4 +319,4 @@ For day-2 operations such as force re-sync, inline `Version` configs, provider l
 For canonical configuration reference:
 
 - [Vulnerability Scanning](../configuration/scanning.md)
-- [Storage Backends](../storage.md#pre-signed-url-redirects)
+- [Pre-signed URL Redirects](../storage/presigned-urls.md)

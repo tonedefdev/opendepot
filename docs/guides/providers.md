@@ -155,7 +155,7 @@ The `network_mirror.include` and `direct.exclude` patterns must use the **same c
 - **One installation serving both origins**: A single default cluster-scoped OpenDepot installation can serve providers from both `registry.opentofu.org` and `registry.terraform.io` by placing them in separate Kubernetes namespaces. If the same canonical provider namespace/type is mirrored from both origins (e.g., `hashicorp/aws` from both registries), place them in separate Kubernetes namespaces to avoid Version resource-name collisions. When `rbac.scopeToNamespace: true` restricts controllers to `global.namespace`, serving origins from multiple namespaces requires broader cluster scope or separate namespace-scoped installations.
 
 !!! note
-    Provider archive downloads (the binary, `SHA256SUMS`, and `SHA256SUMS.sig`) do not require client authentication when using anonymous mirror access. The CLI fetches these URLs after receiving the archive metadata from the metadata endpoint. When authentication is enabled, the metadata endpoint is protected, but archive URLs themselves are either unauthenticated or presigned depending on your storage backend configuration. See [Storage Backends](../storage.md#pre-signed-url-redirects) for presigned URL behavior.
+    Provider archive downloads (the binary, `SHA256SUMS`, and `SHA256SUMS.sig`) do not require client authentication when using anonymous mirror access. The CLI fetches these URLs after receiving the archive metadata from the metadata endpoint. When authentication is enabled, the metadata endpoint is protected, but archive URLs themselves are either unauthenticated or presigned depending on your storage backend configuration. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for presigned URL behavior.
 
 ## Advanced: Direct OpenDepot provider identity
 
@@ -196,4 +196,4 @@ For provider publishing and lifecycle operations (adding versions, force re-sync
 
 For scan configuration and policy controls, see [Vulnerability Scanning](../configuration/scanning.md).
 
-For pre-signed redirects and storage backends, see [Storage Backends](../storage.md#pre-signed-url-redirects).
+For pre-signed redirects and storage backends, see [Pre-signed URL Redirects](../storage/presigned-urls.md).

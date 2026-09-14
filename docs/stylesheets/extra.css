@@ -1,40 +1,51 @@
+@font-face {
+  font-family: "Aspekta";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local("Aspekta"), local("Aspekta Variable");
+}
+
 /* =============================================================================
-   OpenDepot — Custom Brand Palette & Visual Enhancements
-   Brand colors: #03deb8 (mint) · #04cfd0 (teal) · #047df1 (blue)
-                 #05b6de (sky) · #059ee8 (azure)
-   ============================================================================= */
+  OpenDepot — Custom Brand Palette & Visual Enhancements
+  Brand colors: #000000 (black) · #0350c7 (blue) · #03deb8 (mint)
+            #ffffff (white)
+  ============================================================================= */
+
+:root {
+  --md-text-font: "Inter", sans-serif;
+}
 
 /* ---------------------------------------------------------------------------
    Color variables — Light scheme
    --------------------------------------------------------------------------- */
 [data-md-color-scheme="default"] {
-  --md-primary-fg-color:              #047df1;
-  --md-primary-fg-color--light:       #05b6de;
-  --md-primary-fg-color--dark:        #0350c7;
+  --md-primary-fg-color:              #0350c7;
+  --md-primary-fg-color--light:       #03deb8;
+  --md-primary-fg-color--dark:        #000000;
   --md-accent-fg-color:               #03deb8;
   --md-accent-fg-color--transparent:  rgba(3, 222, 184, 0.1);
-  --md-typeset-a-color:               #047df1;
+  --md-typeset-a-color:               #0350c7;
 
-  /* Subtle surface tint for code blocks */
-  --md-code-bg-color:                 #f0f7ff;
+  --md-code-bg-color:                 rgba(3, 80, 199, 0.06);
 }
 
 /* ---------------------------------------------------------------------------
    Color variables — Dark (slate) scheme
    --------------------------------------------------------------------------- */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color:              #04cfd0;
-  --md-primary-fg-color--light:       #03deb8;
-  --md-primary-fg-color--dark:        #047df1;
+  --md-primary-fg-color:              #03deb8;
+  --md-primary-fg-color--light:       #ffffff;
+  --md-primary-fg-color--dark:        #0350c7;
   --md-accent-fg-color:               #03deb8;
   --md-accent-fg-color--transparent:  rgba(3, 222, 184, 0.15);
-  --md-typeset-a-color:               #05b6de;
+  --md-typeset-a-color:               #03deb8;
 
-  --md-code-bg-color:                 rgba(4, 207, 208, 0.06);
+  --md-code-bg-color:                 rgba(3, 222, 184, 0.06);
 }
 
 /* ---------------------------------------------------------------------------
-   Header — gradient brand bar
+   Header
    --------------------------------------------------------------------------- */
 .md-header {
   background: linear-gradient(135deg, #047df1 0%, #03deb8 100%);
@@ -44,7 +55,7 @@
 .md-header__title,
 .md-header__button,
 .md-header__topic .md-ellipsis {
-  color: #fff !important;
+  color: #ffffff !important;
 }
 
 /* Site name is redundant now that the logo artwork includes the wordmark */
@@ -52,7 +63,18 @@
   display: none;
 }
 
-/* Logo sizing on the gradient header/nav — artwork already renders correctly, no color filter needed */
+.md-header__topic[data-md-component="header-topic"] .md-ellipsis {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-weight: 400;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-header__topic[data-md-component="header-topic"] {
+    display: none;
+  }
+}
+
+/* Logo sizing on the header/nav — artwork already renders correctly, no color filter needed */
 .md-header__button.md-logo img,
 .md-header__button.md-logo svg {
   height: 1.4rem;
@@ -65,13 +87,22 @@
   width: auto;
 }
 
-/* The header sits on the gradient brand bar, so use the all-white wordmark to avoid
-   the full-color artwork clashing with the gradient */
+/* The header uses the approved monochrome wordmark for clear contrast. */
 .md-header__button.md-logo img {
   content: url("../img/opendepot_white.svg");
 }
 
 @media (max-width: 76.2344em) {
+  [data-md-color-scheme="default"] .md-nav--primary .md-nav__source {
+    background-color: #03deb8;
+  }
+
+  [data-md-color-scheme="default"] .md-nav--primary .md-nav__source,
+  [data-md-color-scheme="default"] .md-nav--primary .md-nav__source .md-source__repository,
+  [data-md-color-scheme="default"] .md-nav--primary .md-nav__source .md-source__facts {
+    color: #ffffff;
+  }
+
   /* Material reserves 5.6rem of height with top padding for the site-name text
      wrapping below the logo; since that text is hidden, shrink the bar and
      left-align the logo like a normal title instead of stretching/centering it */
@@ -92,8 +123,7 @@
     padding: 0;
   }
 
-  /* The drawer title bar sits on the solid brand color, not the header gradient,
-     so swap in the all-white wordmark to avoid clashing with the colored artwork */
+  /* The drawer title bar uses the approved monochrome wordmark. */
   .md-nav--primary .md-nav__title .md-logo img {
     content: url("../img/opendepot_white.svg");
   }
@@ -140,19 +170,26 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Navigation tabs — gradient to match header
+   Navigation tabs
    --------------------------------------------------------------------------- */
 .md-tabs {
   background: linear-gradient(135deg, #0468cc 0%, #04cfd0 100%);
 }
 
 .md-tabs__link {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   color: rgba(255, 255, 255, 0.85);
 }
 
-.md-tabs__link--active,
+.md-tabs__link--active {
+  font-weight: 700;
+  color: #ffffff;
+}
+
 .md-tabs__link:hover {
-  color: #fff;
+  color: #ffffff;
 }
 
 /* ---------------------------------------------------------------------------
@@ -168,7 +205,7 @@
   align-items: center;
   text-align: center;
   gap: 0.25rem;
-  padding: 1rem 0 3rem;
+  padding: 1rem 0;
 }
 
 .mdx-hero__content {
@@ -176,21 +213,18 @@
 }
 
 .mdx-hero__content h1 {
-  font-size: 2.75rem;
-  font-weight: 800;
-  line-height: 1.15;
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-size: clamp(2.75rem, 5vw, 4.75rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 0.9;
+  width: 100%;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #047df1 0%, #03deb8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--md-default-fg-color);
 }
 
 [data-md-color-scheme="slate"] .mdx-hero__content h1 {
-  background: linear-gradient(135deg, #04cfd0 0%, #ffffff 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
 }
 
 .mdx-hero__content p {
@@ -237,8 +271,10 @@
   gap: 0.4rem;
   padding: 0.35rem 0.85rem;
   border-radius: 2rem;
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   background: var(--md-accent-fg-color--transparent);
   color: var(--md-accent-fg-color);
   border: 1px solid rgba(3, 222, 184, 0.3);
@@ -251,15 +287,54 @@
   background: var(--md-default-bg-color);
 }
 
+body:has(.mdx-container) .md-sidebar--secondary,
+body:has(.mdx-container) .md-content__inner > h1 {
+  display: none;
+}
+
+@media screen and (min-width: 76.25em) {
+  body:has(.mdx-container) .md-sidebar--primary {
+    display: none;
+  }
+}
+
+.md-typeset h1 {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-size: 36px;
+  line-height: 38px;
+}
+
+.md-typeset h2 {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  line-height: 28px;
+}
+
+.md-typeset h3 {
+  font-size: 18px;
+  line-height: 21px;
+}
+
+.md-typeset h4 {
+  font-size: 12px;
+  line-height: 15px;
+}
+
+.md-typeset blockquote {
+  font-family: "Inter", sans-serif;
+  font-size: 18px;
+  line-height: 21px;
+}
+
 /* ---------------------------------------------------------------------------
    Buttons
    --------------------------------------------------------------------------- */
 .md-button--primary {
-  background: linear-gradient(135deg, #047df1 0%, #04cfd0 100%) !important;
+  background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%) !important;
   border: none !important;
   outline: none !important;
-  color: #fff !important;
-  box-shadow: 0 4px 14px rgba(4, 125, 241, 0.35);
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(3, 80, 199, 0.35);
   transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
 
@@ -269,7 +344,7 @@
   background: linear-gradient(135deg, #0365cc 0%, #0468cc 100%) !important;
   border: none !important;
   outline: none !important;
-  box-shadow: 0 6px 20px rgba(4, 125, 241, 0.45) !important;
+  box-shadow: 0 6px 20px rgba(3, 80, 199, 0.45) !important;
   transform: translateY(-1px);
 }
 
@@ -280,7 +355,7 @@
 
 /* Secondary button (e.g. "View on GitHub") */
 .mdx-hero .md-button:not(.md-button--primary) {
-  background: rgba(4, 125, 241, 0.08) !important;
+  background: rgba(3, 80, 199, 0.08) !important;
   border: none !important;
   color: var(--md-primary-fg-color) !important;
   box-shadow: none;
@@ -290,7 +365,7 @@
 .mdx-hero .md-button:not(.md-button--primary):hover,
 .mdx-hero .md-button:not(.md-button--primary):focus,
 .mdx-hero .md-button:not(.md-button--primary):focus-visible {
-  background: rgba(4, 125, 241, 0.15) !important;
+  background: rgba(3, 80, 199, 0.15) !important;
   border: none !important;
   outline: none !important;
   transform: translateY(-1px);
@@ -311,7 +386,7 @@
    --------------------------------------------------------------------------- */
 .md-typeset .grid.cards > ul > li,
 .md-typeset .grid > .card {
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--md-default-fg-color--lightest);
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
@@ -319,8 +394,20 @@
 .md-typeset .grid.cards > ul > li:hover,
 .md-typeset .grid > .card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(4, 125, 241, 0.12);
+  box-shadow: 0 8px 24px rgba(3, 80, 199, 0.12);
   border-color: var(--md-primary-fg-color--light);
+}
+
+.md-typeset .grid.cards > ul > li > p:first-child strong {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset a {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 [data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li:hover,
@@ -346,15 +433,15 @@
 
 .md-typeset .admonition.note,
 .md-typeset details.note {
-  border-color: #04cfd0;
+  border-color: #0350c7;
 }
 .md-typeset .note > .admonition-title,
 .md-typeset .note > summary {
-  background-color: rgba(4, 207, 208, 0.1);
+  background-color: rgba(3, 80, 199, 0.12);
 }
 .md-typeset .note > .admonition-title::before,
 .md-typeset .note > summary::before {
-  background-color: #04cfd0;
+  background-color: #0350c7;
 }
 
 /* ---------------------------------------------------------------------------
@@ -380,16 +467,16 @@
 }
 
 .md-typeset table:not([class]) th {
-  background: rgba(4, 125, 241, 0.08);
+  background: rgba(3, 80, 199, 0.08);
   font-weight: 600;
 }
 
 [data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
-  background: rgba(4, 207, 208, 0.1);
+  background: rgba(3, 222, 184, 0.1);
 }
 
 .md-typeset table:not([class]) tr:nth-child(even) {
-  background: rgba(4, 125, 241, 0.03);
+  background: rgba(3, 80, 199, 0.03);
 }
 
 [data-md-color-scheme="slate"] .md-typeset table:not([class]) tr:nth-child(even) {
@@ -399,16 +486,33 @@
 /* ---------------------------------------------------------------------------
    Navigation sidebar — active link accent
    --------------------------------------------------------------------------- */
+.md-nav__link {
+  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-nav--primary .md-nav[data-md-level="1"],
+.md-nav--primary .md-nav[data-md-level="2"] {
+  margin-left: .35rem;
+  padding-left: .35rem;
+}
+
+.md-nav--primary .md-nav[data-md-level="2"] .md-nav__link {
+  font-size: .92em;
+  font-weight: 600;
+}
+
 .md-nav__link--active {
   color: var(--md-primary-fg-color) !important;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ---------------------------------------------------------------------------
    Footer
    --------------------------------------------------------------------------- */
 .md-footer {
-  background: linear-gradient(135deg, #0468cc 0%, #046e73 100%);
+  background: #000000;
 }
 
 /* ---------------------------------------------------------------------------
@@ -419,11 +523,8 @@
     padding-top: 0;
   }
   .mdx-hero {
-    padding: 0.5rem 0 2rem;
+    padding: 0.5rem 0 1rem;
     padding-top: 1rem;
-  }
-  .mdx-hero__content h1 {
-    font-size: 1.7rem;
   }
 }
 

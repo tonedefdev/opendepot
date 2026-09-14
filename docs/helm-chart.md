@@ -58,7 +58,7 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 
 ### OIDC Authentication
 
-The `server.oidc` section enables OIDC JWT validation for production-ready single sign-on. See [Authenticating with OpenDepot](authentication.md) for detailed setup and examples.
+The `server.oidc` section enables OIDC JWT validation for production-ready single sign-on. See [Authentication](authentication/index.md) for detailed setup and examples.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -191,11 +191,11 @@ The server signs `SHA256SUMS` files for provider packages using a GPG key you su
 | `storage.filesystem.storageClassName` | string | StorageClass for PVC (requires `ReadWriteMany`). Default: `""` |
 | `storage.filesystem.size` | string | PVC storage size. Default: `10Gi` |
 
-See [Storage Backends](storage.md) for S3, Azure, and GCS configuration, which are set via environment variables rather than Helm values.
+See [Storage Backends](storage/index.md) for S3, Azure, and GCS configuration, which are set via environment variables rather than Helm values.
 
 ## UI Configuration
 
-The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](guides/registry-explorer.md) for setup, OIDC login, and public visibility configuration.
+The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](guides/registry-explorer/index.md) for setup, OIDC login, and public visibility configuration.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -207,7 +207,7 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
 | `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
 | `ui.oidc.issuerUrl` | string | Public HTTPS OIDC issuer URL. Discovered endpoints must share this origin. HTTP is accepted only with `global.developmentMode: true`. |
-| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](authentication.md#registry-explorer-ui-oidc). |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](authentication/oidc.md#registry-explorer-ui-oidc). |
 | `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
 | `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
 | `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |
@@ -249,7 +249,7 @@ kubectl create secret generic opendepot-valkey-auth \
 
 For production deployments, keep authentication enabled. If you choose another Secret name, set both `valkey.auth.usersExistingSecret` and `server.stats.valkeyPasswordSecretName` to that same name. The chart rejects disabled authentication outside `global.developmentMode` and rejects missing or mismatched Secret references. For regulated environments, use [External Secrets Operator](https://external-secrets.io/) or HashiCorp Vault to provision the Secret.
 
-See [Download Tracking](guides/registry-explorer.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
+See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
 
 ## Scanning Values
 

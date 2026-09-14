@@ -26,7 +26,7 @@ If you plan to use OIDC authentication and `tofu login`, also prepare:
 - Externally reachable OIDC auth/token endpoints advertised in service discovery (`login.v1`)
 - *(Optional)* `GroupBinding` resources for fine-grained module/provider access control
 
-See [OIDC Configuration](../configuration/oidc.md) for full setup details and examples.
+See [OIDC Configuration](../configuration/oidc/) for full setup details and examples.
 
 ## Install with Helm
 

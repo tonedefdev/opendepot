@@ -23,4 +23,18 @@ Technical reference documentation for OpenDepot APIs and version constraint synt
 
     Supported version constraint syntax for `spec.versions` fields and Depot version filtering.
 
+- :material-chart-box: &nbsp;[__Helm Chart__](../helm-chart.md)
+
+    ---
+
+    Complete Helm values reference for the Server, controllers, storage, UI,
+    authentication, scanning, and supporting services.
+
+- :material-shield-key: &nbsp;[__Kubernetes RBAC__](rbac/index.md)
+
+    ---
+
+    Controller permissions, namespace-scoped roles, pipeline publisher access,
+    and GroupBinding visibility behavior.
+
 </div>

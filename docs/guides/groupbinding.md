@@ -8,7 +8,7 @@ tags:
 
 # Fine-Grained Access Control with GroupBinding
 
-`GroupBinding` is a namespaced CRD that restricts which modules and providers an OIDC-authenticated user may access, based on the groups present in their JWT. It requires [OIDC authentication](../configuration/oidc.md) to be enabled.
+`GroupBinding` is a namespaced CRD that restricts which modules and providers an OIDC-authenticated user may access, based on the groups present in their JWT. It requires [OIDC authentication](../configuration/oidc/) to be enabled.
 
 ## How It Works
 
@@ -35,7 +35,7 @@ Only the first binding (alphabetically by name) whose expression is `true` is ap
 
 The groups claim is **required** for interactive OIDC users. A valid JWT that does not carry the configured claim is denied with **403 Forbidden**. Every OIDC user must have a groups claim in their JWT and match a `GroupBinding` to access any resource.
 
-The one exception is [client credentials](../configuration/oidc.md#client-credentials-machine-to-machine) tokens. When `server.oidc.allowClientCredentials` is enabled, the server synthesizes a virtual group from the token's `sub` claim (`"client:<sub>"`), so a groups claim is not required in the JWT itself.
+The one exception is [client credentials](../configuration/oidc/ci-cd.md#client-credentials) tokens. When `server.oidc.allowClientCredentials` is enabled, the server synthesizes a virtual group from the token's `sub` claim (`"client:<sub>"`), so a groups claim is not required in the JWT itself.
 
 Ensure your IdP connector in Dex is configured to emit a groups claim. Common connectors that do this by default include Microsoft (Entra ID) and GitHub (when `org` is set). See your IdP's Dex connector documentation for the correct scope or claim configuration.
 
@@ -90,7 +90,7 @@ len(groups) > 0
     ```
     The same path also applies to ROPC tokens from other Dex clients whose audience does not match the primary client ID. For those flows the `sub` may be a Dex-internal identifier rather than a human-readable name — inspect the JWT to confirm the exact value before writing the expression.
 
-    See [Client Credentials (Machine-to-Machine)](../configuration/oidc.md#client-credentials-machine-to-machine) for full setup details.
+    See [Client Credentials (Machine-to-Machine)](../configuration/oidc/ci-cd.md#client-credentials) for full setup details.
 
 !!! warning
     A `GroupBinding` with an unparsable expression fails closed. The server logs a `WARN` entry and denies the request with `403 Forbidden` instead of skipping to the next binding. Check server logs to diagnose expression errors.
@@ -197,6 +197,6 @@ kubectl logs -n opendepot-system -l app=server --follow
 
 ## See Also
 
-- [OIDC Authentication (Dex)](../configuration/oidc.md) — enable OIDC before deploying GroupBindings
+- [OIDC Helm Configuration](../configuration/oidc/) — enable OIDC before deploying GroupBindings
 - [API Reference — GroupBinding](../reference/api.md#groupbinding) — full field reference
-- [Kubernetes RBAC](../rbac.md) — cluster-level access control
+- [Kubernetes RBAC](../reference/rbac/index.md) — cluster-level access control
