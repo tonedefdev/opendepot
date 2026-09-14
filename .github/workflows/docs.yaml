@@ -45,12 +45,7 @@ jobs:
 
       - name: Assemble GitHub Pages root
         run: |
-          cp site-root/index.html site/index.html
-          cp site-root/styles.css site/styles.css
-          cp site-root/CNAME site/CNAME
-          mkdir -p site/img
-          cp -R site-root/img/. site/img/
-          cp site-root/img/helm_logo.svg site/helm_logo.svg
+          cp -R site-root/. site/
 
       - name: Preserve Helm chart index
         run: |
