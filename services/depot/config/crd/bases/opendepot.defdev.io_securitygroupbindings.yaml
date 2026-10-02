@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: groupbindings.opendepot.defdev.io
+  name: securitygroupbindings.opendepot.defdev.io
 spec:
   group: opendepot.defdev.io
   names:
-    kind: GroupBinding
-    listKind: GroupBindingList
-    plural: groupbindings
-    singular: groupbinding
+    kind: SecurityGroupBinding
+    listKind: SecurityGroupBindingList
+    plural: securitygroupbindings
+    singular: securitygroupbinding
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -21,7 +21,6 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: GroupBinding is the Schema for the groupbindings API.
         properties:
           apiVersion:
             description: |-
@@ -41,43 +40,21 @@ spec:
           metadata:
             type: object
           spec:
-            description: GroupBindingSpec defines the desired state of GroupBinding.
             properties:
               expression:
-                description: |-
-                  Expression is an expr-lang boolean expression evaluated against the OIDC JWT groups claim.
-                  The only available variable is `groups` ([]string).
-                  Examples:
-                    '"platform" in groups'
-                    '"platform" in groups || "platform-readonly" in groups'
                 minLength: 1
                 type: string
               moduleResources:
-                description: |-
-                  ModuleResources is the list of glob patterns for Module resource names this binding grants access to.
-                  The * wildcard is supported (e.g. "terraform-aws-*").
-                  Empty or omitted means no modules are accessible.
+                items:
+                  type: string
+                type: array
+              namespaceWidePolicyManagement:
+                type: boolean
+              namespaces:
                 items:
                   type: string
                 type: array
               providerResources:
-                description: |-
-                  ProviderResources is the list of exact Provider resource names this binding grants access to.
-                  Empty or omitted means no providers are accessible.
-                items:
-                  type: string
-                type: array
-              scanPolicyManagement:
-                description: |-
-                  ScanPolicyManagement grants permission to create, update, and delete
-                  ScanPolicy resources through the server policy-management API.
-                  This is disabled when omitted.
-                type: boolean
-              scanPolicyNamespaces:
-                description: |-
-                  ScanPolicyNamespaces is the allow-list of namespaces where this binding
-                  may read or manage ScanPolicy resources. An empty list denies access.
-                  The literal "*" allows every namespace reachable by the server.
                 items:
                   type: string
                 type: array
@@ -85,7 +62,6 @@ spec:
             - expression
             type: object
           status:
-            description: GroupBindingStatus defines the observed state of GroupBinding.
             properties:
               conditions:
                 items:

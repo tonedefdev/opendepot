@@ -396,6 +396,19 @@ spec:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.
                       properties:
+                        exempted:
+                          description: |-
+                            Whether a ScanPolicy exempted this finding from blocking reconciliation. Exempted
+                            findings are still reported so that they remain visible and auditable.
+                          type: boolean
+                        exemptedBy:
+                          description: The name of the ScanPolicy that exempted this
+                            finding.
+                          type: string
+                        exemptionReason:
+                          description: The justification recorded on the ScanPolicy
+                            exemption that covered this finding.
+                          type: string
                         fixedVersion:
                           description: The minimum version of the package that resolves
                             the vulnerability, if known.
@@ -543,6 +556,19 @@ spec:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.
                       properties:
+                        exempted:
+                          description: |-
+                            Whether a ScanPolicy exempted this finding from blocking reconciliation. Exempted
+                            findings are still reported so that they remain visible and auditable.
+                          type: boolean
+                        exemptedBy:
+                          description: The name of the ScanPolicy that exempted this
+                            finding.
+                          type: string
+                        exemptionReason:
+                          description: The justification recorded on the ScanPolicy
+                            exemption that covered this finding.
+                          type: string
                         fixedVersion:
                           description: The minimum version of the package that resolves
                             the vulnerability, if known.

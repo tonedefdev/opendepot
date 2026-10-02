@@ -17,8 +17,27 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
 
 ## v0.11.0
 
-v0.11.0 completes the migration security remediations and updates the chart
-and application version to `0.11.0`.
+v0.11.0 updates the chart and application version to `0.11.0`. Download
+statistics now use Prometheus instead of Valkey, and the Stats page queries
+Prometheus over a 90-day lookback by default.
+
+### Prometheus Statistics
+
+The chart can optionally install a minimal kube-prometheus-stack. The bundled
+stack is disabled by default because Prometheus Operator requires cluster-wide
+RBAC. Enable it explicitly when that access is acceptable:
+
+```yaml
+monitoring:
+   bundled:
+      enabled: true
+```
+
+The server exposes download counters and registry state gauges on its metrics
+endpoint. The chart creates a `ServiceMonitor` for Prometheus Operator
+discovery. To retain time series beyond the local 90-day window, configure
+`monitoring.prometheus.prometheusSpec.remoteWrite` for Mimir or another
+Prometheus-compatible long-term storage system.
 
 ### Security and Configuration Changes
 
@@ -37,9 +56,6 @@ and application version to `0.11.0`.
 - Production UI OIDC base URLs and discovered endpoints require HTTPS. HTTP is
    available only with `global.developmentMode: true`; UI state and session
    cookies use secure cookie settings in normal deployments.
-- The bundled Prometheus stack is disabled by default because it requires
-   cluster-wide Prometheus Operator RBAC. Enable it explicitly with
-   `monitoring.bundled.enabled: true` only when that access is acceptable.
 - Server and Version controller images source-build pinned OpenTofu; the
    scanning image source-builds pinned Trivy.
 
@@ -49,8 +65,9 @@ and application version to `0.11.0`.
     ```bash
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
-2. Review custom values for monitoring. If you relied on the bundled stack,
-    enable it explicitly:
+2. Remove Valkey values, ACL Secrets, and
+   `server.stats.valkeyPasswordSecretName` overrides from custom values files.
+   If you want the chart to install Prometheus, enable the bundled stack:
     ```yaml
     monitoring:
        bundled:
@@ -264,12 +281,6 @@ v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance
    ```
 
 Valkey is deployed automatically as part of the chart. Download tracking resumes immediately after the server pod becomes ready. For production clusters, `valkey.dataStorage.enabled: true` (the default) ensures stats survive pod restarts — no additional configuration is required.
-
-## v0.12.0
-
-The download statistics backend is now Prometheus. The chart replaces the Valkey dependency with a minimal kube-prometheus-stack installation and creates a `ServiceMonitor` for the server metrics endpoint.
-
-Remove any Valkey values, ACL Secrets, and `server.stats.valkeyPasswordSecretName` overrides from custom values files. The Stats page uses a 90-day Prometheus lookback by default; download history from the removed Valkey store is not migrated. Configure Prometheus `remoteWrite` to Mimir or another compatible long-term store when retention beyond 90 days is required.
 
 ## v0.5.0
 

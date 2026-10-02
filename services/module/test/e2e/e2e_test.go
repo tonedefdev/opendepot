@@ -399,7 +399,6 @@ var _ = Describe("Module Scanning", Ordered, func() {
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			// Extra memory headroom for the version controller running Trivy.
 			"--set", "version.resources.limits.memory=1Gi",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -448,7 +447,6 @@ spec:
 			"--namespace", scanNamespace,
 			"--reuse-values",
 			"--set", "scanning.enabled=false",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)

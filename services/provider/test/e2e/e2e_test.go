@@ -784,7 +784,6 @@ var _ = Describe("Provider Scanning", Ordered, func() {
 			"--set", "version.resources.limits.memory=1Gi",
 			// Enable verbose debug logging so Trivy output is visible in test logs.
 			"--set", "version.zapLogLevel=5",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -833,7 +832,6 @@ spec:
 			"--set", "scanning.enabled=false",
 			"--set", "scanning.providerScanning=false",
 			"--set", "version.zapLogLevel=",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -948,7 +946,6 @@ var _ = Describe("Community Provider", Ordered, func() {
 			"--set", "version.resources.limits.memory=1Gi",
 			// Enable verbose debug logging so Trivy output is visible in test logs.
 			"--set", "version.zapLogLevel=5",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -998,7 +995,6 @@ spec:
 			"--set", "scanning.enabled=false",
 			"--set", "scanning.providerScanning=false",
 			"--set", "version.zapLogLevel=",
-			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
