@@ -17,13 +17,13 @@ limitations under the License.
 package providerschema
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -92,12 +92,12 @@ func Extract(ctx context.Context, in ExtractInput) ([]byte, error) {
 	mainTF := fmt.Sprintf(`terraform {
   required_providers {
     %s = {
-      source  = "%s/%s/%s"
-      version = "%s"
+			source  = %s
+			version = %s
     }
   }
 }
-`, in.Name, host, in.Namespace, in.Name, in.Version)
+`, in.Name, strconv.Quote(host+"/"+in.Namespace+"/"+in.Name), strconv.Quote(in.Version))
 
 	if err := os.WriteFile(filepath.Join(configDir, "main.tf"), []byte(mainTF), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write throwaway root module: %w", err)
@@ -174,7 +174,43 @@ func (in ExtractInput) validate() error {
 		return fmt.Errorf("provider schema extraction is missing required input: %s", strings.Join(missing, ", "))
 	}
 
+	for field, value := range map[string]string{
+		"namespace":    in.Namespace,
+		"name":         in.Name,
+		"version":      in.Version,
+		"os":           in.OS,
+		"arch":         in.Arch,
+		"registryHost": in.RegistryHost,
+	} {
+		if value != "" && !isPathComponent(value) {
+			return fmt.Errorf("provider schema extraction has invalid %s: %q", field, value)
+		}
+	}
+
+	if !isHCLIdentifier(in.Name) {
+		return fmt.Errorf("provider schema extraction has invalid name: %q", in.Name)
+	}
+
 	return nil
+}
+
+func isHCLIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_' || (index > 0 && character >= '0' && character <= '9') || (index > 0 && character == '-') {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func isPathComponent(value string) bool {
+	return value == strings.TrimSpace(value) && value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsRune(value, filepath.Separator) && !strings.Contains(value, "${") && !strings.Contains(value, "%{")
 }
 
 // runTofu executes a single tofu subcommand, bounding its output size and returning
@@ -184,19 +220,46 @@ func runTofu(ctx context.Context, bin, dir string, env []string, args ...string)
 	cmd.Dir = dir
 	cmd.Env = env
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &boundedOutput{limit: maxSchemaBytes}
+	stderr := &boundedOutput{limit: maxSchemaBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if stdout.exceeded || stderr.exceeded {
+		return nil, fmt.Errorf("tofu output exceeded the %d byte limit", maxSchemaBytes)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("%w — stderr: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	if stdout.Len() > maxSchemaBytes {
-		return nil, fmt.Errorf("provider schema output exceeded the %d byte limit", maxSchemaBytes)
+	return stdout.data, nil
+}
+
+type boundedOutput struct {
+	data     []byte
+	limit    int
+	exceeded bool
+}
+
+func (w *boundedOutput) Write(data []byte) (int, error) {
+	remaining := w.limit - len(w.data)
+	if len(data) > remaining {
+		if remaining > 0 {
+			w.data = append(w.data, data[:remaining]...)
+		}
+		w.exceeded = true
+
+		return remaining, io.ErrShortWrite
 	}
 
-	return stdout.Bytes(), nil
+	w.data = append(w.data, data...)
+
+	return len(data), nil
+}
+
+func (w *boundedOutput) String() string {
+	return string(w.data)
 }
 
 // copyFile copies src to dst, creating dst with owner-only permissions.

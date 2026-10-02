@@ -74,11 +74,6 @@ func validateAndPackageAssembly(ctx context.Context, files assemblyexport.Files,
 		"init", "-input=false", "-backend=false", "-no-color"); err != nil {
 		return nil, err
 	}
-	if err := runAssemblyCommand(ctx, workspace, environment, "validate", *opendepotAssemblyValidateTimeout,
-		progress,
-		"validate", "-no-color"); err != nil {
-		return nil, err
-	}
 
 	return packageAssembly(files)
 }
@@ -202,7 +197,7 @@ func runAssemblyCommand(parent context.Context, directory string, environment []
 	command.Dir = directory
 	command.Env = environment
 
-	output := &boundedCommandOutput{limit: *opendepotAssemblyMaxOutputBytes, phase: phase, progress: progress}
+	output := &boundedCommandOutput{limit: *opendepotAssemblyMaxOutputBytes, lineLimit: int(*opendepotAssemblyMaxOutputBytes), phase: phase, progress: progress}
 	command.Stdout = output
 	command.Stderr = output
 	if progress != nil {
@@ -224,12 +219,15 @@ func runAssemblyCommand(parent context.Context, directory string, environment []
 }
 
 type boundedCommandOutput struct {
-	buffer   bytes.Buffer
-	limit    int64
-	phase    string
-	line     strings.Builder
-	progress assemblyProgressFunc
-	mutex    sync.Mutex
+	buffer        bytes.Buffer
+	limit         int64
+	phase         string
+	line          strings.Builder
+	lineLimit     int
+	lineTruncated bool
+	progressBytes int64
+	progress      assemblyProgressFunc
+	mutex         sync.Mutex
 }
 
 func (w *boundedCommandOutput) Write(value []byte) (int, error) {
@@ -273,10 +271,30 @@ func (w *boundedCommandOutput) writeProgress(value []byte) {
 	if w.progress == nil {
 		return
 	}
+	remaining := w.limit - w.progressBytes
+	if remaining <= 0 {
+		return
+	}
+	if int64(len(value)) > remaining {
+		value = value[:remaining]
+	}
+	w.progressBytes += int64(len(value))
+	if w.lineLimit == 0 {
+		w.lineLimit = int(w.limit)
+	}
 
 	for _, character := range string(value) {
 		if character == '\n' {
 			w.flushProgress()
+
+			continue
+		}
+		if w.lineTruncated {
+			continue
+		}
+		if w.line.Len() >= w.lineLimit {
+			w.lineTruncated = true
+			w.line.WriteString("[output line truncated]")
 
 			continue
 		}
@@ -291,6 +309,7 @@ func (w *boundedCommandOutput) flushProgress() {
 
 	w.progress(w.phase, strings.TrimSuffix(w.line.String(), "\r"))
 	w.line.Reset()
+	w.lineTruncated = false
 }
 
 func packageAssembly(files assemblyexport.Files) ([]byte, error) {

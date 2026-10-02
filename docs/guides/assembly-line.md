@@ -22,6 +22,10 @@ References can connect a root variable or module output to a module input or pro
 
 Building a canvas node requires the underlying module or provider version to already have an extracted Assembly artifact: a module version needs a synced, derived contract (`status.contractConfigMapRef`), and a provider version needs a synced, extracted configuration schema (`status.providerSchemaRef`). Versions without these artifacts are not offered on the canvas.
 
+### Provider schema extraction
+
+Provider schema extraction runs OpenTofu in a temporary, scrubbed workspace. The controller validates the provider source, version, and workspace path components before constructing the extraction configuration. Each OpenTofu subprocess has bounded stdout and stderr, and extraction is stopped when `assembly.extractionTimeout` expires. These checks keep provider-controlled metadata and command output from escaping the extraction workspace or growing without limit.
+
 ## Providers
 
 Provider nodes must reference onboarded OpenDepot `Provider` resources with an extracted configuration schema. Configure required and optional attributes and nested blocks from that schema.
@@ -80,18 +84,17 @@ provider_installation {
 
 `include` lists the exact canonical `registry.opentofu.org/<providerNamespace>/<providerName>` sources resolved for that namespace (deduplicated and sorted), and `direct.exclude` disables OpenTofu's fallback to the public OpenTofu Registry. This also covers provider requirements declared by downloaded child modules, so every provider in the configuration must resolve through OpenDepot's mirror.
 
-The temporary config maps the public OpenDepot host's `modules.v1` service to the validation registry origin. A `credentials` block carries the caller's Bearer token when authentication is enabled. Provider source addresses are never rewritten: both validation and the returned `main.tf` retain canonical sources such as `hashicorp/aws`. No validation-only CLI configuration is included in the ZIP.
+The temporary config maps the public OpenDepot host's `modules.v1` service to the registry origin. A `credentials` block carries the caller's Bearer token when authentication is enabled. Provider source addresses are never rewritten: both initialization and the returned `main.tf` retain canonical sources such as `hashicorp/aws`. No temporary CLI configuration is included in the ZIP.
 
-By default the temporary module and mirror URLs use the external `ui.baseUrl` origin. Set `assembly.validationRegistryUrl` to a trusted HTTPS origin when the public origin is not reachable from the server pod. If that endpoint uses a private CA, set `assembly.validationCACertPath` to a readable PEM CA bundle. These settings change only validation transport; they do not change generated module sources, canonical provider identities, or files included in the ZIP.
+By default the temporary module and mirror URLs use the external `ui.baseUrl` origin. Set `assembly.validationRegistryUrl` to a trusted HTTPS origin when the public origin is not reachable from the server pod. If that endpoint uses a private CA, set `assembly.validationCACertPath` to a readable PEM CA bundle. These settings change only initialization transport; they do not change generated module sources, canonical provider identities, or files included in the ZIP.
 
-The server then runs, in an isolated temporary workspace:
+The server then runs initialization in an isolated temporary workspace:
 
 ```bash
 tofu init -input=false -backend=false -no-color
-tofu validate -no-color
 ```
 
-Initialization downloads the selected modules and providers from the OpenDepot registry through that generated configuration. In anonymous mode no credentials are written. With Bearer/OIDC authentication, the request token is placed only in a mode-`0600` temporary OpenTofu CLI credentials file. It is never included in command arguments, logs, generated HCL, diagnostics, or the ZIP.
+Assembly validation runs `tofu init` only. It does not run `tofu validate`, because provider validation executes provider binaries inside the server process boundary. Initialization downloads the selected modules and providers from the OpenDepot registry through that generated configuration. Command output retained for diagnostics and streamed progress is bounded by `assembly.maxOutputBytes` (default `65536` bytes); streamed progress is emitted one completed output line at a time. In anonymous mode no credentials are written. With Bearer/OIDC authentication, the request token is placed only in a mode-`0600` temporary OpenTofu CLI credentials file. It is never included in command arguments, logs, generated HCL, diagnostics, or the ZIP.
 
 Legacy kubeconfig authentication cannot be forwarded through the registry protocol. Authenticated export therefore requires a Bearer token.
 
@@ -100,12 +103,12 @@ Legacy kubeconfig authentication cannot be forwarded through the registry protoc
 Export requests are bounded by Helm-configurable limits (see [Helm Chart Reference](../helm-chart.md#assembly-line)):
 
 - Maximum request body size and maximum total canvas nodes (variables + modules + providers combined) are enforced before any resolution work begins.
-- `tofu init` and `tofu validate` each run under their own timeout; a command that exceeds its timeout is treated as a failed phase, not a hang.
+- `tofu init` runs under its own timeout; a command that exceeds its timeout is treated as a failed phase, not a hang.
 - Captured `stdout`/`stderr` from each OpenTofu command is truncated to a configured byte limit before being surfaced in diagnostics or streamed progress.
 
 ### Streamed validation output
 
-When the client requests `Accept: application/x-ndjson`, the server streams newline-delimited progress events instead of waiting for the full export to finish: a `started` event, one `output` event per completed line of `tofu init`/`tofu validate` output (tagged with its phase), then either a `complete` event carrying the base64-encoded ZIP or an `error` event with the same diagnostic shape used by the non-streaming response. This is what powers the live output shown in the export dialog.
+When the client requests `Accept: application/x-ndjson`, the server streams newline-delimited progress events instead of waiting for the full export to finish: a `started` event, one `output` event per completed line of `tofu init` output, then either a `complete` event carrying the base64-encoded ZIP or an `error` event with the same diagnostic shape used by the non-streaming response. This is what powers the live output shown in the export dialog.
 
 ### Temporary workspace and credential handling
 
@@ -126,12 +129,12 @@ The archive excludes `.terraform`, lock files, state, CLI configuration, command
 
 Client validation blocks export while nodes are loading or have known name, input, provider, reference, or multiplicity errors. Server diagnostics identify a stable error code, node, and field path where available.
 
-The server returns no ZIP when resource authorization, exact-version resolution, OpenTofu-only provider eligibility, rendering, `tofu init`, or `tofu validate` fails. Sanitized bounded OpenTofu output is shown in the error dialog for initialization and validation failures.
+The server returns no ZIP when resource authorization, exact-version resolution, OpenTofu-only provider eligibility, rendering, or `tofu init` fails. Sanitized bounded OpenTofu output is shown in the error dialog for initialization failures.
 
 ## Local Development (Tilt)
 
 The checked-in Tilt values enable Assembly Line (`assembly.enabled: true`) and set `ui.baseUrl` to `https://opendepot.localtest.me:8443`. The `dev-tls` resource generates one mkcert certificate containing both the public development hostname and the in-cluster server Service DNS names, stores the certificate, key, and CA in the `opendepot-tls` Secret, and runs the server with TLS enabled. The host-side `provider-mirror-tls` proxy reads the same certificate from that Secret.
 
-Because the host-side listener is not reachable through the pod's loopback address, Tilt sets `assembly.validationRegistryUrl` to `https://server.opendepot-system.svc.cluster.local:80` and `assembly.validationCACertPath` to the mounted mkcert CA. Temporary validation therefore uses the Provider Network Mirror over trusted internal HTTPS, while exported configuration continues to target the public HTTPS origin.
+Because the host-side listener is not reachable through the pod's loopback address, Tilt sets `assembly.validationRegistryUrl` to `https://server.opendepot-system.svc.cluster.local:80` and `assembly.validationCACertPath` to the mounted mkcert CA. Temporary initialization therefore uses the Provider Network Mirror over trusted internal HTTPS, while exported configuration continues to target the public HTTPS origin.
 
 Production deployments still require `ui.baseUrl` to be a valid, publicly trusted HTTPS URL. Leave both validation overrides empty when that origin is reachable from the server pod; otherwise provide a trusted internal HTTPS route serving the same OpenDepot registry.

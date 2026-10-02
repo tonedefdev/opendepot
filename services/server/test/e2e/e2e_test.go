@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -79,7 +80,6 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--skip-crds",
 			"--set", "monitoring.enabled=false",
 			"--set", "monitoring.bundled.enabled=false",
-			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
@@ -180,6 +180,42 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
 				"anonymous auth mode must not challenge clients with 401")
+		})
+	})
+
+	Context("Assembly export", Ordered, func() {
+		var pfCancel context.CancelFunc
+
+		BeforeAll(func() {
+			By("deploying server with Assembly enabled")
+			deployServer(
+				"--set", "server.anonymousAuth=true",
+				"--set", "server.useBearerToken=false",
+				"--set", "assembly.enabled=true",
+				"--set", "ui.baseUrl=http://opendepot.localtest.me",
+			)
+			pfCancel = startPortForward()
+		})
+
+		AfterAll(func() {
+			stopPortForward(pfCancel)
+		})
+
+		It("should export an empty canvas without running provider validation", func() {
+			request := bytes.NewBufferString(`{"schemaVersion":"assembly.export.v1","variables":[],"modules":[],"providers":[]}`)
+			resp, err := http.Post(
+				fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/assembly/export", serverLocalPort),
+				"application/json",
+				request,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(Equal("application/zip"))
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(body).NotTo(BeEmpty())
 		})
 	})
 
@@ -2452,7 +2488,6 @@ var _ = Describe("Browse API", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
-			"--force-conflicts",
 			"--set", "monitoring.enabled=false",
 			"--set", "monitoring.bundled.enabled=false",
 			"--set", "global.image.tag=",
@@ -3058,7 +3093,6 @@ server:
 				"--skip-crds",
 				"--set", "monitoring.enabled=false",
 				"--set", "monitoring.bundled.enabled=false",
-				"--force-conflicts",
 				"--set", "global.image.tag=",
 				"--set", "depot.enabled=false",
 				"--set", "module.enabled=false",

@@ -28,6 +28,13 @@ spec:
       - name: fix-permissions
         image: busybox:1.37
         command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
+        resources:
+          limits:
+            cpu: 100m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
         securityContext:
           runAsUser: 0
           runAsNonRoot: false
@@ -109,7 +116,6 @@ spec:
         - --tofu-bin-path={{ .Values.assembly.tofuBinPath }}
         - --assembly-work-dir={{ .Values.assembly.workDir }}
         - --assembly-init-timeout={{ .Values.assembly.initTimeout }}
-        - --assembly-validate-timeout={{ .Values.assembly.validateTimeout }}
         - --assembly-max-request-bytes={{ int .Values.assembly.maxRequestBytes }}
         - --assembly-max-nodes={{ int .Values.assembly.maxNodes }}
         - --assembly-max-output-bytes={{ int .Values.assembly.maxOutputBytes }}

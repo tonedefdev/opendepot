@@ -103,6 +103,16 @@ var _ = Describe("Version", Ordered, func() {
 			}
 			Eventually(verifyControllerUp).Should(Succeed())
 		})
+
+		It("should be allowed to delete Pods in its namespace", func() {
+			cmd := exec.Command("kubectl", "auth", "can-i", "delete", "pods",
+				"--as=system:serviceaccount:"+namespace+":version-controller",
+				"-n", namespace,
+			)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(Equal("yes"))
+		})
 	})
 
 	Context("Version CR", Ordered, func() {

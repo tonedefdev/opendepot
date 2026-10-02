@@ -144,6 +144,43 @@ func TestBoundedCommandOutputReportsCompleteLines(t *testing.T) {
 	}
 }
 
+func TestBoundedCommandOutputLimitsUnterminatedLine(t *testing.T) {
+	var lines []string
+	output := &boundedCommandOutput{
+		limit:     4,
+		lineLimit: 4,
+		phase:     "init",
+		progress: func(_ string, line string) {
+			lines = append(lines, line)
+		},
+	}
+
+	_, _ = output.Write([]byte("123456789"))
+	output.Finish()
+
+	if len(lines) != 1 || len(lines[0]) > 32 {
+		t.Fatalf("progress lines = %#v, want one bounded line", lines)
+	}
+}
+
+func TestBoundedCommandOutputLimitsProgressAfterOutputCap(t *testing.T) {
+	var lines []string
+	output := &boundedCommandOutput{
+		limit: 4,
+		phase: "init",
+		progress: func(_ string, line string) {
+			lines = append(lines, line)
+		},
+	}
+
+	_, _ = output.Write([]byte("aa\nbb\ncc\n"))
+	output.Finish()
+
+	if got := strings.Join(lines, ""); len(got) > 4 {
+		t.Fatalf("progress bytes = %d, want at most 4: %#v", len(got), lines)
+	}
+}
+
 func TestStreamAssemblyExportReportsProgressAndArchive(t *testing.T) {
 	workDirectory := t.TempDir()
 	tofuPath := filepath.Join(workDirectory, "tofu")
@@ -158,14 +195,12 @@ func TestStreamAssemblyExportReportsProgressAndArchive(t *testing.T) {
 	previousValidationCACertPath := opendepotAssemblyValidationCACertPath
 	previousRegistryInsecure := opendepotAssemblyRegistryInsecure
 	previousInitTimeout := opendepotAssemblyInitTimeout
-	previousValidateTimeout := opendepotAssemblyValidateTimeout
 	previousOutputLimit := opendepotAssemblyMaxOutputBytes
 	registryHost := "opendepot.example.com"
 	validationRegistryURL := "https://opendepot.example.com"
 	validationCACertPath := ""
 	registryInsecure := false
 	initTimeout := time.Minute
-	validateTimeout := time.Minute
 	outputLimit := int64(1024 * 1024)
 	opendepotAssemblyWorkDir = &workDirectory
 	opendepotTofuBinPath = &tofuPath
@@ -174,7 +209,6 @@ func TestStreamAssemblyExportReportsProgressAndArchive(t *testing.T) {
 	opendepotAssemblyValidationCACertPath = &validationCACertPath
 	opendepotAssemblyRegistryInsecure = &registryInsecure
 	opendepotAssemblyInitTimeout = &initTimeout
-	opendepotAssemblyValidateTimeout = &validateTimeout
 	opendepotAssemblyMaxOutputBytes = &outputLimit
 
 	t.Cleanup(func() {
@@ -185,7 +219,6 @@ func TestStreamAssemblyExportReportsProgressAndArchive(t *testing.T) {
 		opendepotAssemblyValidationCACertPath = previousValidationCACertPath
 		opendepotAssemblyRegistryInsecure = previousRegistryInsecure
 		opendepotAssemblyInitTimeout = previousInitTimeout
-		opendepotAssemblyValidateTimeout = previousValidateTimeout
 		opendepotAssemblyMaxOutputBytes = previousOutputLimit
 	})
 
@@ -209,16 +242,13 @@ func TestStreamAssemblyExportReportsProgressAndArchive(t *testing.T) {
 		}
 		events = append(events, event)
 	}
-	if len(events) != 6 {
-		t.Fatalf("event count = %d, want 6: %#v", len(events), events)
+	if len(events) != 4 {
+		t.Fatalf("event count = %d, want 4: %#v", len(events), events)
 	}
 	if events[1].Output != "$ tofu init -input=false -backend=false -no-color" || events[2].Output != "running init" {
 		t.Fatalf("init events = %#v", events[1:3])
 	}
-	if events[3].Output != "$ tofu validate -no-color" || events[4].Output != "running validate" {
-		t.Fatalf("validate events = %#v", events[3:5])
-	}
-	archive, err := base64.StdEncoding.DecodeString(events[5].Archive)
+	archive, err := base64.StdEncoding.DecodeString(events[3].Archive)
 	if err != nil {
 		t.Fatalf("base64.DecodeString() error = %v", err)
 	}

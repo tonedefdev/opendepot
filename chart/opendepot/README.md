@@ -243,7 +243,7 @@ When `hostPath` is set, an `initContainer` (`busybox:1.37`) runs as root to `cho
 
 ### Prometheus monitoring
 
-The chart bundles a minimal `kube-prometheus-stack` installation by default. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly. OpenDepot exposes download counters and registry state gauges on its metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery. The Stats page queries Prometheus using a 90-day lookback by default; use `server.stats.prometheusUrl` to connect to an external Prometheus deployment.
+The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly. OpenDepot exposes download counters and registry state gauges on its metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery. The Stats page queries Prometheus using a 90-day lookback by default; use `server.stats.prometheusUrl` to connect to an external Prometheus deployment.
 
 For time series longer than the local Prometheus retention window, configure Prometheus `remoteWrite` to Mimir or another Prometheus-compatible long-term storage system and use Grafana to query that retained data.
 
@@ -280,13 +280,12 @@ A schema is extracted only for provider versions whose `operatingSystem` and `ar
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `assembly.enabled` | `false` | Enable module contract derivation, provider schema extraction, and validated root-module export |
-| `assembly.validationRegistryUrl` | `""` | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu validation; defaults to `ui.baseUrl` |
-| `assembly.validationCACertPath` | `""` | Optional PEM CA bundle trusted only by the temporary OpenTofu validation process |
+| `assembly.enabled` | `false` | Enable module contract derivation, provider schema extraction, and initialized root-module export |
+| `assembly.validationRegistryUrl` | `""` | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization; defaults to `ui.baseUrl` |
+| `assembly.validationCACertPath` | `""` | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process |
 | `assembly.tofuBinPath` | `/usr/local/bin/tofu` | Path to the `tofu` binary bundled in the version controller and server images |
 | `assembly.extractionTimeout` | `5m` | Maximum duration a single provider schema extraction may run for |
 | `assembly.initTimeout` | `2m` | Maximum duration for export `tofu init` |
-| `assembly.validateTimeout` | `1m` | Maximum duration for export `tofu validate` |
 | `assembly.maxRequestBytes` | `2097152` | Maximum export request body size |
 | `assembly.maxNodes` | `100` | Maximum total canvas node count |
 | `assembly.maxOutputBytes` | `65536` | Maximum captured output for each OpenTofu command |

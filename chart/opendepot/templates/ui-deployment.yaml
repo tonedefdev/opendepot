@@ -16,6 +16,13 @@ spec:
       labels:
         app: ui
     spec:
+      {{- if and .Values.ui.oidc.enabled (not .Values.global.developmentMode) }}
+      {{- $baseURL := required "ui.baseUrl is required when ui.oidc.enabled=true" .Values.ui.baseUrl -}}
+      {{- $parsedBaseURL := urlParse $baseURL -}}
+      {{- if ne (get $parsedBaseURL "scheme") "https" }}
+      {{- fail "ui.baseUrl must use https when ui.oidc.enabled=true outside developmentMode" -}}
+      {{- end }}
+      {{- end }}
       serviceAccountName: ui
       securityContext:
         runAsNonRoot: true

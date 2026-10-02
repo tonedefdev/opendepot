@@ -4,6 +4,8 @@ global:
 
 monitoring:
   enabled: true
+  bundled:
+    enabled: true
 
 provider:
   enabled: true

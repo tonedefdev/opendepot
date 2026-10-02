@@ -38,27 +38,20 @@ COPY services/server/ services/server/
 # Build
 RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
 
-# Supply the same pinned OpenTofu binary used by the version controller.
-FROM debian:bookworm-slim AS tofu-source
-ARG TARGETARCH
-ARG TOFU_VERSION=1.12.6
-ARG TOFU_SHA256_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
-ARG TOFU_SHA256_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
+# Supply the same patched OpenTofu binary used by the version controller.
+FROM golang:1.27.1 AS tofu-source
+ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
 RUN apt-get update \
-		&& apt-get install -y --no-install-recommends ca-certificates curl unzip \
+		&& apt-get install -y --no-install-recommends ca-certificates curl \
 		&& rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-		arch="${TARGETARCH:-amd64}"; \
-		case "$arch" in \
-			amd64) sha="$TOFU_SHA256_AMD64" ;; \
-			arm64) sha="$TOFU_SHA256_ARM64" ;; \
-			*) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
-		esac; \
-		curl -fsSL -o /tmp/tofu.zip \
-			"https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.zip"; \
-		echo "${sha}  /tmp/tofu.zip" | sha256sum -c -; \
-		unzip -o /tmp/tofu.zip tofu -d /usr/local/bin; \
-		chmod 0755 /usr/local/bin/tofu
+	curl -fsSL -o /tmp/opentofu.tar.gz "https://github.com/opentofu/opentofu/archive/${TOFU_COMMIT}.tar.gz"; \
+	mkdir /tmp/opentofu; \
+	tar --strip-components=1 -xzf /tmp/opentofu.tar.gz -C /tmp/opentofu; \
+	cd /tmp/opentofu; \
+	sed -i -E 's/(golang.org\/x\/mod[[:space:]]+)v[0-9.]+/\1v0.40.0/; s/(google.golang.org\/grpc[[:space:]]+)v[0-9.]+/\1v1.83.2/' go.mod; \
+	GOWORK=off go mod tidy; \
+	GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

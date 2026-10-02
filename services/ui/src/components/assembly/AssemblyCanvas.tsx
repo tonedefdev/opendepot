@@ -349,21 +349,6 @@ function uniqueInstanceName(base: string, existing: Set<string>): string {
   return `${base}_${i}`;
 }
 
-function providerConfigurationInvalid(schema: RawProviderData["schema"], configuration: ProviderConfiguration): boolean {
-  for (const [name, attribute] of Object.entries(schema.attributes ?? {})) {
-    if (attribute.required && !configuration.arguments[name]) return true;
-  }
-
-  for (const [name, nested] of Object.entries(schema.blocks ?? {})) {
-    const instances = configuration.blocks[name] ?? [];
-    if (instances.length < (nested.minItems ?? 0)) return true;
-    if (nested.maxItems && instances.length > nested.maxItems) return true;
-    if (instances.some((instance) => providerConfigurationInvalid(nested.block, instance))) return true;
-  }
-
-  return false;
-}
-
 function AssemblyCanvasInner({ modules, providers }: Props) {
   const [resourceMenuOpen, setResourceMenuOpen] = useState(false);
   const [mobileMapOpen, setMobileMapOpen] = useState(false);
@@ -1171,14 +1156,6 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
     }
   }, [setNodes]);
 
-  const hasClientErrors =
-    nodes.length === 0 ||
-    nodes.some((node) => (node.data.kind !== "variable" && (node.data.loading || !!node.data.error))) ||
-    nodes.some((node) => node.data.kind === "provider" && (!!node.data.alias && !isValidInstanceName(node.data.alias) || providerConfigurationInvalid(node.data.schema, node.data.configuration))) ||
-    instanceNameErrorsByNode.size > 0 ||
-    variableValidationErrorsByNode.size > 0 ||
-    Array.from(fieldErrorsByNode.values()).some((errors) => Object.keys(errors).length > 0);
-
   const exportCanvas = useCallback(async () => {
     setExporting(true);
     setExportComplete(false);
@@ -1380,7 +1357,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             size="small"
             startIcon={<DownloadIcon />}
             onClick={() => void exportCanvas()}
-            disabled={hasClientErrors || exporting}
+            disabled={exporting}
           >
             {exporting ? "Validating…" : "Export"}
           </Button>

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { fetchOIDCEndpoint, validateOIDCEndpoint, verifyIDToken } from "@/lib/oidc";
+import { fetchOIDCEndpoint, validateOIDCBaseURL, validateOIDCEndpoint, verifyIDToken } from "@/lib/oidc";
 import type { SessionData } from "@/lib/session";
 import { sessionOptions } from "@/lib/session";
 
@@ -16,6 +16,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const allowInsecureHTTP = process.env.OIDC_ALLOW_INSECURE_HTTP === "true";
+  try {
+    validateOIDCBaseURL(baseUrl, allowInsecureHTTP);
+  } catch {
+    return new NextResponse("Invalid OIDC base URL", { status: 503 });
+  }
   try {
     validateOIDCEndpoint(issuer, issuer, { allowInsecureHTTP });
   } catch {

@@ -310,8 +310,6 @@ assembly:
   extractionTimeout: 5m
   # Maximum duration for OpenTofu to download modules/providers and initialize an export.
   initTimeout: 2m
-  # Maximum duration for OpenTofu to validate a rendered export.
-  validateTimeout: 1m
   # Maximum accepted export request body and total canvas node count.
   maxRequestBytes: 2097152
   maxNodes: 100
@@ -480,7 +478,7 @@ ui:
 monitoring:
   enabled: true
   bundled:
-    enabled: true
+    enabled: false
   grafana:
     enabled: false
   alertmanager:

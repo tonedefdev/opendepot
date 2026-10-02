@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -27,9 +28,12 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -65,6 +69,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var tokenRefreshHelper bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -110,6 +115,8 @@ func main() {
 		"Maximum duration a single provider schema extraction may run for.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.BoolVar(&tokenRefreshHelper, "token-refresh-helper", false,
+		"Run as the ServiceAccount token refresh sidecar")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -134,6 +141,11 @@ func main() {
 
 	if !enableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
+	}
+
+	if tokenRefreshHelper {
+		runTokenRefreshHelper()
+		return
 	}
 
 	// Create watchers for metrics and webhooks certificates
@@ -228,7 +240,18 @@ func main() {
 		}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOptions)
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		setupLog.Error(err, "unable to load Kubernetes config")
+		os.Exit(1)
+	}
+
+	if err := removeServiceAccountToken(); err != nil {
+		setupLog.Error(err, "unable to remove ServiceAccount token before provider execution")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -292,4 +315,55 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func removeServiceAccountToken() error {
+	err := os.Remove("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	if os.IsNotExist(err) {
+		return nil
+	}
+
+	return err
+}
+
+func runTokenRefreshHelper() {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		setupLog.Error(err, "unable to load Kubernetes config for token refresh helper")
+		os.Exit(1)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		setupLog.Error(err, "unable to create Kubernetes client for token refresh helper")
+		os.Exit(1)
+	}
+
+	podName := os.Getenv("POD_NAME")
+	namespace := os.Getenv("POD_NAMESPACE")
+	if podName == "" || namespace == "" {
+		return
+	}
+
+	time.Sleep(50 * time.Minute)
+	for {
+		if deletePodUntilSuccessful(clientset, namespace, podName, func() {
+			time.Sleep(5 * time.Minute)
+		}) {
+			return
+		}
+	}
+}
+
+func deletePodUntilSuccessful(clientset kubernetes.Interface, namespace, podName string, wait func()) bool {
+	for attempts := 0; attempts < 2; attempts++ {
+		if err := clientset.CoreV1().Pods(namespace).Delete(context.Background(), podName, metav1.DeleteOptions{}); err == nil {
+			return true
+		} else {
+			setupLog.Error(err, "unable to delete pod before ServiceAccount token expiry", "pod", podName, "namespace", namespace)
+		}
+
+		wait()
+	}
+
+	return false
 }

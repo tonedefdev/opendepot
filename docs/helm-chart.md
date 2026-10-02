@@ -165,19 +165,24 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 !!! note
     The provider controller is disabled by default (`provider.enabled: false`). Enable it explicitly when you are ready to sync provider binaries — provider archives can be several hundred megabytes each.
 
+The Version controller's init containers use fixed bounded resources (`10m` CPU
+and `16Mi` memory requests; `100m` CPU and `32Mi` memory limits). The controller
+also runs a `token-refresh-helper` sidecar that refreshes the projected
+ServiceAccount token used by the controller. The main controller does not use a
+directly mounted Kubernetes ServiceAccount token.
+
 ## Assembly Line
 
 Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `assembly.enabled` | bool | Enable contract/schema extraction and validated exports. Default: `false` |
-| `assembly.validationRegistryUrl` | string | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu validation. Defaults to `ui.baseUrl`. |
-| `assembly.validationCACertPath` | string | Optional PEM CA bundle trusted only by the temporary OpenTofu validation process. Default: `""` |
+| `assembly.enabled` | bool | Enable contract/schema extraction and initialized exports. Default: `false` |
+| `assembly.validationRegistryUrl` | string | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization. Defaults to `ui.baseUrl`. |
+| `assembly.validationCACertPath` | string | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process. Default: `""` |
 | `assembly.tofuBinPath` | string | OpenTofu binary path in the version and server images. Default: `/usr/local/bin/tofu` |
 | `assembly.extractionTimeout` | duration | Provider schema extraction timeout. Default: `5m` |
 | `assembly.initTimeout` | duration | Export `tofu init` timeout. Default: `2m` |
-| `assembly.validateTimeout` | duration | Export `tofu validate` timeout. Default: `1m` |
 | `assembly.maxRequestBytes` | int | Maximum export request body. Default: `2097152` |
 | `assembly.maxNodes` | int | Maximum total canvas nodes per export. Default: `100` |
 | `assembly.maxOutputBytes` | int | Maximum captured output per OpenTofu command. Default: `65536` |
@@ -249,7 +254,7 @@ The chart bundles a minimal [kube-prometheus-stack](https://github.com/prometheu
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `monitoring.enabled` | bool | Install the bundled kube-prometheus-stack. Default: `true` |
+| `monitoring.bundled.enabled` | bool | Install the bundled kube-prometheus-stack. Default: `false` |
 | `monitoring.prometheus.prometheusSpec.retention` | string | Local Prometheus retention. Default: `90d` |
 | `monitoring.prometheus.prometheusSpec.remoteWrite` | list | Optional remote-write targets such as Mimir for long-term storage. |
 | `server.metrics.serviceMonitor.enabled` | bool | Create the OpenDepot `ServiceMonitor`. Default: `true` |
@@ -257,7 +262,25 @@ The chart bundles a minimal [kube-prometheus-stack](https://github.com/prometheu
 | `server.stats.lookback` | string | Stats page query window. Default: `90d` |
 | `server.stats.queryTimeout` | duration | Prometheus query timeout. Default: `5s` |
 
+The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and
+is disabled by default. Enable it only when that cluster-wide access is
+acceptable:
+
+```yaml
+monitoring:
+  bundled:
+    enabled: true
+```
+
 The Stats page uses the configured lookback window, not an all-time total. For time series longer than local retention, configure `remoteWrite` to Mimir or another Prometheus-compatible backend and use Grafana to query the retained history.
+
+### Source-built controller dependencies
+
+The server and Version controller images build the pinned OpenTofu source commit
+used for initialization and schema extraction. The scanning image also builds
+Trivy from a pinned source commit. The chart release metadata is the source of
+the default image tag; release `0.11.0` uses chart and application version
+`0.11.0`.
 
 See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
 

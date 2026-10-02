@@ -90,7 +90,6 @@ func main() {
 	opendepotTofuBinPath = flag.String("tofu-bin-path", "/usr/local/bin/tofu", "path to the OpenTofu binary used to validate Assembly Line exports")
 	opendepotAssemblyWorkDir = flag.String("assembly-work-dir", "/tmp/opendepot-assembly", "directory used for temporary Assembly Line validation workspaces")
 	opendepotAssemblyInitTimeout = flag.Duration("assembly-init-timeout", 2*time.Minute, "maximum duration for Assembly Line tofu init")
-	opendepotAssemblyValidateTimeout = flag.Duration("assembly-validate-timeout", time.Minute, "maximum duration for Assembly Line tofu validate")
 	opendepotAssemblyMaxRequestBytes = flag.Int64("assembly-max-request-bytes", 2<<20, "maximum Assembly Line export request size")
 	opendepotAssemblyMaxNodes = flag.Int("assembly-max-nodes", 100, "maximum total nodes in an Assembly Line export")
 	opendepotAssemblyMaxOutputBytes = flag.Int64("assembly-max-output-bytes", 64<<10, "maximum captured output for each Assembly Line OpenTofu command")
@@ -139,7 +138,7 @@ func main() {
 			}
 		}
 
-		if *opendepotAssemblyInitTimeout <= 0 || *opendepotAssemblyValidateTimeout <= 0 ||
+		if *opendepotAssemblyInitTimeout <= 0 ||
 			*opendepotAssemblyMaxRequestBytes <= 0 || *opendepotAssemblyMaxNodes <= 0 || *opendepotAssemblyMaxOutputBytes <= 0 {
 			logger.Error("Assembly Line timeouts and limits must be greater than zero")
 			os.Exit(1)

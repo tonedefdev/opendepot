@@ -15,6 +15,57 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.11.0
+
+v0.11.0 completes the migration security remediations and updates the chart
+and application version to `0.11.0`.
+
+### Security and Configuration Changes
+
+- Assembly Line validation runs OpenTofu `init` only. Retained and streamed
+   OpenTofu output is bounded by `assembly.maxOutputBytes`.
+- Provider schema extraction validates provider source, version, and path
+   inputs, bounds subprocess output, and applies the configured extraction
+   timeout.
+- The Version controller no longer exposes a directly mounted ServiceAccount
+   token. It stages credentials in the pod through an init container and uses a
+   `token-refresh-helper` sidecar to refresh the projected token. The chart grants
+   only namespace-scoped Pod-delete and Secret-read permissions for this flow.
+- Init containers use bounded CPU and memory resources.
+- UI dependencies include security patches. No application configuration change
+   is required for this update.
+- Production UI OIDC base URLs and discovered endpoints require HTTPS. HTTP is
+   available only with `global.developmentMode: true`; UI state and session
+   cookies use secure cookie settings in normal deployments.
+- The bundled Prometheus stack is disabled by default because it requires
+   cluster-wide Prometheus Operator RBAC. Enable it explicitly with
+   `monitoring.bundled.enabled: true` only when that access is acceptable.
+- Server and Version controller images source-build pinned OpenTofu; the
+   scanning image source-builds pinned Trivy.
+
+### Upgrade Steps
+
+1. Apply the updated CRDs:
+    ```bash
+    helm show crds opendepot/opendepot | kubectl apply --server-side -f -
+    ```
+2. Review custom values for monitoring. If you relied on the bundled stack,
+    enable it explicitly:
+    ```yaml
+    monitoring:
+       bundled:
+          enabled: true
+    ```
+3. Upgrade the chart:
+    ```bash
+    helm upgrade opendepot opendepot/opendepot \
+       -n opendepot-system \
+       -f my-values.yaml
+    ```
+
+Keep production UI OIDC URLs on HTTPS. Do not enable `global.developmentMode`
+to bypass that requirement outside local development.
+
 ## v0.10.0
 
 v0.10.0 enables Valkey ACL authentication and the bundled Dex reverse proxy by default. All existing installations must create a Valkey password Secret. Existing OIDC installations must also review their Dex configuration.

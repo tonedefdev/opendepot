@@ -42,32 +42,33 @@ COPY services/version/internal/ services/version/internal/
 # Build
 RUN cd services/version && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/version-controller cmd/main.go
 
-# trivy-source: pulled at build time; only copied into the final image when INCLUDE_TRIVY=true
-FROM aquasec/trivy:0.74.0 AS trivy-source
+# trivy-source: built from an immutable upstream commit; only copied into the final image when INCLUDE_TRIVY=true
+FROM golang:1.27.1 AS trivy-source
+ARG TRIVY_COMMIT=8f815546c7b57dc11229b0098463dff0cfc9ed2c
+RUN set -eux; \
+  apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*; \
+  curl -fsSL -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/archive/${TRIVY_COMMIT}.tar.gz"; \
+  mkdir /tmp/trivy; \
+  tar --strip-components=1 -xzf /tmp/trivy.tar.gz -C /tmp/trivy; \
+  cd /tmp/trivy; \
+  CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/trivy ./cmd/trivy
 
-# tofu-source: supplies the statically linked tofu binary used to extract provider schemas
-# for Assembly Line. The official OpenTofu image refuses to be used as a base image, so the
-# release archive is downloaded and verified against its pinned checksum instead.
-FROM debian:bookworm-slim AS tofu-source
-ARG TARGETARCH
-ARG TOFU_VERSION=1.12.6
-ARG TOFU_SHA256_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
-ARG TOFU_SHA256_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
+# tofu-source: supplies the statically linked patched tofu binary used to extract provider schemas.
+FROM golang:1.27.1 AS tofu-source
+ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-    arch="${TARGETARCH:-amd64}"; \
-    case "$arch" in \
-      amd64) sha="$TOFU_SHA256_AMD64" ;; \
-      arm64) sha="$TOFU_SHA256_ARM64" ;; \
-      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL -o /tmp/tofu.zip \
-      "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.zip"; \
-    echo "${sha}  /tmp/tofu.zip" | sha256sum -c -; \
-    unzip -o /tmp/tofu.zip tofu -d /usr/local/bin; \
-    chmod 0755 /usr/local/bin/tofu
+    curl -fsSL -o /tmp/opentofu.tar.gz "https://github.com/opentofu/opentofu/archive/${TOFU_COMMIT}.tar.gz"; \
+    mkdir /tmp/opentofu; \
+    tar --strip-components=1 -xzf /tmp/opentofu.tar.gz -C /tmp/opentofu; \
+    cd /tmp/opentofu; \
+    sed -i -E 's/(golang.org\/x\/mod[[:space:]]+)v[0-9.]+/\1v0.40.0/; s/(google.golang.org\/grpc[[:space:]]+)v[0-9.]+/\1v1.83.2/' go.mod; \
+    GOWORK=off go mod tidy; \
+    GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
 
 # final image without Trivy binary
 FROM gcr.io/distroless/static:nonroot AS final-false

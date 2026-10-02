@@ -68,6 +68,11 @@ token, and JWKS endpoints must share the configured issuer origin unless an
 explicit `ui.oidc.authzUrl` browser override is used. Insecure HTTP endpoints
 are enabled only when `global.developmentMode: true`.
 
+The UI also requires `NEXT_PUBLIC_BASE_URL` to use HTTPS in production. Set
+`global.developmentMode: true` only for local development when an HTTP base URL
+is unavoidable. OIDC state, nonce, and session cookies are `HttpOnly` and use
+`SameSite=Lax`; session cookies are marked `Secure` for normal deployments.
+
 !!! note
     Without the Server's UI client ID configured, the Stats page and browse
     endpoints may return empty results for users authenticated through the UI's

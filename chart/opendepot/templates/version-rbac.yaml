@@ -85,6 +85,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods
+  verbs:
+  - delete
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
@@ -117,6 +123,33 @@ subjects:
   name: version-controller
   namespace: {{ .Values.global.namespace }}
 {{- if not .Values.rbac.scopeToNamespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: version-controller-pod-deleter
+  namespace: {{ .Values.global.namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: version-controller-pod-deleter
+  namespace: {{ .Values.global.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: version-controller-pod-deleter
+subjects:
+- kind: ServiceAccount
+  name: version-controller
+  namespace: {{ .Values.global.namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

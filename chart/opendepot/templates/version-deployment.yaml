@@ -20,6 +20,7 @@ spec:
         control-plane: controller
     spec:
       serviceAccountName: version-controller
+      automountServiceAccountToken: false
       securityContext:
         {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
         runAsNonRoot: true
@@ -27,10 +28,39 @@ spec:
         runAsUser: 65532
         fsGroup: 65532
       initContainers:
+      - name: init-service-account
+        image: busybox:1.37
+        command: ["sh", "-c", "cat /var/run/opendepot-serviceaccount/ca.crt > /var/run/secrets/kubernetes.io/serviceaccount/ca.crt && cat /var/run/opendepot-serviceaccount/namespace > /var/run/secrets/kubernetes.io/serviceaccount/namespace && cat /var/run/opendepot-serviceaccount/token > /var/run/secrets/kubernetes.io/serviceaccount/token"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsUser: 65532
+        resources:
+          limits:
+            cpu: 100m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        volumeMounts:
+        - name: service-account
+          mountPath: /var/run/opendepot-serviceaccount
+        - name: service-account-runtime
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
       {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath }}
       - name: fix-permissions
         image: busybox:1.37
         command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
+        resources:
+          limits:
+            cpu: 100m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
         securityContext:
           runAsUser: 0
         volumeMounts:
@@ -57,9 +87,39 @@ spec:
         volumeMounts:
         - name: version-tmp
           mountPath: /tmp
+      {{- $tag := toString (default (default .Chart.AppVersion .Values.global.image.tag) .Values.version.image.tag) }}
       containers:
+      - name: token-refresh-helper
+        image: "{{ .Values.version.image.repository }}:{{ $tag }}"
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        command: ["/version-controller"]
+        args:
+        - --token-refresh-helper=true
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 65532
+        resources:
+          limits:
+            cpu: 10m
+            memory: 32Mi
+          requests:
+            cpu: 5m
+            memory: 16Mi
+        volumeMounts:
+        - name: service-account
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          readOnly: true
       - name: version-controller
-        {{- $tag := toString (default (default .Chart.AppVersion .Values.global.image.tag) .Values.version.image.tag) }}
         image: "{{ .Values.version.image.repository }}:{{ $tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         {{- if or .Values.scanning.enabled .Values.assembly.enabled .Values.version.zapLogLevel }}
@@ -87,6 +147,24 @@ spec:
         env:
         - name: WATCH_NAMESPACE
           value: {{ .Values.global.namespace }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- else }}
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
@@ -94,6 +172,8 @@ spec:
         resources:
           {{- toYaml .Values.version.resources | nindent 10 }}
         volumeMounts:
+        - name: service-account-runtime
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
         - name: version-tmp
           mountPath: /tmp
         {{- if .Values.storage.filesystem.enabled }}
@@ -105,6 +185,24 @@ spec:
           mountPath: {{ .Values.scanning.cacheMountPath }}
         {{- end }}
       volumes:
+      - name: service-account
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3600
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+              - key: ca.crt
+                path: ca.crt
+          - downwardAPI:
+              items:
+              - path: namespace
+                fieldRef:
+                  fieldPath: metadata.namespace
+      - name: service-account-runtime
+        emptyDir: {}
       - name: version-tmp
         emptyDir: {}
       {{- if .Values.storage.filesystem.enabled }}
