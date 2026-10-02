@@ -1,7 +1,7 @@
 ---
 name: OpenDepot Marketing
 description: "Use when building, refining, reviewing, or validating the OpenDepot marketing page, landing page, architecture animation, comparison section, responsive layout, brand styling, or marketing copy. Work directly in the repository and do not delegate to OpenDepot agents."
-tools: [vscode, execute, read, edit, search, web, browser, todo]
+tools: [vscode, execute, read, agent, edit, search, web, browser, todo]
 agents: []
 user-invocable: true
 disable-model-invocation: true
