@@ -97,15 +97,17 @@ func TestChartPermutations(t *testing.T) {
 		notContains   []string
 	}{
 		"default monitoring": {
-			templateFiles: []string{"charts/monitoring/templates/prometheus/prometheus.yaml"},
-			contains:      []string{`retention: "90d"`},
-			notContains:   []string{"volumeClaimTemplate:"},
+			values:      map[string]string{"monitoring.bundled.enabled": "true"},
+			contains:    []string{`retention: "90d"`},
+			notContains: []string{"volumeClaimTemplate:"},
 		},
 		"persistent monitoring": {
-			templateFiles: []string{"charts/monitoring/templates/prometheus/prometheus.yaml"},
-			values:        map[string]string{"monitoring.prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage": "10Gi"},
-			contains:      []string{"volumeClaimTemplate:"},
-			notContains:   []string{},
+			values: map[string]string{
+				"monitoring.bundled.enabled": "true",
+				"monitoring.prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage": "10Gi",
+			},
+			contains:    []string{"volumeClaimTemplate:"},
+			notContains: []string{},
 		},
 		"workload identity annotations": {
 			templateFiles: []string{"templates/version-serviceaccount.yaml", "templates/server-serviceaccount.yaml"},
@@ -332,8 +334,8 @@ func TestVersionControllerFlagConfiguration(t *testing.T) {
 	}, nil, "templates/version-deployment.yaml")
 
 	version := unmarshal[appsv1.Deployment](t, rendered)
-	require.NotEmpty(t, version.Spec.Template.Spec.Containers)
-	args := strings.Join(version.Spec.Template.Spec.Containers[0].Args, " ")
+	require.Len(t, version.Spec.Template.Spec.Containers, 2)
+	args := strings.Join(version.Spec.Template.Spec.Containers[1].Args, " ")
 	assert.Contains(t, args, "--assembly-enabled=true")
 	assert.Contains(t, args, "--schema-extraction-timeout=10m")
 	assert.Contains(t, args, "--scanning-enabled=true")

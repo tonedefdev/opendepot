@@ -20,7 +20,7 @@ permissions:
   pull-requests: read
 
 env:
-  REGISTRY: ghcr.io/defdevio/opendepot
+  REGISTRY: ghcr.io/tonedefdev/opendepot
   IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
 
 jobs:
