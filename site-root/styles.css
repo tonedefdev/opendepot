@@ -485,6 +485,7 @@
     }
     .policy-inner,
     .assembly-inner {
+      position: relative;
       display: grid;
       grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
       gap: 40px 64px;
@@ -562,7 +563,7 @@
       width: min(430px, 64%);
       margin: -96px 0 0 -32px;
       padding: 18px 22px 20px;
-      border-left: 4px solid var(--teal);
+      border-radius: 10px;
       background: #000000;
       box-shadow: 12px 12px 0 var(--teal);
     }
@@ -630,8 +631,19 @@
     .screen-assembly,
     .screen-assembly:hover,
     .screen-assembly:focus-visible {
-      border-color: #ffffff;
+      border-width: 0;
       box-shadow: 16px 16px 0 var(--teal);
+    }
+    .screen-contract {
+      z-index: 2;
+      width: 48%;
+      margin: -88px 24px 0 auto;
+      border-width: 0;
+      box-shadow: 0 14px 28px rgba(0, 0, 0, .28), 12px 12px 0 var(--blue);
+    }
+    .screen-contract:hover,
+    .screen-contract:focus-visible {
+      box-shadow: 0 18px 34px rgba(0, 0, 0, .34), 12px 12px 0 var(--blue);
     }
     .assembly-visual figcaption { color: rgba(255, 255, 255, .5); }
     .assembly-stations {
@@ -654,6 +666,32 @@
       background-size: 24px 2px;
       content: "";
       animation: conveyor 1.2s linear infinite;
+    }
+    .assembly-stations .assembly-crane-route {
+      position: absolute;
+      top: 0;
+      left: calc(100% + 120px);
+      width: 60px;
+      height: 96px;
+      background: repeating-linear-gradient(90deg, var(--teal) 0 14px, transparent 14px 24px) top left / 24px 2px repeat-x, repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px) top right / 2px 24px repeat-y;
+      pointer-events: none;
+    }
+    .assembly-stations .assembly-crane-route::before {
+      display: none;
+    }
+    .assembly-crane-route::after {
+      position: absolute;
+      right: auto;
+      left: calc(100% - 1px);
+      bottom: -10px;
+      width: 0;
+      height: 0;
+      border-right: 7px solid transparent;
+      border-bottom: 0;
+      border-left: 7px solid transparent;
+      border-top: 10px solid var(--teal);
+      content: "";
+      transform: translateX(-50%);
     }
     .assembly-stations li { position: relative; }
     .assembly-stations li::before {
@@ -707,6 +745,8 @@
     }
     @keyframes conveyor { to { background-position: 24px 0; } }
     @keyframes conveyor-vertical { to { background-position: 0 24px; } }
+    @keyframes crane-route-flow { to { background-position: 24px 0, 58px 24px; } }
+    .assembly-stations .assembly-crane-route { animation: crane-route-flow 1.2s linear infinite; }
     @keyframes crane-sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(1.6deg); } 75% { transform: rotate(-1.6deg); } }
     .image-modal {
       position: fixed;
@@ -978,6 +1018,7 @@
       .assembly { padding: 72px 0 128px; }
       .policy-inner,
       .assembly-inner { grid-template-columns: minmax(0, 1fr); gap: 32px; padding: 0 20px; }
+      .policy-visual { width: 100%; min-width: 0; }
       .policy-lede,
       .assembly-heading > p:last-child { font-size: 1rem; }
       .policy-lede { margin-bottom: 28px; }
@@ -989,10 +1030,20 @@
       .policy-visual figcaption { max-width: none; margin-top: 24px; text-align: left; }
       .screen-assembly,
       .screen-assembly:hover,
-      .screen-assembly:focus-visible { border-width: 5px; box-shadow: 10px 10px 0 var(--teal); }
+      .screen-assembly:focus-visible { border-width: 0; box-shadow: 10px 10px 0 var(--teal); }
+      .screen-contract {
+        width: 64%;
+        margin: -48px 8px 0 auto;
+        border-width: 0;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, .24), 7px 7px 0 var(--blue);
+      }
+      .screen-contract:hover,
+      .screen-contract:focus-visible { box-shadow: 0 12px 20px rgba(0, 0, 0, .28), 7px 7px 0 var(--blue); }
       .assembly-visual figcaption { margin-top: 20px; text-align: left; }
       .assembly-stations { grid-template-columns: minmax(0, 1fr); gap: 28px; margin: 8px 0 0 7px; padding: 0 0 0 28px; }
-      .assembly-stations::before { top: 0; width: 2px; height: 100%; background: repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px); background-size: 2px 24px; animation-name: conveyor-vertical; }
+      .assembly-stations::before { top: 11px; width: 2px; height: calc(100% - 11px); background: repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px); background-size: 2px 24px; animation-name: conveyor-vertical; }
+      .assembly-stations::after { position: absolute; left: -4px; bottom: -10px; width: 0; height: 0; border-top: 10px solid var(--teal); border-right: 5px solid transparent; border-left: 5px solid transparent; content: ""; }
+      .assembly-crane-route { display: none; }
       .assembly-stations li::before,
       .assembly-stations li:nth-child(n + 3)::before { top: 2px; left: -34px; }
       .assembly-crane { --crane-width: 150px; right: 16px; }
@@ -1044,6 +1095,7 @@
         transition-duration: 0.01ms !important;
       }
       .crane-load,
-      .assembly-stations::before { animation: none !important; }
+      .assembly-stations::before,
+      .assembly-stations .assembly-crane-route { animation: none !important; }
     }
     @keyframes lane-pulse-mobile { from { transform: translateY(0); opacity: .45; } 15%, 85% { opacity: 1; } to { transform: translateY(21px); opacity: .45; } }
