@@ -243,7 +243,7 @@ When `hostPath` is set, an `initContainer` (`busybox:1.37`) runs as root to `cho
 
 ### Prometheus monitoring
 
-The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly. OpenDepot exposes download counters and registry state gauges on its metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery. The Stats page queries Prometheus using a 90-day lookback by default; use `server.stats.prometheusUrl` to connect to an external Prometheus deployment.
+The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly. OpenDepot exposes download counters and registry state gauges on its metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery. The Stats page queries Prometheus using a 90-day lookback by default; use `server.stats.prometheusURL` to connect to an external Prometheus deployment.
 
 For time series longer than the local Prometheus retention window, configure Prometheus `remoteWrite` to Mimir or another Prometheus-compatible long-term storage system and use Grafana to query that retained data.
 
