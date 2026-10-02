@@ -36,7 +36,7 @@ func (storage *FileSystem) GetObject(ctx context.Context, soi *types.StorageObje
 	}
 
 	if !fileExists {
-		return nil, err
+		return nil, fmt.Errorf("object not found: %s: %w: %w", *soi.FilePath, ErrNotFound, os.ErrNotExist)
 	}
 
 	fileReader, err := os.Open(*soi.FilePath)
@@ -56,7 +56,7 @@ func (storage *FileSystem) GetObjectChecksum(ctx context.Context, soi *types.Sto
 	}
 
 	if !fileExists {
-		return err
+		return fmt.Errorf("object not found: %s: %w: %w", *soi.FilePath, ErrNotFound, os.ErrNotExist)
 	}
 
 	f, err := os.Open(*soi.FilePath)

@@ -21,12 +21,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -38,15 +40,22 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
+	"github.com/tonedefdev/opendepot/pkg/hclschema"
 	"github.com/tonedefdev/opendepot/pkg/registry"
 	"github.com/tonedefdev/opendepot/pkg/storage"
 	"github.com/tonedefdev/opendepot/pkg/storage/types"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 )
 
 const (
@@ -66,6 +75,13 @@ type VersionReconciler struct {
 	ScanOffline     bool
 	BlockOnCritical bool
 	BlockOnHigh     bool
+	// AssemblyEnabled turns on Assembly Line contract derivation for module Versions
+	// and reduced provider schema extraction for provider Versions.
+	AssemblyEnabled bool
+	// TofuBinPath is the path to the tofu binary used to extract provider schemas.
+	TofuBinPath string
+	// SchemaExtractionTimeout bounds how long a single `tofu providers schema` run may take.
+	SchemaExtractionTimeout time.Duration
 	// scanSem limits the number of concurrent Trivy processes. Each Trivy
 	// invocation loads the full vulnerability DB (~2 GiB) so running more than
 	// one at a time risks OOMKill even with a generous container memory limit.
@@ -83,6 +99,8 @@ type VersionReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=scanpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=scanpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 
@@ -177,6 +195,9 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var archiveChecksum *string
 	var providerTmpPath string
 	var readmeConfigMapRef *opendepotv1alpha1.ReadmeConfigMapRef
+	var contractConfigMapRef *opendepotv1alpha1.ContractConfigMapRef
+	var providerSchemaRef *opendepotv1alpha1.ProviderSchemaRef
+	var providerSchemaStatus *opendepotv1alpha1.ProviderSchemaStatus
 
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
@@ -198,13 +219,23 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
-					if version.Spec.ForceSync {
-						r.Log.V(5).Info("module fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
-						break
+					bypassFastPath := version.Spec.ForceSync ||
+						(r.AssemblyEnabled && r.contractNeedsDerivation(ctx, version))
+
+					if !bypassFastPath {
+						r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
+
+						if result, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
+							return ctrl.Result{}, err
+						} else if result.RequeueAfter > 0 {
+							return result, nil
+						}
+
+						return ctrl.Result{}, nil
 					}
 
-					r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
-					return ctrl.Result{}, nil
+					r.Log.V(5).Info("module fast-path bypassed; re-downloading the archive",
+						"version", version.Name, "forceSync", version.Spec.ForceSync)
 				}
 			}
 		}
@@ -251,6 +282,19 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 			}
 		}
+
+		// Derive the Assembly Line contract on the module's first sync, when ForceSync is
+		// set, or when newly onboarded provider schemas can improve a degraded contract.
+		// Contract derivation is entirely non-fatal: a module that cannot be parsed still
+		// syncs, it just records an "unsupported" contract.
+		if r.AssemblyEnabled && (version.Spec.ForceSync || r.contractNeedsDerivation(ctx, version)) {
+			ref, contractErr := r.deriveModuleContract(ctx, version, fileBytes)
+			if contractErr != nil {
+				r.Log.V(5).Info("failed to derive module contract; skipping", "version", version.Name, "error", contractErr.Error())
+			} else {
+				contractConfigMapRef = ref
+			}
+		}
 	case opendepotv1alpha1.OpenDepotProvider:
 		r.Log.V(5).Info("checking provider fast-path", "version", version.Name, "synced", version.Status.Synced, "checksumSet", version.Status.Checksum != nil)
 		// Fast path: if the Version has already been synced and the artifact exists in
@@ -271,13 +315,23 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
 
-					if version.Spec.ForceSync {
-						r.Log.V(5).Info("provider fast-path: forceSync=true; bypassing fast-path to re-download and re-scan", "version", version.Name)
-						break
+					bypassFastPath := version.Spec.ForceSync ||
+						(r.AssemblyEnabled && r.providerSchemaNeedsExtraction(version))
+
+					if !bypassFastPath {
+						r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
+
+						if result, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
+							return ctrl.Result{}, err
+						} else if result.RequeueAfter > 0 {
+							return result, nil
+						}
+
+						return ctrl.Result{}, nil
 					}
 
-					r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
-					return ctrl.Result{}, nil
+					r.Log.V(5).Info("provider fast-path bypassed; re-downloading the archive",
+						"version", version.Name, "forceSync", version.Spec.ForceSync)
 				}
 			}
 		}
@@ -298,7 +352,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.Log.V(5).Info("download semaphore released", "version", version.Name)
 
 		if err != nil {
-			version.Status.SyncStatus = fmt.Sprintf("Failed to retrieve provider archive from HashiCorp releases API: %v", err)
+			version.Status.SyncStatus = fmt.Sprintf("Failed to retrieve provider archive from OpenTofu releases API: %v", err)
 			_ = r.Status().Update(ctx, version)
 			return ctrl.Result{}, err
 		}
@@ -319,6 +373,29 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		archiveChecksum = checksum
 		providerTmpPath = tmpPath
+
+		// Extract the reduced provider schema once per provider version. Failures are
+		// non-fatal: modules that depend on this provider simply fall back to best-effort
+		// output type inference. The outcome is still recorded in ProviderSchemaStatus so
+		// a repeatedly failing extraction is visible instead of silently absent.
+		if r.AssemblyEnabled && (version.Spec.ForceSync || r.providerSchemaNeedsExtraction(version)) {
+			ref, schemaErr := r.extractProviderSchema(ctx, version, providerTmpPath)
+			switch {
+			case schemaErr != nil:
+				r.Log.V(5).Info("failed to extract provider schema; skipping", "version", version.Name, "error", schemaErr.Error())
+				providerSchemaStatus = &opendepotv1alpha1.ProviderSchemaStatus{
+					State:       "Failed",
+					Message:     schemaErr.Error(),
+					AttemptedAt: time.Now().UTC().Format(time.RFC3339),
+				}
+			case ref != nil:
+				providerSchemaRef = ref
+				providerSchemaStatus = &opendepotv1alpha1.ProviderSchemaStatus{
+					State:       "Succeeded",
+					AttemptedAt: ref.ExtractedAt,
+				}
+			}
+		}
 	}
 
 	filePath, err := getVersionFilePath(version)
@@ -354,9 +431,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	hasArtifact := len(fileBytes) > 0 || providerFile != nil
 
 	soi := &types.StorageObjectInput{
-		FileBytes: fileBytes,
-		FilePath:  filePath,
-		Version:   version,
+		ArchiveChecksum: archiveChecksum,
+		FileBytes:       fileBytes,
+		FilePath:        filePath,
+		Version:         version,
 	}
 
 	if providerFile != nil {
@@ -366,10 +444,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if version.Status.Checksum != nil {
 		r.Log.V(5).Info("status checksum set; performing storage get to verify artifact", "version", version.Name)
 		soi.Method = types.Get
-		if err = r.InitStorageFactory(ctx, soi); err != nil {
+		if err = r.InitStorageFactory(ctx, soi); err != nil && !errors.Is(err, storage.ErrNotFound) {
 			return ctrl.Result{}, err
 		}
 
+		// A not-found error just means the artifact is missing from storage (e.g. an
+		// evicted local volume, or a bucket object deleted out-of-band) — soi.FileExists
+		// stays false and the re-upload check below handles it. It is not fatal.
 		r.Log.V(5).Info("storage get complete", "version", version.Name, "fileExists", soi.FileExists)
 	} else {
 		if !hasArtifact {
@@ -440,16 +521,22 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var binaryScan *opendepotv1alpha1.BinaryScan
 	var sourceScan *opendepotv1alpha1.SourceScan
 	var resolvedRepo string
+	var resolvedPolicy policy.Resolved
+
+	if r.ScanningEnabled {
+		resolvedPolicy = r.resolveScanPolicy(ctx, version)
+	}
 
 	if r.ScanningEnabled && version.Spec.Type == opendepotv1alpha1.OpenDepotProvider && providerTmpPath != "" {
 		var scanErr error
-		resolvedRepo, binaryScan, sourceScan, scanErr = r.runProviderScan(ctx, version, providerTmpPath, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
+		resolvedRepo, binaryScan, sourceScan, scanErr = r.runProviderScan(ctx, version, providerTmpPath, r.TrivyCacheDir, r.ScanOffline, resolvedPolicy)
 		r.Log.V(5).Info("provider binary scan complete", "version", version.Name, "findingsPresent", binaryScan != nil)
 
 		if scanErr != nil {
-			version.Status.Synced = false
-			version.Status.SyncStatus = fmt.Sprintf("Scan policy violation: %v", scanErr)
-			_ = r.Status().Update(ctx, version)
+			if err := r.persistScanViolation(ctx, req, binaryScan, sourceScan, scanErr); err != nil {
+				r.Log.Error(err, "Failed to persist scan findings for blocked version", "version", version.Name)
+			}
+
 			return ctrl.Result{}, scanErr
 		}
 	}
@@ -458,13 +545,14 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// The scan result is returned here and written atomically in the final status update below.
 	if r.ScanningEnabled && r.ScanModules && version.Spec.Type == opendepotv1alpha1.OpenDepotModule && len(fileBytes) > 0 {
 		var scanErr error
-		sourceScan, scanErr = r.runModuleScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, r.BlockOnCritical, r.BlockOnHigh)
+		sourceScan, scanErr = r.runModuleScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, resolvedPolicy)
 		r.Log.V(5).Info("module source scan complete", "version", version.Name, "findingsPresent", sourceScan != nil)
 
 		if scanErr != nil {
-			version.Status.Synced = false
-			version.Status.SyncStatus = fmt.Sprintf("Scan policy violation: %v", scanErr)
-			_ = r.Status().Update(ctx, version)
+			if err := r.persistScanViolation(ctx, req, binaryScan, sourceScan, scanErr); err != nil {
+				r.Log.Error(err, "Failed to persist scan findings for blocked version", "version", version.Name)
+			}
+
 			return ctrl.Result{}, scanErr
 		}
 	}
@@ -505,6 +593,18 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			currentVersion.Status.ReadmeConfigMapRef = readmeConfigMapRef
 		}
 
+		if contractConfigMapRef != nil {
+			currentVersion.Status.ContractConfigMapRef = contractConfigMapRef
+		}
+
+		if providerSchemaRef != nil {
+			currentVersion.Status.ProviderSchemaRef = providerSchemaRef
+		}
+
+		if providerSchemaStatus != nil {
+			currentVersion.Status.ProviderSchemaStatus = providerSchemaStatus
+		}
+
 		if err := r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
 			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
 		}); err != nil {
@@ -535,6 +635,144 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.patchProviderResolvedRepo(ctx, version, resolvedRepo); err != nil {
 		r.Log.V(5).Info("patchProviderResolvedRepo failed — non-fatal", "error", err)
+	}
+
+	// Schedule a requeue for the earliest exemption expiry so that an expired exemption
+	// re-enforces on its own rather than waiting for an unrelated event on this Version.
+	if resolvedPolicy.NextExpiry != nil {
+		requeueAfter := time.Until(*resolvedPolicy.NextExpiry)
+		if requeueAfter > 0 {
+			r.Log.V(5).Info("Requeueing for scan exemption expiry",
+				"version", version.Name, "scanPolicy", resolvedPolicy.PolicyName, "expiresAt", *resolvedPolicy.NextExpiry)
+
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// persistScanViolation records a blocking scan result on the Version status. The findings
+// are written alongside the failure message so that a blocked Version still reports which
+// findings caused the block, which is what allows a ScanPolicy exemption to be authored
+// for them.
+func (r *VersionReconciler) persistScanViolation(
+	ctx context.Context,
+	req ctrl.Request,
+	binaryScan *opendepotv1alpha1.BinaryScan,
+	sourceScan *opendepotv1alpha1.SourceScan,
+	scanErr error,
+) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		currentVersion := &opendepotv1alpha1.Version{}
+		if err := r.Get(ctx, req.NamespacedName, currentVersion); err != nil {
+			return err
+		}
+
+		currentVersion.Status.Synced = false
+		currentVersion.Status.SyncStatus = fmt.Sprintf("Scan policy violation: %v", scanErr)
+		if binaryScan != nil {
+			currentVersion.Status.BinaryScan = binaryScan
+		}
+
+		if sourceScan != nil {
+			currentVersion.Status.SourceScan = sourceScan
+		}
+
+		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		})
+	})
+}
+
+// reconcileStoredScanPolicy re-evaluates findings already recorded on a synced Version.
+// ScanPolicy events intentionally use the normal Version reconcile queue, but the storage
+// fast path would otherwise return before the scanner can observe a newly written policy.
+func (r *VersionReconciler) reconcileStoredScanPolicy(
+	ctx context.Context,
+	req ctrl.Request,
+	version *opendepotv1alpha1.Version,
+) (ctrl.Result, error) {
+	if !r.ScanningEnabled || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil) {
+		return ctrl.Result{}, nil
+	}
+
+	resolved := r.resolveScanPolicy(ctx, version)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &opendepotv1alpha1.Version{}
+		if err := r.Get(ctx, req.NamespacedName, current); err != nil {
+			return err
+		}
+
+		changed := false
+		var blocking *opendepotv1alpha1.SecurityFinding
+		blockingType := ""
+
+		if current.Status.BinaryScan != nil {
+			annotated, finding := policy.Apply(resolved, current.Status.BinaryScan.Findings, policy.ScanTypeBinary)
+			if !reflect.DeepEqual(annotated, current.Status.BinaryScan.Findings) {
+				changed = true
+			}
+			current.Status.BinaryScan = &opendepotv1alpha1.BinaryScan{
+				ScannedAt: current.Status.BinaryScan.ScannedAt,
+				Findings:  annotated,
+			}
+			if finding != nil {
+				blocking = finding
+				blockingType = "binary"
+			}
+		}
+
+		if current.Status.SourceScan != nil {
+			scanType := policy.ScanTypeSource
+			if current.Spec.Type == opendepotv1alpha1.OpenDepotModule {
+				scanType = policy.ScanTypeModule
+			}
+
+			annotated, finding := policy.Apply(resolved, current.Status.SourceScan.Findings, scanType)
+			if !reflect.DeepEqual(annotated, current.Status.SourceScan.Findings) {
+				changed = true
+			}
+			current.Status.SourceScan = &opendepotv1alpha1.SourceScan{
+				ScannedAt: current.Status.SourceScan.ScannedAt,
+				Findings:  annotated,
+			}
+			if blocking == nil && finding != nil {
+				blocking = finding
+				blockingType = scanType
+			}
+		}
+
+		if blocking != nil {
+			message := fmt.Sprintf("Scan policy violation: blocking: %s vulnerability %s in %s (%s %s)",
+				blocking.Severity, blocking.VulnerabilityID, blockingType, blocking.PkgName, blocking.InstalledVersion)
+			if current.Status.Synced || current.Status.SyncStatus != message {
+				changed = true
+			}
+			current.Status.Synced = false
+			current.Status.SyncStatus = message
+		} else if strings.HasPrefix(current.Status.SyncStatus, "Scan policy violation:") {
+			changed = true
+			current.Status.Synced = true
+			current.Status.SyncStatus = "Synced"
+		}
+
+		if !changed {
+			return nil
+		}
+
+		return r.Status().Update(ctx, current, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		})
+	})
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconcile stored scan policy: %w", err)
+	}
+
+	if resolved.NextExpiry != nil {
+		if requeueAfter := time.Until(*resolved.NextExpiry); requeueAfter > 0 {
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -914,11 +1152,157 @@ func (r *VersionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Allow at most one provider archive download at a time. Each download is
 	// ~700 MB; concurrent downloads exhaust memory and storage I/O.
 	r.downloadSem = make(chan struct{}, 1)
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&opendepotv1alpha1.Version{}).
-		Named(opendepotControllerName).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
-		Complete(r)
+	// GenerationChangedPredicate only overrides Update; its Create/Delete/Generic all
+	// default to true. client-go informers synthesize a Create event for every
+	// pre-existing object during the initial cache sync on every controller restart, so
+	// without this additional filter, every already-synced Version in the cluster is
+	// re-enqueued on every restart, and the in-Reconcile fast path still has to make a
+	// storage existence/checksum call per object before it can bail out - hammering
+	// storage and backing up the work queue for large fleets even though nothing changed.
+	// Genuinely new Versions have never synced, so they always pass through untouched;
+	// Versions being deleted must also pass through so finalizer cleanup still runs.
+	skipResyncedCreate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			version, ok := e.Object.(*opendepotv1alpha1.Version)
+			if !ok {
+				return true
+			}
+
+			if !version.ObjectMeta.DeletionTimestamp.IsZero() {
+				return true
+			}
+
+			return version.Spec.ForceSync || !version.Status.Synced || version.Status.Checksum == nil
+		},
+	}
+
+	builder := ctrl.NewControllerManagedBy(mgr)
+	builder = builder.For(&opendepotv1alpha1.Version{}, ctrlbuilder.WithPredicates(predicate.And(predicate.GenerationChangedPredicate{}, skipResyncedCreate)))
+	// Editing a ScanPolicy must re-evaluate the Versions it governs. Only spec changes
+	// matter here: without this predicate the ScanPolicy status writes made by
+	// ScanPolicyReconciler would bounce straight back into this controller.
+	builder = builder.Watches(
+		&opendepotv1alpha1.ScanPolicy{},
+		handler.EnqueueRequestsFromMapFunc(r.versionsInNamespace),
+		ctrlbuilder.WithPredicates(predicate.GenerationChangedPredicate{}),
+	).Named(opendepotControllerName).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4})
+
+	// For(&Version{}) only enqueues the object that changed. When a provider Version
+	// publishes a new schema, module Versions in the same namespace must be re-enqueued
+	// so their degraded contracts can be upgraded with the newly available types.
+	//
+	// providerSchemaExtracted must gate this watch: without it, every update to every
+	// provider Version (including no-op status touches) fans out to every degraded module
+	// Version in the namespace, re-triggering contract derivation and repeatedly re-queuing
+	// the same keys forever for modules that can never reach GradeFull.
+	if r.AssemblyEnabled {
+		providerSchemaExtracted := predicate.Funcs{
+			// CreateFunc must always return false: client-go informers synthesize a
+			// Create event for every pre-existing object during the initial cache sync
+			// on every controller restart, not just for genuinely new objects. Since
+			// ProviderSchemaRef is only ever populated by a later status Update (never
+			// set at true object creation time), a genuine new extraction is always
+			// observed via UpdateFunc below — treating Create as a signal here would
+			// re-trigger a full fan-out for every already-extracted provider Version on
+			// every restart.
+			CreateFunc: func(e event.CreateEvent) bool {
+				return false
+			},
+
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				newVersion, ok := e.ObjectNew.(*opendepotv1alpha1.Version)
+				if !ok || newVersion.Spec.Type != opendepotv1alpha1.OpenDepotProvider || newVersion.Status.ProviderSchemaRef == nil {
+					return false
+				}
+
+				oldVersion, ok := e.ObjectOld.(*opendepotv1alpha1.Version)
+				if !ok || oldVersion.Status.ProviderSchemaRef == nil {
+					return true
+				}
+
+				return oldVersion.Status.ProviderSchemaRef.ExtractedAt != newVersion.Status.ProviderSchemaRef.ExtractedAt
+			},
+
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				return false
+			},
+
+			GenericFunc: func(e event.GenericEvent) bool {
+				return false
+			},
+		}
+
+		builder = builder.Watches(
+			&opendepotv1alpha1.Version{},
+			handler.EnqueueRequestsFromMapFunc(r.moduleVersionsForProviderSchema),
+			ctrlbuilder.WithPredicates(providerSchemaExtracted),
+		)
+	}
+
+	return builder.Complete(r)
+}
+
+// moduleVersionsForProviderSchema maps a provider Version that has an extracted schema to
+// every module Version in the same namespace whose contract is not already fully typed.
+func (r *VersionReconciler) moduleVersionsForProviderSchema(ctx context.Context, obj client.Object) []reconcile.Request {
+	providerVersion, ok := obj.(*opendepotv1alpha1.Version)
+	if !ok {
+		return nil
+	}
+
+	if providerVersion.Spec.Type != opendepotv1alpha1.OpenDepotProvider || providerVersion.Status.ProviderSchemaRef == nil {
+		return nil
+	}
+
+	versions := &opendepotv1alpha1.VersionList{}
+	if err := r.List(ctx, versions, client.InNamespace(providerVersion.Namespace)); err != nil {
+		r.Log.Error(err, "failed to list versions for provider schema fan-out", "namespace", providerVersion.Namespace)
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range versions.Items {
+		moduleVersion := &versions.Items[i]
+		if moduleVersion.Spec.Type != opendepotv1alpha1.OpenDepotModule {
+			continue
+		}
+
+		if moduleVersion.Status.ContractConfigMapRef != nil && moduleVersion.Status.ContractConfigMapRef.Grade == hclschema.GradeFull {
+			continue
+		}
+
+		requests = append(requests, reconcile.Request{
+			NamespacedName: k8stypes.NamespacedName{
+				Namespace: moduleVersion.Namespace,
+				Name:      moduleVersion.Name,
+			},
+		})
+	}
+
+	return requests
+}
+
+// versionsInNamespace maps a ScanPolicy event onto every Version in the same namespace.
+// ScanPolicy is namespaced, so its blast radius is bounded by the namespace and a full
+// list is cheap enough to avoid maintaining a selector index.
+func (r *VersionReconciler) versionsInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
+	versions := &opendepotv1alpha1.VersionList{}
+	if err := r.List(ctx, versions, client.InNamespace(obj.GetNamespace())); err != nil {
+		r.Log.Error(err, "Failed to list Versions for ScanPolicy event",
+			"scanPolicy", obj.GetName(), "namespace", obj.GetNamespace())
+
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(versions.Items))
+	for _, version := range versions.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: version.Namespace},
+		})
+	}
+
+	return requests
 }
 
 // RunStorageFactory is the runtime handler for managing storage objects received by 'soi'.
@@ -945,9 +1329,22 @@ func RunStorageFactory(ctx context.Context, storageInterface storage.Storage, so
 
 // InitStorageFactory prepares and initializes storage using the version's storage config.
 func (r *VersionReconciler) InitStorageFactory(ctx context.Context, soi *types.StorageObjectInput) error {
-	storageConfig, err := getVersionStorageConfig(soi.Version)
+	storageInterface, err := r.resolveStorageInterface(ctx, soi)
 	if err != nil {
 		return err
+	}
+
+	return RunStorageFactory(ctx, storageInterface, soi)
+}
+
+// resolveStorageInterface populates soi with the Version's resolved storage configuration
+// and returns the backend implementation for it. Callers that need direct access to the
+// backend (e.g. to stream an object's bytes rather than just its checksum) use this
+// instead of InitStorageFactory.
+func (r *VersionReconciler) resolveStorageInterface(ctx context.Context, soi *types.StorageObjectInput) (storage.Storage, error) {
+	storageConfig, err := getVersionStorageConfig(soi.Version)
+	if err != nil {
+		return nil, err
 	}
 
 	soi.StorageConfig = storageConfig
@@ -956,40 +1353,38 @@ func (r *VersionReconciler) InitStorageFactory(ctx context.Context, soi *types.S
 		soi.ContainerName = name
 	}
 
-	var storageInterface storage.Storage
 	if storageConfig.FileSystem != nil {
-		storageInterface = &storage.FileSystem{}
-		return RunStorageFactory(ctx, storageInterface, soi)
+		return &storage.FileSystem{}, nil
 	}
 
 	if storageConfig.S3 != nil {
 		amazonS3Storage := &storage.AmazonS3Storage{}
 		if err := amazonS3Storage.NewClient(ctx, storageConfig.S3.Region); err != nil {
-			return err
+			return nil, err
 		}
-		storageInterface = amazonS3Storage
-		return RunStorageFactory(ctx, storageInterface, soi)
+
+		return amazonS3Storage, nil
 	}
 
 	if storageConfig.AzureStorage != nil {
 		azureBlobStorage := &storage.AzureBlobStorage{}
 		if err := azureBlobStorage.NewClients(storageConfig.AzureStorage.SubscriptionID, storageConfig.AzureStorage.AccountUrl); err != nil {
-			return err
+			return nil, err
 		}
-		storageInterface = azureBlobStorage
-		return RunStorageFactory(ctx, storageInterface, soi)
+
+		return azureBlobStorage, nil
 	}
 
 	if storageConfig.GCS != nil {
 		gcsStorage := &storage.GoogleCloudStorage{}
 		if err := gcsStorage.NewClient(ctx); err != nil {
-			return err
+			return nil, err
 		}
-		storageInterface = gcsStorage
-		return RunStorageFactory(ctx, storageInterface, soi)
+
+		return gcsStorage, nil
 	}
 
-	return fmt.Errorf("at least one StorageConfig backend must be configured")
+	return nil, fmt.Errorf("at least one StorageConfig backend must be configured")
 }
 
 // getVersionStorageConfig resolves storage configuration from module or provider config references.

@@ -12,9 +12,9 @@ provider "google" {
 }
 
 resource "google_storage_bucket" "integration" {
-  name          = "opendepot-integration-${var.bucket_suffix}"
-  location      = var.location
   force_destroy = true
+  location      = var.location
+  name          = "opendepot-integration-${var.bucket_suffix}"
 
   uniform_bucket_level_access = true
 

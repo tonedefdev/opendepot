@@ -2,8 +2,13 @@ global:
   developmentMode: true
   imagePullPolicy: IfNotPresent
 
+monitoring:
+  enabled: true
+
 provider:
   enabled: true
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/provider-controller
   resources:
     requests:
       cpu: 100m
@@ -12,6 +17,8 @@ provider:
       memory: 1Gi
 
 module:
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/module-controller
   resources:
     requests:
       cpu: 100m
@@ -20,6 +27,8 @@ module:
       memory: 1Gi
 
 depot:
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/depot-controller
   resources:
     requests:
       cpu: 100m
@@ -29,10 +38,16 @@ depot:
 
 version:
   zapLogLevel: 5
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/version-controller
 
 server:
   anonymousAuth: false
   useBearerToken: false
+  policyManagement:
+    enabled: true
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/server
   resources:
     requests:
       cpu: 100m
@@ -45,6 +60,7 @@ server:
     enabled: true
     issuerUrl: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
     clientId: opendepot
+    clientSecret: local-test-secret
     groupsClaim: groups
     authzUrl: https://opendepot.localtest.me:8443/dex/auth
     tokenUrl: https://opendepot.localtest.me:8443/dex/token
@@ -57,11 +73,7 @@ server:
     istio:
       enabled: false
   tls:
-    enabled: false
-
-valkey:
-  auth:
-    enabled: false
+    enabled: true
 
 storage:
   filesystem:
@@ -75,9 +87,17 @@ scanning:
     storageClassName: standard
     accessMode: ReadWriteOnce
 
+assembly:
+  enabled: true
+  validationRegistryUrl: https://server.opendepot-system.svc.cluster.local:80
+  validationCACertPath: /etc/tls/ca.crt
+
 ui:
   enabled: true
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/ui
   baseUrl: https://opendepot.localtest.me:8443
+  serverCACertPath: /etc/tls/ca.crt
   sessionPasswordSecretName: ui-session-secret
   resources:
     requests:
@@ -99,9 +119,13 @@ dex:
     - secretRef:
         name: ui-oidc-secret
   image:
+    repository: ghcr.io/tonedefdev/opendepot/dex
     tag: v2.45.0
   config:
     issuer: http://opendepot-dex.opendepot-system.svc.cluster.local:5556/dex
+    frontend:
+      dir: /srv/dex/opendepot-web
+      issuer: OpenDepot
     storage:
       type: memory
     enablePasswordDB: true

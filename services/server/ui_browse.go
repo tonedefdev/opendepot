@@ -147,6 +147,8 @@ func browseDepotForProvider(cs *kubernetes.Clientset, r *http.Request, namespace
 }
 
 // browseScanCounts tallies SecurityFindings by severity into a BrowseScanCounts.
+// Findings exempted by a ScanPolicy are counted only in Exempted and are deliberately kept
+// out of the per-severity counters, so severity filtering and sorting reflect live risk.
 func browseScanCounts(findings []opendepotv1alpha1.SecurityFinding) *BrowseScanCounts {
 	if len(findings) == 0 {
 		return nil
@@ -154,6 +156,11 @@ func browseScanCounts(findings []opendepotv1alpha1.SecurityFinding) *BrowseScanC
 
 	counts := &BrowseScanCounts{}
 	for _, f := range findings {
+		if f.Exempted {
+			counts.Exempted++
+			continue
+		}
+
 		switch strings.ToUpper(f.Severity) {
 		case "CRITICAL":
 			counts.Critical++
@@ -249,7 +256,13 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 		return nil, false
 	}
 
-	iss, _ := parseUnsignedJWTIssuer(rawToken)
+	iss, err := parseUnsignedJWTIssuer(rawToken)
+	if err != nil {
+		logger.Debug("browse: client credentials token is not a parseable JWT", "error", err)
+
+		return nil, false
+	}
+
 	if iss != *opendepotOIDCIssuerURL {
 		return nil, false
 	}
@@ -274,7 +287,11 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 		return nil, false
 	}
 
-	b, _ := findGroupBinding(ctx, cs, []string{"client:" + sub})
+	b, err := findGroupBinding(ctx, cs, []string{"client:" + sub})
+	if err != nil {
+		logger.Error("browse: failed to resolve GroupBinding for client credentials", "sub", sub, "error", err)
+	}
+
 	// b may be nil when no GroupBinding matches — the CC client is still authenticated.
 	return b, true
 }
@@ -336,7 +353,11 @@ func browseAuthCheck(w http.ResponseWriter, r *http.Request) (binding *opendepot
 		return nil, false, false
 	}
 
-	groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+	groups, err := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+	if err != nil {
+		logger.Debug("browse: token carries no usable groups claim", "claim", *opendepotOIDCGroupsClaim, "error", err)
+	}
+
 	if len(groups) == 0 {
 		// Valid token but no groups claim — authenticated without a GroupBinding.
 		return nil, false, true
@@ -445,7 +466,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		return nil, fmt.Errorf("failed to unmarshal module list: %w", err)
 	}
 
-	dlStats, _ := batchResourceDownloadStats(r.Context(), statsClient, func() []string {
+	dlStats, err := batchResourceDownloadStats(r.Context(), func() []string {
 		keys := make([]string, 0, len(list.Items))
 		for _, m := range list.Items {
 			keys = append(keys, m.Namespace+"/module/"+m.Name)
@@ -453,6 +474,11 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 
 		return keys
 	}())
+	if err != nil {
+		// Download counts are supplementary: serve the cards without them rather than
+		// failing the whole listing when the stats backend is unavailable.
+		logger.Error("browse: failed to load module download stats", "error", err)
+	}
 
 	var items []BrowseResource
 	for _, m := range list.Items {
@@ -467,7 +493,12 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		}
 
 		resource := moduleToCard(m, pub)
-		versionData, _ := browseListModuleVersions(cs, r, ns, m.Name)
+
+		versionData, err := browseListModuleVersions(cs, r, ns, m.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list versions for module %s/%s: %w", ns, m.Name, err)
+		}
+
 		enrichModuleCard(&resource, versionData)
 		enrichResourceWithDownloads(&resource, dlStats)
 		items = append(items, resource)
@@ -491,7 +522,7 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		return nil, fmt.Errorf("failed to unmarshal provider list: %w", err)
 	}
 
-	dlStats, _ := batchResourceDownloadStats(r.Context(), statsClient, func() []string {
+	dlStats, err := batchResourceDownloadStats(r.Context(), func() []string {
 		keys := make([]string, 0, len(list.Items))
 		for _, p := range list.Items {
 			keys = append(keys, p.Namespace+"/provider/"+p.Name)
@@ -499,6 +530,11 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 
 		return keys
 	}())
+	if err != nil {
+		// Download counts are supplementary: serve the cards without them rather than
+		// failing the whole listing when the stats backend is unavailable.
+		logger.Error("browse: failed to load provider download stats", "error", err)
+	}
 
 	var items []BrowseResource
 	for _, p := range list.Items {
@@ -513,7 +549,12 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		}
 
 		resource := providerToCard(p, pub)
-		versionData, _ := browseListProviderVersions(cs, r, ns)
+
+		versionData, err := browseListProviderVersions(cs, r, ns)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list versions for provider %s/%s: %w", ns, p.Name, err)
+		}
+
 		enrichProviderCard(&resource, p, providerVersionsFor(versionData, p.Name), filterOS, filterArch)
 		enrichResourceWithDownloads(&resource, dlStats)
 		items = append(items, resource)
@@ -706,7 +747,13 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsLabels, _ := browseGetNamespaceLabels(cs, r, namespace)
+	nsLabels, err := browseGetNamespaceLabels(cs, r, namespace)
+	if err != nil {
+		logger.Error("browse: failed to get namespace labels", "namespace", namespace, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	nsPublic := isPublicNamespace(nsLabels)
 
 	switch kind {
@@ -742,7 +789,14 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		card := moduleToCard(m, pub)
-		versions, _ := browseListModuleVersions(cs, r, namespace, name)
+
+		versions, err := browseListModuleVersions(cs, r, namespace, name)
+		if err != nil {
+			logger.Error("browse: failed to list module versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		enrichModuleCard(&card, versions)
 
 		detail := BrowseResourceDetail{BrowseResource: card}
@@ -795,7 +849,14 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		card := providerToCard(p, pub)
-		versions, _ := browseListProviderVersions(cs, r, namespace)
+
+		versions, err := browseListProviderVersions(cs, r, namespace)
+		if err != nil {
+			logger.Error("browse: failed to list provider versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		versions = providerVersionsFor(versions, p.Name)
 		enrichProviderCard(&card, p, versions, "", "")
 
@@ -1169,6 +1230,15 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 			s.LastScanned = v.Status.BinaryScan.ScannedAt
 		}
 
+		if v.Status.ProviderSchemaStatus != nil {
+			s.SchemaState = v.Status.ProviderSchemaStatus.State
+			s.SchemaMessage = v.Status.ProviderSchemaStatus.Message
+			s.SchemaAttemptedAt = v.Status.ProviderSchemaStatus.AttemptedAt
+		} else if v.Status.ProviderSchemaRef != nil {
+			s.SchemaState = "Succeeded"
+			s.SchemaAttemptedAt = v.Status.ProviderSchemaRef.ExtractedAt
+		}
+
 		summaries = append(summaries, s)
 	}
 
@@ -1282,6 +1352,8 @@ func collectBinaryFindingsForVersion(versions []opendepotv1alpha1.Version, semve
 // deduplicateFindings removes duplicate SecurityFinding entries from a slice.
 // Vulnerabilities are keyed by VulnerabilityID+PkgName+InstalledVersion;
 // misconfigurations (empty InstalledVersion) are keyed by VulnerabilityID alone.
+// Exemption state is part of the key so that the same rule appearing both exempted and
+// unexempted across scans does not collapse to whichever entry happened to come first.
 func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1alpha1.SecurityFinding {
 	seen := make(map[string]struct{})
 	out := make([]opendepotv1alpha1.SecurityFinding, 0, len(in))
@@ -1292,6 +1364,8 @@ func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1al
 		} else {
 			key = f.VulnerabilityID
 		}
+
+		key += "|" + strconv.FormatBool(f.Exempted)
 
 		if _, exists := seen[key]; exists {
 			continue
@@ -1304,7 +1378,7 @@ func deduplicateFindings(in []opendepotv1alpha1.SecurityFinding) []opendepotv1al
 }
 
 // enrichVersionSummariesWithDownloads populates DownloadCount and LastDownloadedAt on each
-// BrowseVersionSummary by issuing a single batch query against Valkey.
+// BrowseVersionSummary by issuing a single batch query against Prometheus.
 func enrichVersionSummariesWithDownloads(ctx context.Context, summaries []BrowseVersionSummary, namespace, kind, name string) {
 	if len(summaries) == 0 {
 		return
@@ -1315,7 +1389,7 @@ func enrichVersionSummariesWithDownloads(ctx context.Context, summaries []Browse
 		keys[i] = namespace + "/" + kind + "/" + name + "/" + summaries[i].Version
 	}
 
-	dlStats, err := batchVersionDownloadStats(ctx, statsClient, keys)
+	dlStats, err := batchVersionDownloadStats(ctx, keys)
 	if err != nil {
 		logger.Error("browse: failed to query version download stats", "error", err)
 		return
@@ -1614,7 +1688,13 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsLabels, _ := browseGetNamespaceLabels(cs, r, namespace)
+	nsLabels, err := browseGetNamespaceLabels(cs, r, namespace)
+	if err != nil {
+		logger.Error("browse: failed to get namespace labels", "namespace", namespace, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	nsPublic := isPublicNamespace(nsLabels)
 
 	// Parse query params.
@@ -1669,7 +1749,13 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		versions, _ := browseListModuleVersions(cs, r, namespace, name)
+		versions, err := browseListModuleVersions(cs, r, namespace, name)
+		if err != nil {
+			logger.Error("browse: failed to list module versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		summaries := moduleVersionSummaries(versions)
 		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, "module", name)
 		sort.SliceStable(summaries, func(i, j int) bool {
@@ -1711,7 +1797,13 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		versions, _ := browseListProviderVersions(cs, r, namespace)
+		versions, err := browseListProviderVersions(cs, r, namespace)
+		if err != nil {
+			logger.Error("browse: failed to list provider versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		summaries := providerVersionSummaries(p, versions)
 		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, "provider", name)
 		sort.SliceStable(summaries, func(i, j int) bool {
@@ -1790,7 +1882,12 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		versions, _ := browseListModuleVersions(cs, r, namespace, name)
+		versions, err := browseListModuleVersions(cs, r, namespace, name)
+		if err != nil {
+			logger.Error("browse: failed to list module versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		// Build the list of versions that have been scanned, sorted descending.
 		var scannedVersions []string
@@ -1863,7 +1960,13 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		versions, _ := browseListProviderVersions(cs, r, namespace)
+		versions, err := browseListProviderVersions(cs, r, namespace)
+		if err != nil {
+			logger.Error("browse: failed to list provider versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		versions = providerVersionsFor(versions, p.Name)
 		result := BrowseScanFindings{
 			BinaryScanFindings: collectBinaryFindingsForVersion(versions, requestedBinaryVersion),

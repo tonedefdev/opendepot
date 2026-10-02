@@ -214,6 +214,12 @@ v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance
 
 Valkey is deployed automatically as part of the chart. Download tracking resumes immediately after the server pod becomes ready. For production clusters, `valkey.dataStorage.enabled: true` (the default) ensures stats survive pod restarts — no additional configuration is required.
 
+## v0.12.0
+
+The download statistics backend is now Prometheus. The chart replaces the Valkey dependency with a minimal kube-prometheus-stack installation and creates a `ServiceMonitor` for the server metrics endpoint.
+
+Remove any Valkey values, ACL Secrets, and `server.stats.valkeyPasswordSecretName` overrides from custom values files. The Stats page uses a 90-day Prometheus lookback by default; download history from the removed Valkey store is not migrated. Configure Prometheus `remoteWrite` to Mimir or another compatible long-term store when retention beyond 90 days is required.
+
 ## v0.5.0
 
 ### Breaking Changes

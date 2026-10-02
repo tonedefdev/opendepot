@@ -28,18 +28,25 @@ import LoginIcon from "@mui/icons-material/Login";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GridViewIcon from "@mui/icons-material/GridView";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
+import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
-import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import { TOGGLE_SIDEBAR_EVENT } from "@/components/MobileSidebarButton";
 import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 56;
+const SIDEBAR_COLLAPSED_COOKIE = "opendepot_sidebar_collapsed";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "opendepot.sidebar.collapsed";
+const SIDEBAR_PREFERENCE_MAX_AGE = 60 * 60 * 24 * 365;
 interface Namespace {
   name: string;
   public: boolean;
@@ -54,12 +61,16 @@ interface SidebarProps {
   initialNamespaces?: Namespace[];
   userInfo?: UserInfo | null;
   devTokenEnabled?: boolean;
+  securityPoliciesEnabled?: boolean;
+  initialCollapsed?: boolean;
 }
 
 export default function Sidebar({
   initialNamespaces = [],
   userInfo = null,
   devTokenEnabled = false,
+  securityPoliciesEnabled = false,
+  initialCollapsed = false,
 }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -84,6 +95,7 @@ export default function Sidebar({
 
   // Fetch namespaces client-side if none passed as props
   useEffect(() => {
+    if (pathname !== "/") return;
     if (initialNamespaces.length > 0) return;
     fetch(`/opendepot/ui/v1/namespaces`)
       .then((r) => r.json())
@@ -91,7 +103,7 @@ export default function Sidebar({
         setNamespaces(data.items ?? []);
       })
       .catch(() => {/* silent */});
-  }, [initialNamespaces]);
+  }, [initialNamespaces, pathname]);
 
   const navigate = useCallback(
     (updates: Record<string, string | null>) => {
@@ -160,10 +172,53 @@ export default function Sidebar({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+      if (saved === "true" || saved === "false") {
+        setCollapsed(saved === "true");
+      }
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, []);
+
+  useEffect(() => {
+    const toggleSidebar = () => setMobileOpen((prev) => !prev);
+    window.addEventListener(TOGGLE_SIDEBAR_EVENT, toggleSidebar);
+    return () => window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggleSidebar);
+  }, []);
+
+  const updateCollapsedPreference = useCallback((value: boolean) => {
+    setCollapsed(value);
+    document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${value}; path=/; max-age=${SIDEBAR_PREFERENCE_MAX_AGE}; samesite=lax`;
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(value));
+    } catch {
+      // The in-memory state and cookie still preserve the preference when available.
+    }
+  }, []);
+
+  const collapseSidebar = () => {
+    if (isMobile) {
+      setMobileOpen(false);
+
+      return;
+    }
+
+    updateCollapsedPreference(true);
+  };
 
   const { mode, systemMode, setMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
+  const [colorModeMounted, setColorModeMounted] = useState(false);
+
+  useEffect(() => {
+    setColorModeMounted(true);
+  }, []);
+
   const toggleColorMode = () => {
     setMode(resolvedMode === "dark" ? "light" : "dark");
   };
@@ -200,7 +255,8 @@ export default function Sidebar({
           alignItems: "center",
           justifyContent: "space-between",
           px: 2,
-          py: 2.5,
+          py: 1.75,
+          minHeight: 57,
           background: "linear-gradient(135deg, #047df1 0%, #03deb8 100%)",
           borderBottom: "none",
         }}
@@ -220,7 +276,7 @@ export default function Sidebar({
         <Tooltip title="Collapse sidebar" placement="right">
           <IconButton
             size="small"
-            onClick={() => setCollapsed(true)}
+            onClick={collapseSidebar}
             sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, flexShrink: 0 }}
           >
             <ChevronLeftIcon sx={{ fontSize: 18 }} />
@@ -304,6 +360,26 @@ export default function Sidebar({
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
+              href="/assembly"
+              selected={pathname === "/assembly"}
+              sx={{
+                mx: 1,
+                borderRadius: "6px",
+                py: 0.5,
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
+              }}
+            >
+              <PrecisionManufacturingIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText
+                primary="Assembly Line"
+                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: pathname === "/assembly" ? 600 : 400 }}
+              />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton
+              component={Link}
               href="/depots"
               selected={pathname === "/depots"}
               sx={{
@@ -339,6 +415,56 @@ export default function Sidebar({
                 primary="Stats"
                 primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: pathname === "/stats" ? 600 : 400 }}
               />
+            </ListItemButton>
+          </ListItem>
+          {securityPoliciesEnabled && (
+            <ListItem disablePadding>
+              <ListItemButton
+                component={Link}
+                href="/security-policies"
+                selected={pathname.startsWith("/security-policies")}
+                sx={{
+                  mx: 1,
+                  borderRadius: "6px",
+                  py: 0.5,
+                  "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                  "&.Mui-selected:hover": { background: selectedHoverBg },
+                }}
+              >
+                <PolicyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                <ListItemText
+                  primary="Security Policies"
+                  primaryTypographyProps={{
+                    fontSize: "0.8125rem",
+                    fontWeight: pathname.startsWith("/security-policies") ? 600 : 400,
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          )}
+          <Divider sx={{ mx: 2, my: 1 }} />
+          <ListItem disablePadding>
+            <ListItemButton
+              component="a"
+              href="https://tonedefdev.github.io/opendepot"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ mx: 1, borderRadius: "6px", py: 0.5 }}
+            >
+              <MenuBookOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText primary="Documentation" primaryTypographyProps={{ fontSize: "0.8125rem" }} />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton
+              component="a"
+              href="https://github.com/tonedefdev/opendepot/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ mx: 1, borderRadius: "6px", py: 0.5 }}
+            >
+              <BugReportOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText primary="Report an issue" primaryTypographyProps={{ fontSize: "0.8125rem" }} />
             </ListItemButton>
           </ListItem>
         </List>
@@ -505,14 +631,14 @@ export default function Sidebar({
           >
             Appearance
           </Typography>
-          <Tooltip title={resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          <Tooltip title={colorModeMounted && resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
             <IconButton
               onClick={toggleColorMode}
               aria-label="Toggle color mode"
               size="small"
               sx={{ color: "text.secondary", "&:hover": { bgcolor: hoverTintBg, color: "primary.main" } }}
             >
-              {resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 16 }} /> : <DarkModeIcon sx={{ fontSize: 16 }} />}
+              {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 16 }} /> : <DarkModeIcon sx={{ fontSize: 16 }} />)}
             </IconButton>
           </Tooltip>
         </Box>
@@ -600,7 +726,7 @@ export default function Sidebar({
             /* Signed-out state */
             <Button
               component="a"
-              href="/auth/login"
+              href="/login"
               variant="outlined"
               size="small"
               fullWidth
@@ -616,12 +742,12 @@ export default function Sidebar({
   );
 
   const collapsedContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", py: 1, gap: 0.5 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", alignItems: "center", pt: 0, pb: 1, gap: 0.5 }}>
       <Tooltip title="Click to expand" placement="right">
         <IconButton
-          onClick={() => setCollapsed(false)}
+          onClick={() => updateCollapsedPreference(false)}
           aria-label="Expand sidebar"
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center", mb: 0.5, p: 0.5, "&:hover": { opacity: 0.85, bgcolor: hoverTintBg } }}
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: 57, mb: "-5px", p: 0, borderRadius: 0, flexShrink: 0, "&:hover": { opacity: 0.85, bgcolor: hoverTintBg } }}
         >
           <Box
             component="img"
@@ -644,6 +770,20 @@ export default function Sidebar({
           }}
         >
           <GridViewIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Assembly Line" placement="right">
+        <IconButton
+          component={Link}
+          href="/assembly"
+          sx={{
+            color: pathname === "/assembly" ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: pathname === "/assembly" ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
+          }}
+        >
+          <PrecisionManufacturingIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Tooltip>
       <Tooltip title="Depots" placement="right">
@@ -674,16 +814,58 @@ export default function Sidebar({
           <BarChartIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Tooltip>
+      {securityPoliciesEnabled && (
+        <Tooltip title="Security Policies" placement="right">
+          <IconButton
+            component={Link}
+            href="/security-policies"
+            aria-label="Security Policies"
+            sx={{
+              color: pathname.startsWith("/security-policies") ? "primary.main" : "text.secondary",
+              borderRadius: "6px",
+              bgcolor: pathname.startsWith("/security-policies") ? selectedBg : "transparent",
+              "&:hover": { bgcolor: hoverTintBg },
+            }}
+          >
+            <PolicyOutlinedIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+      <Divider sx={{ width: "80%", my: 0.5 }} />
+      <Tooltip title="Documentation" placement="right">
+        <IconButton
+          component="a"
+          href="https://tonedefdev.github.io/opendepot"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Open documentation"
+          sx={{ color: "text.secondary", borderRadius: "6px", "&:hover": { bgcolor: hoverTintBg } }}
+        >
+          <MenuBookOutlinedIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Report an issue" placement="right">
+        <IconButton
+          component="a"
+          href="https://github.com/tonedefdev/opendepot/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Report an issue"
+          sx={{ color: "text.secondary", borderRadius: "6px", "&:hover": { bgcolor: hoverTintBg } }}
+        >
+          <BugReportOutlinedIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Box sx={{ flex: 1 }} />
       <Divider sx={{ width: "80%", mb: 0.5 }} />
-      <Tooltip title={resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} placement="right">
+      <Tooltip title={colorModeMounted && resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} placement="right">
         <IconButton
           onClick={toggleColorMode}
           aria-label="Toggle color mode"
           size="small"
           sx={{ color: "text.secondary", mb: 0.5, "&:hover": { bgcolor: hoverTintBg } }}
         >
-          {resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 18 }} /> : <DarkModeIcon sx={{ fontSize: 18 }} />}
+          {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 18 }} /> : <DarkModeIcon sx={{ fontSize: 18 }} />)}
         </IconButton>
       </Tooltip>
       {userInfo ? (
@@ -694,7 +876,7 @@ export default function Sidebar({
         </Tooltip>
       ) : (
         <Tooltip title="Sign in" placement="right">
-          <IconButton component="a" href="/auth/login" size="small" sx={{ color: "text.secondary" }}>
+          <IconButton component="a" href="/login" size="small" sx={{ color: "text.secondary" }}>
             <LoginIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
@@ -702,27 +884,10 @@ export default function Sidebar({
     </Box>
   );
 
+  if (pathname === "/login") return null;
+
   return (
     <>
-      {/* Mobile hamburger toggle — fixed top-right, only visible on xs */}
-      {isMobile && (
-        <IconButton
-          onClick={() => setMobileOpen((prev) => !prev)}
-          aria-label="open sidebar"
-          sx={{
-            position: "fixed",
-            top: 8,
-            right: 8,
-            zIndex: 1300,
-            bgcolor: "background.paper",
-            border: "1px solid",
-            borderColor: "divider",
-            "&:hover": { bgcolor: hoverTintBg },
-          }}
-        >
-          <MenuIcon sx={{ fontSize: 20 }} />
-        </IconButton>
-      )}
       {/* Temporary drawer for mobile */}
       <Drawer
         variant="temporary"
@@ -753,7 +918,34 @@ export default function Sidebar({
         }}
         open
       >
-        {collapsed ? collapsedContent : drawerContent}
+        <Box sx={{ position: "relative", height: "100%" }}>
+          <Box
+            aria-hidden={collapsed}
+            sx={{
+              position: "absolute",
+              inset: 0,
+              width: DRAWER_WIDTH,
+              opacity: collapsed ? 0 : 1,
+              pointerEvents: collapsed ? "none" : "auto",
+              transition: "opacity 0.14s ease",
+            }}
+          >
+            {drawerContent}
+          </Box>
+          <Box
+            aria-hidden={!collapsed}
+            sx={{
+              position: "absolute",
+              inset: 0,
+              width: COLLAPSED_WIDTH,
+              opacity: collapsed ? 1 : 0,
+              pointerEvents: collapsed ? "auto" : "none",
+              transition: "opacity 0.14s ease",
+            }}
+          >
+            {collapsedContent}
+          </Box>
+        </Box>
       </Drawer>
       <Snackbar
         open={logoutToastOpen}
@@ -769,4 +961,4 @@ export default function Sidebar({
   );
 }
 
-export { DRAWER_WIDTH, COLLAPSED_WIDTH };
+export { DRAWER_WIDTH, COLLAPSED_WIDTH, SIDEBAR_COLLAPSED_COOKIE };

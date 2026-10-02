@@ -14,16 +14,20 @@ interface ResourceListControlsProps {
   totalCount: number;
   page: number;
   pageSize: number;
-  baseParams: string;
+  baseParams?: string;
+  noun?: [singular: string, plural: string];
+  onChange?: (page: number, pageSize: number) => void;
 }
 
-const PAGE_SIZE_OPTIONS = [12, 24, 48, 96];
+export const PAGE_SIZE_OPTIONS = [12, 24, 48, 96];
 
 export default function ResourceListControls({
   totalCount,
   page,
   pageSize,
-  baseParams,
+  baseParams = "",
+  noun = ["resource", "resources"],
+  onChange,
 }: ResourceListControlsProps) {
   const router = useRouter();
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -35,12 +39,17 @@ export default function ResourceListControls({
     return `/?${params.toString()}`;
   };
 
+  const go = (newPage: number, newPageSize: number) => {
+    if (onChange) onChange(newPage, newPageSize);
+    else router.push(buildUrl(newPage, newPageSize));
+  };
+
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
-    router.push(buildUrl(value, pageSize));
+    go(value, pageSize);
   };
 
   const handlePageSizeChange = (value: number) => {
-    router.push(buildUrl(1, value));
+    go(1, value);
   };
 
   if (totalCount === 0) return null;
@@ -63,7 +72,7 @@ export default function ResourceListControls({
       }}
     >
       <Typography variant="body2" color="text.secondary">
-        {start}–{end} of {totalCount} resource{totalCount !== 1 ? "s" : ""}
+        {start}–{end} of {totalCount} {totalCount === 1 ? noun[0] : noun[1]}
       </Typography>
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>

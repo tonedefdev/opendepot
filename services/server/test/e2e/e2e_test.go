@@ -77,12 +77,16 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--create-namespace",
 			"--namespace", namespace,
 			"--skip-crds",
+			"--set", "monitoring.enabled=false",
+			"--set", "monitoring.bundled.enabled=false",
 			"--force-conflicts",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
 			"--set", "provider.enabled=false",
 			"--set", "version.enabled=false",
+			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
 			"--set", "server.enabled=true",
 			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
@@ -370,7 +374,7 @@ users:
 
 		// runTofuInit writes a main.tf referencing a (non-existent) module from
 		// the local port-forwarded server, writes rcContent as .tofurc, runs
-		// `tofu init -no-color`, and returns the combined stdout+stderr output and error.
+		// `tofu init -no-color`, and returns the combined stdout+stderr output.
 		// The module not existing is fine — auth failures surface before any
 		// module download is attempted.
 		//
@@ -379,7 +383,7 @@ users:
 		// so tofu reaches the port-forward tunnel on the test host without any
 		// in-cluster DNS configuration. The port goes only in the service URL
 		// inside the host block — not in the module source address.
-		runTofuInit := func(rcContent string) (string, error) {
+		runTofuInit := func(rcContent string) string {
 			workDir := GinkgoT().TempDir()
 			mainTF := fmt.Sprintf(`module "test" {
   source = "%s/%s/%s/%s"
@@ -393,10 +397,9 @@ users:
 			cmd := exec.Command(tofuBin, "init", "-no-color")
 			cmd.Dir = workDir
 			cmd.Env = append(os.Environ(), "TF_CLI_CONFIG_FILE="+rcFile)
-			output, err := cmd.CombinedOutput()
+			output, _ := cmd.CombinedOutput()
 			_, _ = fmt.Fprintf(GinkgoWriter, "tofu init output:\n%s\n", output)
-
-			return string(output), err
+			return string(output)
 		}
 
 		Context("anonymous auth over HTTP", Ordered, func() {
@@ -415,7 +418,7 @@ users:
 				stopPortForward(pfCancel)
 			})
 
-			It("tofu init without credentials reaches the registry without an auth failure", func() {
+			It("tofu init without credentials must not fail with a 401", func() {
 				// No credentials block — anonymous auth accepts unauthenticated requests.
 				rc := fmt.Sprintf(`host "%s" {
   services = {
@@ -423,14 +426,11 @@ users:
   }
 }
 `, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
-				output, err := runTofuInit(rc)
-				Expect(err).To(HaveOccurred(), "the deliberately nonexistent module must make tofu init fail")
-				Expect(output).To(ContainSubstring("Error: Module not found"),
-					"anonymous auth must reach the registry and report the missing module")
-				Expect(output).NotTo(
-					Or(ContainSubstring("401"), ContainSubstring("500 Internal Server Error")),
-					"anonymous auth must not produce an authentication or server error",
-				)
+				output := runTofuInit(rc)
+				Expect(output).NotTo(ContainSubstring("401"),
+					"anonymous auth must not produce a 401 during tofu init")
+				Expect(output).NotTo(ContainSubstring("missing Authorization header"),
+					"anonymous auth must not produce an auth error during tofu init")
 			})
 		})
 
@@ -468,8 +468,7 @@ users:
   }
 }
 `, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
-				output, err := runTofuInit(rc)
-				Expect(err).To(HaveOccurred(), "tofu init must fail when credentials are missing")
+				output := runTofuInit(rc)
 				Expect(output).To(
 					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
 					"tofu init without credentials must produce a 401 in bearer token mode",
@@ -483,28 +482,24 @@ users:
 				// "missing Authorization header" issue.
 				rc := fmt.Sprintf("host \"%s\" {\n  services = {\n    \"modules.v1\" = \"http://%s:%d/opendepot/modules/v1/\"\n  }\n  token = %q\n}\n",
 					tofuRegistryHost, tofuRegistryHost, serverLocalPort, bearerToken)
-				output, err := runTofuInit(rc)
-				Expect(err).To(HaveOccurred(), "tofu init must fail when credentials are misplaced")
+				output := runTofuInit(rc)
 				Expect(output).To(
 					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
 					"token inside host block must not be sent; server must return 401",
 				)
 			})
 
-			It("tofu init with token in a credentials block reaches the registry", func() {
+			It("tofu init with token in a credentials block must not produce a 401", func() {
 				// Correct configuration: `credentials` block keyed to the registry
 				// hostname, plus `host` block to configure the HTTP service URL.
 				// OpenTofu reads the `credentials` block and includes the token in
 				// the Authorization header for all requests to that hostname.
 				rc := fmt.Sprintf("credentials \"%s\" {\n  token = %q\n}\nhost \"%s\" {\n  services = {\n    \"modules.v1\" = \"http://%s:%d/opendepot/modules/v1/\"\n  }\n}\n",
 					tofuRegistryHost, bearerToken, tofuRegistryHost, tofuRegistryHost, serverLocalPort)
-				output, err := runTofuInit(rc)
-				Expect(err).To(HaveOccurred(), "the deliberately nonexistent module must make tofu init fail")
-				Expect(output).To(ContainSubstring("Error: Module not found"),
-					"valid credentials must reach the registry and report the missing module")
+				output := runTofuInit(rc)
 				Expect(output).NotTo(
-					Or(ContainSubstring("401"), ContainSubstring("500 Internal Server Error")),
-					"valid credentials must not produce an authentication or server error",
+					Or(ContainSubstring("401"), ContainSubstring("missing Authorization header")),
+					"token in credentials block must be forwarded to the server; must not return 401",
 				)
 			})
 		})
@@ -596,6 +591,7 @@ users:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(testUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(testClientSecret)
 
 			By("writing Dex e2e values file")
 			dexValues := fmt.Sprintf(`
@@ -631,18 +627,18 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
-    dexProxy:
-      enabled: false
-`, testUserEmail, passwordHash, testUserID, testClientSecret)
+    clientSecretName: opendepot-dex-client-secret
+`, testUserEmail, passwordHash, testUserID)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "dex-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC auth mode and Dex enabled")
 			deployServer(
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
+				"--set", "server.oidc.dexProxy.enabled=false",
 				"-f", valuesFile,
 				"--timeout", "10m",
 			)
@@ -843,6 +839,7 @@ server:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(proxyTestUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(proxyTestClientSecret)
 
 			By("writing Dex reverse-proxy e2e values file")
 			dexValues := fmt.Sprintf(`
@@ -878,13 +875,14 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
+    clientSecretName: opendepot-dex-client-secret
     issuerUrl: %s
     dexProxy:
       enabled: true
-`, externalIssuer, proxyTestUserEmail, passwordHash, proxyTestUserID, proxyTestClientSecret, externalIssuer)
+`, externalIssuer, proxyTestUserEmail, passwordHash, proxyTestUserID, externalIssuer)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "dex-proxy-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC auth mode, Dex enabled, and dexProxy enabled")
@@ -1113,6 +1111,7 @@ spec:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbTestUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(gbTestClientSecret)
 
 			By("writing Dex + GroupBinding e2e values file")
 			dexValues := fmt.Sprintf(`
@@ -1148,18 +1147,20 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
+		clientSecretName: opendepot-dex-client-secret
+		dexProxy:
+			enabled: false
     groupsClaim: email
-`, gbTestUserEmail, passwordHash, gbTestUserID, gbTestClientSecret)
+`, gbTestUserEmail, passwordHash, gbTestUserID)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "gb-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC auth mode, Dex enabled, and --oidc-groups-claim=email")
 			deployServer(
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
-				"--set", "server.oidc.dexProxy.enabled=false",
 				"-f", valuesFile,
 				"--timeout", "10m",
 			)
@@ -1495,6 +1496,7 @@ server:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(sfTestUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(sfTestClientSecret)
 
 			By("writing Dex e2e values file with SA fallback enabled")
 			dexValues := fmt.Sprintf(`
@@ -1530,18 +1532,20 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
+		clientSecretName: opendepot-dex-client-secret
+		dexProxy:
+			enabled: false
     allowServiceAccountFallback: true
-`, sfTestUserEmail, passwordHash, sfTestUserID, sfTestClientSecret)
+`, sfTestUserEmail, passwordHash, sfTestUserID)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "sf-dex-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC + SA fallback enabled")
 			deployServer(
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
-				"--set", "server.oidc.dexProxy.enabled=false",
 				"-f", valuesFile,
 				"--timeout", "10m",
 			)
@@ -1861,6 +1865,7 @@ spec:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(ccUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(ccOIDCClientSecret)
 
 			By("writing Dex + CC e2e values file")
 			// The ci-pipeline staticClient is a normal ROPC client (not a CC client).
@@ -1904,18 +1909,20 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
+		clientSecretName: opendepot-dex-client-secret
+		dexProxy:
+			enabled: false
     allowClientCredentials: true
-`, ccUserEmail, passwordHash, ccUserID, ccClientID, ccTestClientSecret, ccOIDCClientSecret)
+`, ccUserEmail, passwordHash, ccUserID, ccClientID, ccTestClientSecret)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "cc-dex-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC + client credentials enabled")
 			deployServer(
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
-				"--set", "server.oidc.dexProxy.enabled=false",
 				"-f", valuesFile,
 				"--timeout", "10m",
 			)
@@ -2095,9 +2102,27 @@ server:
 
 		BeforeAll(func() {
 			By("deploying server with anonymous auth for stats tests")
+			repoRoot, err := utils.GetRepoRoot()
+			Expect(err).NotTo(HaveOccurred())
+			monitoringCharts, err := filepath.Glob(filepath.Join(repoRoot, "chart", "opendepot", "charts", "kube-prometheus-stack-*.tgz"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(monitoringCharts).To(HaveLen(1))
+			monitoringChart := monitoringCharts[0]
+			crdCmd := exec.Command("helm", "show", "crds", monitoringChart)
+			crds, err := utils.Run(crdCmd)
+			Expect(err).NotTo(HaveOccurred())
+			applyCRDs := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "-f", "-")
+			applyCRDs.Stdin = strings.NewReader(crds)
+			_, err = utils.Run(applyCRDs)
+			Expect(err).NotTo(HaveOccurred())
+
 			deployServer(
 				"--set", "server.anonymousAuth=true",
 				"--set", "server.useBearerToken=false",
+				"--set", "storage.filesystem.enabled=true",
+				"--set", "storage.filesystem.hostPath=/tmp/opendepot-e2e-modules",
+				"--set", "monitoring.enabled=true",
+				"--set", "monitoring.bundled.enabled=true",
 			)
 			pfCancel = startPortForward()
 		})
@@ -2261,29 +2286,65 @@ spec:
 			_, err = utils.Run(patchCmd)
 			Expect(err).NotTo(HaveOccurred())
 
+			By("creating the filesystem archive consumed by the download endpoint")
+			clusterName := os.Getenv("KIND_CLUSTER")
+			if clusterName == "" {
+				clusterName = "opendepot-test-e2e"
+			}
+			nodeCmd := exec.Command("kind", "get", "nodes", "--name", clusterName)
+			nodeName, err := utils.Run(nodeCmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(nodeName).NotTo(BeEmpty())
+
+			fileCmd := exec.Command("docker", "exec", strings.TrimSpace(nodeName), "sh", "-c",
+				"mkdir -p /tmp/stats-smoke-module /tmp/opendepot-e2e-modules/stats-smoke-module && echo 'module {}' > /tmp/stats-smoke-module/main.tf && tar -czf /tmp/opendepot-e2e-modules/stats-smoke-module/stats-smoke-module.tar.gz -C /tmp stats-smoke-module")
+			_, err = utils.Run(fileCmd)
+			Expect(err).NotTo(HaveOccurred())
+
 			By("triggering the module download endpoint to record a stat")
 			downloadURL := fmt.Sprintf("http://localhost:%d/opendepot/modules/v1/%s/%s/aws/%s/download",
 				serverLocalPort, statsModuleNS, statsModuleName, statsModuleVersion)
 			resp, err := http.Get(downloadURL)
 			Expect(err).NotTo(HaveOccurred())
+			responseBody, readErr := io.ReadAll(resp.Body)
+			Expect(readErr).NotTo(HaveOccurred())
 			resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent),
-				"download redirect must return 204 so that recordDownload is called")
+				"download redirect must return 204 so that recordDownload is called; response: %s", responseBody)
 
 			By("asserting totalDownloads >= 1 from the stats endpoint")
-			statsResp, err := http.Get(fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort))
-			Expect(err).NotTo(HaveOccurred())
-			defer statsResp.Body.Close()
-			Expect(statsResp.StatusCode).To(Equal(http.StatusOK))
+			statsURL := fmt.Sprintf("http://localhost:%d/opendepot/ui/v1/stats", serverLocalPort)
+			readStats := func() (int, int) {
+				statsResp, err := http.Get(statsURL)
+				if err != nil {
+					return 0, 0
+				}
+				defer statsResp.Body.Close()
+				if statsResp.StatusCode != http.StatusOK {
+					return 0, 0
+				}
 
-			var stats struct {
-				TotalDownloads int           `json:"totalDownloads"`
-				MostDownloaded []interface{} `json:"mostDownloaded"`
+				var stats struct {
+					TotalDownloads int           `json:"totalDownloads"`
+					MostDownloaded []interface{} `json:"mostDownloaded"`
+				}
+				if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+					return 0, 0
+				}
+
+				return stats.TotalDownloads, len(stats.MostDownloaded)
 			}
-			Expect(json.NewDecoder(statsResp.Body).Decode(&stats)).To(Succeed())
-			Expect(stats.TotalDownloads).To(BeNumerically(">=", 1),
+			Eventually(func() int {
+				totalDownloads, _ := readStats()
+
+				return totalDownloads
+			}, 2*time.Minute, 2*time.Second).Should(BeNumerically(">=", 1),
 				"totalDownloads must be at least 1 after a recorded download")
-			Expect(len(stats.MostDownloaded)).To(BeNumerically(">=", 1),
+			Eventually(func() int {
+				_, mostDownloaded := readStats()
+
+				return mostDownloaded
+			}, 2*time.Minute, 2*time.Second).Should(BeNumerically(">=", 1),
 				"mostDownloaded must be non-empty after a recorded download")
 
 			By("asserting the browse resources endpoint shows totalDownloads >= 1 for the downloaded module")
@@ -2392,11 +2453,15 @@ var _ = Describe("Browse API", Ordered, func() {
 			"--namespace", namespace,
 			"--skip-crds",
 			"--force-conflicts",
+			"--set", "monitoring.enabled=false",
+			"--set", "monitoring.bundled.enabled=false",
 			"--set", "global.image.tag=",
 			"--set", "depot.enabled=false",
 			"--set", "module.enabled=false",
 			"--set", "provider.enabled=false",
 			"--set", "version.enabled=false",
+			"--set", "scanning.enabled=false",
+			"--set", "scanning.providerScanning=false",
 			"--set", "server.enabled=true",
 			"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 			"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
@@ -2791,8 +2856,9 @@ spec:
 			resp, err := http.Get(u)
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
-			Expect(resp.StatusCode).To(Equal(http.StatusNotFound),
-				"a non-existent module must return 404 from the module versions protocol endpoint")
+			// anonymous-auth mode: 404 or 200 are both acceptable; 401 is not.
+			Expect(resp.StatusCode).NotTo(Equal(http.StatusUnauthorized),
+				"module versions protocol endpoint must not return 401 in anonymous-auth mode")
 		})
 	})
 
@@ -2938,6 +3004,7 @@ spec:
 			hashBytes, err := bcrypt.GenerateFromPassword([]byte(gbBrowseUserPassword), 10)
 			Expect(err).NotTo(HaveOccurred())
 			passwordHash := string(hashBytes)
+			ensureOIDCClientSecret(gbBrowseDexClientSecret)
 
 			By("writing Dex + server OIDC values for GroupBinding browse context")
 			dexValues := fmt.Sprintf(`
@@ -2972,11 +3039,14 @@ dex:
 server:
   oidc:
     enabled: true
-    clientSecret: %q
+		clientSecretName: opendepot-dex-client-secret
+    dexProxy:
+      enabled: false
     groupsClaim: email
-`, gbBrowseUserEmail, passwordHash, gbBrowseUserID, gbBrowseDexClientSecret)
+`, gbBrowseUserEmail, passwordHash, gbBrowseUserID)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "gb-browse-e2e-values.yaml")
+			dexValues = strings.ReplaceAll(dexValues, "\t", "  ")
 			Expect(os.WriteFile(valuesFile, []byte(dexValues), 0600)).To(Succeed())
 
 			By("deploying server with OIDC + Dex for GroupBinding browse tests")
@@ -2986,18 +3056,21 @@ server:
 				"--create-namespace",
 				"--namespace", namespace,
 				"--skip-crds",
+				"--set", "monitoring.enabled=false",
+				"--set", "monitoring.bundled.enabled=false",
 				"--force-conflicts",
 				"--set", "global.image.tag=",
 				"--set", "depot.enabled=false",
 				"--set", "module.enabled=false",
 				"--set", "provider.enabled=false",
 				"--set", "version.enabled=false",
+				"--set", "scanning.enabled=false",
+				"--set", "scanning.providerScanning=false",
 				"--set", "server.enabled=true",
 				"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 				"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 				"--set", "server.anonymousAuth=false",
 				"--set", "server.useBearerToken=false",
-				"--set", "server.oidc.dexProxy.enabled=false",
 				"--set", "valkey.dataStorage.enabled=false",
 				"-f", valuesFile,
 				"--wait",

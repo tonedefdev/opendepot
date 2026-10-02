@@ -12,11 +12,13 @@ global:
 version:
   enabled: true
   replicaCount: 1
+  serviceAccount:
+    annotations: {}
   # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: ghcr.io/tonedefdev/opendepot/version-controller
+    repository: gcr.io/opendepot-495604/opendepot/version-controller
     tag: ""
   resources:
     requests:
@@ -36,7 +38,7 @@ module:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: ghcr.io/tonedefdev/opendepot/module-controller
+    repository: gcr.io/opendepot-495604/opendepot/module-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -56,7 +58,7 @@ depot:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: ghcr.io/tonedefdev/opendepot/depot-controller
+    repository: gcr.io/opendepot-495604/opendepot/depot-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -68,7 +70,7 @@ depot:
   tolerations: []
   affinity: {}
 
-## Provider Service (Manages provider versions from HashiCorp Releases API)
+## Provider Service (Manages provider versions from the OpenTofu Registry API)
 provider:
   enabled: false
   replicaCount: 1
@@ -76,7 +78,7 @@ provider:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: ghcr.io/tonedefdev/opendepot/provider-controller
+    repository: gcr.io/opendepot-495604/opendepot/provider-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -92,8 +94,18 @@ provider:
 server:
   enabled: true
   replicaCount: 1
+  serviceAccount:
+    annotations: {}
   anonymousAuth: false
   useBearerToken: true
+  # ScanPolicy reads are always available through the server API. Writes remain
+  # disabled unless explicitly enabled and authorized by Kubernetes RBAC or OIDC
+  # GroupBinding policy-management access.
+  policyManagement:
+    enabled: false
+  # Name of the Secret containing the shared HMAC key used to authorize module
+  # archive downloads. When blank, the chart creates a release-scoped Secret.
+  moduleDownloadTokenSecretName: ""
   # OIDC authentication settings. When enabled, the server validates OIDC JWTs
   # issued by Dex (or any compatible OIDC provider) before proxying requests to
   # the Kubernetes API. This is the recommended auth mode for production; it
@@ -107,14 +119,9 @@ server:
     issuerUrl: ""
     # clientId must match the id field of the Dex static client configured below.
     clientId: "opendepot"
-    # clientSecretName is the name of the Kubernetes Secret that holds the
-    # clientSecret key. When blank, the chart creates the Secret automatically
-    # from the clientSecret value below (only if dex.enabled=true).
+    # clientSecretName is the name of an existing Kubernetes Secret that holds
+    # the clientSecret key.
     clientSecretName: ""
-    # clientSecret is used to create the Dex client Secret when clientSecretName
-    # is blank. This value is written to a Secret — do not store it in plain text
-    # in production; use an external secret operator instead.
-    clientSecret: ""
     # groupsClaim is the JWT claim name containing the OIDC groups.
     # Only used when GroupBinding resources are deployed. Defaults to "groups".
     # Change to "cognito:groups", "roles", etc. when using a non-standard IdP.
@@ -153,12 +160,19 @@ server:
     dexProxy:
       enabled: true
   image:
-    repository: ghcr.io/tonedefdev/opendepot/server
+    repository: gcr.io/opendepot-495604/opendepot/server
     tag: ""  # Overrides global.image.tag when set
   service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 80
     targetPort: 8080
+  metrics:
+    port: 9090
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+      scrapeTimeout: 10s
+      additionalLabels: {}
   ingress:
     enabled: false
     istio:
@@ -183,11 +197,10 @@ server:
     # OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64, and optionally OPENDEPOT_PROVIDER_GPG_SOURCE_URL.
     secretName: ""
   stats:
-    # Name of a pre-existing Kubernetes Secret whose "default" key holds the Valkey ACL
-    # password. Must match valkey.auth.usersExistingSecret. When set, the password is
-    # injected into the server container via the OPENDEPOT_VALKEY_PASSWORD environment
-    # variable.
-    valkeyPasswordSecretName: "opendepot-valkey-auth"
+    # Prometheus HTTP API URL. When empty, the bundled Prometheus service is used.
+    prometheusURL: ""
+    lookback: 90d
+    queryTimeout: 5s
   resources:
     requests:
       cpu: 100m
@@ -235,15 +248,14 @@ storage:
 
 ## Scanning configuration (Trivy-based vulnerability and IaC scanning)
 scanning:
-  # Enable Trivy-based scanning. When true, the version-controller automatically
-  # uses the image variant tagged with the -scanning suffix, which bundles the
-  # Trivy binary. Module IaC scanning (HCL misconfiguration detection) is active
-  # at this level — no PVC or CronJob infrastructure is required.
-  enabled: false
-  # Enable provider binary and source scanning. Requires scanning.enabled=true.
-  # When true, creates the Trivy vulnerability DB PVC and the trivy-db-updater
-  # CronJob, and mounts the cache volume into the version-controller.
-  providerScanning: false
+  # Enable Trivy-based scanning. The SaaS release image bundles the Trivy binary.
+  # Module IaC scanning (HCL misconfiguration detection) is active at this level;
+  # no PVC or CronJob infrastructure is required.
+  enabled: true
+  # Enable provider binary and source scanning. This creates the Trivy
+  # vulnerability DB PVC and the trivy-db-updater CronJob, and mounts the cache
+  # volume into the version-controller.
+  providerScanning: true
   # Mount path inside the version-controller container for the Trivy DB cache.
   # Only used when providerScanning is true.
   cacheMountPath: /var/cache/trivy
@@ -273,6 +285,41 @@ scanning:
     image:
       repository: aquasec/trivy
       tag: "0.70.0"
+  tolerations: []
+
+## Assembly Line (module contract derivation and provider schema extraction)
+assembly:
+  # Enable Assembly Line. When true the version-controller derives a machine-readable
+  # input/output contract for every module version and extracts a reduced provider
+  # schema for every provider version whose OS/arch matches the controller's own.
+  # Contracts are stored in ConfigMaps owned by the Version; provider schemas are
+  # stored in the configured object storage backend.
+  enabled: false
+  # Provider Registry Protocol origin used only while the server validates generated
+  # configuration. Leave empty to use ui.baseUrl. Set this to an in-cluster server URL
+  # when the public registry origin is not reachable from the server pod.
+  validationRegistryUrl: ""
+  # CA certificate trusted only by the temporary OpenTofu validation process.
+  # Set this when validationRegistryUrl uses a certificate from a private CA.
+  validationCACertPath: ""
+  # Path to the tofu binary bundled in the version-controller image. Only used when
+  # assembly.enabled is true.
+  tofuBinPath: /usr/local/bin/tofu
+  # Maximum duration a single provider schema extraction may run for. Large providers
+  # (aws, azurerm, google) can take a minute or more to emit their full schema.
+  extractionTimeout: 5m
+  # Maximum duration for OpenTofu to download modules/providers and initialize an export.
+  initTimeout: 2m
+  # Maximum duration for OpenTofu to validate a rendered export.
+  validateTimeout: 1m
+  # Maximum accepted export request body and total canvas node count.
+  maxRequestBytes: 2097152
+  maxNodes: 100
+  # Maximum stdout/stderr retained from each OpenTofu command.
+  maxOutputBytes: 65536
+  # Writable validation workspace mounted into the otherwise read-only server container.
+  workDir: /var/lib/opendepot/assembly
+  workspaceSizeLimit: 1Gi
 
 ## Dex OIDC provider (subchart)
 # When dex.enabled=true, Dex is deployed as an OIDC identity broker. It
@@ -355,12 +402,15 @@ ui:
   enabled: false
   replicaCount: 1
   image:
-    repository: ghcr.io/tonedefdev/opendepot/ui
+    repository: gcr.io/opendepot-495604/opendepot/ui
     tag: ""  # Overrides global.image.tag when set
   # serverHost is the upstream address (host:port) that NGINX inside the UI
   # container will proxy registry protocol requests to.
   # Defaults to server.<global.namespace>.svc.cluster.local:80 when empty.
   serverHost: ""
+  # serverCACertPath adds a private CA from the opendepot-tls Secret to the
+  # Next.js trust store when the in-cluster server uses a privately signed cert.
+  serverCACertPath: ""
   nginx:
     # preserveHostPort passes the client Host header including the port ($http_host)
     # to the upstream server service. Enable this for local development environments
@@ -426,41 +476,41 @@ ui:
   tolerations: []
   affinity: {}
 
-## Valkey (Redis-compatible) statistics store
-## Deployed via the official valkey-io/valkey-helm subchart when server.enabled=true.
-valkey:
-  fullnameOverride: valkey  # Forces Service name to exactly "valkey" — do not change
-  # Pin to the Alpine variant of the Valkey 8 LTS tag. It receives rolling
-  # security patches without the vulnerable Debian util-linux package set.
-  image:
-    tag: "8-alpine"
-  auth:
-    # Set to true to require ACL password authentication.
-    # Recommended for production environments (finance, banking, DoD, etc.).
-    # When enabled, also set usersExistingSecret and server.stats.valkeyPasswordSecretName
-    # to the name of the same pre-existing Kubernetes Secret. Use External Secrets
-    # Operator or HashiCorp Vault to provision the Secret rather than storing the
-    # password in plain text.
+## OpenDepot monitoring resources and the optional bundled Prometheus stack.
+monitoring:
+  enabled: true
+  bundled:
     enabled: true
-    # Name of a pre-existing Secret whose keys are ACL usernames and values are passwords.
-    # The Secret must contain at minimum: key "default" = <password>.
-    usersExistingSecret: "opendepot-valkey-auth"
-    aclUsers:
-      default:
-        # Minimal ACL: access only stats:* keys, deny all commands except those
-        # used by the server stats subsystem. Operators MUST use this default
-        # unless they have a specific requirement for broader access.
-        permissions: "~stats:* &* -@all +PING +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT"
-  dataStorage:
-    enabled: true
-    requestedSize: 1Gi
-    className: ""
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      memory: 256Mi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
+  grafana:
+    enabled: false
+  alertmanager:
+    enabled: false
+  kubeStateMetrics:
+    enabled: false
+  nodeExporter:
+    enabled: false
+  defaultRules:
+    create: false
+  kubeApiServer:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubelet:
+    enabled: false
+  prometheusOperator:
+    serviceMonitor:
+      enabled: false
+  prometheus:
+    prometheusSpec:
+      replicas: 1
+      retention: 90d
+      serviceMonitorSelectorNilUsesHelmValues: false
+      # Leave empty for disposable demo storage. Set this map to the
+      # kube-prometheus-stack Prometheus storageSpec shape to use a PVC.
+      storageSpec: {}

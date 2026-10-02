@@ -10,7 +10,8 @@ on:
     types: [opened, synchronize]
     paths:
       - 'pkg/storage/**'
-      - 'test/**'
+      - 'test/infra/**'
+      - 'test/integration/**'
       - '.github/workflows/storage-integration.yaml'
 
 permissions:

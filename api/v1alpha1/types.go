@@ -91,7 +91,7 @@ type ModuleConfig struct {
 	// The name of the module. If omitted, the name of the Module resource
 	// is used in its place.
 	Name *string `json:"name,omitempty"`
-	// The main terraform or tofu provider required for this module.
+	// The main OpenTofu provider required for this module.
 	Provider string `json:"provider,omitempty"`
 	// Owner of the Github repository.
 	RepoOwner string `json:"repoOwner,omitempty"`
@@ -277,6 +277,13 @@ type SecurityFinding struct {
 	Severity string `json:"severity"`
 	// A short description of the vulnerability.
 	Title string `json:"title,omitempty"`
+	// Whether a ScanPolicy exempted this finding from blocking reconciliation. Exempted
+	// findings are still reported so that they remain visible and auditable.
+	Exempted bool `json:"exempted,omitempty"`
+	// The justification recorded on the ScanPolicy exemption that covered this finding.
+	ExemptionReason string `json:"exemptionReason,omitempty"`
+	// The name of the ScanPolicy that exempted this finding.
+	ExemptedBy string `json:"exemptedBy,omitempty"`
 }
 
 // SourceScan holds the results of a Trivy source scan. Used for both module IaC (HCL filesystem)
@@ -340,6 +347,125 @@ type ProviderVersion struct {
 	Version string `json:"version,omitempty"`
 }
 
+// ScanPolicyTargetRef identifies the Module or Provider resources a ScanPolicy applies to.
+type ScanPolicyTargetRef struct {
+	// The kind of resource this reference targets. Either 'Module' or 'Provider'.
+	// +kubebuilder:validation:Enum=Module;Provider
+	Kind string `json:"kind"`
+	// The name of the Module or Provider resource. Matching is exact; the single
+	// literal '*' matches every resource of the given kind in the namespace.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// A comma-separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0'
+	// or '~> 1.0.0'. Constraints use AND semantics, so a version must satisfy the full
+	// expression. When omitted the reference matches every version of the resource.
+	// +optional
+	Versions string `json:"versions,omitempty"`
+}
+
+// ScanExemption declares a set of scan findings that must not block reconciliation.
+// A finding is exempted when it matches every populated field of the exemption.
+type ScanExemption struct {
+	// The vulnerability or misconfiguration identifiers this exemption covers, such as
+	// 'CVE-2024-1234' or 'aws-0057'. Matching is exact; the single literal '*' matches
+	// every identifier. When omitted every identifier is covered.
+	// +optional
+	VulnerabilityIDs []string `json:"vulnerabilityIDs,omitempty"`
+	// The package names this exemption covers, such as 'stdlib' or 'golang.org/x/net'.
+	// Matching is exact; the single literal '*' matches every package. When omitted
+	// every package is covered.
+	// +optional
+	PkgNames []string `json:"pkgNames,omitempty"`
+	// The scan types this exemption applies to. When omitted every scan type is covered.
+	// +kubebuilder:validation:items:Enum=binary;source;module
+	// +optional
+	ScanTypes []string `json:"scanTypes,omitempty"`
+	// The severities this exemption covers. Matching is exact and case insensitive; the
+	// single literal '*' matches every severity. When omitted every severity is covered.
+	// +optional
+	Severities []string `json:"severities,omitempty"`
+	// The justification for this exemption, so that every exemption remains auditable.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Reason string `json:"reason"`
+	// The time at which this exemption stops applying. Once it has passed the covered
+	// findings block again. When omitted the exemption never expires.
+	// +optional
+	Expires *metav1.Time `json:"expires,omitempty"`
+}
+
+// ScanPolicySpec defines the desired state of ScanPolicy.
+type ScanPolicySpec struct {
+	// The precedence of this policy. When more than one ScanPolicy matches a Version the
+	// policy with the highest priority wins outright and supplies both the severity
+	// threshold and the exemption set; lower priority policies are ignored entirely rather
+	// than merged. Ties are broken by the oldest creation timestamp, then by name ascending.
+	// +kubebuilder:default=0
+	// +optional
+	Priority int `json:"priority,omitempty"`
+	// A label selector matched against the labels of the Version resources this policy
+	// applies to. A Version matches when the selector matches it or when any entry in
+	// targetRefs matches it. When both selector and targetRefs are omitted the policy
+	// applies to every Version in its namespace.
+	// +optional
+	Selector *metav1.LabelSelector `json:"selector,omitempty"`
+	// An explicit list of Module or Provider resources this policy applies to.
+	// +optional
+	TargetRefs []ScanPolicyTargetRef `json:"targetRefs,omitempty"`
+	// The minimum severity that blocks reconciliation for the matched Versions. This
+	// overrides the version controller's --scan-block-on-critical and --scan-block-on-high
+	// flags. 'NONE' disables blocking entirely for the matched Versions. When omitted the
+	// controller flags remain in effect as the baseline.
+	// +kubebuilder:validation:Enum=CRITICAL;HIGH;MEDIUM;LOW;NONE
+	// +optional
+	SeverityThreshold string `json:"severityThreshold,omitempty"`
+	// The findings that must not block reconciliation for the matched Versions.
+	// +optional
+	Exemptions []ScanExemption `json:"exemptions,omitempty"`
+}
+
+// ScanPolicyStatus defines the observed state of ScanPolicy.
+type ScanPolicyStatus struct {
+	// The number of Version resources in this namespace currently matched by this policy.
+	MatchedVersions int `json:"matchedVersions"`
+	// The number of exemptions that are currently in effect.
+	ActiveExemptions int `json:"activeExemptions"`
+	// The number of exemptions whose expiry has passed and no longer apply.
+	ExpiredExemptions int `json:"expiredExemptions"`
+	// The name of the higher priority ScanPolicy that shadows this policy for every Version
+	// it matches. Empty when this policy wins for at least one Version, or when it matches
+	// no Versions at all.
+	SupersededBy string `json:"supersededBy,omitempty"`
+	// The observed conditions of the ScanPolicy.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Priority",type="integer",JSONPath=".spec.priority",description="The precedence of this policy; highest wins"
+// +kubebuilder:printcolumn:name="Threshold",type="string",JSONPath=".spec.severityThreshold",description="The minimum severity that blocks reconciliation"
+// +kubebuilder:printcolumn:name="Matched",type="integer",JSONPath=".status.matchedVersions",description="The number of Versions matched by this policy"
+// +kubebuilder:printcolumn:name="Active",type="integer",JSONPath=".status.activeExemptions",description="The number of exemptions currently in effect"
+// +kubebuilder:printcolumn:name="SupersededBy",type="string",JSONPath=".status.supersededBy",description="The higher priority policy shadowing this one"
+
+// ScanPolicy is the Schema for the scanpolicies API.
+type ScanPolicy struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ScanPolicySpec   `json:"spec,omitempty"`
+	Status ScanPolicyStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// ScanPolicyList contains a list of ScanPolicy.
+type ScanPolicyList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ScanPolicy `json:"items"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of resource. Either 'Module' or 'Provider'"
@@ -361,7 +487,7 @@ type VersionSpec struct {
 	Architecture string `json:"architecture,omitempty"`
 	// The name of the file with its extension.
 	// For a Module the file extension must be one of .zip or .tar.gz
-	// since terraform/tofu currently only support these two
+	// since OpenTofu currently only supports these two
 	// extension types.
 	FileName *string `json:"fileName,omitempty"`
 	// A flag to force a module version to synchronize.
@@ -400,6 +526,23 @@ type VersionStatus struct {
 	// encoded README.md content. Only populated for module Version resources when a
 	// README could be resolved from Github or the module archive.
 	ReadmeConfigMapRef *ReadmeConfigMapRef `json:"readmeConfigMapRef,omitempty"`
+	// ContractConfigMapRef references the ConfigMap holding this module Version's
+	// Assembly Line contract JSON. Only populated for module Version resources when
+	// contract derivation is enabled.
+	// +optional
+	ContractConfigMapRef *ContractConfigMapRef `json:"contractConfigMapRef,omitempty"`
+	// ProviderSchemaRef references the reduced provider schema stored in the object
+	// storage backend for this provider Version. Only populated for provider Version
+	// resources whose OS/arch matches the controller's own platform.
+	// +optional
+	ProviderSchemaRef *ProviderSchemaRef `json:"providerSchemaRef,omitempty"`
+	// ProviderSchemaStatus records the outcome of the most recent provider schema
+	// extraction attempt. Unlike ProviderSchemaRef, which is only ever set on success,
+	// this field is also set when an extraction attempt fails, so the failure is
+	// visible instead of the Version silently having no schema. Only populated for
+	// provider Version resources whose OS/arch matches the controller's own platform.
+	// +optional
+	ProviderSchemaStatus *ProviderSchemaStatus `json:"providerSchemaStatus,omitempty"`
 }
 
 // ReadmeConfigMapRef references the ConfigMap and data key holding a module Version's
@@ -409,6 +552,46 @@ type ReadmeConfigMapRef struct {
 	Name string `json:"name"`
 	// The key within the ConfigMap's data holding the base64 encoded README content.
 	Key string `json:"key"`
+}
+
+// ContractConfigMapRef references the ConfigMap and data key holding a module
+// Version's Assembly Line contract JSON.
+type ContractConfigMapRef struct {
+	// The name of the ConfigMap holding the contract.
+	Name string `json:"name"`
+	// The key within the ConfigMap's data holding the contract JSON.
+	Key string `json:"key"`
+	// The compatibility grade of this module for Assembly Line.
+	// +kubebuilder:validation:Enum=full;partial;unsupported
+	Grade string `json:"grade"`
+	// The RFC3339 timestamp at which the contract was derived.
+	DerivedAt string `json:"derivedAt"`
+}
+
+// ProviderSchemaRef references the reduced provider schema object stored in the
+// configured storage backend.
+type ProviderSchemaRef struct {
+	// The storage key of the gzipped reduced schema object.
+	Key string `json:"key"`
+	// The SHA256 digest of the uncompressed reduced schema, as a hex string.
+	Digest string `json:"digest"`
+	// The RFC3339 timestamp at which the schema was extracted.
+	ExtractedAt string `json:"extractedAt"`
+	// The size in bytes of the stored gzipped object.
+	SizeBytes int64 `json:"sizeBytes"`
+}
+
+// ProviderSchemaStatus records the outcome of the most recent provider schema
+// extraction attempt for a provider Version.
+type ProviderSchemaStatus struct {
+	// The outcome of the most recent extraction attempt.
+	// +kubebuilder:validation:Enum=Succeeded;Failed
+	State string `json:"state"`
+	// A human readable description of the failure. Only set when state is Failed.
+	// +optional
+	Message string `json:"message,omitempty"`
+	// The RFC3339 timestamp of the most recent extraction attempt.
+	AttemptedAt string `json:"attemptedAt"`
 }
 
 // +kubebuilder:object:root=true
@@ -506,6 +689,18 @@ type GroupBindingSpec struct {
 	// Empty or omitted means no providers are accessible.
 	// +optional
 	ProviderResources []string `json:"providerResources,omitempty"`
+
+	// ScanPolicyManagement grants permission to create, update, and delete
+	// ScanPolicy resources through the server policy-management API.
+	// This is disabled when omitted.
+	// +optional
+	ScanPolicyManagement bool `json:"scanPolicyManagement,omitempty"`
+
+	// ScanPolicyNamespaces is the allow-list of namespaces where this binding
+	// may read or manage ScanPolicy resources. An empty list denies access.
+	// The literal "*" allows every namespace reachable by the server.
+	// +optional
+	ScanPolicyNamespaces []string `json:"scanPolicyNamespaces,omitempty"`
 }
 
 // GroupBindingStatus defines the observed state of GroupBinding.
@@ -535,10 +730,43 @@ type GroupBindingList struct {
 	Items           []GroupBinding `json:"items"`
 }
 
+type SecurityGroupBindingSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	Expression                    string   `json:"expression"`
+	Namespaces                    []string `json:"namespaces,omitempty"`
+	ModuleResources               []string `json:"moduleResources,omitempty"`
+	ProviderResources             []string `json:"providerResources,omitempty"`
+	NamespaceWidePolicyManagement bool     `json:"namespaceWidePolicyManagement,omitempty"`
+}
+
+type SecurityGroupBindingStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Expression",type="string",JSONPath=".spec.expression"
+type SecurityGroupBinding struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   SecurityGroupBindingSpec   `json:"spec,omitempty"`
+	Status SecurityGroupBindingStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type SecurityGroupBindingList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []SecurityGroupBinding `json:"items"`
+}
+
 func init() {
 	SchemeBuilder.Register(&Depot{}, &DepotList{})
 	SchemeBuilder.Register(&GroupBinding{}, &GroupBindingList{})
 	SchemeBuilder.Register(&Module{}, &ModuleList{})
 	SchemeBuilder.Register(&Provider{}, &ProviderList{})
+	SchemeBuilder.Register(&ScanPolicy{}, &ScanPolicyList{})
+	SchemeBuilder.Register(&SecurityGroupBinding{}, &SecurityGroupBindingList{})
 	SchemeBuilder.Register(&Version{}, &VersionList{})
 }

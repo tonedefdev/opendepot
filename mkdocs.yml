@@ -99,6 +99,8 @@ nav:
         - guides/registry-explorer/index.md
         - Browse Resources and Dashboards: guides/registry-explorer/browse.md
         - Browse API: guides/registry-explorer/api.md
+      - SecurityGroupBinding Access Control: guides/security-groupbinding.md
+      - Assembly Line: guides/assembly-line.md
   - Reference:
     - reference/index.md
     - API: reference/api.md

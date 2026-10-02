@@ -44,7 +44,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
     ---
 
-    The Kubernetes API stores registry state, while the bundled Valkey instance persists download statistics. No separately managed application database is required.
+    Declarative controllers continuously reconcile toward desired state. Transient errors retry with exponential backoff. Applying the same manifest twice is a no-op.
 
 - :material-cloud-check: &nbsp;__Multi-Cloud Storage__
 

@@ -223,6 +223,10 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if v.Status.SourceScan != nil {
 			for _, f := range v.Status.SourceScan.Findings {
 				accumulateFinding(&secPosture, f)
+				if f.Exempted {
+					continue
+				}
+
 				key := v.Namespace + "/" + v.Name
 				affectedResources[key] = struct{}{}
 			}
@@ -232,6 +236,10 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		if v.Status.BinaryScan != nil {
 			for _, f := range v.Status.BinaryScan.Findings {
 				accumulateFinding(&secPosture, f)
+				if f.Exempted {
+					continue
+				}
+
 				key := v.Namespace + "/" + v.Name
 				affectedResources[key] = struct{}{}
 			}
@@ -240,22 +248,6 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 
 	secPosture.TotalAffectedResources = len(affectedResources)
 
-	// Query download stats from Valkey.
-	totalDownloads, err := queryTotalDownloads(r.Context(), statsClient, namespace)
-	if err != nil {
-		logger.Error("stats: failed to query total downloads", "error", err)
-	}
-
-	mostDownloaded, err := queryMostDownloaded(r.Context(), statsClient, namespace, 10)
-	if err != nil {
-		logger.Error("stats: failed to query most downloaded", "error", err)
-		mostDownloaded = []PopularResource{}
-	}
-
-	// Filter mostDownloaded to only include resources the caller can see.
-	// queryMostDownloaded reads all download_events without visibility checks;
-	// cross-referencing with the already-filtered module/provider lists ensures
-	// private resource names and namespaces are not leaked to unauthenticated callers.
 	visibleResources := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items))
 	for _, m := range moduleList.Items {
 		visibleResources[m.Namespace+"/module/"+m.Name] = struct{}{}
@@ -265,15 +257,14 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
 	}
 
-	filtered := mostDownloaded[:0]
-	for _, pr := range mostDownloaded {
-		key := pr.Namespace + "/" + strings.ToLower(pr.Kind) + "/" + pr.Name
-		if _, ok := visibleResources[key]; ok {
-			filtered = append(filtered, pr)
-		}
+	// Query download stats from Prometheus over the configured lookback.
+	downloadStats, err := downloadStatsSnapshot(r.Context())
+	if err != nil {
+		logger.Error("stats: failed to query download stats", "error", err)
 	}
 
-	mostDownloaded = filtered
+	totalDownloads := totalDownloadsForStats(downloadStats, namespace, visibleResources)
+	mostDownloaded := mostDownloadedForStats(downloadStats, namespace, 10, visibleResources)
 
 	stats := BrowseStats{
 		TotalModules:        len(moduleList.Items),
@@ -281,6 +272,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		TotalVersions:       len(versionList.Items),
 		TotalStorageBytes:   totalStorageBytes,
 		TotalDownloads:      totalDownloads,
+		DownloadWindow:      prometheusStats.window,
 		SyncHealth:          syncHealth,
 		SecurityPosture:     secPosture,
 		StorageDistribution: storageDist,
@@ -310,7 +302,14 @@ func storageBackendName(sc *opendepotv1alpha1.StorageConfig) string {
 }
 
 // accumulateFinding increments the appropriate severity counter on secPosture.
+// Findings exempted by a ScanPolicy are tallied separately so the security posture panel
+// agrees with the exemption-aware per-resource counts produced by browseScanCounts.
 func accumulateFinding(secPosture *SecurityPostureStats, f opendepotv1alpha1.SecurityFinding) {
+	if f.Exempted {
+		secPosture.Exempted++
+		return
+	}
+
 	switch strings.ToUpper(f.Severity) {
 	case "CRITICAL":
 		secPosture.Critical++

@@ -141,6 +141,10 @@ Authentication can use OIDC, Kubernetes bearer tokens, or anonymous access for
 local evaluation. OIDC enables `tofu login` and applies `GroupBinding` rules to
 JWT group claims. See [Authentication](authentication/index.md).
 
+### Prometheus Monitoring
+
+The chart can deploy a [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) installation. The server exposes `/metrics` on its dedicated metrics port, and a `ServiceMonitor` discovers that endpoint. Registry gauges expose resource counts, archive sizes, synchronization state, and security findings.
+
 ### Registry Explorer UI
 
 The optional UI is a Next.js application fronted by NGINX. NGINX routes browser

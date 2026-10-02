@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if ! command -v mkcert >/dev/null 2>&1; then
-  echo "mkcert is required to run the provider mirror TLS proxy" >&2
+if ! command -v kubectl >/dev/null 2>&1; then
+  echo "kubectl is required to read the Tilt development TLS Secret" >&2
   exit 1
 fi
 
@@ -28,10 +28,12 @@ trap cleanup EXIT INT TERM
 certificate_path="$certificate_dir/mirror.crt"
 private_key_path="$certificate_dir/mirror.key"
 
-mkcert \
-  -cert-file "$certificate_path" \
-  -key-file "$private_key_path" \
-  opendepot.localtest.me localhost 127.0.0.1 ::1
+kubectl get secret opendepot-tls \
+  --namespace opendepot-system \
+  -o jsonpath='{.data.tls\.crt}' | openssl base64 -d -A > "$certificate_path"
+kubectl get secret opendepot-tls \
+  --namespace opendepot-system \
+  -o jsonpath='{.data.tls\.key}' | openssl base64 -d -A > "$private_key_path"
 
 go run "$repo_root/tilt/scripts/provider-mirror-proxy.go" \
   --listen :8443 \

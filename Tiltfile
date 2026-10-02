@@ -27,13 +27,15 @@ docker_build_with_restart(
     '.',
     dockerfile='tilt/Dockerfile.go',
     target='server-runtime',
-    only=['tilt/Dockerfile.go', 'services/server', 'api/v1alpha1', 'pkg/storage', 'pkg/utils'],
+    only=['tilt/Dockerfile.go', 'services/server', 'api/v1alpha1', 'pkg/hclschema', 'pkg/storage', 'pkg/utils'],
     ignore=go_image_ignores,
     entrypoint=['/workspace/bin/server'],
     live_update=[
         fall_back_on([
             'api/v1alpha1/go.mod',
             'api/v1alpha1/go.sum',
+            'pkg/hclschema/go.mod',
+            'pkg/hclschema/go.sum',
             'pkg/storage/go.mod',
             'pkg/storage/go.sum',
             'pkg/utils/go.mod',
@@ -44,11 +46,13 @@ docker_build_with_restart(
         ]),
         sync('services/server', '/workspace/services/server'),
         sync('api/v1alpha1', '/workspace/api/v1alpha1'),
+        sync('pkg/hclschema', '/workspace/pkg/hclschema'),
         sync('pkg/storage', '/workspace/pkg/storage'),
         sync('pkg/utils', '/workspace/pkg/utils'),
         run('cd /workspace/services/server && CGO_ENABLED=0 go build -o /workspace/bin/server .', trigger=[
             'services/server',
             'api/v1alpha1',
+            'pkg/hclschema',
             'pkg/storage',
             'pkg/utils',
         ]),
@@ -150,7 +154,7 @@ docker_build_with_restart(
     '.',
     dockerfile='tilt/Dockerfile.go',
     target='version-dev',
-    only=['tilt/Dockerfile.go', 'services/version', 'api/v1alpha1', 'pkg/github', 'pkg/registry', 'pkg/storage', 'pkg/utils'],
+    only=['tilt/Dockerfile.go', 'services/version', 'api/v1alpha1', 'pkg/github', 'pkg/registry', 'pkg/storage', 'pkg/hclschema', 'pkg/utils'],
     ignore=go_image_ignores,
     entrypoint=['/workspace/bin/version-controller'],
     live_update=[
@@ -162,6 +166,8 @@ docker_build_with_restart(
             'pkg/registry/go.mod',
             'pkg/storage/go.mod',
             'pkg/storage/go.sum',
+            'pkg/hclschema/go.mod',
+            'pkg/hclschema/go.sum',
             'pkg/utils/go.mod',
             'pkg/utils/go.sum',
             'services/version/go.mod',
@@ -173,6 +179,7 @@ docker_build_with_restart(
         sync('pkg/github', '/workspace/pkg/github'),
         sync('pkg/registry', '/workspace/pkg/registry'),
         sync('pkg/storage', '/workspace/pkg/storage'),
+        sync('pkg/hclschema', '/workspace/pkg/hclschema'),
         sync('pkg/utils', '/workspace/pkg/utils'),
         run('cd /workspace/services/version && CGO_ENABLED=0 go build -o /workspace/bin/version-controller ./cmd', trigger=[
             'services/version',
@@ -180,6 +187,7 @@ docker_build_with_restart(
             'pkg/github',
             'pkg/registry',
             'pkg/storage',
+            'pkg/hclschema',
             'pkg/utils',
         ]),
     ],
@@ -196,24 +204,71 @@ docker_build(
     ignore=['.next', 'node_modules', 'coverage'],
 )
 
-k8s_yaml(helm(
+docker_build(
+    'ghcr.io/tonedefdev/opendepot/dex',
+    '.',
+    dockerfile='tilt/Dockerfile.dex',
+)
+
+opendepot_yaml = helm(
     'chart/opendepot',
     name='opendepot',
     namespace='opendepot-system',
+    skip_crds=True,
     values=['tilt/values.yaml', 'tilt/.generated/values.yaml'],
-))
+)
+server_rbac_yaml, opendepot_yaml = filter_yaml(
+    opendepot_yaml,
+    name='^(server|server-role|server-role-binding)$',
+    kind='^(ServiceAccount|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$',
+)
+trivy_cache_yaml, opendepot_yaml = filter_yaml(
+    opendepot_yaml,
+    name='^opendepot-trivy-cache$',
+    kind='persistentvolumeclaim',
+)
+k8s_yaml(server_rbac_yaml)
+k8s_yaml(opendepot_yaml)
+k8s_yaml(trivy_cache_yaml)
 
-k8s_resource('valkey', labels=['infrastructure'])
-k8s_resource('opendepot-dex', resource_deps=['valkey'], labels=['infrastructure'])
-k8s_resource('server', resource_deps=['opendepot-dex'], labels=['backend'])
-k8s_resource('module-controller', resource_deps=['server'], labels=['backend'])
-k8s_resource('depot-controller', resource_deps=['server'], labels=['backend'])
-k8s_resource('provider-controller', resource_deps=['server'], labels=['backend'])
-k8s_resource('version-controller', resource_deps=['server'], labels=['backend'])
+local_resource(
+    'dev-tls',
+    cmd='tilt/scripts/dev-tls.sh',
+    deps=['tilt/scripts/dev-tls.sh'],
+    labels=['infrastructure'],
+)
+
+local_resource(
+    'prometheus-operator-crds',
+    cmd='set -- chart/opendepot/charts/kube-prometheus-stack-*.tgz; if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then echo "expected exactly one kube-prometheus-stack chart archive" >&2; exit 1; fi; for crd in crd-alertmanagerconfigs.yaml crd-alertmanagers.yaml crd-podmonitors.yaml crd-probes.yaml crd-prometheusagents.yaml crd-prometheuses.yaml crd-prometheusrules.yaml crd-scrapeconfigs.yaml crd-servicemonitors.yaml crd-thanosrulers.yaml; do tar -xOzf "$1" kube-prometheus-stack/charts/crds/crds/$crd | kubectl apply --server-side --force-conflicts -f -; done',
+    deps=['chart/opendepot/charts'],
+    labels=['infrastructure'],
+)
+local_resource(
+    'opendepot-crds',
+    cmd='kubectl apply --server-side --force-conflicts -f chart/opendepot/crds',
+    deps=['chart/opendepot/crds'],
+    labels=['infrastructure'],
+)
+local_resource(
+    'ui-serviceaccount',
+    cmd='kubectl create serviceaccount ui --namespace opendepot-system --dry-run=client -o yaml | kubectl apply -f -',
+    labels=['infrastructure'],
+)
+
+k8s_resource('opendepot-dex', labels=['infrastructure'])
+k8s_resource('opendepot-monitoring-operator', resource_deps=['prometheus-operator-crds'], labels=['infrastructure'])
+k8s_resource(new_name='server-rbac', objects=['server:ServiceAccount:opendepot-system', 'server-role:ClusterRole', 'server-role-binding:ClusterRoleBinding'], labels=['infrastructure'])
+k8s_resource('server', resource_deps=['opendepot-dex', 'dev-tls', 'server-rbac'], labels=['backend'])
+k8s_resource('module-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
+k8s_resource('depot-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
+k8s_resource('provider-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
+k8s_resource(new_name='trivy-cache', objects=['opendepot-trivy-cache:PersistentVolumeClaim:opendepot-system'], labels=['infrastructure'])
+k8s_resource('version-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource(
     'ui',
-    resource_deps=['server'],
-    port_forwards=[port_forward(8080, 8080, name='OpenDepot UI')],
+    resource_deps=['server', 'ui-serviceaccount'],
+    port_forwards=[port_forward(8080, 8080, name='Registry HTTP (no OIDC)')],
     links=[link('https://opendepot.localtest.me:8443', 'OpenDepot UI')],
     labels=['frontend'],
 )
@@ -247,8 +302,14 @@ local_resource(
 local_resource(
     'provider-mirror-tls',
     serve_cmd='tilt/scripts/provider-mirror-proxy.sh',
-    resource_deps=['ui'],
+    resource_deps=['ui', 'dev-tls'],
     links=[link('https://opendepot.localtest.me:8443', 'Provider Mirror TLS Proxy')],
+    labels=['controls'],
+)
+local_resource(
+    'cleanup-images',
+    cmd='tilt/scripts/cleanup-images.sh',
+    auto_init=False,
     labels=['controls'],
 )
 local_resource(

@@ -225,7 +225,7 @@ spec:
 	})
 
 	It("should sync the provider artifact", func() {
-		By("waiting for Version CR to report synced=true (downloads from HashiCorp)")
+		By("waiting for Version CR to report synced=true (downloads from the OpenTofu registry)")
 		Eventually(func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "version", providerVersionCRName,
 				"-n", providerNamespace,
@@ -759,8 +759,13 @@ var _ = Describe("Provider Scanning", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("deleting any existing trivy cache PVC to avoid immutable field conflicts on re-enable")
-		cmd := exec.Command("kubectl", "delete", "pvc", "opendepot-trivy-cache",
-			"-n", scanNamespace, "--ignore-not-found",
+		cmd := exec.Command("kubectl", "delete", "deployment", "version-controller",
+			"-n", scanNamespace, "--ignore-not-found", "--wait=true",
+		)
+		_, _ = utils.Run(cmd)
+
+		cmd = exec.Command("kubectl", "delete", "pvc", "opendepot-trivy-cache",
+			"-n", scanNamespace, "--ignore-not-found", "--wait=true",
 		)
 		_, _ = utils.Run(cmd)
 
@@ -779,6 +784,7 @@ var _ = Describe("Provider Scanning", Ordered, func() {
 			"--set", "version.resources.limits.memory=1Gi",
 			// Enable verbose debug logging so Trivy output is visible in test logs.
 			"--set", "version.zapLogLevel=5",
+			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -827,6 +833,7 @@ spec:
 			"--set", "scanning.enabled=false",
 			"--set", "scanning.providerScanning=false",
 			"--set", "version.zapLogLevel=",
+			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -916,8 +923,13 @@ var _ = Describe("Community Provider", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("deleting any existing trivy cache PVC to avoid immutable field conflicts on re-enable")
-		cmd := exec.Command("kubectl", "delete", "pvc", "opendepot-trivy-cache",
-			"-n", communityNamespace, "--ignore-not-found",
+		cmd := exec.Command("kubectl", "delete", "deployment", "version-controller",
+			"-n", communityNamespace, "--ignore-not-found", "--wait=true",
+		)
+		_, _ = utils.Run(cmd)
+
+		cmd = exec.Command("kubectl", "delete", "pvc", "opendepot-trivy-cache",
+			"-n", communityNamespace, "--ignore-not-found", "--wait=true",
 		)
 		_, _ = utils.Run(cmd)
 
@@ -936,6 +948,7 @@ var _ = Describe("Community Provider", Ordered, func() {
 			"--set", "version.resources.limits.memory=1Gi",
 			// Enable verbose debug logging so Trivy output is visible in test logs.
 			"--set", "version.zapLogLevel=5",
+			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)
@@ -985,6 +998,7 @@ spec:
 			"--set", "scanning.enabled=false",
 			"--set", "scanning.providerScanning=false",
 			"--set", "version.zapLogLevel=",
+			"--force-conflicts",
 			"--wait",
 			"--timeout", "3m",
 		)

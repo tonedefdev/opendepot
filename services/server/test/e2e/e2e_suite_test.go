@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -54,7 +55,26 @@ func TestE2E(t *testing.T) {
 	RunSpecs(t, "server e2e suite")
 }
 
+func ensureOIDCClientSecret(secret string) {
+	cmd := exec.Command("kubectl", "create", "secret", "generic", "opendepot-dex-client-secret",
+		"--namespace", namespace,
+		"--from-literal=clientSecret="+secret,
+		"--from-literal=OPENDEPOT_DEX_CLIENT_SECRET="+secret,
+		"--dry-run=client", "-o", "yaml",
+	)
+	manifest, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to generate Dex client Secret")
+
+	cmd = exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Dex client Secret")
+}
+
 var _ = BeforeSuite(func() {
+	err := utils.ConfigureKindCluster()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to configure the Kind kubeconfig")
+
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
@@ -99,12 +119,13 @@ var _ = BeforeSuite(func() {
 	cmd = exec.Command("kubectl", "create", "namespace", namespace)
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
-	By("creating the Valkey authentication secret")
-	err = utils.EnsureValkeyAuthSecret(namespace)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Valkey authentication secret")
 })
 
 var _ = AfterSuite(func() {
+	if !utils.KindClusterConfigured() {
+		return
+	}
+
 	By("uninstalling Helm release to clean up server e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,
 		"--namespace", namespace,

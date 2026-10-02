@@ -6,20 +6,130 @@ on:
       - opened
       - synchronize
     paths:
-      - 'chart/**'
-      - 'services/**'
+      - 'services/depot/**'
+      - 'services/module/**'
+      - 'services/provider/**'
+      - 'services/server/**'
+      - 'services/version/**'
       - 'pkg/**'
       - 'api/**'
       - '.github/workflows/e2e.yaml'
 
+permissions:
+  contents: read
+  pull-requests: read
+
 env:
-  REGISTRY: ghcr.io/tonedefdev/opendepot
+  REGISTRY: ghcr.io/defdevio/opendepot
   IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
 
 jobs:
+  changes:
+    name: Detect E2E scope
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
+      e2e_matrix: ${{ steps.matrix.outputs.e2e_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed E2E surfaces
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            common:
+              - 'api/**'
+              - 'pkg/**'
+            depot:
+              - 'services/depot/**'
+            module:
+              - 'services/module/**'
+            provider:
+              - 'services/provider/**'
+            server:
+              - 'services/server/**'
+            version:
+              - 'services/version/**'
+
+      - name: Build selective matrices
+        id: matrix
+        env:
+          COMMON: ${{ steps.filter.outputs.common }}
+          DEPOT: ${{ steps.filter.outputs.depot }}
+          MODULE: ${{ steps.filter.outputs.module }}
+          PROVIDER: ${{ steps.filter.outputs.provider }}
+          SERVER: ${{ steps.filter.outputs.server }}
+          VERSION: ${{ steps.filter.outputs.version }}
+        shell: bash
+        run: |
+          build_services=()
+          e2e_services=()
+          declare -A build_seen
+
+          add_build_service() {
+            if [[ -z "${build_seen[$1]+present}" ]]; then
+              build_seen[$1]=present
+              build_services+=("$1")
+            fi
+          }
+
+          add_e2e_service() {
+            e2e_services+=("$1")
+          }
+
+          if [[ "$COMMON" == true ]]; then
+            build_services+=(depot-controller module-controller provider-controller server version-controller)
+            e2e_services+=(depot module provider server version)
+          else
+            if [[ "$DEPOT" == true ]]; then
+              add_build_service depot-controller
+              add_build_service version-controller
+              add_build_service server
+              add_e2e_service depot
+            fi
+            if [[ "$MODULE" == true ]]; then
+              add_build_service module-controller
+              add_build_service version-controller
+              add_build_service server
+              add_e2e_service module
+            fi
+            if [[ "$PROVIDER" == true ]]; then
+              add_build_service provider-controller
+              add_build_service version-controller
+              add_build_service server
+              add_e2e_service provider
+            fi
+            [[ "$SERVER" == true ]] && e2e_services+=(server)
+            [[ "$VERSION" == true ]] && e2e_services+=(version)
+
+            if [[ "$SERVER" == true ]]; then
+              build_services+=(server version-controller)
+            fi
+            [[ "$VERSION" == true ]] && add_build_service version-controller
+          fi
+
+          build_json=$(printf '%s\n' "${build_services[@]}" | jq -Rsc '
+            [split("\n")[] | select(length > 0) |
+              if . == "version-controller" then {service: ., dockerfile: "services/version/Dockerfile", buildArgs: "INCLUDE_TRIVY=true"}
+              else {service: ., dockerfile: ("services/" + (if . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: ""}
+              end] | {include: .}')
+          e2e_json=$(printf '%s\n' "${e2e_services[@]}" | jq -Rsc '
+            [split("\n")[] | select(length > 0) |
+              if . == "module" then {name: "Module controller e2e", workdir: "services/module", image: "module-controller", images: "module-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "1.6.0", terraform_version: "", install_mkcert: false}
+              elif . == "provider" then {name: "Provider controller e2e", workdir: "services/provider", image: "provider-controller", images: "provider-controller version-controller server", skip_image_build: true, timeout: 40, test_timeout: "30m", tofu_version: "1.6.0", terraform_version: "1.10.5", install_mkcert: true}
+              elif . == "depot" then {name: "Depot controller e2e", workdir: "services/depot", image: "depot-controller", images: "depot-controller version-controller server", skip_image_build: "", timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
+              elif . == "server" then {name: "Server e2e", workdir: "services/server", image: "server", images: "server", skip_image_build: "", timeout: 30, test_timeout: "20m", tofu_version: "1.11.5", terraform_version: "", install_mkcert: false}
+              else {name: "Version controller e2e", workdir: "services/version", image: "version-controller", images: "version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
+              end] | {include: .}')
+
+          echo "build_matrix=$build_json" >> "$GITHUB_OUTPUT"
+          echo "e2e_matrix=$e2e_json" >> "$GITHUB_OUTPUT"
+
   build-images:
     name: Build and push ${{ matrix.service }}
     runs-on: ubuntu-latest
+    needs: changes
     if: github.event.pull_request.head.repo.full_name == github.repository
 
     permissions:
@@ -27,31 +137,13 @@ jobs:
       packages: write
 
     strategy:
-      matrix:
-        include:
-          - service: depot-controller
-            dockerfile: services/depot/Dockerfile
-            buildArgs: ""
-          - service: module-controller
-            dockerfile: services/module/Dockerfile
-            buildArgs: ""
-          - service: provider-controller
-            dockerfile: services/provider/Dockerfile
-            buildArgs: ""
-          - service: server
-            dockerfile: services/server/Dockerfile
-            buildArgs: ""
-          - service: version-controller
-            dockerfile: services/version/Dockerfile
-            buildArgs: ""
-          - service: version-controller-scanning
-            dockerfile: services/version/Dockerfile
-            buildArgs: "INCLUDE_TRIVY=true"
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to ghcr.io
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -89,17 +181,32 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           skip-setup-trivy: true
-          trivyignores: '.trivyignore'
+          trivyignores: '.trivyignore.yaml'
 
       - name: Push ${{ matrix.service }}
         run: docker push ${{ env.REGISTRY }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
 
+  chart:
+    name: Validate Helm chart
+    uses: ./.github/workflows/chart-validation.yaml
+    needs: changes
+    if: needs.changes.outputs.e2e_matrix != '{"include":[]}'
+    permissions:
+      contents: read
 
-  e2e-module:
-    name: Module controller e2e
+  e2e:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: build-images
+    timeout-minutes: ${{ matrix.timeout }}
+    needs:
+      - changes
+      - build-images
+      - chart
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.changes.outputs.e2e_matrix) }}
 
     permissions:
       contents: read
@@ -114,7 +221,7 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - name: Log in to ghcr.io
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -123,14 +230,10 @@ jobs:
 
       - name: Pull e2e images
         run: |
-          docker pull ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.REGISTRY }}/module-controller:${{ env.IMAGE_TAG }} module-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
-          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
+          for image in ${{ matrix.images }}; do
+            docker pull ${{ env.REGISTRY }}/$image:${{ env.IMAGE_TAG }}
+            docker tag ${{ env.REGISTRY }}/$image:${{ env.IMAGE_TAG }} $image:e2e-test
+          done
 
       - name: Install kind
         uses: helm/kind-action@v1
@@ -140,79 +243,23 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: "v4.0.0"
+          version: "v3.19.0"
 
       - name: Install OpenTofu
+        if: matrix.tofu_version != ''
         uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: "1.6.0"
-
-      - name: Create kind cluster
-        run: kind create cluster --name opendepot-test-e2e
-
-      - name: Run module e2e tests
-        working-directory: services/module
-        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=module-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
-
-  e2e-provider:
-    name: Provider controller e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    needs: build-images
-
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull e2e images
-        run: |
-          docker pull ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.REGISTRY }}/provider-controller:${{ env.IMAGE_TAG }} provider-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
-          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
-
-      - name: Install kind
-        uses: helm/kind-action@v1
-        with:
-          install_only: true
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: "v4.0.0"
-
-      - name: Install OpenTofu
-        uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: "1.6.0"
+          tofu_version: ${{ matrix.tofu_version }}
 
       - name: Install Terraform
+        if: matrix.terraform_version != ''
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.10.5"
+          terraform_version: ${{ matrix.terraform_version }}
           terraform_wrapper: false
 
       - name: Install local TLS certificate authority
+        if: matrix.install_mkcert
         run: |
           sudo apt-get update
           sudo apt-get install -y mkcert libnss3-tools
@@ -221,163 +268,10 @@ jobs:
       - name: Create kind cluster
         run: kind create cluster --name opendepot-test-e2e
 
-      - name: Run provider e2e tests
-        working-directory: services/provider
-        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=provider-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 30m
-
-  e2e-depot:
-    name: Depot controller e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: build-images
-
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull e2e images
-        run: |
-          docker pull ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.REGISTRY }}/depot-controller:${{ env.IMAGE_TAG }} depot-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
-
-      - name: Install kind
-        uses: helm/kind-action@v1
-        with:
-          install_only: true
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: "v4.0.0"
-
-      - name: Create kind cluster
-        run: kind create cluster --name opendepot-test-e2e
-
-      - name: Run depot e2e tests
-        working-directory: services/depot
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=depot-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
-
-  e2e-server:
-    name: Server e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: build-images
-
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull e2e images
-        run: |
-          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
-
-      - name: Install kind
-        uses: helm/kind-action@v1
-        with:
-          install_only: true
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: "v4.0.0"
-
-      - name: Install OpenTofu
-        uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: "1.11.5"
-
-      - name: Create kind cluster
-        run: kind create cluster --name opendepot-test-e2e
-
-      - name: Run server e2e tests
-        working-directory: services/server
-        run: KIND_CLUSTER=opendepot-test-e2e IMG=server:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
-
-  e2e-version:
-    name: Version controller e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: build-images
-
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull e2e images
-        run: |
-          docker pull ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }}
-          docker pull ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.REGISTRY }}/version-controller:${{ env.IMAGE_TAG }} version-controller:e2e-test
-          docker tag ${{ env.REGISTRY }}/version-controller-scanning:${{ env.IMAGE_TAG }} version-controller:e2e-test-scanning
-          docker tag ${{ env.REGISTRY }}/server:${{ env.IMAGE_TAG }} server:e2e-test
-
-      - name: Install kind
-        uses: helm/kind-action@v1
-        with:
-          install_only: true
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: "v4.0.0"
-
-      - name: Create kind cluster
-        run: kind create cluster --name opendepot-test-e2e
-
-      - name: Run version e2e tests
-        working-directory: services/version
-        run: SKIP_IMAGE_BUILD=true KIND_CLUSTER=opendepot-test-e2e IMG=version-controller:e2e-test go test ./test/e2e/ -v -ginkgo.v -count=1 -timeout 20m
+      - name: Run e2e tests
+        working-directory: ${{ matrix.workdir }}
+        env:
+          IMG: ${{ matrix.image }}:e2e-test
+          KIND_CLUSTER: opendepot-test-e2e
+          SKIP_IMAGE_BUILD: ${{ matrix.skip_image_build }}
+        run: go test ./test/e2e/ -v -ginkgo.v --ginkgo.fail-fast -count=1 -timeout ${{ matrix.test_timeout }}

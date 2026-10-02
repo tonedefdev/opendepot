@@ -20,13 +20,19 @@ Guides for teams consuming modules and providers from OpenDepot.
 
     ---
 
-    Reference synced modules from your OpenTofu or Terraform configurations using the registry source format.
+    Reference synced modules from your OpenTofu configurations using the registry source format.
 
 - :material-puzzle: &nbsp;[__Consuming Providers__](providers.md)
 
     ---
 
     Use OpenDepot as a private provider mirror, including GPG-verified downloads for air-gapped environments.
+
+- :material-graph: &nbsp;[__Assembly Line__](assembly-line.md)
+
+    ---
+
+    Compose onboarded modules and providers into a validated, downloadable OpenTofu root module.
 
 </div>
 

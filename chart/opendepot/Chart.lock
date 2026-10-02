@@ -2,8 +2,8 @@ dependencies:
 - name: dex
   repository: https://charts.dexidp.io
   version: 0.24.1
-- name: valkey
-  repository: https://valkey-io.github.io/valkey-helm/
-  version: 0.9.4
-digest: sha256:62aae976f7ac11346b805ffa6ce89105622e4a3bd51debdbfae56a2930d072b0
-generated: "2026-07-20T14:15:52.005571-07:00"
+- name: kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 89.2.4
+digest: sha256:36b79466736da852d70a323031814ae50f8ccf7e1eb09768e498ec38c5bcc6e6
+generated: "2026-09-14T15:13:13.27831-07:00"

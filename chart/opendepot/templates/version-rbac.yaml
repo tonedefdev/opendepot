@@ -65,6 +65,22 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - scanpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - scanpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
 {{- if .Values.rbac.scopeToNamespace }}
 - apiGroups:
   - ""

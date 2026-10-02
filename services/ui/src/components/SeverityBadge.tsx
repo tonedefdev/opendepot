@@ -4,6 +4,7 @@ import * as React from "react";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import type { BrowseScanCounts } from "@/lib/api";
+import { unknownSeverityChipSx } from "./severityStyles";
 
 interface Props {
   severity: "critical" | "high" | "medium" | "low" | "unknown";
@@ -26,7 +27,7 @@ export function SeverityChip({ severity, count }: Props) {
         size="small"
         color={colorMap[severity]}
         label={`${severity.charAt(0).toUpperCase()} ${count}`}
-        sx={{ color: "#fff" }}
+        sx={severity === "unknown" ? unknownSeverityChipSx : { color: "#fff" }}
       />
     </Tooltip>
   );
@@ -41,6 +42,11 @@ export default function SeverityBadge({ counts }: { counts: BrowseScanCounts | n
       <SeverityChip severity="medium" count={counts.medium} />
       <SeverityChip severity="low" count={counts.low} />
       <SeverityChip severity="unknown" count={counts.unknown} />
+      {counts.exempted > 0 && (
+        <Tooltip title={`${counts.exempted} exempted findings`}>
+          <Chip size="small" color="secondary" label={`E ${counts.exempted}`} sx={{ color: "#fff" }} />
+        </Tooltip>
+      )}
     </React.Fragment>
   );
 }

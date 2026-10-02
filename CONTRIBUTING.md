@@ -80,7 +80,7 @@ opendepot/
 
 ## Tilt Development Environment
 
-The root `Tiltfile` runs the complete OpenDepot stack in Kubernetes, including the Go services, Next.js UI, NGINX, Dex, Valkey, scanning, and provider support. Application traffic enters through a single port-forward to the in-cluster UI service.
+The root `Tiltfile` runs the complete OpenDepot stack in Kubernetes, including the Go services, Next.js UI, NGINX, Dex, Prometheus monitoring, scanning, and provider support. Application traffic enters through a single port-forward to the in-cluster UI service.
 
 Tilt uses a persistent Kind cluster named `kind-opendepot` and a local registry named `opendepot-registry` on `localhost:5005`. The launcher creates or reuses both through ctlptl.
 
@@ -143,9 +143,13 @@ tilt trigger refresh-trivy-db
 
 # Start the trusted HTTPS proxy used for manual provider mirror tests
 tilt trigger provider-mirror-tls
+
+# Remove unused OpenDepot images created by Tilt
+tilt trigger cleanup-images
 ```
 
 The Trivy database is seeded automatically after the version controller becomes ready.
+The image cleanup control removes stale OpenDepot Tilt images from host Docker and the dedicated Kind node. Images used by current Kubernetes pods or Docker containers, images from other projects, volumes, the Kind cluster, and the local registry are preserved.
 
 ### Provider Network Mirror
 
@@ -291,6 +295,15 @@ tilt/scripts/reset-cluster.sh
 
 After a reset, start the environment again with `tilt/scripts/up.sh`. The launcher regenerates the namespace, secrets, and local Dex configuration.
 
+Tilt image tags also accumulate in the local registry. To clear the registry and recreate the Kind image store, stop Tilt, remove its deployed resources, and run the full image cleanup:
+
+```bash
+tilt down
+tilt/scripts/cleanup-images.sh --all
+```
+
+Full cleanup refuses to run while Tilt or OpenDepot workloads are active. It recreates `kind-opendepot` and `opendepot-registry`, so the next `tilt/scripts/up.sh` run rebuilds and pulls the required images. Preview either mode without changing Docker resources by adding `--dry-run`.
+
 ---
 
 ## E2E Cluster Setup
@@ -306,7 +319,7 @@ kind create cluster --name kind
 
 ### Chart Dependencies
 
-OpenDepot uses Helm subcharts for Dex and Valkey. The tarballs are committed to `chart/opendepot/charts/`, so no internet access is required during e2e test runs. If you add or update a subchart dependency, regenerate the lock file and tarballs with:
+OpenDepot uses Helm subcharts for Dex and kube-prometheus-stack. The tarballs are committed to `chart/opendepot/charts/`, so no internet access is required during e2e test runs. If you add or update a subchart dependency, regenerate the lock file and tarballs with:
 
 ```bash
 make chart-deps

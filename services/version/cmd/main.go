@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -98,6 +99,15 @@ func main() {
 		"Block provider reconciliation when HIGH vulnerabilities are found by Trivy.")
 	flag.BoolVar(&scanModules, "scan-modules", false,
 		"Enable Trivy IaC scanning for module version archives when scanning-enabled is true.")
+	var assemblyEnabled bool
+	var tofuBinPath string
+	var schemaExtractionTimeout time.Duration
+	flag.BoolVar(&assemblyEnabled, "assembly-enabled", false,
+		"Enable Assembly Line contract derivation for module versions and reduced provider schema extraction for provider versions.")
+	flag.StringVar(&tofuBinPath, "tofu-bin-path", "tofu",
+		"Path to the tofu binary used to extract provider schemas when assembly-enabled is true.")
+	flag.DurationVar(&schemaExtractionTimeout, "schema-extraction-timeout", 5*time.Minute,
+		"Maximum duration a single provider schema extraction may run for.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	opts := zap.Options{
@@ -225,17 +235,29 @@ func main() {
 	}
 
 	if err := (&controller.VersionReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		Log:             logger,
-		ScanningEnabled: scanningEnabled,
-		ScanModules:     scanModules,
-		TrivyCacheDir:   trivyCacheDir,
-		ScanOffline:     scanOffline,
-		BlockOnCritical: scanBlockOnCritical,
-		BlockOnHigh:     scanBlockOnHigh,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Log:                     logger,
+		ScanningEnabled:         scanningEnabled,
+		ScanModules:             scanModules,
+		TrivyCacheDir:           trivyCacheDir,
+		ScanOffline:             scanOffline,
+		BlockOnCritical:         scanBlockOnCritical,
+		BlockOnHigh:             scanBlockOnHigh,
+		AssemblyEnabled:         assemblyEnabled,
+		TofuBinPath:             tofuBinPath,
+		SchemaExtractionTimeout: schemaExtractionTimeout,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Version")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ScanPolicyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Log:    logger,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ScanPolicy")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

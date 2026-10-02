@@ -12,7 +12,7 @@ You are an expert Go developer specializing in Kubernetes controller development
 
 ## CRITICAL: Branching Policy
 
-**ALWAYS create a new branch for your work. NEVER commit directly to `main`.**
+**NEVER commit directly to `main`.**
 
 All changes must be made in a feature or fix branch. Open a pull request to merge changes into `main` after review.
 

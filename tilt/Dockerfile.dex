@@ -1,0 +1,18 @@
+FROM ghcr.io/dexidp/dex:v2.45.0
+
+USER root
+
+COPY tilt/dex-web-overrides /tmp/dex-web-overrides
+COPY services/ui/public/img/opendepot_white.svg /tmp/opendepot-logo.svg
+COPY services/ui/public/img/opendepot_icon.svg /tmp/opendepot-icon.svg
+
+RUN cp -a /srv/dex/web /srv/dex/opendepot-web \
+    && cp /tmp/dex-web-overrides/templates/*.html /srv/dex/opendepot-web/templates/ \
+    && cp /tmp/dex-web-overrides/themes/opendepot/styles.css /srv/dex/opendepot-web/themes/light/styles.css \
+    && cp /tmp/dex-web-overrides/themes/opendepot/styles.css /srv/dex/opendepot-web/themes/dark/styles.css \
+    && cp /tmp/opendepot-logo.svg /srv/dex/opendepot-web/themes/light/logo.svg \
+    && cp /tmp/opendepot-logo.svg /srv/dex/opendepot-web/themes/dark/logo.svg \
+    && cp /tmp/opendepot-icon.svg /srv/dex/opendepot-web/themes/light/favicon.svg \
+    && cp /tmp/opendepot-icon.svg /srv/dex/opendepot-web/themes/dark/favicon.svg
+
+USER dex

@@ -18,6 +18,10 @@ export function buildProviderMirrorUrl(baseUrl: string, namespace: string): stri
   return `${baseUrl.replace(/\/$/, "")}/opendepot/providers/mirror/v1/${namespace}/`;
 }
 
+export function isAssemblyProvider(upstreamRegistry: string): boolean {
+  return (upstreamRegistry || "registry.opentofu.org") === "registry.opentofu.org";
+}
+
 export function buildModuleSource(
   registryHost: string,
   namespace: string,
