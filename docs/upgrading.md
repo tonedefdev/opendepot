@@ -23,9 +23,10 @@ Prometheus over a 90-day lookback by default.
 
 ### Prometheus Statistics
 
-The chart can optionally install a minimal kube-prometheus-stack. The bundled
-stack is disabled by default because Prometheus Operator requires cluster-wide
-RBAC. Enable it explicitly when that access is acceptable:
+Prometheus replaces Valkey as the statistics backend. The chart can optionally
+install a minimal kube-prometheus-stack. The bundled stack is disabled by
+default because Prometheus Operator requires cluster-wide RBAC. Enable it
+explicitly when that access is acceptable:
 
 ```yaml
 monitoring:
@@ -33,11 +34,20 @@ monitoring:
       enabled: true
 ```
 
-The server exposes download counters and registry state gauges on its metrics
-endpoint. The chart creates a `ServiceMonitor` for Prometheus Operator
-discovery. To retain time series beyond the local 90-day window, configure
-`monitoring.prometheus.prometheusSpec.remoteWrite` for Mimir or another
-Prometheus-compatible long-term storage system.
+The server exposes download counters and registry state gauges at `/metrics` on
+the `metrics` port of the `server` Service. The chart creates a `ServiceMonitor`
+for Prometheus Operator discovery. Existing Prometheus users should leave the
+bundled stack disabled, set `server.stats.prometheusURL` to the existing
+Prometheus HTTP API base URL, and ensure that Prometheus scrapes the OpenDepot
+Service. Set `server.metrics.serviceMonitor.additionalLabels` if the existing
+operator requires matching labels, or disable the ServiceMonitor when another
+scrape configuration is already in place. The URL must be absolute.
+
+When `server.stats.prometheusURL` is empty, the server uses the bundled-service
+address only when `monitoring.enabled=true`; that fallback requires
+`monitoring.bundled.enabled=true`. To retain time series beyond the local
+90-day window, configure `monitoring.prometheus.prometheusSpec.remoteWrite` for
+Mimir or another Prometheus-compatible long-term storage system.
 
 ### Security and Configuration Changes
 
@@ -67,11 +77,18 @@ Prometheus-compatible long-term storage system.
     ```
 2. Remove Valkey values, ACL Secrets, and
    `server.stats.valkeyPasswordSecretName` overrides from custom values files.
-   If you want the chart to install Prometheus, enable the bundled stack:
+   Choose one Prometheus setup. For the bundled stack, enable it:
     ```yaml
     monitoring:
        bundled:
           enabled: true
+    ```
+   For an existing Prometheus deployment, keep the bundled stack disabled and
+   set its HTTP API URL instead:
+    ```yaml
+    server:
+       stats:
+          prometheusURL: https://prometheus.example.com
     ```
 3. Upgrade the chart:
     ```bash

@@ -250,15 +250,31 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 
 ## Prometheus Monitoring
 
-The chart bundles a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) installation. Grafana, Alertmanager, and node exporters are disabled by default. The OpenDepot server exposes `/metrics` on its dedicated metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery.
+The chart can optionally install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). Grafana, Alertmanager, and node exporters are disabled by default. The OpenDepot `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The chart's `ServiceMonitor` selects that Service by the `app: server` label in `global.namespace`.
+
+The ServiceMonitor is enabled by default and scrapes every 15 seconds with a 10-second timeout. It requires a Prometheus Operator. If an existing operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to the labels it expects. Set `server.metrics.serviceMonitor.enabled: false` when the external monitoring system discovers the endpoint by another method.
+
+The Stats page queries Prometheus through its HTTP API. For an existing Prometheus deployment, set `server.stats.prometheusURL` to its absolute HTTP API base URL:
+
+```yaml
+server:
+  stats:
+    prometheusURL: https://prometheus.example.com
+```
+
+This value takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`, which requires `monitoring.bundled.enabled: true`. The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC.
 
 | Value | Type | Description |
 |-------|------|-------------|
+| `monitoring.enabled` | bool | Enable OpenDepot monitoring resources, including the `ServiceMonitor` and the server's bundled-Prometheus fallback. Default: `true` |
 | `monitoring.bundled.enabled` | bool | Install the bundled kube-prometheus-stack. Default: `false` |
 | `monitoring.prometheus.prometheusSpec.retention` | string | Local Prometheus retention. Default: `90d` |
 | `monitoring.prometheus.prometheusSpec.remoteWrite` | list | Optional remote-write targets such as Mimir for long-term storage. |
 | `server.metrics.serviceMonitor.enabled` | bool | Create the OpenDepot `ServiceMonitor`. Default: `true` |
-| `server.stats.prometheusURL` | string | Prometheus HTTP API URL. Defaults to the bundled Prometheus service. |
+| `server.metrics.serviceMonitor.interval` | string | ServiceMonitor scrape interval. Default: `15s` |
+| `server.metrics.serviceMonitor.scrapeTimeout` | string | ServiceMonitor scrape timeout. Default: `10s` |
+| `server.metrics.serviceMonitor.additionalLabels` | map | Additional labels for matching an external Prometheus Operator's ServiceMonitor selector. Default: `{}` |
+| `server.stats.prometheusURL` | string | Prometheus HTTP API URL. When blank, the server uses the bundled Prometheus service address only if `monitoring.enabled: true`; that service must be installed with `monitoring.bundled.enabled: true`. |
 | `server.stats.lookback` | string | Stats page query window. Default: `90d` |
 | `server.stats.queryTimeout` | duration | Prometheus query timeout. Default: `5s` |
 

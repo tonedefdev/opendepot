@@ -243,7 +243,19 @@ When `hostPath` is set, an `initContainer` (`busybox:1.37`) runs as root to `cho
 
 ### Prometheus monitoring
 
-The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly. OpenDepot exposes download counters and registry state gauges on its metrics port, and the chart creates a `ServiceMonitor` for Prometheus Operator discovery. The Stats page queries Prometheus using a 90-day lookback by default; use `server.stats.prometheusURL` to connect to an external Prometheus deployment.
+The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly.
+
+OpenDepot exposes download counters and registry state gauges from the `server` Service on the `metrics` port (`9090`) at `/metrics`. The chart creates a `ServiceMonitor` that selects that Service in `global.namespace`, scrapes it every 15 seconds, and uses a 10-second scrape timeout. The ServiceMonitor is enabled by default, but requires a Prometheus Operator; set `server.metrics.serviceMonitor.additionalLabels` when the external operator selects ServiceMonitors by label. Set `server.metrics.serviceMonitor.enabled=false` to disable it.
+
+The Stats page queries Prometheus using a 90-day lookback by default. To use an existing Prometheus deployment, set its HTTP API base URL explicitly:
+
+```yaml
+server:
+  stats:
+    prometheusURL: http://prometheus-operated.monitoring.svc.cluster.local:9090
+```
+
+When `server.stats.prometheusURL` is set, it takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled=true`, the server uses the bundled-service address `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`; that address is usable only when the bundled stack is installed. Set `monitoring.bundled.enabled=true` to install that stack. If an external Prometheus scrapes OpenDepot but the Stats page also needs to query it, configure the same external URL above.
 
 For time series longer than the local Prometheus retention window, configure Prometheus `remoteWrite` to Mimir or another Prometheus-compatible long-term storage system and use Grafana to query that retained data.
 

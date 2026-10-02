@@ -116,8 +116,9 @@ The **Stats** page (`/stats`) shows:
 | Storage distribution | Version counts by backend |
 | Most downloaded | Top resources with download totals and timestamps |
 
-Summary counts are computed from Kubernetes CRDs. Download counts come from the
-bundled Valkey stats store and remain active across page loads.
+Summary counts are computed from Kubernetes CRDs. Download counts come from
+Prometheus over the configured lookback window and remain available across page
+loads when the metrics endpoint is being scraped.
 
 !!! note "Visibility"
     Stats use the same visibility rules as the Registry Explorer. OIDC users
@@ -125,22 +126,7 @@ bundled Valkey stats store and remain active across page loads.
 
 ## Download Tracking
 
-Download events are recorded in the bundled Valkey instance. Before installation,
-create the ACL Secret:
-
-```bash
-kubectl create secret generic opendepot-valkey-auth \
-  --from-literal=default="$(openssl rand -base64 32)" \
-  --namespace opendepot-system
-```
-
-For local development without a StorageClass, disable persistence:
-
-```yaml
-valkey:
-  dataStorage:
-    enabled: false
-```
-
-For production, keep `valkey.dataStorage.enabled: true`. See the [Valkey Stats
-Store](../../helm-chart.md#valkey-stats-store) Helm values reference.
+Download events are exposed as Prometheus metrics from the Server's `/metrics`
+endpoint. Configure the chart's `ServiceMonitor` or an equivalent scrape
+configuration, and configure `server.stats.prometheusURL` when the Stats page
+must query an existing Prometheus deployment.

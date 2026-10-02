@@ -135,7 +135,7 @@ The Server is the read-only registry API. It:
 - Reads `Module`, `Provider`, `Version`, and access-control resources from the
   Kubernetes API.
 - Serves artifacts directly or returns storage-native pre-signed redirects.
-- Records download events in Valkey for the Registry Explorer statistics.
+- Records download events as Prometheus metrics for the Registry Explorer statistics.
 
 Authentication can use OIDC, Kubernetes bearer tokens, or anonymous access for
 local evaluation. OIDC enables `tofu login` and applies `GroupBinding` rules to
@@ -143,7 +143,7 @@ JWT group claims. See [Authentication](authentication/index.md).
 
 ### Prometheus Monitoring
 
-The chart can deploy a [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) installation. The server exposes `/metrics` on its dedicated metrics port, and a `ServiceMonitor` discovers that endpoint. Registry gauges expose resource counts, archive sizes, synchronization state, and security findings.
+The chart can deploy a [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) installation, or use an existing Prometheus deployment through `server.stats.prometheusURL`. The server exposes `/metrics` on the `metrics` port of its Service, and the chart's `ServiceMonitor` discovers that endpoint for Prometheus Operator installations. Registry gauges expose resource counts, archive sizes, synchronization state, and security findings.
 
 ### Registry Explorer UI
 
@@ -155,15 +155,15 @@ same-origin.
 The UI reads the Server's browse API to display modules, providers, versions,
 scan findings, Depot relationships, and download statistics.
 
-### Storage and Valkey
+### Storage
 
 The chart supports S3, Azure Blob, Google Cloud Storage, and a shared
 filesystem. The Version controller writes artifacts and the Server reads or
 redirects downloads from the same backend.
 
-Valkey stores download counters and timestamps for the Registry Explorer. It is
-separate from registry state: Kubernetes stores the declarative resources and
-status used by the controllers and Server.
+Prometheus stores download counters and registry gauges used by the Registry
+Explorer. It is separate from registry state: Kubernetes stores the declarative
+resources and status used by the controllers and Server.
 
 ## Design Principles
 
