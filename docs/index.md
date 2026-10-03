@@ -15,11 +15,11 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
 <div class="grid cards" markdown>
 
-- :material-view-dashboard-outline: &nbsp;__Registry Explorer UI__
+- :material-view-dashboard-outline: &nbsp;__OpenDepot Workshop__
 
     ---
 
-    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [Registry Explorer guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
+    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [OpenDepot Workshop guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
 
 - :material-login: &nbsp;__OIDC Single Sign-On (SSO)__
 

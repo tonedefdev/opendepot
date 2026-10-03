@@ -224,11 +224,11 @@ See [Storage Backends](storage/index.md) for S3, Azure, and GCS configuration, w
 
 ## UI Configuration
 
-The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](guides/registry-explorer/index.md) for setup, OIDC login, and public visibility configuration.
+The `ui` section deploys the OpenDepot Workshop frontend. See [OpenDepot Workshop](guides/registry-explorer/index.md) for setup, OIDC login, and public visibility configuration.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `ui.enabled` | bool | When true, deploys the Registry Explorer UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
+| `ui.enabled` | bool | When true, deploys the OpenDepot Workshop UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
 | `ui.replicaCount` | int | Number of UI pod replicas. Default: `1` |
 | `ui.image.repository` | string | UI container image repository. Default: `gcr.io/opendepot-495604/opendepot/ui` |
 | `ui.image.tag` | string | Image tag. Defaults to `global.image.tag`, then the chart `appVersion`. |
@@ -237,7 +237,7 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
 | `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
 | `ui.oidc.issuerUrl` | string | Public HTTPS OIDC issuer URL. Discovered endpoints must share this origin. HTTP is accepted only with `global.developmentMode: true`. |
-| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](authentication/oidc.md#registry-explorer-ui-oidc). |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [OpenDepot Workshop OIDC](authentication/oidc.md#registry-explorer-ui-oidc). |
 | `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
 | `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
 | `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |
@@ -298,7 +298,7 @@ Trivy from a pinned source commit. The chart release metadata is the source of
 the default image tag; release `0.11.0` uses chart and application version
 `0.11.0`.
 
-See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
+See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 
 ## Scanning Values
 

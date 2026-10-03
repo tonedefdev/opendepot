@@ -121,7 +121,7 @@ This change does not affect installations with OIDC disabled. Existing OIDC inst
 
 ### Provider Upstream Registry Selection
 
-v0.10.0 adds `spec.providerConfig.upstreamRegistry` to `Provider` resources and `spec.providerConfigs[].upstreamRegistry` to `Depot` resources. The field selects the canonical registry used for provider discovery, downloads, Network Mirror identity, and Registry Explorer snippets.
+v0.10.0 adds `spec.providerConfig.upstreamRegistry` to `Provider` resources and `spec.providerConfigs[].upstreamRegistry` to `Depot` resources. The field selects the canonical registry used for provider discovery, downloads, Network Mirror identity, and OpenDepot Workshop snippets.
 
 Supported values are:
 
@@ -252,7 +252,7 @@ No action is required to keep existing behavior — `dexProxy.enabled` defaults 
 
 ## v0.8.0
 
-v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer/browse.md#module-readmes).
+v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [OpenDepot Workshop README rendering](guides/registry-explorer/browse.md#module-readmes).
 
 ### New RBAC Permissions
 

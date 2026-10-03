@@ -208,6 +208,12 @@ docker_build(
     'ghcr.io/tonedefdev/opendepot/dex',
     '.',
     dockerfile='tilt/Dockerfile.dex',
+    only=[
+        'tilt/Dockerfile.dex',
+        'tilt/dex-web-overrides',
+        'services/ui/public/img/opendepot_white.svg',
+        'services/ui/public/img/opendepot_icon.svg',
+    ],
 )
 
 opendepot_yaml = helm(

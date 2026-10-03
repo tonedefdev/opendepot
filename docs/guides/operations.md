@@ -81,11 +81,11 @@ The controller resets `forceSync` to `false` after reconciliation completes.
 
 ### Module READMEs
 
-For `Module`-type `Version` resources, the Version controller automatically resolves the module's README and makes it available to the Registry Explorer. Resolution is best-effort: it tries the GitHub API first (`GetReadme`, using the same authenticated/unauthenticated client selection as the archive download), and falls back to extracting a `README.md` from the already-downloaded module archive if the GitHub lookup fails or is unauthenticated.
+For `Module`-type `Version` resources, the Version controller automatically resolves the module's README and makes it available to OpenDepot Workshop. Resolution is best-effort: it tries the GitHub API first (`GetReadme`, using the same authenticated/unauthenticated client selection as the archive download), and falls back to extracting a `README.md` from the already-downloaded module archive if the GitHub lookup fails or is unauthenticated.
 
 The README is base64-encoded and stored in a ConfigMap named `<version-name>-readme`, owned by the `Version` resource. Because it is owned via `ownerReferences`, the ConfigMap is garbage collected automatically when the `Version` CR is deleted — no manual cleanup is required. The reference is recorded on the `Version` resource as `status.readmeConfigMapRef`.
 
-The controller only (re)fetches the README on the version's first sync (`status.readmeConfigMapRef` unset) or when `forceSync: true` is set, to avoid unnecessary GitHub API calls on every reconcile. A README that cannot be resolved by either method is not an error — the `Version` still syncs normally and the Registry Explorer simply omits the README card.
+The controller only (re)fetches the README on the version's first sync (`status.readmeConfigMapRef` unset) or when `forceSync: true` is set, to avoid unnecessary GitHub API calls on every reconcile. A README that cannot be resolved by either method is not an error — the `Version` still syncs normally and OpenDepot Workshop simply omits the README card.
 
 This behavior does not apply to `Provider`-type Version resources.
 

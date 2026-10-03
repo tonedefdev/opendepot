@@ -33,7 +33,7 @@ configured, browse endpoints remain accessible without authentication.
     `server.oidc.enabled: true` in production to prevent unauthenticated access
     to the browse API.
 
-## Registry Explorer UI OIDC
+## OpenDepot Workshop OIDC
 
 When `ui.oidc.enabled: true`, the UI uses a dedicated Dex client, normally
 `opendepot-ui`, separate from the `tofu login` client `opendepot`. Set the UI

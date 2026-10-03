@@ -646,65 +646,71 @@
       box-shadow: 0 18px 34px rgba(0, 0, 0, .34), 12px 12px 0 var(--blue);
     }
     .assembly-visual figcaption { color: rgba(255, 255, 255, .5); }
+    .assembly-track {
+      grid-column: 1 / -1;
+      margin: 24px 300px 0 0;
+    }
+    .assembly-belt {
+      position: relative;
+      height: 30px;
+      margin: 26px 0 28px;
+      border: 2px solid var(--teal);
+      border-radius: 15px;
+      background: radial-gradient(circle, rgba(3, 222, 184, .16) 0 4px, var(--teal) 4.5px 6.5px, transparent 7px) 0 50% / 52px 100% round no-repeat;
+    }
+    .assembly-belt::before,
+    .assembly-belt::after {
+      position: absolute;
+      right: 14px;
+      left: 14px;
+      height: 3px;
+      background: repeating-linear-gradient(90deg, var(--teal) 0 2px, transparent 2px 16px);
+      content: "";
+      opacity: .65;
+      animation: belt-tread .27s linear infinite;
+    }
+    .assembly-belt::before { top: 2px; }
+    .assembly-belt::after {
+      bottom: 2px;
+      animation-direction: reverse;
+    }
+    .assembly-belt i {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 14px;
+      width: 22px;
+      height: 16px;
+      border: 2px solid var(--teal);
+      border-radius: 2px;
+      opacity: 0;
+      animation: belt-crate 16s linear infinite;
+    }
+    .assembly-belt i:nth-child(odd) { background: var(--teal); }
+    .assembly-belt i:nth-child(2) { animation-delay: -4s; }
+    .assembly-belt i:nth-child(3) { animation-delay: -8s; }
+    .assembly-belt i:nth-child(4) {
+      border-color: #ffffff;
+      animation-delay: -12s;
+    }
     .assembly-stations {
       position: relative;
       display: grid;
-      grid-column: 1 / -1;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 32px;
-      margin: 24px 300px 0 0;
-      padding: 34px 0 0;
+      margin: 0;
+      padding: 0;
       list-style: none;
-    }
-    .assembly-stations::before {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: calc(100% + 120px);
-      height: 2px;
-      background: repeating-linear-gradient(90deg, var(--teal) 0 14px, transparent 14px 24px);
-      background-size: 24px 2px;
-      content: "";
-      animation: conveyor 1.2s linear infinite;
-    }
-    .assembly-stations .assembly-crane-route {
-      position: absolute;
-      top: 0;
-      left: calc(100% + 120px);
-      width: 60px;
-      height: 96px;
-      background: repeating-linear-gradient(90deg, var(--teal) 0 14px, transparent 14px 24px) top left / 24px 2px repeat-x, repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px) top right / 2px 24px repeat-y;
-      pointer-events: none;
-    }
-    .assembly-stations .assembly-crane-route::before {
-      display: none;
-    }
-    .assembly-crane-route::after {
-      position: absolute;
-      right: auto;
-      left: calc(100% - 1px);
-      bottom: -10px;
-      width: 0;
-      height: 0;
-      border-right: 7px solid transparent;
-      border-bottom: 0;
-      border-left: 7px solid transparent;
-      border-top: 10px solid var(--teal);
-      content: "";
-      transform: translateX(-50%);
     }
     .assembly-stations li { position: relative; }
     .assembly-stations li::before {
       position: absolute;
-      top: -41px;
-      left: 0;
-      width: 14px;
-      height: 14px;
-      border: 2px solid var(--teal);
-      background: #000000;
+      top: -28px;
+      left: 4px;
+      width: 2px;
+      height: 20px;
+      background: rgba(3, 222, 184, .5);
       content: "";
     }
-    .assembly-stations li:last-child::before { background: var(--teal); }
     .assembly-stations span {
       display: block;
       color: var(--teal);
@@ -743,10 +749,9 @@
       transform-origin: 162px 56px;
       animation: crane-sway 6s ease-in-out infinite;
     }
-    @keyframes conveyor { to { background-position: 24px 0; } }
+    @keyframes belt-tread { to { background-position: 16px 0; } }
+    @keyframes belt-crate { 0% { left: 14px; opacity: 0; } 4%, 94% { opacity: 1; } 100% { left: calc(100% - 36px); opacity: 0; } }
     @keyframes conveyor-vertical { to { background-position: 0 24px; } }
-    @keyframes crane-route-flow { to { background-position: 24px 0, 58px 24px; } }
-    .assembly-stations .assembly-crane-route { animation: crane-route-flow 1.2s linear infinite; }
     @keyframes crane-sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(1.6deg); } 75% { transform: rotate(-1.6deg); } }
     .image-modal {
       position: fixed;
@@ -920,8 +925,9 @@
       .assembly-heading { max-width: 720px; }
       .policy-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
       .policy-manifest { margin-left: 24px; }
-      .assembly-stations { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 56px; margin-right: 240px; }
-      .assembly-stations li:nth-child(n + 3)::before { top: -33px; }
+      .assembly-track { margin-right: 240px; }
+      .assembly-stations { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 40px; }
+      .assembly-stations li:nth-child(n + 3)::before { display: none; }
       .assembly-crane { --crane-width: 220px; }
     }
     @media (max-width: 760px) {
@@ -1040,12 +1046,13 @@
       .screen-contract:hover,
       .screen-contract:focus-visible { box-shadow: 0 12px 20px rgba(0, 0, 0, .28), 7px 7px 0 var(--blue); }
       .assembly-visual figcaption { margin-top: 20px; text-align: left; }
-      .assembly-stations { grid-template-columns: minmax(0, 1fr); gap: 28px; margin: 8px 0 0 7px; padding: 0 0 0 28px; }
-      .assembly-stations::before { top: 11px; width: 2px; height: calc(100% - 11px); background: repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px); background-size: 2px 24px; animation-name: conveyor-vertical; }
-      .assembly-stations::after { position: absolute; left: -4px; bottom: -10px; width: 0; height: 0; border-top: 10px solid var(--teal); border-right: 5px solid transparent; border-left: 5px solid transparent; content: ""; }
-      .assembly-crane-route { display: none; }
+      .assembly-track { margin: 8px 0 0; }
+      .assembly-belt { display: none; }
+      .assembly-stations { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-left: 7px; padding-left: 28px; }
+      .assembly-stations::before { position: absolute; top: 11px; left: 0; width: 2px; height: calc(100% - 11px); background: repeating-linear-gradient(180deg, var(--teal) 0 14px, transparent 14px 24px); background-size: 2px 24px; content: ""; animation: conveyor-vertical 1.2s linear infinite; }
       .assembly-stations li::before,
-      .assembly-stations li:nth-child(n + 3)::before { top: 2px; left: -34px; }
+      .assembly-stations li:nth-child(n + 3)::before { display: block; top: 2px; left: -34px; width: 14px; height: 14px; border: 2px solid var(--teal); border-radius: 50%; background: #000000; }
+      .assembly-stations li:last-child::before { background: var(--teal); }
       .assembly-crane { --crane-width: 150px; right: 16px; }
       .comparison { padding: 152px 0 80px; }
       .comparison-inner { padding: 0 20px; }
@@ -1096,6 +1103,13 @@
       }
       .crane-load,
       .assembly-stations::before,
-      .assembly-stations .assembly-crane-route { animation: none !important; }
+      .assembly-belt::before,
+      .assembly-belt::after,
+      .assembly-belt i { animation: none !important; }
+      .assembly-belt i { opacity: 1; }
+      .assembly-belt i:nth-child(1) { left: 12%; }
+      .assembly-belt i:nth-child(2) { left: 36%; }
+      .assembly-belt i:nth-child(3) { left: 60%; }
+      .assembly-belt i:nth-child(4) { left: 84%; }
     }
     @keyframes lane-pulse-mobile { from { transform: translateY(0); opacity: .45; } 15%, 85% { opacity: 1; } to { transform: translateY(21px); opacity: .45; } }

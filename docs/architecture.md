@@ -21,7 +21,7 @@ graph TD
     CLI["OpenTofu / Terraform CLI"]
 
     Server["Server\nRegistry Protocol API"]
-    UI["Registry Explorer UI"]
+    UI["OpenDepot Workshop"]
     Dex["Dex\nOIDC Identity Broker"]
     IdP["Upstream IdP"]
 
@@ -54,7 +54,7 @@ graph TD
 
 The diagram shows two cooperating paths:
 
-- **Consumption:** OpenTofu, Terraform, and the Registry Explorer read metadata
+- **Consumption:** OpenTofu, Terraform, and OpenDepot Workshop read metadata
   through the Server. The Server authenticates requests, reads Kubernetes
   resources, and serves or redirects artifacts from storage.
 - **Reconciliation:** Depot discovers upstream releases and creates declarative
@@ -135,7 +135,7 @@ The Server is the read-only registry API. It:
 - Reads `Module`, `Provider`, `Version`, and access-control resources from the
   Kubernetes API.
 - Serves artifacts directly or returns storage-native pre-signed redirects.
-- Records download events as Prometheus metrics for the Registry Explorer statistics.
+- Records download events as Prometheus metrics for OpenDepot Workshop statistics.
 
 Authentication can use OIDC, Kubernetes bearer tokens, or anonymous access for
 local evaluation. OIDC enables `tofu login` and applies `GroupBinding` rules to
@@ -145,7 +145,7 @@ JWT group claims. See [Authentication](authentication/index.md).
 
 The chart can deploy a [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) installation, or use an existing Prometheus deployment through `server.stats.prometheusURL`. The server exposes `/metrics` on the `metrics` port of its Service, and the chart's `ServiceMonitor` discovers that endpoint for Prometheus Operator installations. Registry gauges expose resource counts, archive sizes, synchronization state, and security findings.
 
-### Registry Explorer UI
+### OpenDepot Workshop
 
 The optional UI is a Next.js application fronted by NGINX. NGINX routes browser
 pages to the UI and registry paths such as `/opendepot/*` and

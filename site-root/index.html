@@ -191,13 +191,15 @@
         </button>
         <figcaption>Opt-in. OpenTofu providers only.</figcaption>
       </figure>
-      <ol class="assembly-stations">
-        <li><span>01</span><strong>Select</strong><p>Modules and OpenTofu providers pinned to exact versions with extracted contracts.</p></li>
-        <li><span>02</span><strong>Wire</strong><p>Connect variables and outputs to inputs, alias providers, and repeat modules with <code>count</code> or <code>for_each</code>.</p></li>
-        <li><span>03</span><strong>Validate</strong><p>The server re-authorizes every node and runs <code>tofu init</code> through OpenDepot's provider mirror. No public fallback.</p></li>
-        <li><span>04</span><strong>Export</strong><p>Download <code>main.tf</code> and <code>variables.tf</code>. No state, lock files, or credentials.</p></li>
-        <li class="assembly-crane-route" aria-hidden="true"></li>
-      </ol>
+      <div class="assembly-track">
+        <div class="assembly-belt" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <ol class="assembly-stations">
+          <li><span>01</span><strong>Select</strong><p>Modules and OpenTofu providers pinned to exact versions with extracted contracts.</p></li>
+          <li><span>02</span><strong>Wire</strong><p>Connect variables and outputs to inputs, alias providers, and repeat modules with <code>count</code> or <code>for_each</code>.</p></li>
+          <li><span>03</span><strong>Validate</strong><p>The server re-authorizes every node and runs <code>tofu init</code> through OpenDepot's provider mirror. No public fallback.</p></li>
+          <li><span>04</span><strong>Export</strong><p>Download <code>main.tf</code> and <code>variables.tf</code>. No state, lock files, or credentials.</p></li>
+        </ol>
+      </div>
     </div>
     <svg class="assembly-crane" viewBox="0 0 260 380" aria-hidden="true" focusable="false">
       <defs>

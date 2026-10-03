@@ -5,9 +5,9 @@ tags:
   - api
 ---
 
-# Registry Explorer Browse API
+# OpenDepot Workshop Browse API
 
-The browse endpoints power the Registry Explorer and can also be called directly
+The browse endpoints power OpenDepot Workshop and can also be called directly
 for integrations and automation. In OIDC mode with anonymous access disabled,
 requests require an `Authorization: Bearer <token>` header.
 
@@ -86,5 +86,5 @@ GET /opendepot/ui/v1/depots/graph
 ```
 
 Returns visible `Depot`, `Module`, and `Provider` resources with edges connecting
-each depot to the resources it manages. The Registry Explorer uses this endpoint
+each depot to the resources it manages. OpenDepot Workshop uses this endpoint
 to render the Depots page.

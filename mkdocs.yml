@@ -63,7 +63,7 @@ nav:
       - OIDC via Dex: authentication/oidc.md
       - Managed Cluster Tokens: authentication/managed-cluster-tokens.md
       - Base64-Encoded Kubeconfig: authentication/kubeconfig.md
-      - Registry Explorer UI: authentication/registry-explorer.md
+      - OpenDepot Workshop Authentication: authentication/registry-explorer.md
     - Storage Backends:
       - storage/index.md
       - Amazon S3: storage/s3.md
@@ -82,11 +82,22 @@ nav:
     - GitHub Authentication: configuration/github-auth.md
     - Namespace-Scoped Mode: configuration/namespace.md
     - TLS: configuration/tls.md
+    - Assembly Line: configuration/assembly-line.md
   - Guides:
     - guides/index.md
     - Users:
       - Consuming Modules: guides/modules.md
       - Consuming Providers: guides/providers.md
+      - OpenDepot Workshop:
+        - OpenDepot Workshop: guides/registry-explorer/index.md
+        - Registry Explorer: guides/registry-explorer/registry.md
+        - Module Details: guides/registry-explorer/module-details.md
+        - Provider Details: guides/registry-explorer/provider-details.md
+        - Depots: guides/registry-explorer/depots.md
+        - Assembly Line: guides/assembly-line.md
+        - Stats: guides/registry-explorer/browse.md
+        - Security Policies: guides/registry-explorer/security-policies.md
+        - Browse API: guides/registry-explorer/api.md
     - Admins:
       - GitOps with Argo CD: guides/gitops.md
       - Depot (Pull-Based): guides/depot.md
@@ -95,12 +106,8 @@ nav:
       - Upgrading OpenDepot: upgrading.md
       - Migrating to OpenDepot: guides/migration.md
       - GroupBinding Access Control: guides/groupbinding.md
-      - Registry Explorer UI:
-        - guides/registry-explorer/index.md
-        - Browse Resources and Dashboards: guides/registry-explorer/browse.md
-        - Browse API: guides/registry-explorer/api.md
       - SecurityGroupBinding Access Control: guides/security-groupbinding.md
-      - Assembly Line: guides/assembly-line.md
+      - Configure OpenDepot Workshop: guides/registry-explorer/administration.md
   - Reference:
     - reference/index.md
     - API: reference/api.md

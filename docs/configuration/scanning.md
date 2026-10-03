@@ -177,7 +177,7 @@ When more than one `ScanPolicy` matches a `Version`, only the single highest-`pr
 
 **Exempted findings stay visible, they are not hidden:**
 
-A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in the [Registry Explorer](../guides/registry-explorer.md#scan-findings).
+A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in [OpenDepot Workshop](../guides/registry-explorer.md#scan-findings).
 
 **Expiry:**
 
@@ -206,11 +206,11 @@ The global `scanning.blockOnCritical` and `scanning.blockOnHigh` values remain t
 
 The Version controller evaluates the effective policy during reconciliation and when a ScanPolicy changes. It requeues Versions for the earliest future exemption expiry, so an expired exemption begins blocking without a manual edit. Findings are retained in `Version.status.sourceScan` and `Version.status.binaryScan` after policy evaluation. Exemptions annotate, rather than remove, findings; removing or expiring an exemption therefore restores enforcement from the retained scan result on the next reconciliation. Use `forceSync: true` only when a fresh artifact scan is required.
 
-### Policy-management API and Registry Explorer workflow
+### Policy-management API and OpenDepot Workshop workflow
 
 The server is the authoritative write surface for the first UI-managed custom resource. Enable it explicitly with `server.policyManagement.enabled: true`; it is disabled by default. The server validates and persists Kubernetes-shaped `ScanPolicy` objects and leaves CRD validation, resource versions, RBAC, and audit metadata to Kubernetes. The read, catalog, capabilities, preview, create, replace, and delete routes are documented in the [API reference](../reference/api.md#scanpolicy). For OIDC, configure a separate [SecurityGroupBinding](../guides/security-groupbinding.md); `GroupBinding` controls Registry access only.
 
-In the Registry Explorer, an operator opens **Security policies**, selects a namespace, and chooses **New policy** or an existing policy. The editor supports priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates the draft without persisting it. The UI reads the capabilities route first and disables write controls when writes are disabled or the caller is unauthorized. A successful save returns the server's resource version; an update or delete uses that version as an `If-Match` precondition. If another operator changed the object, the UI keeps the unsaved draft and asks the operator to reload rather than overwriting it. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for the route payloads.
+In OpenDepot Workshop, an operator opens **Security policies**, selects a namespace, and chooses **New policy** or an existing policy. The editor supports priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates the draft without persisting it. The UI reads the capabilities route first and disables write controls when writes are disabled or the caller is unauthorized. A successful save returns the server's resource version; an update or delete uses that version as an `If-Match` precondition. If another operator changed the object, the UI keeps the unsaved draft and asks the operator to reload rather than overwriting it. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for the route payloads.
 
 !!! warning "Treat policy writes as security-sensitive"
     A policy can lower a threshold or waive findings. Enable writes only after assigning an explicit administrator workflow, namespace ownership, and review/audit process. Keep writes disabled when policies are managed declaratively with `kubectl` or GitOps.
