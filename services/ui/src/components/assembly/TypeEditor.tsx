@@ -4,47 +4,71 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
 import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
-import IconButton from "@mui/material/IconButton";
-import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
+import Chip from "@mui/material/Chip";
+import Collapse from "@mui/material/Collapse";
 import Typography from "@mui/material/Typography";
-import Accordion from "@mui/material/Accordion";
-import AccordionDetails from "@mui/material/AccordionDetails";
-import AccordionSummary from "@mui/material/AccordionSummary";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import type { ObjectTypeSpec, TypeSpec } from "./types";
+import type { ObjectAttributeSpec, ObjectTypeSpec, TypeSpec } from "./types";
 import { emptyValueSpec, valueSpecForType } from "./typeSpec";
-import ValueEditor from "./ValueEditor";
+import { ValueRow } from "./ValueEditor";
+import {
+  AddButton,
+  RemoveButton,
+  RowSpacer,
+  RowToggle,
+  branchSx,
+  childBranchSx,
+  compactFieldSx,
+  monoSx,
+  nameColumnSx,
+  rowActionsSx,
+  rowLabelSx,
+  rowSx,
+  rowsSx,
+} from "./editorRows";
 
-const filledFieldSx = { "& .MuiFilledInput-root": { borderRadius: 1 } };
-const nestedBranchSx = {
-  py: 0.5,
-  pl: 1,
-  borderLeft: "2px solid",
-  borderColor: "divider",
-};
-const nestedAccordionSx = {
-  bgcolor: "transparent",
-  boxShadow: "none",
-  borderLeft: "2px solid",
-  borderColor: "divider",
-  "&:before": { display: "none" },
-  "& .MuiAccordionSummary-root": { minHeight: 40, px: 1 },
-  "& .MuiAccordionSummary-content": { my: 0.75 },
-  "& .MuiAccordionDetails-root": { px: 1, pt: 0.5 },
-};
+const TYPE_KINDS: TypeSpec["kind"][] = ["string", "number", "bool", "any", "list", "set", "map", "object", "tuple"];
+
+interface ChainLink {
+  spec: TypeSpec;
+  set: (t: TypeSpec) => void;
+}
+
+type CollectionTypeSpec = Extract<TypeSpec, { element: TypeSpec }>;
+
+function isCollection(spec: TypeSpec): spec is CollectionTypeSpec {
+  return spec.kind === "list" || spec.kind === "set" || spec.kind === "map";
+}
+
+/** Flattens `map(list(object(...)))` into one link per constructor so it can render as a single inline row. */
+function typeChain(value: TypeSpec, onChange: (t: TypeSpec) => void): ChainLink[] {
+  const links: ChainLink[] = [{ spec: value, set: onChange }];
+  let link = links[0];
+  while (isCollection(link.spec)) {
+    const parent = link.spec;
+    const setParent = link.set;
+    link = { spec: parent.element, set: (element) => setParent({ ...parent, element }) };
+    links.push(link);
+  }
+  return links;
+}
+
+function hasBody(spec: TypeSpec): boolean {
+  return spec.kind === "object" || spec.kind === "tuple";
+}
+
+function bodySummary(spec: TypeSpec): string {
+  if (spec.kind === "object") return `${spec.attributes.length} ${spec.attributes.length === 1 ? "attribute" : "attributes"}`;
+  if (spec.kind === "tuple") return `${spec.elements.length} ${spec.elements.length === 1 ? "element" : "elements"}`;
+  return "";
+}
 
 function emptyObject(): ObjectTypeSpec {
   return { kind: "object", attributes: [] };
 }
 
-function attributeHasDefault(attribute: ObjectTypeSpec["attributes"][number]): boolean {
+function attributeHasDefault(attribute: ObjectAttributeSpec): boolean {
   return attribute.hasDefault ?? attribute.default !== undefined;
 }
 
@@ -62,218 +86,235 @@ interface Props {
 }
 
 export default function TypeEditor({ value, onChange }: Props) {
-  return <RecursiveTypeEditor value={value} onChange={onChange} />;
-}
-
-function RecursiveTypeEditor({ value, onChange }: Props) {
-  const kindId = React.useId();
-  const objectId = React.useId().replaceAll(":", "");
-  const [objectExpanded, setObjectExpanded] = React.useState(true);
+  const links = typeChain(value, onChange);
+  const terminal = links[links.length - 1];
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      <FormControl size="small" fullWidth variant="filled">
-        <InputLabel id={kindId}>Type</InputLabel>
-        <Select
-          disableUnderline
-          labelId={kindId}
-          value={value.kind}
-          onChange={(e) => onChange(emptyType(e.target.value as TypeSpec["kind"]))}
-          sx={{ borderRadius: 1 }}
-        >
-          <MenuItem value="string">string</MenuItem>
-          <MenuItem value="number">number</MenuItem>
-          <MenuItem value="bool">bool</MenuItem>
-          <MenuItem value="any">any</MenuItem>
-          <MenuItem value="list">list</MenuItem>
-          <MenuItem value="set">set</MenuItem>
-          <MenuItem value="map">map</MenuItem>
-          <MenuItem value="object">object</MenuItem>
-          <MenuItem value="tuple">tuple</MenuItem>
-        </Select>
-      </FormControl>
-
-      {(value.kind === "list" || value.kind === "set") && (
-        <Box sx={nestedBranchSx}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
-            {value.kind === "list" ? "List" : "Set"} elements
-          </Typography>
-          <RecursiveTypeEditor value={value.element} onChange={(element) => onChange({ ...value, element })} />
-        </Box>
-      )}
-
-      {value.kind === "map" && (
-        <Box sx={nestedBranchSx}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
-            Map values
-          </Typography>
-          <RecursiveTypeEditor value={value.element} onChange={(element) => onChange({ ...value, element })} />
-        </Box>
-      )}
-
-      {value.kind === "object" && (
-        <Box>
-          <Accordion
-            disableGutters
-            expanded={objectExpanded}
-            onChange={(_, expanded) => setObjectExpanded(expanded)}
-            sx={nestedAccordionSx}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls={`${objectId}-object-definition`}>
-              <Typography noWrap>
-                Object definition ({value.attributes.length} {value.attributes.length === 1 ? "attribute" : "attributes"})
-              </Typography>
-            </AccordionSummary>
-            <AccordionDetails id={`${objectId}-object-definition`}>
-              <ObjectAttributesEditor spec={value} onChange={onChange} />
-            </AccordionDetails>
-          </Accordion>
-        </Box>
-      )}
-
-      {value.kind === "tuple" && (
-        <Box sx={{ ...nestedBranchSx, display: "flex", flexDirection: "column", gap: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            Elements, in order:
-          </Typography>
-          {value.elements.map((el, i) => (
-            <Box key={i} sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
-              <Box sx={{ flex: 1 }}>
-                <RecursiveTypeEditor
-                  value={el}
-                  onChange={(t) => {
-                    const elements = [...value.elements];
-                    elements[i] = t;
-                    onChange({ ...value, elements });
-                  }}
-                />
-              </Box>
-              <IconButton
-                size="small"
-                onClick={() => onChange({ ...value, elements: value.elements.filter((_, idx) => idx !== i) })}
-                aria-label="Remove element"
-              >
-                <DeleteOutlineIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          ))}
-          <Button
-            size="small"
-            startIcon={<AddIcon />}
-            onClick={() => onChange({ ...value, elements: [...value.elements, { kind: "string" }] })}
-          >
-            Add element
-          </Button>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+      <Typography variant="subtitle2">Type</Typography>
+      <TypeChain links={links} label="Type" />
+      {hasBody(terminal.spec) && (
+        <Box sx={branchSx}>
+          <TypeBody spec={terminal.spec} onChange={terminal.set} />
         </Box>
       )}
     </Box>
   );
 }
 
-function ObjectAttributesEditor({
-  spec,
-  onChange,
-}: {
-  spec: ObjectTypeSpec;
-  onChange: (spec: ObjectTypeSpec) => void;
-}) {
+function KindSelect({ kind, label, onChange }: { kind: TypeSpec["kind"]; label: string; onChange: (t: TypeSpec) => void }) {
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      {spec.attributes.map((attr, i) => (
-        <Box
-          key={i}
-          sx={{ pb: 1.25, mb: 1.25, borderBottom: "1px solid", borderColor: "divider", "&:last-of-type": { mb: 0 } }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1 }}>
-            <TextField
-              variant="filled"
-              size="small"
-              label="Name"
-              value={attr.name}
-              onChange={(e) => {
-                const attributes = [...spec.attributes];
-                attributes[i] = { ...attr, name: e.target.value };
-                onChange({ ...spec, attributes });
-              }}
-              sx={{ ...filledFieldSx, flex: 1, minWidth: 0 }}
-            />
-            <FormControlLabel
-              sx={{ m: 0, flexShrink: 0 }}
-              control={
-                <Checkbox
-                  size="small"
-                  checked={!!attr.optional}
-                  onChange={(e) => {
-                    const attributes = [...spec.attributes];
-                    attributes[i] = { ...attr, optional: e.target.checked, hasDefault: e.target.checked ? attr.hasDefault : false };
-                    onChange({ ...spec, attributes });
-                  }}
-                />
-              }
-              label={<Typography variant="caption">Optional</Typography>}
-            />
-            <IconButton
-              size="small"
-              onClick={() => onChange({ ...spec, attributes: spec.attributes.filter((_, idx) => idx !== i) })}
-              aria-label="Remove attribute"
-            >
-              <DeleteOutlineIcon fontSize="small" />
-            </IconButton>
-          </Box>
-          <RecursiveTypeEditor
-            value={attr.type}
-            onChange={(type) => {
-              const attributes = [...spec.attributes];
-              attributes[i] = {
-                ...attr,
-                type,
-                default: attributeHasDefault(attr) ? emptyValueSpec(type) : undefined,
-              };
-              onChange({ ...spec, attributes });
-            }}
-          />
-          {attr.optional && (
-            <Box sx={{ ...nestedBranchSx, mt: 1 }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={attributeHasDefault(attr)}
-                    onChange={(e) => {
-                      const attributes = [...spec.attributes];
-                      attributes[i] = {
-                        ...attr,
-                        hasDefault: e.target.checked,
-                        default: e.target.checked ? valueSpecForType(attr.type, attr.default) : undefined,
-                      };
-                      onChange({ ...spec, attributes });
-                    }}
-                  />
-                }
-                label={<Typography variant="caption">Has a default value</Typography>}
-              />
-              {attributeHasDefault(attr) && (
-                <ValueEditor
-                  type={attr.type}
-                  value={valueSpecForType(attr.type, attr.default)}
-                  onChange={(defaultValue) => {
-                    const attributes = [...spec.attributes];
-                    attributes[i] = { ...attr, hasDefault: true, default: defaultValue };
-                    onChange({ ...spec, attributes });
-                  }}
-                />
-              )}
-            </Box>
-          )}
-        </Box>
-      ))}
-      <Button
-        size="small"
-        startIcon={<AddIcon />}
-        onClick={() => onChange({ ...spec, attributes: [...spec.attributes, { name: "", type: { kind: "string" } }] })}
+    <FormControl size="small" variant="filled" hiddenLabel sx={{ minWidth: 96 }}>
+      <Select
+        disableUnderline
+        value={kind}
+        onChange={(e) => onChange(emptyType(e.target.value as TypeSpec["kind"]))}
+        inputProps={{ "aria-label": label }}
+        sx={{ borderRadius: 1, "& .MuiSelect-select": { ...monoSx, py: 0.75 } }}
       >
-        Add attribute
-      </Button>
+        {TYPE_KINDS.map((k) => (
+          <MenuItem key={k} value={k} sx={monoSx}>
+            {k}
+          </MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
+}
+
+function TypeChain({ links, label }: { links: ChainLink[]; label: string }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.75, minWidth: 0 }}>
+      {links.map((link, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              of
+            </Typography>
+          )}
+          <KindSelect
+            kind={link.spec.kind}
+            label={i === 0 ? label : `${label} ${links[i - 1].spec.kind} ${links[i - 1].spec.kind === "map" ? "value" : "element"}`}
+            onChange={link.set}
+          />
+        </React.Fragment>
+      ))}
     </Box>
+  );
+}
+
+function TypeBody({ spec, onChange }: { spec: TypeSpec; onChange: (t: TypeSpec) => void }) {
+  if (spec.kind === "object") return <ObjectBody spec={spec} onChange={onChange} />;
+  if (spec.kind === "tuple") {
+    return (
+      <Box sx={rowsSx}>
+        {spec.elements.map((element, i) => (
+          <TypeRow
+            key={i}
+            label={`Element ${i}`}
+            name={<Typography sx={rowLabelSx}>[{i}]</Typography>}
+            type={element}
+            onTypeChange={(t) => {
+              const elements = [...spec.elements];
+              elements[i] = t;
+              onChange({ ...spec, elements });
+            }}
+            actions={
+              <RemoveButton
+                label="Remove element"
+                onClick={() => onChange({ ...spec, elements: spec.elements.filter((_, idx) => idx !== i) })}
+              />
+            }
+          />
+        ))}
+        <AddButton onClick={() => onChange({ ...spec, elements: [...spec.elements, { kind: "string" }] })}>Add element</AddButton>
+      </Box>
+    );
+  }
+  return null;
+}
+
+function ObjectBody({ spec, onChange }: { spec: ObjectTypeSpec; onChange: (spec: ObjectTypeSpec) => void }) {
+  const setAttribute = (i: number, attribute: ObjectAttributeSpec) => {
+    const attributes = [...spec.attributes];
+    attributes[i] = attribute;
+    onChange({ ...spec, attributes });
+  };
+
+  return (
+    <Box sx={rowsSx}>
+      {spec.attributes.map((attr, i) => {
+        const hasDefault = attributeHasDefault(attr);
+        return (
+          <TypeRow
+            key={i}
+            label={attr.name || "attribute"}
+            name={
+              <TextField
+                variant="filled"
+                size="small"
+                hiddenLabel
+                placeholder="name"
+                value={attr.name}
+                onChange={(e) => setAttribute(i, { ...attr, name: e.target.value })}
+                slotProps={{ input: { disableUnderline: true }, htmlInput: { "aria-label": "Attribute name" } }}
+                sx={{ ...compactFieldSx, ...nameColumnSx }}
+              />
+            }
+            type={attr.type}
+            onTypeChange={(type) =>
+              setAttribute(i, { ...attr, type, default: hasDefault ? emptyValueSpec(type) : undefined })
+            }
+            actions={
+              <>
+                <ToggleChip
+                  label="optional"
+                  selected={!!attr.optional}
+                  onToggle={() =>
+                    setAttribute(i, { ...attr, optional: !attr.optional, hasDefault: attr.optional ? false : attr.hasDefault })
+                  }
+                />
+                {attr.optional && (
+                  <ToggleChip
+                    label="default"
+                    selected={hasDefault}
+                    onToggle={() =>
+                      setAttribute(i, {
+                        ...attr,
+                        hasDefault: !hasDefault,
+                        default: hasDefault ? undefined : valueSpecForType(attr.type, attr.default),
+                      })
+                    }
+                  />
+                )}
+                <RemoveButton
+                  label="Remove attribute"
+                  onClick={() => onChange({ ...spec, attributes: spec.attributes.filter((_, idx) => idx !== i) })}
+                />
+              </>
+            }
+          >
+            {attr.optional && hasDefault && (
+              <ValueRow
+                label={<Typography sx={{ ...rowLabelSx, fontStyle: "italic" }}>default</Typography>}
+                toggleLabel={`${attr.name || "attribute"} default`}
+                type={attr.type}
+                value={valueSpecForType(attr.type, attr.default)}
+                onChange={(defaultValue) => setAttribute(i, { ...attr, hasDefault: true, default: defaultValue })}
+                alignToValueColumn
+              />
+            )}
+          </TypeRow>
+        );
+      })}
+      <AddButton onClick={() => onChange({ ...spec, attributes: [...spec.attributes, { name: "", type: { kind: "string" } }] })}>
+        Add attribute
+      </AddButton>
+    </Box>
+  );
+}
+
+function TypeRow({
+  label,
+  name,
+  type,
+  onTypeChange,
+  actions,
+  children,
+}: {
+  label: string;
+  name: React.ReactNode;
+  type: TypeSpec;
+  onTypeChange: (t: TypeSpec) => void;
+  actions: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(true);
+  const links = typeChain(type, onTypeChange);
+  const terminal = links[links.length - 1];
+  const nested = hasBody(terminal.spec);
+
+  return (
+    <Box>
+      <Box sx={rowSx}>
+        {nested ? (
+          <RowToggle label={`${label} definition`} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
+        ) : (
+          <RowSpacer />
+        )}
+        {name}
+        <TypeChain links={links} label={`${label} type`} />
+        {nested && !expanded && (
+          <Typography variant="caption" color="text.secondary">
+            {bodySummary(terminal.spec)}
+          </Typography>
+        )}
+        <Box sx={rowActionsSx}>{actions}</Box>
+      </Box>
+      {nested ? (
+        <Collapse in={expanded} unmountOnExit>
+          <Box sx={childBranchSx}>
+            <TypeBody spec={terminal.spec} onChange={terminal.set} />
+            {children}
+          </Box>
+        </Collapse>
+      ) : (
+        children && <Box sx={childBranchSx}>{children}</Box>
+      )}
+    </Box>
+  );
+}
+
+function ToggleChip({ label, selected, onToggle }: { label: string; selected: boolean; onToggle: () => void }) {
+  return (
+    <Chip
+      size="small"
+      label={label}
+      color={selected ? "primary" : "default"}
+      variant={selected ? "filled" : "outlined"}
+      onClick={onToggle}
+      aria-pressed={selected}
+      sx={{ height: 22, fontSize: "0.7rem" }}
+    />
   );
 }

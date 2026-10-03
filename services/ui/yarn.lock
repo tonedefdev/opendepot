@@ -6670,6 +6670,7 @@ __metadata:
     react-icons: "npm:^5.6.0"
     react-markdown: "npm:^10.1.0"
     reactflow: "npm:^11.11.4"
+    refractor: "npm:^4.9.0"
     rehype-raw: "npm:^7.0.0"
     rehype-sanitize: "npm:^6.0.0"
     remark-gfm: "npm:^4.0.1"
@@ -7131,7 +7132,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"refractor@npm:^4.8.0":
+"refractor@npm:^4.8.0, refractor@npm:^4.9.0":
   version: 4.9.0
   resolution: "refractor@npm:4.9.0"
   dependencies:

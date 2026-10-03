@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import * as React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { TypeSpec, ValueSpec } from "./types";
 import ValueEditor from "./ValueEditor";
@@ -54,8 +54,7 @@ describe("ValueEditor map accordions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "first" }));
     expect(screen.getByRole("button", { name: "first" }).getAttribute("aria-expanded")).toBe("true");
-    const firstAccordion = screen.getByRole("button", { name: "first" }).closest(".MuiAccordion-root");
-    fireEvent.change(within(firstAccordion as HTMLElement).getByPlaceholderText("true or false"), {
+    fireEvent.change(screen.getByPlaceholderText("true or false"), {
       target: { value: "true" },
     });
 
@@ -79,7 +78,7 @@ describe("ValueEditor map accordions", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "second" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove entry" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove entry" })[1]);
 
     expect(screen.queryByRole("button", { name: "second" })).toBeNull();
     expect(screen.getByRole("button", { name: "first" }).getAttribute("aria-expanded")).toBe("false");

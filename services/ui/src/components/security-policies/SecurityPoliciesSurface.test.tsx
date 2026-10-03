@@ -79,6 +79,21 @@ describe("SecurityPoliciesSurface", () => {
     expect(screen.getByText("13–13 of 13 policies")).not.toBeNull();
   });
 
+  it("shows the total number of expired exemptions", async () => {
+    const items = [
+      { ...policy, status: { expiredExemptions: 2 } },
+      { ...policy, metadata: { ...policy.metadata, name: "restricted" }, status: { expiredExemptions: 1 } },
+    ];
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ items }))
+      .mockResolvedValueOnce(jsonResponse(capabilities));
+
+    render(<SecurityPoliciesSurface mode="list" namespace="platform" catalog={catalog} />);
+
+    await waitFor(() => expect(screen.getByText("Expired exemptions")).not.toBeNull());
+    expect(screen.getByText("3")).not.toBeNull();
+  });
+
   it("does not show the read-only message while create capabilities are loading", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(() => {}));
 

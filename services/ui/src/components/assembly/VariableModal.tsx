@@ -8,32 +8,27 @@ import DialogActions from "@mui/material/DialogActions";
 import IconButton from "@mui/material/IconButton";
 import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
-import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Button from "@mui/material/Button";
 import CloseIcon from "@mui/icons-material/Close";
 import DataObjectIcon from "@mui/icons-material/DataObject";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useColorScheme } from "@mui/material/styles";
-import CodeEditor from "@uiw/react-textarea-code-editor";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
 import type { TypeSpec, ValueSpec, VariableValidation } from "./types";
-import { isComplexVariableType, renderVariableSpec } from "./typeSpec";
+import { renderVariableSpec } from "./typeSpec";
 import TypeEditor from "./TypeEditor";
+import ValidationsEditor from "./ValidationsEditor";
 import ValueEditor from "./ValueEditor";
+import { extendHclGrammar } from "./hclConditionHighlight";
 
-// Make prism-react-renderer use the full prismjs instance so it picks up the
-// HCL grammar we registered above via the side-effectful import (mirrors
-// ContractTable.tsx / UsageSnippet.tsx).
 (typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
+extendHclGrammar(Prism.languages.hcl);
 
 const filledTextFieldSx = {
   "& .MuiFilledInput-root": {
@@ -95,9 +90,6 @@ export default function VariableModal({
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
-  const editorMode = resolvedMode === "dark" ? "dark" : "light";
-  const complexType = isComplexVariableType(type);
-
   const typeEditor = <TypeEditor value={type} onChange={onTypeChange} />;
   const descriptionEditor = (
     <TextField
@@ -122,15 +114,6 @@ export default function VariableModal({
       {hasDefault && <ValueEditor type={type} value={defaultValue} onChange={onDefaultChange} />}
     </>
   );
-  const complexTypeDivider = <Divider sx={{ my: 1.5 }} />;
-
-  const changeValidation = (index: number, patch: Partial<VariableValidation>) => {
-    onValidationsChange(
-      validations.map((validation, validationIndex) =>
-        validationIndex === index ? { ...validation, ...patch } : validation,
-      ),
-    );
-  };
 
   return (
     <Dialog
@@ -163,112 +146,12 @@ export default function VariableModal({
         }}
       >
         <Box data-testid="variable-editor" sx={{ minHeight: 0, overflowY: "auto", pt: 0.75, pr: 0.5 }}>
-          {complexType ? <>{defaultEditor}{descriptionEditor}{complexTypeDivider}{typeEditor}</> : <>{typeEditor}{defaultEditor}{descriptionEditor}</>}
+          {typeEditor}
+          {defaultEditor}
+          {descriptionEditor}
 
           <Divider sx={{ my: 2 }} />
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-            <Typography variant="subtitle2">Validations</Typography>
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => onValidationsChange([...validations, { condition: "", errorMessage: "" }])}
-            >
-              Add validation
-            </Button>
-          </Stack>
-
-          <Stack spacing={1.5}>
-            {validations.map((validation, index) => {
-              const conditionMissing = !validation.condition.trim();
-              const messageMissing = !validation.errorMessage.trim();
-
-              return (
-                <Box
-                  key={index}
-                  sx={{
-                    border: "1px solid",
-                    borderColor: conditionMissing || messageMissing ? "error.main" : "divider",
-                    borderRadius: 1,
-                    p: 1.25,
-                  }}
-                >
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-                    <Typography variant="caption" fontWeight={700}>
-                      Validation {index + 1}
-                    </Typography>
-                    <Tooltip title="Remove validation">
-                      <IconButton
-                        size="small"
-                        aria-label={`Remove validation ${index + 1}`}
-                        onClick={() =>
-                          onValidationsChange(validations.filter((_, validationIndex) => validationIndex !== index))
-                        }
-                      >
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                  <Typography component="label" htmlFor={`variable-validation-${index}`} variant="caption" fontWeight={600}>
-                    Condition (HCL)
-                  </Typography>
-                  <Box
-                    sx={{
-                      mt: 0.5,
-                      mb: 1,
-                      border: "1px solid",
-                      borderColor: conditionMissing ? "error.main" : "transparent",
-                      borderRadius: 1,
-                      bgcolor: "action.hover",
-                      overflow: "hidden",
-                      transition: (theme) => theme.transitions.create(["border-color", "background-color"]),
-                      "&:hover": { bgcolor: "action.selected" },
-                      "&:focus-within": {
-                        borderColor: conditionMissing ? "error.main" : "primary.main",
-                        bgcolor: "action.selected",
-                      },
-                      "& .w-tc-editor": {
-                        "--color-prettylights-syntax-sublimelinter-gutter-mark":
-                          editorMode === "dark" ? "#b1bac4" : "#57606a",
-                        "--color-prettylights-syntax-string-regexp": editorMode === "dark" ? "#a5d6ff" : "#0a3069",
-                      },
-                    }}
-                  >
-                    <CodeEditor
-                      id={`variable-validation-${index}`}
-                      value={validation.condition}
-                      language="hcl"
-                      data-color-mode={editorMode}
-                      minHeight={72}
-                      indentWidth={2}
-                      placeholder="length(var.name) > 0"
-                      onChange={(event) => changeValidation(index, { condition: event.target.value })}
-                      aria-invalid={conditionMissing}
-                      style={{ fontSize: 12, fontFamily: "monospace", backgroundColor: "transparent", minHeight: 72 }}
-                    />
-                  </Box>
-                  {conditionMissing && (
-                    <Typography variant="caption" color="error">
-                      Condition is required.
-                    </Typography>
-                  )}
-                  <TextField
-                    variant="filled"
-                    label="Error message"
-                    value={validation.errorMessage}
-                    onChange={(event) => changeValidation(index, { errorMessage: event.target.value })}
-                    error={messageMissing}
-                    helperText={messageMissing ? "Error message is required." : undefined}
-                    multiline
-                    minRows={2}
-                    fullWidth
-                    size="small"
-                    slotProps={{ input: { disableUnderline: true } }}
-                    sx={{ ...filledTextFieldSx, mt: conditionMissing ? 0.75 : 0 }}
-                  />
-                </Box>
-              );
-            })}
-          </Stack>
+          <ValidationsEditor validations={validations} onChange={onValidationsChange} />
         </Box>
 
         <Box data-testid="hcl-preview" sx={{ position: "relative", minHeight: 0, display: "flex", flexDirection: "column" }}>

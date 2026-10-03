@@ -82,7 +82,7 @@ test.describe("Assembly Line recursive variable defaults", () => {
     await expect(preview).toBeVisible();
     await expect(preview).toBeInViewport();
 
-    const nestedObject = dialog.getByRole("button", { name: "Object definition (1 attribute)" }).last();
+    const nestedObject = dialog.getByRole("button", { name: "settings definition" });
     await nestedObject.click();
     await expect(nestedObject).toHaveAttribute("aria-expanded", "false");
     await expect(preview).toBeInViewport();
@@ -97,8 +97,7 @@ test.describe("Assembly Line recursive variable defaults", () => {
 
     const newEntry = dialog.getByRole("button", { name: "New entry" });
     await expect(newEntry).toHaveAttribute("aria-expanded", "true");
-    const newAccordion = newEntry.locator("xpath=ancestor::*[contains(@class, 'MuiAccordion-root')]");
-    await newAccordion.getByLabel("Key").fill("new-service");
+    await dialog.getByRole("textbox", { name: "Key" }).last().fill("new-service");
     await expect(dialog.getByRole("button", { name: "new-service" })).toHaveAttribute("aria-expanded", "true");
     await expect(dialog).toContainText('"new-service" = {}');
   });

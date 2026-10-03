@@ -319,10 +319,29 @@ export function renderVariableSpec(
   }
 
   for (const validation of validations) {
+    const conditionLines = (validation.condition || "<condition>").split(/\r?\n/);
+    const nonEmptyContinuationLines = conditionLines
+      .slice(1)
+      .filter((line) => line.trim() && !/^[\])}]+,?$/.test(line.trim()));
+    const commonIndent = nonEmptyContinuationLines.length
+      ? Math.min(...nonEmptyContinuationLines.map((line) => line.match(/^\s*/)?.[0].length ?? 0))
+      : 0;
+    const renderedCondition = [
+      `    condition     = ${conditionLines[0]}`,
+      ...conditionLines.slice(1).map((line) => {
+        const trimmedLine = line.trimEnd();
+        const trimmedContent = trimmedLine.trim();
+        if (!trimmedContent) return "";
+        if (/^[\])}]+,?$/.test(trimmedContent)) return `    ${trimmedContent}`;
+        const content = trimmedLine.slice(commonIndent);
+        return `      ${content}`;
+      }),
+    ];
+
     lines.push(
       "",
       "  validation {",
-      `    condition     = ${validation.condition || "<condition>"}`,
+      ...renderedCondition,
       `    error_message = ${JSON.stringify(validation.errorMessage)}`,
       "  }",
     );

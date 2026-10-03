@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import * as React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { TypeSpec } from "./types";
 import TypeEditor from "./TypeEditor";
@@ -22,22 +22,60 @@ function selectKind(combobox: HTMLElement, kind: TypeSpec["kind"]) {
 }
 
 describe("TypeEditor", () => {
-  it("collapses and expands object definitions", () => {
+  it("collapses and expands nested object definitions", () => {
     render(
       <Harness
         initial={{
           kind: "object",
-          attributes: [{ name: "settings", type: { kind: "string" } }],
+          attributes: [
+            {
+              name: "settings",
+              type: { kind: "map", element: { kind: "object", attributes: [{ name: "enabled", type: { kind: "bool" } }] } },
+            },
+          ],
         }}
       />,
     );
 
-    const summary = screen.getByRole("button", { name: "Object definition (1 attribute)" });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(summary);
-    expect(summary.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(summary);
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    const toggle = screen.getByRole("button", { name: "settings definition" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByDisplayValue("enabled")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("1 attribute")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("hides a nested attribute's default when its definition collapses", async () => {
+    render(
+      <Harness
+        initial={{
+          kind: "object",
+          attributes: [
+            {
+              name: "spec",
+              type: { kind: "object", attributes: [{ name: "enabled", type: { kind: "bool" } }] },
+              optional: true,
+              hasDefault: true,
+              default: { kind: "object", entries: [] },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "enabled value" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "spec definition" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "enabled value" })).toBeNull());
+  });
+
+  it("renders collection constructors as one inline chain", () => {
+    render(<Harness initial={{ kind: "list", element: { kind: "map", element: { kind: "string" } } }} />);
+
+    expect(screen.getByRole("combobox", { name: "Type" }).textContent).toBe("list");
+    expect(screen.getByRole("combobox", { name: "Type list element" }).textContent).toBe("map");
+    expect(screen.getByRole("combobox", { name: "Type map value" }).textContent).toBe("string");
   });
 
   it("offers every constructor at nested type positions", () => {
@@ -74,12 +112,11 @@ describe("TypeEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Has a default value" }));
+    fireEvent.click(screen.getByRole("button", { name: "default" }));
     fireEvent.click(screen.getByRole("button", { name: "Add entry" }));
 
-    const details = screen.getByRole("button", { name: "New entry" }).closest(".MuiAccordion-root");
-    fireEvent.change(within(details as HTMLElement).getByLabelText("Key"), { target: { value: "team" } });
-    fireEvent.change(within(details as HTMLElement).getByPlaceholderText("value"), { target: { value: "platform" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Key" }), { target: { value: "team" } });
+    fireEvent.change(screen.getByPlaceholderText("value"), { target: { value: "platform" } });
 
     const value = screen.getByTestId("value").textContent ?? "";
     expect(value).toContain('"hasDefault":true');

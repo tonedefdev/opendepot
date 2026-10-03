@@ -40,6 +40,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import TrackChangesIcon from "@mui/icons-material/TrackChanges";
 import TuneIcon from "@mui/icons-material/Tune";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { dump as dumpYaml } from "js-yaml";
@@ -327,10 +328,10 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
           </Stack>
           {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
           <Grid container spacing={2}>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Total policies" value={policies.length} icon={<PolicyOutlinedIcon fontSize="small" />} accentColor={accent.primary} /></Grid>
             <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Non-superseded" value={policies.filter((item) => !item.status?.supersededBy).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<VerifiedUserOutlinedIcon fontSize="small" />} accentColor={accent.mint} /></Grid>
             <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Matching resources" value={policies.filter((item) => (item.status?.matchedVersions ?? 0) > 0).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<TrackChangesIcon fontSize="small" />} accentColor={accent.teal} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.amber} /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.primary} /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Expired exemptions" value={policies.reduce((total, item) => total + (item.status?.expiredExemptions ?? 0), 0)} icon={<WarningAmberIcon fontSize="small" />} accentColor="#ef6c00" /></Grid>
           </Grid>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "center" }} spacing={1.5} sx={{ mt: 5, mb: 2, pb: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
             <Stack direction="row" spacing={1} alignItems="center">

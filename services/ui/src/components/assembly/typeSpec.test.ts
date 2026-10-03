@@ -206,6 +206,18 @@ describe("recursive type specifications", () => {
 }`);
   });
 
+  it("indents multiline validation conditions as HCL expressions", () => {
+    const condition = "alltrue([\n  for _, function in var.lambda_functions :\n  length(function.spec.description) <= 100\n])";
+    const rendered = renderVariableSpec("lambda_functions", { kind: "string" }, false, { kind: "scalar", literal: "" }, "", [
+      { condition, errorMessage: "The description must be less than or equal to 100 characters." },
+    ]);
+
+    expect(rendered).toContain(`    condition     = alltrue([
+      for _, function in var.lambda_functions :
+      length(function.spec.description) <= 100
+    ])`);
+  });
+
   it("aligns sibling assignments within every nested scope", () => {
     const type: TypeSpec = {
       kind: "map",
