@@ -7,34 +7,43 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/redis/go-redis/v9"
 )
 
 var (
-	logger                              *slog.Logger
-	opendepotAnonymousAuth              *bool
-	opendepotUseBearerToken             *bool
-	opendepotOIDCIssuerURL              *string
-	opendepotOIDCClientID               *string
-	opendepotOIDCGroupsClaim            *string
-	opendepotOIDCAllowSAFallback        *bool
-	opendepotOIDCAllowClientCredentials *bool
-	opendepotOIDCUIClientID             *string
-	opendepotOIDCAuthzURL               *string
-	opendepotOIDCTokenURL               *string
-	opendepotOIDCDexProxyEnabled        *bool
-	opendepotOIDCDexInternalURL         *string
-	opendepotServerNamespace            *string
-	opendepotFilesystemMountPath        *string
-
-	// statsClient is the Valkey/Redis client used to track download events.
-	// Stats tracking is always enabled; the server will not start if Valkey is unreachable.
-	statsClient *redis.Client
+	logger                                *slog.Logger
+	opendepotAnonymousAuth                *bool
+	opendepotUseBearerToken               *bool
+	opendepotOIDCIssuerURL                *string
+	opendepotOIDCClientID                 *string
+	opendepotOIDCGroupsClaim              *string
+	opendepotOIDCAllowSAFallback          *bool
+	opendepotOIDCAllowClientCredentials   *bool
+	opendepotOIDCUIClientID               *string
+	opendepotOIDCAuthzURL                 *string
+	opendepotOIDCTokenURL                 *string
+	opendepotOIDCDexProxyEnabled          *bool
+	opendepotOIDCDexInternalURL           *string
+	opendepotServerNamespace              *string
+	opendepotFilesystemMountPath          *string
+	opendepotAssemblyEnabled              *bool
+	opendepotRegistryHost                 *string
+	opendepotAssemblyValidationURL        *string
+	opendepotAssemblyValidationCACertPath *string
+	opendepotAssemblyRegistryInsecure     *bool
+	opendepotTofuBinPath                  *string
+	opendepotAssemblyWorkDir              *string
+	opendepotAssemblyInitTimeout          *time.Duration
+	opendepotAssemblyValidateTimeout      *time.Duration
+	opendepotAssemblyMaxRequestBytes      *int64
+	opendepotAssemblyMaxNodes             *int
+	opendepotAssemblyMaxOutputBytes       *int64
+	opendepotPolicyManagementEnabled      *bool
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
@@ -73,38 +82,91 @@ func main() {
 	opendepotOIDCDexInternalURL = flag.String("oidc-dex-internal-url", "", "internal (in-cluster) Dex base URL used for OIDC discovery, JWKS fetching, and reverse-proxying /dex/* requests; required when --oidc-dex-proxy-enabled is set")
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
-	opendepotValkeyAddr := flag.String("stats-valkey-addr", "valkey:6379", "address of the Valkey/Redis instance used for download stats tracking")
+	opendepotAssemblyEnabled = flag.Bool("assembly-enabled", false, "enable Assembly Line provider schemas and validated root module export")
+	opendepotRegistryHost = flag.String("registry-host", "", "external OpenDepot registry host used in generated module and provider source addresses")
+	opendepotAssemblyValidationURL = flag.String("assembly-validation-registry-url", "", "OpenDepot registry base URL used only by Assembly Line validation; defaults to the external registry host")
+	opendepotAssemblyValidationCACertPath = flag.String("assembly-validation-ca-cert-path", "", "CA certificate trusted by the Assembly Line OpenTofu validation subprocess")
+	opendepotAssemblyRegistryInsecure = flag.Bool("assembly-registry-insecure", false, "allow Assembly Line OpenTofu validation to use HTTP registry service endpoints")
+	opendepotTofuBinPath = flag.String("tofu-bin-path", "/usr/local/bin/tofu", "path to the OpenTofu binary used to validate Assembly Line exports")
+	opendepotAssemblyWorkDir = flag.String("assembly-work-dir", "/tmp/opendepot-assembly", "directory used for temporary Assembly Line validation workspaces")
+	opendepotAssemblyInitTimeout = flag.Duration("assembly-init-timeout", 2*time.Minute, "maximum duration for Assembly Line tofu init")
+	opendepotAssemblyMaxRequestBytes = flag.Int64("assembly-max-request-bytes", 2<<20, "maximum Assembly Line export request size")
+	opendepotAssemblyMaxNodes = flag.Int("assembly-max-nodes", 100, "maximum total nodes in an Assembly Line export")
+	opendepotAssemblyMaxOutputBytes = flag.Int64("assembly-max-output-bytes", 64<<10, "maximum captured output for each Assembly Line OpenTofu command")
+	opendepotPolicyManagementEnabled = flag.Bool("policy-management-enabled", false, "enable ScanPolicy create, update, and delete endpoints")
+	opendepotMetricsAddr := flag.String("metrics-addr", ":9090", "address for the Prometheus metrics listener")
+	opendepotPrometheusURL := flag.String("stats-prometheus-url", "", "Prometheus HTTP API URL used for download statistics")
+	opendepotStatsLookback := flag.String("stats-lookback", "90d", "Prometheus lookback window for download statistics")
+	opendepotStatsQueryTimeout := flag.Duration("stats-query-timeout", 5*time.Second, "maximum duration for a Prometheus statistics query")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
 	flag.Parse()
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     *opendepotValkeyAddr,
-		Password: os.Getenv("OPENDEPOT_VALKEY_PASSWORD"),
-	})
-
-	const maxAttempts = 10
-	var pingErr error
-	for i := range maxAttempts {
-		pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		pingErr = client.Ping(pingCtx).Err()
-		cancel()
-
-		if pingErr == nil {
-			break
+	if *opendepotAssemblyEnabled {
+		if *opendepotRegistryHost == "" {
+			logger.Error("--registry-host is required when --assembly-enabled is set")
+			os.Exit(1)
+		}
+		registryURL, err := url.Parse("https://" + *opendepotRegistryHost)
+		if err != nil || registryURL.Host != *opendepotRegistryHost || registryURL.Hostname() == "" || registryURL.User != nil || registryURL.Path != "" {
+			logger.Error("--registry-host must be a host with an optional port", "value", *opendepotRegistryHost)
+			os.Exit(1)
 		}
 
-		logger.Warn("stats: waiting for Valkey", "addr", *opendepotValkeyAddr, "attempt", i+1, "error", pingErr)
-		time.Sleep(3 * time.Second)
+		if *opendepotAssemblyValidationURL == "" {
+			scheme := "https"
+			if *opendepotAssemblyRegistryInsecure {
+				scheme = "http"
+			}
+
+			*opendepotAssemblyValidationURL = scheme + "://" + *opendepotRegistryHost
+		}
+
+		validationRegistryURL, err := url.Parse(*opendepotAssemblyValidationURL)
+		if err != nil || (validationRegistryURL.Scheme != "http" && validationRegistryURL.Scheme != "https") ||
+			validationRegistryURL.Hostname() == "" || validationRegistryURL.User != nil ||
+			(validationRegistryURL.Path != "" && validationRegistryURL.Path != "/") || validationRegistryURL.RawQuery != "" || validationRegistryURL.Fragment != "" {
+			logger.Error("--assembly-validation-registry-url must be an HTTP or HTTPS origin URL", "value", *opendepotAssemblyValidationURL)
+			os.Exit(1)
+		}
+		*opendepotAssemblyValidationURL = strings.TrimSuffix(*opendepotAssemblyValidationURL, "/")
+
+		if *opendepotAssemblyValidationCACertPath != "" {
+			if info, err := os.Stat(*opendepotAssemblyValidationCACertPath); err != nil || info.IsDir() {
+				logger.Error("Assembly Line validation CA certificate is unavailable", "path", *opendepotAssemblyValidationCACertPath, "error", err)
+				os.Exit(1)
+			}
+		}
+
+		if *opendepotAssemblyInitTimeout <= 0 ||
+			*opendepotAssemblyMaxRequestBytes <= 0 || *opendepotAssemblyMaxNodes <= 0 || *opendepotAssemblyMaxOutputBytes <= 0 {
+			logger.Error("Assembly Line timeouts and limits must be greater than zero")
+			os.Exit(1)
+		}
+
+		if info, err := os.Stat(*opendepotTofuBinPath); err != nil || info.IsDir() {
+			logger.Error("OpenTofu binary is unavailable", "path", *opendepotTofuBinPath, "error", err)
+			os.Exit(1)
+		}
+
+		if err := os.MkdirAll(*opendepotAssemblyWorkDir, 0700); err != nil {
+			logger.Error("failed to create Assembly Line workspace directory", "path", *opendepotAssemblyWorkDir, "error", err)
+			os.Exit(1)
+		}
 	}
 
-	if pingErr != nil {
-		logger.Error("stats: failed to connect to Valkey", "addr", *opendepotValkeyAddr, "error", pingErr)
+	if err := configurePrometheusStats(*opendepotPrometheusURL, *opendepotStatsLookback, *opendepotStatsQueryTimeout); err != nil {
+		logger.Error("stats: invalid Prometheus configuration", "error", err)
 		os.Exit(1)
 	}
 
-	statsClient = client
-	logger.Info("stats tracking enabled", "addr", *opendepotValkeyAddr)
+	metricsServer := newMetricsServer(*opendepotMetricsAddr)
+	go func() {
+		if err := metricsServer.Start(); err != nil {
+			logger.Error("metrics: failed to start metrics server", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	if (*opendepotOIDCIssuerURL == "") != (*opendepotOIDCClientID == "") {
 		logger.Error("--oidc-issuer-url and --oidc-client-id must both be set or both be empty")
@@ -220,9 +282,19 @@ func main() {
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}", handleBrowseResourceDetail)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions", handleBrowseVersionsList)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings", handleBrowseScanFindings)
+	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/contract", handleBrowseContract)
+	if *opendepotAssemblyEnabled {
+		r.Get("/opendepot/ui/v1/resources/{namespace}/provider/{name}/provider-schema", handleBrowseProviderSchema)
+		r.Post("/opendepot/ui/v1/assembly/export", handleAssemblyExport)
+	}
 	r.Get("/opendepot/ui/v1/depots", handleBrowseDepots)
 	r.Get("/opendepot/ui/v1/depots/graph", handleBrowseDepotsGraph)
 	r.Get("/opendepot/ui/v1/stats", handleBrowseStats)
+	r.Get("/opendepot/ui/v1/scan-policies/catalog", handleScanPolicyCatalog)
+	r.Get("/opendepot/ui/v1/scan-policies/{namespace}/capabilities", handleScanPolicyCapabilitiesRequest)
+	r.Post("/opendepot/ui/v1/scan-policies/{namespace}/preview", handleScanPolicyPreviewRequest)
+	r.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}", handleScanPolicies)
+	r.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}/{name}", handleScanPolicies)
 
 	if *opendepotOIDCDexProxyEnabled {
 		dexProxyHandler, err := newDexProxyHandler(*opendepotOIDCDexInternalURL)

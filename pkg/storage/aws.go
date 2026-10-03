@@ -42,7 +42,7 @@ func (storage *AmazonS3Storage) GetObject(ctx context.Context, soi *storagetypes
 		var noSuchKey *types.NoSuchKey
 
 		if errors.As(err, &noSuchKey) {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 
 		return nil, err
@@ -64,7 +64,7 @@ func (storage *AmazonS3Storage) GetObjectChecksum(ctx context.Context, soi *stor
 		var noSuchKey *types.NoSuchKey
 
 		if errors.As(err, &noSuchKey) {
-			return err
+			return fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 
 		return err

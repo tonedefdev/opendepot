@@ -1,0 +1,66 @@
+# Baseline policy for the whole namespace: block anything HIGH or worse, but accept a
+# handful of findings that have been triaged and signed off.
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: baseline
+  namespace: opendepot-system
+spec:
+  priority: 0
+  severityThreshold: HIGH
+  exemptions:
+  - reason: Transitive dependency of the Terraform SDK; no fixed version published yet.
+    vulnerabilityIDs:
+    - CVE-2024-24790
+    scanTypes:
+    - binary
+    - source
+  - reason: Encryption at rest is handled by the platform-managed CMK, not the module.
+    vulnerabilityIDs:
+    - aws-0057
+    scanTypes:
+    - module
+    expires: "2026-12-31T00:00:00Z"
+---
+# Higher priority wins outright: any Version this policy matches ignores `baseline`
+# entirely rather than merging with it. Sandbox modules only block on CRITICAL.
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: sandbox-modules
+  namespace: opendepot-system
+spec:
+  priority: 100
+  severityThreshold: CRITICAL
+  selector:
+    matchLabels:
+      environment: sandbox
+  exemptions:
+  - reason: Sandbox modules are not internet facing and are torn down nightly.
+    scanTypes:
+    - module
+    severities:
+    - MEDIUM
+    - LOW
+---
+# Targeted policy pinned to specific resources and version ranges. Scanning is disabled
+# outright for these while the upstream module is being remediated.
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: legacy-vpc-module
+  namespace: opendepot-system
+spec:
+  priority: 200
+  severityThreshold: NONE
+  targetRefs:
+  - kind: Module
+    name: terraform-aws-vpc
+    versions: "< 5.0.0"
+  exemptions:
+  - reason: Frozen legacy release train; remediation tracked in SEC-1421.
+    vulnerabilityIDs:
+    - "*"
+    scanTypes:
+    - module
+    expires: "2026-06-30T00:00:00Z"

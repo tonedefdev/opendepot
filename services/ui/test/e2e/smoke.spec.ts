@@ -67,4 +67,16 @@ test.describe("depots page", () => {
     const response = await request.get("/depots", { maxRedirects: 0 });
     expect(response.status()).toBeLessThan(500);
   });
+
+  test.describe("security policies", () => {
+    test("policy page responds without a server error", async ({ request }) => {
+      const response = await request.get("/security-policies", { maxRedirects: 0 });
+      expect(response.status()).toBeLessThan(500);
+    });
+
+    test("security policy navigation is present when the app renders", async ({ page }) => {
+      await page.goto("/security-policies", { waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("main")).toBeVisible();
+    });
+  });
 });

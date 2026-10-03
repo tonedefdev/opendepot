@@ -20,6 +20,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import DescriptionIcon from "@mui/icons-material/Description";
 import Link from "next/link";
 import CodeIcon from "@mui/icons-material/Code";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
@@ -27,7 +28,8 @@ import CopyButton from "@/components/CopyButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
 import ResourceReadme from "@/components/ResourceReadme";
-import { getResourceDetail, listDepots } from "@/lib/api";
+import ContractTable from "@/components/ContractTable";
+import { getContract, getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
@@ -175,6 +177,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
     (v) => !v.synced || /failed|error/i.test(v.syncStatus ?? ""),
   );
   const isProviderKind = kind === "provider";
+
+  const contract = isProviderKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
   const rawBase = process.env.NEXT_PUBLIC_BASE_URL ?? "";
   const registryHost = rawBase ? new URL(rawBase).host : "your-opendepot-host";
@@ -364,6 +368,13 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           upstreamRegistry={detail.upstreamRegistry}
         />
       </SectionCard>
+
+      {/* Assembly Line contract */}
+      {contract && (
+        <SectionCard icon={<AccountTreeIcon fontSize="small" />} title="Contract">
+          <ContractTable contract={contract} />
+        </SectionCard>
+      )}
 
       {/* Storage Configuration */}
       <SectionCard icon={<StorageIcon fontSize="small" />} title="Storage Configuration">

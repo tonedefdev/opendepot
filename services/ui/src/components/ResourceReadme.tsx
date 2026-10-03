@@ -13,7 +13,8 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
-import { buildCanonicalProviderSource, buildModuleSource } from "@/lib/registrySource";
+import CopyButton from "@/components/CopyButton";
+import { buildModuleSource, buildCanonicalProviderSource } from "@/lib/registrySource";
 
 // Make prism-react-renderer use the full prismjs instance so it picks up the
 // HCL grammar we registered above via the side-effectful import (mirrors
@@ -164,41 +165,46 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
 
               const code = String(codeProps?.children ?? "").replace(/\n$/, "");
               return (
-                <Highlight
-                  prism={Prism as typeof Prism}
-                  theme={prismTheme}
-                  code={code}
-                  language={"hcl" as Language}
-                >
-                  {({ style, tokens, getLineProps, getTokenProps }) => (
-                    <Box
-                      component="pre"
-                      sx={{
-                        m: 0,
-                        p: 2,
-                        borderRadius: 1.5,
-                        border: "1px solid",
-                        borderColor: "divider",
-                        fontFamily: "monospace",
-                        fontSize: "0.8125rem",
-                        lineHeight: 1.65,
-                        overflowX: "auto",
-                        whiteSpace: "pre",
-                        mb: 1.5,
-                        ...style,
-                        ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-                      }}
-                    >
-                      {tokens.map((line, i) => (
-                        <div key={i} {...getLineProps({ line })}>
-                          {line.map((token, key) => (
-                            <span key={key} {...getTokenProps({ token })} />
-                          ))}
-                        </div>
-                      ))}
-                    </Box>
-                  )}
-                </Highlight>
+                <Box sx={{ position: "relative", mb: 1.5 }}>
+                  <Highlight
+                    prism={Prism as typeof Prism}
+                    theme={prismTheme}
+                    code={code}
+                    language={"hcl" as Language}
+                  >
+                    {({ style, tokens, getLineProps, getTokenProps }) => (
+                      <Box
+                        component="pre"
+                        sx={{
+                          m: 0,
+                          p: 2,
+                          pr: 6,
+                          borderRadius: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          fontFamily: "monospace",
+                          fontSize: "0.8125rem",
+                          lineHeight: 1.65,
+                          overflowX: "auto",
+                          whiteSpace: "pre",
+                          ...style,
+                          ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
+                        }}
+                      >
+                        {tokens.map((line, i) => (
+                          <div key={i} {...getLineProps({ line })}>
+                            {line.map((token, key) => (
+                              <span key={key} {...getTokenProps({ token })} />
+                            ))}
+                          </div>
+                        ))}
+                      </Box>
+                    )}
+                  </Highlight>
+                  <Box sx={{ position: "absolute", top: 6, right: 6 }}>
+                    <CopyButton value={code} />
+                  </Box>
+                </Box>
               );
             },
           }}

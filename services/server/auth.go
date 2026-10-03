@@ -67,26 +67,45 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 // Otherwise, extracts a base64-encoded kubeconfig from the Authorization header.
 // The returned GroupBinding is non-nil only in OIDC mode. The returned string is the
 // OIDC token subject (empty string for non-OIDC auth paths).
-func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, string, error) {
+func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
+	return getKubeClientFromRequestWithGroupBinding(w, r, true)
+}
+
+func getPolicyKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
+	return getKubeClientFromRequestWithGroupBinding(w, r, false)
+}
+
+func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Request, requireGroupBinding bool) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
 	if *opendepotAnonymousAuth {
 		cs, err := generateKubeClient(nil, nil, false)
-		return cs, nil, "", err
+		return cs, nil, nil, "", err
 	}
 
 	if oidcVerifier != nil {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, nil, "", fmt.Errorf("missing Authorization header")
+			return nil, nil, nil, "", fmt.Errorf("missing Authorization header")
 		}
 
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, "", fmt.Errorf("malformed Authorization header scheme")
+			return nil, nil, nil, "", fmt.Errorf("malformed Authorization header scheme")
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		idToken, err := oidcVerifier.Verify(r.Context(), rawToken)
+		if err != nil {
+			// Assembly export passes the signed-in user's UI session token to OpenTofu
+			// for registry downloads, so registry endpoints must also accept the
+			// configured UI client audience before enforcing groups and GroupBindings.
+			if oidcUIVerifier != nil {
+				if uiToken, uiErr := oidcUIVerifier.Verify(r.Context(), rawToken); uiErr == nil {
+					idToken = uiToken
+					err = nil
+				}
+			}
+		}
 		if err != nil {
 			if *opendepotOIDCAllowSAFallback {
 				iss, parseErr := parseUnsignedJWTIssuer(rawToken)
@@ -98,10 +117,10 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 					cs, saErr := generateKubeClient(nil, &rawToken, true)
 					if saErr != nil {
 						http.Error(w, "internal server error", http.StatusInternalServerError)
-						return nil, nil, "", saErr
+						return nil, nil, nil, "", saErr
 					}
 					logger.Debug("SA fallback auth accepted", "issuer", iss)
-					return cs, nil, "", nil
+					return cs, nil, nil, "", nil
 				}
 			}
 			// Client credentials fallback: accept Dex-issued tokens that failed the
@@ -109,31 +128,34 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 			// still enforces signature validity, expiry, and issuer. The token's sub
 			// claim is mapped to a virtual group "client:<sub>" for GroupBinding evaluation.
 			if *opendepotOIDCAllowClientCredentials && oidcCCVerifier != nil {
-				cs, binding, sub, ccErr := handleClientCredentialsToken(w, r, rawToken)
+				cs, binding, securityBinding, sub, ccErr := handleClientCredentialsToken(w, r, rawToken)
 				if ccErr != nil {
-					return nil, nil, "", ccErr
+					return nil, nil, nil, "", ccErr
 				}
 				if cs != nil {
-					return cs, binding, sub, nil
+					return cs, binding, securityBinding, sub, nil
 				}
 			}
 
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, "", fmt.Errorf("OIDC token verification failed: %w", err)
+			return nil, nil, nil, "", fmt.Errorf("OIDC token verification failed: %w", err)
 		}
 
 		var claims map[string]any
 		if err := idToken.Claims(&claims); err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return nil, nil, "", fmt.Errorf("failed to extract JWT claims: %w", err)
+			return nil, nil, nil, "", fmt.Errorf("failed to extract JWT claims: %w", err)
 		}
 
-		groups, _ := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+		groups, err := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+		if err != nil {
+			logger.Debug("auth: token carries no usable groups claim", "claim", *opendepotOIDCGroupsClaim, "error", err)
+		}
 
 		cs, err := generateKubeClient(nil, nil, false)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 
 		// The groups claim is required when OIDC is enabled. A JWT that does not carry
@@ -141,21 +163,35 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		if len(groups) == 0 {
 			logger.Warn("JWT missing required groups claim, denying access", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim)
 			http.Error(w, "forbidden", http.StatusForbidden)
-			return nil, nil, "", fmt.Errorf("JWT missing required groups claim %q", *opendepotOIDCGroupsClaim)
+			return nil, nil, nil, "", fmt.Errorf("JWT missing required groups claim %q", *opendepotOIDCGroupsClaim)
 		}
 
 		logger.Debug("JWT verified", "subject", idToken.Subject, "groups_claim", *opendepotOIDCGroupsClaim, "groups", groups)
 
 		binding, err := findGroupBinding(r.Context(), cs, groups)
 		if err != nil {
-			logger.Warn("GroupBinding evaluation failed", "subject", idToken.Subject, "groups", groups, "error", err)
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return nil, nil, "", err
+			if requireGroupBinding {
+				logger.Warn("GroupBinding evaluation failed", "subject", idToken.Subject, "groups", groups, "error", err)
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return nil, nil, nil, "", err
+			}
+			binding = nil
 		}
 
-		logger.Info("GroupBinding matched", "subject", idToken.Subject, "groups", groups, "binding_name", binding.Name, "expression", binding.Spec.Expression)
+		securityBinding, securityErr := findSecurityGroupBinding(r.Context(), cs, groups)
+		if securityErr != nil {
+			logger.Warn("SecurityGroupBinding evaluation failed", "subject", idToken.Subject, "groups", groups, "error", securityErr)
+			if !requireGroupBinding {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return nil, nil, nil, "", securityErr
+			}
+		}
 
-		return cs, binding, idToken.Subject, nil
+		if binding != nil {
+			logger.Info("GroupBinding matched", "subject", idToken.Subject, "groups", groups, "binding_name", binding.Name, "expression", binding.Spec.Expression)
+		}
+
+		return cs, binding, securityBinding, idToken.Subject, nil
 	}
 
 	var kubeconfig []byte
@@ -165,50 +201,50 @@ func getKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*kubernet
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
-			return nil, nil, "", fmt.Errorf("missing Authorization header")
+			return nil, nil, nil, "", fmt.Errorf("missing Authorization header")
 		}
 		bearerToken = strings.TrimPrefix(authHeader, "Bearer ")
 	} else {
 		config, err := extractKubeconfig(w, r)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 		kubeconfig = config
 	}
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
-	return cs, nil, "", err
+	return cs, nil, nil, "", err
 }
 
 // handleClientCredentialsToken attempts to verify a Dex client-credentials token using the
 // secondary audience-skipping verifier. It returns (nil, nil, "", nil) when the token does
 // not match the CC path (caller should fall through). On success it returns the clientset,
 // binding, and subject. On failure it writes an HTTP error and returns a non-nil error.
-func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawToken string) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, string, error) {
+func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawToken string) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
 	iss, parseErr := parseUnsignedJWTIssuer(rawToken)
 	if parseErr != nil || iss != *opendepotOIDCIssuerURL {
-		return nil, nil, "", nil
+		return nil, nil, nil, "", nil
 	}
 
 	ccToken, ccErr := oidcCCVerifier.Verify(r.Context(), rawToken)
 	if ccErr != nil {
-		return nil, nil, "", nil
+		return nil, nil, nil, "", nil
 	}
 
 	var ccClaims map[string]any
 	if claimsErr := ccToken.Claims(&ccClaims); claimsErr != nil {
-		return nil, nil, "", nil
+		return nil, nil, nil, "", nil
 	}
 
 	sub, _ := ccClaims["sub"].(string)
 	if sub == "" {
-		return nil, nil, "", nil
+		return nil, nil, nil, "", nil
 	}
 
 	cs, csErr := generateKubeClient(nil, nil, false)
 	if csErr != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return nil, nil, "", csErr
+		return nil, nil, nil, "", csErr
 	}
 
 	ccGroups := []string{"client:" + sub}
@@ -218,11 +254,13 @@ func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawTok
 	if bindErr != nil {
 		logger.Warn("GroupBinding evaluation failed for client credentials token", "subject", sub, "error", bindErr)
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return nil, nil, "", bindErr
+		return nil, nil, nil, "", bindErr
 	}
 
+	securityBinding, _ := findSecurityGroupBinding(r.Context(), cs, ccGroups)
+
 	logger.Info("GroupBinding matched for client credentials token", "subject", sub, "binding_name", binding.Name, "expression", binding.Spec.Expression)
-	return cs, binding, sub, nil
+	return cs, binding, securityBinding, sub, nil
 }
 
 // parseUnsignedJWTIssuer decodes the payload segment of a JWT without verifying the signature
@@ -322,6 +360,47 @@ func findGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, grou
 	return nil, fmt.Errorf("no GroupBinding matched for the provided groups")
 }
 
+func findSecurityGroupBinding(ctx context.Context, clientset *kubernetes.Clientset, groups []string) (*opendepotv1alpha1.SecurityGroupBinding, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(*opendepotServerNamespace).
+		Resource("securitygroupbindings").
+		DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SecurityGroupBindings: %w", err)
+	}
+
+	var list opendepotv1alpha1.SecurityGroupBindingList
+	if err := json.Unmarshal(result, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal SecurityGroupBindingList: %w", err)
+	}
+
+	sort.Slice(list.Items, func(i, j int) bool {
+		return list.Items[i].Name < list.Items[j].Name
+	})
+
+	env := opendepotv1alpha1.GroupBindingExprEnv{Groups: groups}
+	for i := range list.Items {
+		binding := &list.Items[i]
+		program, compileErr := expr.Compile(binding.Spec.Expression, expr.Env(opendepotv1alpha1.GroupBindingExprEnv{}), expr.AsBool())
+		if compileErr != nil {
+			return nil, fmt.Errorf("SecurityGroupBinding %q expression is invalid: %w", binding.Name, compileErr)
+		}
+
+		out, runErr := expr.Run(program, env)
+		if runErr != nil {
+			return nil, fmt.Errorf("SecurityGroupBinding %q expression evaluation failed: %w", binding.Name, runErr)
+		}
+
+		if out.(bool) {
+			return binding, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no SecurityGroupBinding matched for the provided groups")
+}
+
 // isResourceAllowed reports whether resourceName is permitted by the given GroupBinding.
 // For modules, patterns in ModuleResources are matched using path.Match (* wildcard).
 // For providers, entries in ProviderResources are exact names or the literal "*" to allow all.
@@ -329,7 +408,39 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 	switch resourceType {
 	case "module":
 		for _, pattern := range binding.Spec.ModuleResources {
-			if matched, _ := path.Match(pattern, resourceName); matched {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed module resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
+	case "provider":
+		for _, name := range binding.Spec.ProviderResources {
+			if name == "*" || name == resourceName {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isSecurityResourceAllowed(binding *opendepotv1alpha1.SecurityGroupBinding, resourceType, resourceName string) bool {
+	if binding == nil {
+		return false
+	}
+
+	switch resourceType {
+	case "module":
+		for _, pattern := range binding.Spec.ModuleResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err == nil && matched {
 				return true
 			}
 		}

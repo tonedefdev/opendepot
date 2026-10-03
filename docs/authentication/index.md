@@ -10,7 +10,7 @@ search:
 # Authentication
 
 OpenDepot supports several authentication paths for registry clients and the
-Registry Explorer UI. Choose the workflow that matches the credentials your
+OpenDepot Workshop. Choose the workflow that matches the credentials your
 users or pipelines already have.
 
 <div class="grid cards" markdown>
@@ -36,12 +36,12 @@ users or pipelines already have.
     Use a kubeconfig credential for local development or environments where an
     environment token is not practical.
 
-- :material-monitor-dashboard: &nbsp;[__Registry Explorer UI__](registry-explorer.md)
+- :material-monitor-dashboard: &nbsp;[__OpenDepot Workshop__](registry-explorer.md)
 
     ---
 
     Configure browser sessions, UI OIDC, public visibility, and developer token
-    input for the Registry Explorer.
+    input for OpenDepot Workshop.
 
 </div>
 

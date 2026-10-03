@@ -157,7 +157,7 @@ func buildProviderMirrorArchivesResponse(versions []opendepotv1alpha1.Version, r
 }
 
 func authorizeMirrorProvider(w http.ResponseWriter, r *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.Provider, bool) {
-	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient for provider mirror", "error", err)
 
@@ -377,7 +377,7 @@ func decodeSHA256Checksum(base64Checksum string) (string, error) {
 func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -469,7 +469,7 @@ func getProviderVersions(w http.ResponseWriter, r *http.Request) {
 func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -618,8 +618,28 @@ func serveProviderVersionDownload(w http.ResponseWriter, r *http.Request, namesp
 					return
 				}
 				logger.Info("failed to init storage backend for presign, falling back to proxy", "error", initErr)
+			} else if checksumErr := storageBackend.GetObjectChecksum(r.Context(), soi); checksumErr != nil {
+				logger.Error("failed to verify checksum before presigning", "error", checksumErr)
+				if !fallback {
+					http.Error(w, "failed to verify checksum for pre-signed URL", http.StatusBadGateway)
+					return
+				}
+
+				logger.Info("checksum verification failed before presign, falling back to proxy", "error", checksumErr)
+			} else if soi.ObjectChecksum == nil || *soi.ObjectChecksum != *versionResource.Status.Checksum {
+				logger.Error("checksum mismatch before presigning; refusing to issue pre-signed URL", "want", *versionResource.Status.Checksum, "received", soi.ObjectChecksum)
+				if !fallback {
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+				logger.Info("checksum mismatch before presign, falling back to proxy")
 			} else if presignErr := storageBackend.PresignObject(r.Context(), soi); presignErr == nil {
-				_ = recordDownload(r.Context(), statsClient, namespace, "provider", providerType, requestedVersion)
+				err := recordDownload(r.Context(), namespace, "provider", providerType, requestedVersion)
+				if err != nil {
+					logger.Error("failed to record download", "error", err, "namespace", namespace, "provider", providerType, "version", requestedVersion)
+				}
+
 				http.Redirect(w, r, *soi.PresignedURL, http.StatusTemporaryRedirect)
 				return
 			} else {
@@ -642,7 +662,11 @@ func serveProviderVersionDownload(w http.ResponseWriter, r *http.Request, namesp
 	}
 
 	checksumQuery := url.QueryEscape(*versionResource.Status.Checksum)
-	_ = recordDownload(r.Context(), statsClient, namespace, "provider", providerType, requestedVersion)
+	err = recordDownload(r.Context(), namespace, "provider", providerType, requestedVersion)
+	if err != nil {
+		logger.Error("failed to record download", "error", err, "namespace", namespace, "provider", providerType, "version", requestedVersion)
+	}
+
 	http.Redirect(w, r, fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery), http.StatusFound)
 }
 
@@ -685,7 +709,7 @@ func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = w.Write(fmt.Appendf(nil, "%s  %s\n", checksumHex, *versionResource.Spec.FileName))
+	_, _ = fmt.Fprintf(w, "%s  %s\n", checksumHex, *versionResource.Spec.FileName)
 }
 
 // getProviderPackageSHA256SUMSSignature serves the detached GPG signature of the

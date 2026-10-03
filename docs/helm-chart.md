@@ -35,7 +35,8 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 | `server.replicaCount` | int | Number of replicas. Default: `1` |
 | `server.anonymousAuth` | bool | Use the server's service account for unauthenticated module access. Default: `false` |
 | `server.useBearerToken` | bool | Use bearer token auth instead of kubeconfig. Default: `true` |
-| `server.image.repository` | string | Server image repository. Default: `ghcr.io/tonedefdev/opendepot/server` |
+| `server.policyManagement.enabled` | bool | Enable server-side ScanPolicy create, update, and delete routes. Reads remain available when false; writes are disabled by default. Default: `false` |
+| `server.image.repository` | string | Server image repository. Default: `gcr.io/opendepot-495604/opendepot/server` |
 | `server.service.type` | string | Kubernetes Service type. Default: `LoadBalancer` |
 | `server.service.port` | int | Service port. Default: `80` |
 | `server.service.targetPort` | int | Container port. Default: `8080` |
@@ -152,7 +153,7 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 |-------|------|-------------|
 | `<service>.enabled` | bool | Deploy the controller. Default: `true` (`provider`: `false`) |
 | `<service>.replicaCount` | int | Number of replicas. Default: `1` |
-| `<service>.image.repository` | string | Image repository. Default: `ghcr.io/tonedefdev/opendepot/<service>-controller` |
+| `<service>.image.repository` | string | Image repository. Default: `gcr.io/opendepot-495604/opendepot/<service>-controller` |
 | `<service>.image.tag` | string | Overrides `global.image.tag` when set. |
 | `<service>.resources.requests.cpu` | string | CPU request. Default: `100m` |
 | `<service>.resources.requests.memory` | string | Memory request. Default: `512Mi` for `version`, `128Mi` for others |
@@ -163,6 +164,34 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 
 !!! note
     The provider controller is disabled by default (`provider.enabled: false`). Enable it explicitly when you are ready to sync provider binaries — provider archives can be several hundred megabytes each.
+
+The Version controller's init containers use fixed bounded resources (`10m` CPU
+and `16Mi` memory requests; `100m` CPU and `32Mi` memory limits). The controller
+also runs a `token-refresh-helper` sidecar that refreshes the projected
+ServiceAccount token used by the controller. The main controller does not use a
+directly mounted Kubernetes ServiceAccount token.
+
+## Assembly Line
+
+Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `assembly.enabled` | bool | Enable contract/schema extraction and initialized exports. Default: `false` |
+| `assembly.validationRegistryUrl` | string | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization. Defaults to `ui.baseUrl`. |
+| `assembly.validationCACertPath` | string | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process. Default: `""` |
+| `assembly.tofuBinPath` | string | OpenTofu binary path in the version and server images. Default: `/usr/local/bin/tofu` |
+| `assembly.extractionTimeout` | duration | Provider schema extraction timeout. Default: `5m` |
+| `assembly.initTimeout` | duration | Export `tofu init` timeout. Default: `2m` |
+| `assembly.maxRequestBytes` | int | Maximum export request body. Default: `2097152` |
+| `assembly.maxNodes` | int | Maximum total canvas nodes per export. Default: `100` |
+| `assembly.maxOutputBytes` | int | Maximum captured output per OpenTofu command. Default: `65536` |
+| `assembly.workDir` | string | Server validation workspace mount. Default: `/var/lib/opendepot/assembly` |
+| `assembly.workspaceSizeLimit` | quantity | Validation `emptyDir` size limit. Default: `1Gi` |
+
+The server root filesystem remains read-only. The chart mounts only `assembly.workDir` as a writable, size-limited `emptyDir`. Consider adding `ephemeral-storage` requests and limits under `server.resources` and `version.resources` for production workloads.
+
+See [Assembly Line](guides/assembly-line.md) for provider bindings, generated files, authentication, and validation behavior.
 
 ## GPG Signing (Providers)
 
@@ -195,19 +224,20 @@ See [Storage Backends](storage/index.md) for S3, Azure, and GCS configuration, w
 
 ## UI Configuration
 
-The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer UI](guides/registry-explorer/index.md) for setup, OIDC login, and public visibility configuration.
+The `ui` section deploys the OpenDepot Workshop frontend. See [OpenDepot Workshop](guides/registry-explorer/index.md) for setup, OIDC login, and public visibility configuration.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `ui.enabled` | bool | When true, deploys the Registry Explorer UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
+| `ui.enabled` | bool | When true, deploys the OpenDepot Workshop UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
 | `ui.replicaCount` | int | Number of UI pod replicas. Default: `1` |
-| `ui.image.repository` | string | UI container image repository. Default: `ghcr.io/tonedefdev/opendepot/ui` |
+| `ui.image.repository` | string | UI container image repository. Default: `gcr.io/opendepot-495604/opendepot/ui` |
 | `ui.image.tag` | string | Image tag. Defaults to `global.image.tag`, then the chart `appVersion`. |
 | `ui.serverHost` | string | Upstream `host:port` that NGINX proxies registry requests to. Defaults to `server.<namespace>.svc.cluster.local:80` when blank. |
+| `ui.serverCACertPath` | string | Optional PEM CA path from the `opendepot-tls` Secret that Next.js trusts when connecting to a privately signed TLS server. Default: `""` |
 | `ui.sessionPasswordSecretName` | string | Name of a Kubernetes Secret with a `sessionPassword` key (min 32 chars). Required when `ui.enabled: true`. |
 | `ui.oidc.enabled` | bool | Enables OIDC authorization code login in the UI. Default: `false` |
 | `ui.oidc.issuerUrl` | string | Public HTTPS OIDC issuer URL. Discovered endpoints must share this origin. HTTP is accepted only with `global.developmentMode: true`. |
-| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [Registry Explorer UI OIDC](authentication/oidc.md#registry-explorer-ui-oidc). |
+| `ui.oidc.clientId` | string | OIDC client ID for the UI. Default: `"opendepot-ui"`. When `ui.oidc.enabled: true` and non-empty, the chart also passes `--oidc-ui-client-id` to the server so UI-issued tokens are accepted on browse and stats endpoints. See [OpenDepot Workshop OIDC](authentication/oidc.md#registry-explorer-ui-oidc). |
 | `ui.oidc.clientSecretName` | string | Name of a Kubernetes Secret with a `clientSecret` key for the OIDC confidential client. |
 | `ui.oidc.scopes` | string | Space-separated OIDC scopes. Default: `"openid profile email groups"` |
 | `ui.oidc.callbackPath` | string | OIDC redirect URI path registered with the identity provider. Default: `"/auth/callback"` |
@@ -218,38 +248,57 @@ The `ui` section deploys the Registry Explorer frontend. See [Registry Explorer 
 | `ui.ingress.hosts` | list | Host and path rules. |
 | `ui.ingress.tls` | list | TLS configuration for the Ingress. |
 
-## Valkey Stats Store
+## Prometheus Monitoring
 
-Download statistics are persisted in a bundled [Valkey](https://valkey.io/) (Redis-compatible) instance deployed automatically alongside the server. No additional setup is required — Valkey is always deployed as part of the chart.
+The chart can optionally install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). Grafana, Alertmanager, and node exporters are disabled by default. The OpenDepot `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The chart's `ServiceMonitor` selects that Service by the `app: server` label in `global.namespace`.
+
+The ServiceMonitor is enabled by default and scrapes every 15 seconds with a 10-second timeout. It requires a Prometheus Operator. If an existing operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to the labels it expects. Set `server.metrics.serviceMonitor.enabled: false` when the external monitoring system discovers the endpoint by another method.
+
+The Stats page queries Prometheus through its HTTP API. For an existing Prometheus deployment, set `server.stats.prometheusURL` to its absolute HTTP API base URL:
+
+```yaml
+server:
+  stats:
+    prometheusURL: https://prometheus.example.com
+```
+
+This value takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`, which requires `monitoring.bundled.enabled: true`. The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC.
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `valkey.image.tag` | string | Valkey image tag. Defaults to the rolling Valkey 8 LTS Alpine variant, `"8-alpine"`, to minimize the operating-system package surface. |
-| `valkey.resources` | map | Resource requests and limits for the Valkey pod |
-| `valkey.dataStorage.enabled` | bool | Create a PVC for Valkey data. Default: `true` |
-| `valkey.dataStorage.className` | string | StorageClass for the PVC. Leave blank for the cluster default. Default: `""` |
-| `valkey.dataStorage.requestedSize` | string | PVC storage size. Default: `1Gi` |
-| `valkey.auth.enabled` | bool | Enable Valkey ACL password authentication. Required outside development mode. Default: `true` |
-| `valkey.auth.usersExistingSecret` | string | Name of a pre-existing Secret whose keys are ACL usernames and values are plaintext passwords. Default: `"opendepot-valkey-auth"` |
-| `valkey.auth.aclUsers.default.permissions` | string | ACL permissions string for the default user. The default is scoped to `stats:*` keys and the exact commands used by the server, including `PING` for its startup connection check (e.g. `~stats:* &* -@all +PING +HSET +HINCRBY +HGET +HGETALL +INCR +GET +ZINCRBY +ZREVRANGEBYSCORE +ZREVRANGE +EXPIREAT`). Do not widen to `+@all` in production. |
-| `server.stats.valkeyPasswordSecretName` | string | Name of the Secret injected as `OPENDEPOT_VALKEY_PASSWORD` into the server pod. Must match `valkey.auth.usersExistingSecret`. Default: `"opendepot-valkey-auth"` |
-| `valkey.nodeSelector` | map | Node selector for the Valkey pod |
-| `valkey.tolerations` | list | Tolerations for the Valkey pod |
-| `valkey.affinity` | map | Affinity rules for the Valkey pod |
+| `monitoring.enabled` | bool | Enable OpenDepot monitoring resources, including the `ServiceMonitor` and the server's bundled-Prometheus fallback. Default: `true` |
+| `monitoring.bundled.enabled` | bool | Install the bundled kube-prometheus-stack. Default: `false` |
+| `monitoring.prometheus.prometheusSpec.retention` | string | Local Prometheus retention. Default: `90d` |
+| `monitoring.prometheus.prometheusSpec.remoteWrite` | list | Optional remote-write targets such as Mimir for long-term storage. |
+| `server.metrics.serviceMonitor.enabled` | bool | Create the OpenDepot `ServiceMonitor`. Default: `true` |
+| `server.metrics.serviceMonitor.interval` | string | ServiceMonitor scrape interval. Default: `15s` |
+| `server.metrics.serviceMonitor.scrapeTimeout` | string | ServiceMonitor scrape timeout. Default: `10s` |
+| `server.metrics.serviceMonitor.additionalLabels` | map | Additional labels for matching an external Prometheus Operator's ServiceMonitor selector. Default: `{}` |
+| `server.stats.prometheusURL` | string | Prometheus HTTP API URL. When blank, the server uses the bundled Prometheus service address only if `monitoring.enabled: true`; that service must be installed with `monitoring.bundled.enabled: true`. |
+| `server.stats.lookback` | string | Stats page query window. Default: `90d` |
+| `server.stats.queryTimeout` | duration | Prometheus query timeout. Default: `5s` |
 
-When `valkey.dataStorage.enabled: true` (the default), a PVC is created and mounted at `/data` in the Valkey pod. Set `valkey.dataStorage.enabled: false` to use ephemeral in-pod storage — suitable for local development or Kind clusters where no StorageClass is available. Stats are lost on pod restart when persistence is disabled.
+The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and
+is disabled by default. Enable it only when that cluster-wide access is
+acceptable:
 
-Before installing, create the default Valkey ACL Secret in the deployment namespace:
-
-```bash
-kubectl create secret generic opendepot-valkey-auth \
-  --from-literal=default="$(openssl rand -base64 32)" \
-  --namespace opendepot-system
+```yaml
+monitoring:
+  bundled:
+    enabled: true
 ```
 
-For production deployments, keep authentication enabled. If you choose another Secret name, set both `valkey.auth.usersExistingSecret` and `server.stats.valkeyPasswordSecretName` to that same name. The chart rejects disabled authentication outside `global.developmentMode` and rejects missing or mismatched Secret references. For regulated environments, use [External Secrets Operator](https://external-secrets.io/) or HashiCorp Vault to provision the Secret.
+The Stats page uses the configured lookback window, not an all-time total. For time series longer than local retention, configure `remoteWrite` to Mimir or another Prometheus-compatible backend and use Grafana to query the retained history.
 
-See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in the Registry Explorer UI.
+### Source-built controller dependencies
+
+The server and Version controller images build the pinned OpenTofu source commit
+used for initialization and schema extraction. The scanning image also builds
+Trivy from a pinned source commit. The chart release metadata is the source of
+the default image tag; release `0.11.0` uses chart and application version
+`0.11.0`.
+
+See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 
 ## Scanning Values
 
@@ -269,4 +318,15 @@ The `scanning` section controls Trivy-based vulnerability scanning for modules a
 | `scanning.dbUpdater.schedule` | string | Cron schedule for the Trivy DB update job. Default: `"0 2 * * *"` |
 | `scanning.dbUpdater.image.repository` | string | Trivy image repository for the db-updater CronJob. Default: `aquasec/trivy` |
 | `scanning.dbUpdater.image.tag` | string | Trivy image tag for the db-updater CronJob. Default: `"0.70.0"` |
+
+!!! note
+    `blockOnCritical` and `blockOnHigh` are cluster-wide floors. For per-finding exemptions without loosening enforcement everywhere, create a namespaced [`ScanPolicy`](reference/api.md#scanpolicy) resource instead of relaxing these flags. See [Policy Enforcement](configuration/scanning.md#policy-enforcement). The chart installs the `ScanPolicy` CRD and grants the version controller `get`/`list`/`watch` on `scanpolicies` automatically — no additional values are required to use it.
+
+The optional policy-management API is intentionally separate from controller enforcement. Enabling `server.policyManagement.enabled` adds write verbs to the server ServiceAccount and exposes the UI CRUD surface; it does not grant users access. Configure Kubernetes `Role`/`RoleBinding` permissions for kubeconfig or bearer-token callers, or create a least-privilege [`SecurityGroupBinding`](guides/security-groupbinding.md) for OIDC callers. Keep the value `false` when policies are applied only through GitOps.
+
+#### Tilt and monitoring scope
+
+The repository's Tilt profile is development-only: it enables `global.developmentMode`, local TLS/Dex, Trivy scanning, the UI, and the bundled Prometheus stack for an end-to-end environment. It does **not** enable `server.policyManagement.enabled`; turn that on only in a disposable cluster when testing the write surface. Do not copy the Tilt values file into production: it uses local filesystem storage, test OIDC settings, and Dex password authentication.
+
+The bundled monitoring configuration is intentionally narrow. It scrapes OpenDepot application metrics with a single Prometheus and 90-day retention; Grafana, Alertmanager, node exporters, Kubernetes component monitors, and the Prometheus Operator ServiceMonitor are disabled by default in the chart values. Policy audit evidence comes from server/Kubernetes logs, not from Prometheus. Configure `monitoring.prometheus.prometheusSpec.remoteWrite` and a durable audit-log sink separately when longer retention or production alerting is required.
 

@@ -16,6 +16,13 @@ spec:
       labels:
         app: ui
     spec:
+      {{- if and .Values.ui.oidc.enabled (not .Values.global.developmentMode) }}
+      {{- $baseURL := required "ui.baseUrl is required when ui.oidc.enabled=true" .Values.ui.baseUrl -}}
+      {{- $parsedBaseURL := urlParse $baseURL -}}
+      {{- if ne (get $parsedBaseURL "scheme") "https" }}
+      {{- fail "ui.baseUrl must use https when ui.oidc.enabled=true outside developmentMode" -}}
+      {{- end }}
+      {{- end }}
       serviceAccountName: ui
       securityContext:
         runAsNonRoot: true
@@ -32,6 +39,12 @@ spec:
         env:
         - name: OPENDEPOT_SERVER_HOST
           value: "{{ default (printf "server.%s.svc.cluster.local:80" .Values.global.namespace) .Values.ui.serverHost }}"
+        - name: OPENDEPOT_SERVER_URL
+          value: "http{{ if .Values.server.tls.enabled }}s{{ end }}://{{ default (printf "server.%s.svc.cluster.local:80" .Values.global.namespace) .Values.ui.serverHost }}"
+        {{- if .Values.ui.serverCACertPath }}
+        - name: NODE_EXTRA_CA_CERTS
+          value: {{ .Values.ui.serverCACertPath | quote }}
+        {{- end }}
         - name: NEXT_PUBLIC_BASE_URL
           value: {{ .Values.ui.baseUrl | quote }}
         {{- if .Values.ui.oidc.enabled }}
@@ -84,6 +97,11 @@ spec:
           mountPath: /var/cache/nginx
         - name: nginx-run
           mountPath: /var/run
+        {{- if .Values.ui.serverCACertPath }}
+        - name: server-ca
+          mountPath: {{ .Values.ui.serverCACertPath | dir }}
+          readOnly: true
+        {{- end }}
         resources:
           {{- toYaml .Values.ui.resources | nindent 10 }}
       volumes:
@@ -96,6 +114,11 @@ spec:
         emptyDir: {}
       - name: nginx-run
         emptyDir: {}
+      {{- if .Values.ui.serverCACertPath }}
+      - name: server-ca
+        secret:
+          secretName: opendepot-tls
+      {{- end }}
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

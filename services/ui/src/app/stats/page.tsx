@@ -23,12 +23,16 @@ import SyncIcon from "@mui/icons-material/Sync";
 import SecurityIcon from "@mui/icons-material/Security";
 import PieChartIcon from "@mui/icons-material/PieChart";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import { SiGooglecloud } from "react-icons/si";
 import { FaAws, FaMicrosoft } from "react-icons/fa6";
 import { getStats, getDepotsGraph } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import { unknownSeverityChipSx } from "@/components/severityStyles";
+import PageHeader from "@/components/PageHeader";
+import StatCard from "@/components/StatCard";
 
 // Format bytes into human-readable string.
 function formatBytes(bytes: number): string {
@@ -42,70 +46,6 @@ function formatBytes(bytes: number): string {
 // Capitalise first letter of a string.
 function ucfirst(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-interface StatCardProps {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ReactNode;
-  accentColor: string;
-}
-
-function StatCard({ label, value, sub, icon, accentColor }: StatCardProps) {
-  return (
-    <Paper
-      elevation={3}
-      sx={{
-        height: "100%",
-        overflow: "hidden",
-        borderTop: `4px solid ${accentColor}`,
-      }}
-    >
-      <Box sx={{ p: { xs: 1.5, sm: 2, lg: 2.5 } }}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            fontWeight={500}
-            sx={{ fontSize: { xs: "0.75rem", lg: "0.875rem" } }}
-          >
-            {label}
-          </Typography>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: { xs: 32, lg: 36 },
-              height: { xs: 32, lg: 36 },
-              borderRadius: 1.5,
-              bgcolor: `${accentColor}18`,
-              color: accentColor,
-              flexShrink: 0,
-              "& svg": { fontSize: { xs: "1.1rem", md: "0.95rem", lg: "1.25rem" } },
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-        <Typography
-          fontWeight={700}
-          sx={{
-            lineHeight: 1.1,
-            fontSize: { xs: "1.5rem", sm: "1.75rem", lg: "2rem" },
-          }}
-        >
-          {value}
-        </Typography>
-        {sub && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-            {sub}
-          </Typography>
-        )}
-      </Box>
-    </Paper>
-  );
 }
 
 const severityColour: Record<string, "error" | "warning" | "info" | "default" | "success"> = {
@@ -145,7 +85,7 @@ export default async function StatsPage() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load stats.";
     if (msg.includes("401") || msg.includes("unauthorized")) {
-      redirect("/auth/login");
+      redirect("/login");
     }
     fetchError = msg;
   }
@@ -154,17 +94,24 @@ export default async function StatsPage() {
     stats ? stats.syncHealth.syncedVersions + stats.syncHealth.unsyncedVersions + stats.syncHealth.failedVersions : 0;
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 0.5 }}>
+    <>
+      <PageHeader
+        icon={<BarChartIcon color="primary" fontSize="small" />}
+        title="Registry Statistics"
+        description="Live metrics across all visible modules, providers, and versions."
+        actions={<RefreshIconButton />}
+        mobileOnly
+      />
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 0.5, display: { xs: "none", sm: "flex" } }}>
         <Typography variant="h5" fontWeight={600}>
           Registry Statistics
         </Typography>
         <RefreshIconButton />
       </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, display: { xs: "none", sm: "block" } }}>
         Live metrics across all visible modules, providers, and versions.
       </Typography>
-
       {fetchError && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {fetchError}
@@ -217,7 +164,7 @@ export default async function StatsPage() {
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 2 }}>
               <StatCard
-                label="Total Downloads"
+                label={`Downloads (${stats.downloadWindow})`}
                 value={stats.totalDownloads.toLocaleString()}
                 icon={<DownloadIcon fontSize="small" />}
                 accentColor="#10b981"
@@ -273,7 +220,7 @@ export default async function StatsPage() {
                     Security Posture
                   </Typography>
                 </Box>
-                {stats.securityPosture.totalAffectedResources === 0 ? (
+                {stats.securityPosture.totalAffectedResources === 0 && stats.securityPosture.exempted === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No scan findings.
                   </Typography>
@@ -289,10 +236,17 @@ export default async function StatsPage() {
                             label={`${ucfirst(sev)}: ${count}`}
                             color={severityColour[sev]}
                             size="small"
-                            sx={{ color: "#fff" }}
+                            sx={
+                              sev === "unknown"
+                                ? { backgroundColor: '#9e9e9e', color: '#fff' }  // plain object
+                                : { color: "#fff" }
+                            }
                           />
                         );
                       })}
+                      {stats.securityPosture.exempted > 0 && (
+                        <Chip label={`Exempted: ${stats.securityPosture.exempted}`} color="secondary" size="small" sx={{ color: "#fff" }} />
+                      )}
                     </Box>
                     <Typography variant="caption" color="text.secondary">
                       {stats.securityPosture.totalAffectedResources} resource
@@ -426,6 +380,7 @@ export default async function StatsPage() {
           </Paper>
         </Box>
       )}
-    </Container>
+      </Container>
+    </>
   );
 }

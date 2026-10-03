@@ -5,14 +5,14 @@ tags:
   - ui
 ---
 
-# Registry Explorer UI Authentication
+# OpenDepot Workshop Authentication
 
-The Registry Explorer UI has a browser-based authentication flow separate from
+OpenDepot Workshop has a browser-based authentication flow separate from
 the `tofu login` CLI flow. The UI registers its own OIDC client and issues its
 own access tokens.
 
 For UI deployment, routing, session secrets, and client registration, see the
-[Registry Explorer guide](../guides/registry-explorer/index.md).
+[OpenDepot Workshop guide](../guides/registry-explorer/index.md).
 
 ## Sign In and Sign Out
 

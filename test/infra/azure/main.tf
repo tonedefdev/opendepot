@@ -19,6 +19,12 @@ provider "azurerm" {
   features {}
 }
 
+# Resolve the identity (user or service principal) that is running OpenTofu.
+# Both roles are scoped to the storage account so the test principal has
+# data-plane access for blob upload/download/delete and for generating
+# User Delegation SAS URLs (PresignObject).
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_resource_group" "integration" {
   name     = "opendepot-integration-${var.suffix}"
   location = var.location
@@ -27,6 +33,18 @@ resource "azurerm_resource_group" "integration" {
     Purpose   = "opendepot-storage-integration-tests"
     ManagedBy = "opentofu"
   }
+}
+
+resource "azurerm_role_assignment" "blob_data_contributor" {
+  principal_id         = data.azurerm_client_config.current.object_id
+  role_definition_name = "Storage Blob Data Contributor"
+  scope                = azurerm_storage_account.integration.id
+}
+
+resource "azurerm_role_assignment" "blob_delegator" {
+  principal_id         = data.azurerm_client_config.current.object_id
+  role_definition_name = "Storage Blob Delegator"
+  scope                = azurerm_storage_account.integration.id
 }
 
 #trivy:ignore:AVD-AZU-0012 -- Short-lived test-only storage account; no network_rules block intentional. Access is scoped by RBAC role assignments on the storage account itself.
@@ -43,24 +61,6 @@ resource "azurerm_storage_account" "integration" {
     Purpose   = "opendepot-storage-integration-tests"
     ManagedBy = "opentofu"
   }
-}
-
-# Resolve the identity (user or service principal) that is running OpenTofu.
-# Both roles are scoped to the storage account so the test principal has
-# data-plane access for blob upload/download/delete and for generating
-# User Delegation SAS URLs (PresignObject).
-data "azurerm_client_config" "current" {}
-
-resource "azurerm_role_assignment" "blob_data_contributor" {
-  principal_id         = data.azurerm_client_config.current.object_id
-  role_definition_name = "Storage Blob Data Contributor"
-  scope                = azurerm_storage_account.integration.id
-}
-
-resource "azurerm_role_assignment" "blob_delegator" {
-  principal_id         = data.azurerm_client_config.current.object_id
-  role_definition_name = "Storage Blob Delegator"
-  scope                = azurerm_storage_account.integration.id
 }
 
 # Azure RBAC can take up to a few minutes to propagate after assignment.

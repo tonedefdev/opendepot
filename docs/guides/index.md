@@ -20,13 +20,19 @@ Guides for teams consuming modules and providers from OpenDepot.
 
     ---
 
-    Reference synced modules from your OpenTofu or Terraform configurations using the registry source format.
+    Reference synced modules from your OpenTofu configurations using the registry source format.
 
 - :material-puzzle: &nbsp;[__Consuming Providers__](providers.md)
 
     ---
 
     Use OpenDepot as a private provider mirror, including GPG-verified downloads for air-gapped environments.
+
+- :material-graph: &nbsp;[__Assembly Line__](assembly-line.md)
+
+    ---
+
+    Compose onboarded modules and providers into a validated, downloadable OpenTofu root module.
 
 </div>
 
@@ -76,10 +82,10 @@ Guides for platform and infrastructure teams operating OpenDepot.
 
     Restrict which modules and providers each OIDC group may access using `GroupBinding` resources and expr-lang expressions.
 
-- :material-web: &nbsp;[__Registry Explorer UI__](registry-explorer/index.md)
+- :material-web: &nbsp;[__Configure OpenDepot Workshop__](registry-explorer/administration.md)
 
     ---
 
-    Enable the browsable registry frontend, configure public visibility labels, and set up OIDC login and `GroupBinding`-based access for the UI.
+    Deploy the browsable registry frontend, configure public visibility labels, and set up OIDC login and `GroupBinding`-based access for the UI.
 
 </div>

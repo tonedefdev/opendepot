@@ -39,11 +39,6 @@ var (
 		return "version-controller:e2e-test"
 	}()
 
-	// projectScanningImage is the scanning variant of the version controller image
-	// (built with INCLUDE_TRIVY=true). The Helm chart selects this tag automatically
-	// when scanning.enabled=true by appending "-scanning" to the base tag.
-	projectScanningImage = "version-controller:e2e-test-scanning"
-
 	// serverImage is the server image to deploy for e2e tests.
 	serverImage = "server:e2e-test"
 )
@@ -61,6 +56,9 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	err := utils.ConfigureKindCluster()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to configure the Kind kubeconfig")
+
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
@@ -79,6 +77,7 @@ var _ = BeforeSuite(func() {
 			buildCmd := exec.Command("docker", "build",
 				"-t", projectImage,
 				"--label", "opendepot.build.hash="+versionHash,
+				"--build-arg", "INCLUDE_TRIVY=true",
 				"-f", "services/version/Dockerfile",
 				".",
 			)
@@ -86,21 +85,6 @@ var _ = BeforeSuite(func() {
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
 		} else {
 			By("version controller image up-to-date, skipping build")
-		}
-
-		if utils.NeedsRebuild(projectScanningImage, versionHash) {
-			By("building the version controller scanning image (context changed or image absent)")
-			scanningBuildCmd := exec.Command("docker", "build",
-				"-t", projectScanningImage,
-				"--label", "opendepot.build.hash="+versionHash,
-				"--build-arg", "INCLUDE_TRIVY=true",
-				"-f", "services/version/Dockerfile",
-				".",
-			)
-			_, err = utils.RunAt(scanningBuildCmd, repoRoot)
-			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller scanning image")
-		} else {
-			By("version controller scanning image up-to-date, skipping build")
 		}
 
 		serverHash, err := utils.ComputeBuildContextHash(repoRoot, []string{
@@ -133,10 +117,6 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the version controller image into Kind")
 
-	By("loading the version controller scanning image on Kind")
-	err = utils.LoadImageToKindClusterWithName(projectScanningImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the version controller scanning image into Kind")
-
 	By("loading the server image on Kind")
 	err = utils.LoadImageToKindClusterWithName(serverImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the server image into Kind")
@@ -151,10 +131,6 @@ var _ = BeforeSuite(func() {
 	cmd = exec.Command("kubectl", "create", "namespace", namespace)
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
-	By("creating the Valkey authentication secret")
-	err = utils.EnsureValkeyAuthSecret(namespace)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Valkey authentication secret")
-
 	By("upgrading Helm release to configure version controller with local images")
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -167,6 +143,8 @@ var _ = BeforeSuite(func() {
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
+		"--set", "monitoring.enabled=false",
+		"--set", "monitoring.bundled.enabled=false",
 		"--set", "depot.enabled=false",
 		"--set", "provider.enabled=false",
 		"--set", "module.enabled=false",
@@ -177,6 +155,7 @@ var _ = BeforeSuite(func() {
 		"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
 		"--set", "storage.filesystem.enabled=true",
 		"--set", "storage.filesystem.hostPath=/data/modules",
+		"--set", "scanning.cache.accessMode=ReadWriteOnce",
 		"--set", "version.zapLogLevel=5",
 		"--wait",
 		"--timeout", "3m",
@@ -186,6 +165,10 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if !utils.KindClusterConfigured() {
+		return
+	}
+
 	By("uninstalling Helm release to clean up version e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,
 		"--namespace", namespace,

@@ -324,7 +324,7 @@ Streams the provider binary archive (`.zip`) directly from storage. Does **not**
 
 ## Browse API
 
-The browse endpoints power the [Registry Explorer UI](../guides/registry-explorer/index.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer/index.md#browse-visibility-rules).
+The browse endpoints power [OpenDepot Workshop](../guides/registry-explorer/index.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer/index.md#browse-visibility-rules).
 
 ### List Namespaces
 
@@ -388,7 +388,7 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
       "synced": true,
       "provider": "aws",
       "repoUrl": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
-      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0, "exempted": 0 },
       "public": true,
       "hasUnsyncedVersions": true,
       "totalDownloads": 4821,
@@ -403,7 +403,7 @@ Returns a paginated, filtered list of visible `Module` and `Provider` resources.
 
 `hasUnsyncedVersions` is present and `true` when at least one `Version` CR under the resource has `status.synced: false` or a `status.syncStatus` containing `"failed"` or `"error"` (case-insensitive). The field is omitted from the response when all versions are healthy.
 
-`scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned.
+`scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned. `exempted` counts findings currently exempted by a [`ScanPolicy`](#scanpolicy) and is excluded from the `critical`/`high`/`medium`/`low`/`unknown` counters.
 
 ### Resource Detail
 
@@ -460,7 +460,7 @@ Returns full detail for a single resource including all versions and scan findin
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions
 ```
 
-Returns a paginated, filtered list of versions for a single resource. Used by the Registry Explorer detail page to populate the versions table. Authentication follows the same rules as the other browse endpoints.
+Returns a paginated, filtered list of versions for a single resource. Used by the OpenDepot Workshop detail page to populate the versions table. Authentication follows the same rules as the other browse endpoints.
 
 **Path Parameters:**
 
@@ -489,7 +489,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
     {
       "version": "3.19.0",
       "synced": true,
-      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 },
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0, "exempted": 0 },
       "downloadCount": 1243,
       "lastDownloadedAt": "2026-05-25T14:32:00Z",
       "archiveSizeBytes": 2097152
@@ -558,7 +558,7 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 `selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
 
-This endpoint is used by the [Registry Explorer UI](../guides/registry-explorer/browse.md#scan-findings) refresh button to re-fetch findings without a full page reload.
+This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/browse.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
 ### List Depots
 
@@ -599,7 +599,7 @@ Returns a flat list of all visible `Depot` resources with their storage backend,
 GET /opendepot/ui/v1/depots/graph
 ```
 
-Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](#list-depots) in the Registry Explorer UI to render the interactive relationship diagram.
+Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](../guides/registry-explorer.md#depots-page) in OpenDepot Workshop to render the interactive relationship diagram.
 
 **Visibility:** same rules as [List Depots](#list-depots).
 
@@ -633,7 +633,7 @@ Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with 
       "synced": true,
       "latestVersion": "3.19.0",
       "depotID": "opendepot-system/platform-depot",
-      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0 }
+      "scanCounts": { "critical": 0, "high": 1, "medium": 2, "low": 0, "unknown": 0, "exempted": 0 }
     }
   ],
   "providers": [
@@ -710,7 +710,7 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 }
 ```
 
-`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are sourced from the bundled Valkey stats store; both are `0` / empty until at least one download has been recorded. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are queried from Prometheus over the configured lookback window; both are `0` / empty until a matching metric has been scraped. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
 
 ## Kubernetes Resource Types
 
@@ -720,12 +720,15 @@ Represents a single vulnerability finding from a Trivy scan.
 
 | Field | Type | Description |
 |---|---|---|
-| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability |
+| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability, or a Trivy rule ID (e.g. `aws-0057`) for module IaC findings |
 | `pkgName` | `string` | Name of the package containing the vulnerability |
 | `installedVersion` | `string` | Version of the package currently in use |
 | `fixedVersion` | `string` | Minimum version that resolves the vulnerability, if known |
 | `severity` | `string` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `UNKNOWN` |
 | `title` | `string` | Short description of the vulnerability |
+| `exempted` | `bool` | Whether a [`ScanPolicy`](#scanpolicy) exempted this finding from blocking reconciliation. Exempted findings are still reported so they remain visible and auditable; only the per-severity counters, `highestSeverity`, and `totalAffectedResources` treat them differently. Omitted when `false`. |
+| `exemptionReason` | `string` | The `reason` recorded on the `ScanExemption` that covered this finding. Only set when `exempted` is `true`. |
+| `exemptedBy` | `string` | The name of the `ScanPolicy` that exempted this finding. Only set when `exempted` is `true`. |
 
 ### BinaryScan
 
@@ -747,6 +750,72 @@ Holds Trivy source scan results. Used for both provider `go.mod` dependency scan
 |---|---|---|
 | `scannedAt` | `string` | RFC3339 timestamp at which the scan completed |
 | `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `aws-0057`). |
+
+### ScanPolicy
+
+`ScanPolicy` is a **namespaced** resource that lets you exempt specific scan findings, or override the severity threshold that blocks reconciliation, for a subset of `Version` resources without touching the cluster-wide `scanning.blockOnCritical`/`scanning.blockOnHigh` flags. See [Policy Enforcement](../configuration/scanning.md#policy-enforcement) for the full semantics — precedence, exact-match rules, RBAC boundary, and information-disclosure considerations.
+
+The server also exposes the optional policy-management API for UI clients:
+
+| Method | Path | Behavior |
+|--------|------|----------|
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}` | Lists policies in the namespace. |
+| `GET` | `/opendepot/ui/v1/scan-policies/catalog` | Lists authorized policy namespaces and currently onboarded Module/Provider targets. |
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Gets one policy. |
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}/capabilities` | Returns `writesEnabled`, `canRead`, `canWrite`, supported `methods`, and `supportsPreview`. |
+| `POST` | `/opendepot/ui/v1/scan-policies/{namespace}/preview` | Validates a `ScanPolicy` JSON object without persisting it; returns `{ "valid": true, "policy": ... }`. |
+| `POST` | `/opendepot/ui/v1/scan-policies/{namespace}` | Creates a policy from a JSON `ScanPolicy` object. |
+| `PUT` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Replaces a policy. Requires `If-Match` and matching `metadata.resourceVersion`; missing preconditions return `428`, stale versions return `409 Conflict`. |
+| `DELETE` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Deletes a policy. Requires `If-Match`; missing preconditions return `428`, stale versions return `409 Conflict`. |
+
+`POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is set to `true`. Anonymous authentication may read policies but receives `403` for mutations. In OIDC mode, policy access is default-deny and uses the effective `SecurityGroupBinding`; `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`, while a disallowed mutation in an otherwise authorized namespace returns `403`. Kubeconfig or bearer-token requests use the Kubernetes identity and are authorized by Kubernetes RBAC. Validation errors return `400`, authentication failures return `401`, authorization failures return `403`, and Kubernetes conflicts return `409`.
+
+Every successful create, update, and delete is logged by the server with the operation, namespace, policy name, and authenticated subject. Kubernetes audit logging remains the authoritative cluster audit trail; configure the API server audit policy if durable records of the underlying CRD write are required. Do not treat UI access or a successful preview as authorization to write.
+
+**ScanPolicySpec fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `priority` | `int` | The precedence of this policy. When more than one `ScanPolicy` matches a `Version`, the policy with the highest priority wins outright and supplies both the severity threshold and the exemption set; lower priority policies are ignored entirely rather than merged. Ties are broken by the oldest creation timestamp, then by name ascending. Default: `0` |
+| `selector` | `metav1.LabelSelector` | Matched against the labels of the `Version` resources this policy applies to. A `Version` matches when the selector matches it or when any entry in `targetRefs` matches it. When both `selector` and `targetRefs` are omitted, the policy applies to every `Version` in its namespace. |
+| `targetRefs` | `[]ScanPolicyTargetRef` | An explicit list of `Module` or `Provider` resources this policy applies to. |
+| `severityThreshold` | `string` | The minimum severity that blocks reconciliation for the matched Versions: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `NONE`. Overrides the version controller's `--scan-block-on-critical`/`--scan-block-on-high` flags for matched Versions. `NONE` disables blocking entirely for the match. When omitted, the controller flags remain in effect as the baseline. |
+| `exemptions` | `[]ScanExemption` | The findings that must not block reconciliation for the matched Versions. |
+
+**ScanPolicyStatus fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `matchedVersions` | `int` | The number of `Version` resources in this namespace currently matched by this policy. |
+| `activeExemptions` | `int` | The number of exemptions currently in effect. |
+| `expiredExemptions` | `int` | The number of exemptions whose `expires` has passed and no longer apply. |
+| `supersededBy` | `string` | The name of the higher priority `ScanPolicy` that shadows this policy for every `Version` it matches. Empty when this policy wins for at least one `Version`, or when it matches no Versions at all. |
+| `conditions` | `[]metav1.Condition` | Observed conditions. Reasons: `Active`, `NoMatchingVersions`, `Superseded`, `InvalidSelector`. |
+
+### ScanPolicyTargetRef
+
+Identifies a `Module` or `Provider` resource a `ScanPolicy` applies to.
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `string` | `Module` or `Provider`. |
+| `name` | `string` | The name of the `Module` or `Provider` resource. Matching is exact; the single literal `*` matches every resource of the given kind in the namespace. |
+| `versions` | `string` | An optional [`hashicorp/go-version`](https://github.com/hashicorp/go-version) constraint string, e.g. `"1.2.1"`, `">= 1.0.0, < 2.0.0"`, or `"~> 1.0.0"`. Constraints use AND semantics. When omitted, matches every version of the resource. |
+
+### ScanExemption
+
+Declares a set of scan findings that must not block reconciliation. A finding is exempted when it matches every populated field of the exemption. All list fields below support only exact matches or the single literal `"*"` — there is no glob or regex support.
+
+| Field | Type | Description |
+|---|---|---|
+| `vulnerabilityIDs` | `[]string` | Vulnerability or misconfiguration identifiers this exemption covers, e.g. `CVE-2024-1234` or `aws-0057`. `["*"]` matches every identifier. Omitted covers every identifier. |
+| `pkgNames` | `[]string` | Package names this exemption covers, e.g. `stdlib` or `golang.org/x/net`. `["*"]` matches every package. Omitted covers every package. |
+| `scanTypes` | `[]string` | Scan types this exemption applies to: `binary`, `source`, `module`. Omitted covers every scan type. |
+| `severities` | `[]string` | Severities this exemption covers. Matching is exact and case-insensitive. `["*"]` matches every severity. Omitted covers every severity. |
+| `reason` | `string` | **Required.** Justification for the exemption, so every exemption remains auditable. Must be non-empty. |
+| `expires` | `string` | RFC3339 timestamp at which this exemption stops applying. Once passed, the covered findings block again with no user action required. Omitted means the exemption never expires. |
+
+The server's preview route accepts the same complete object as create/update and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS-compatible names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL namespace. Preview is useful for validating a draft, but it does not reserve a name or evaluate authorization to perform a later write.
 
 ### ProviderConfig fields
 
@@ -812,6 +881,43 @@ spec:
     - "google"
 ```
 
+### SecurityGroupBinding
+
+`SecurityGroupBinding` is a namespaced resource for ScanPolicy administration.
+It is independent of `GroupBinding`, which remains responsible for Registry and
+browse authorization. The server reads bindings from its configured namespace,
+sorts them by name, and applies the first matching expression. Invalid
+expressions, evaluation errors, and no matching binding deny policy access.
+
+**SecurityGroupBindingSpec fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expression` | `string` | Yes | expr-lang boolean expression evaluated against `groups []string`. |
+| `namespaces` | `[]string` | No | Policy namespace allow-list. Empty denies access; `"*"` allows all namespaces reachable by the server ServiceAccount. |
+| `moduleResources` | `[]string` | No | Allowed Module names using `path.Match` glob semantics. Empty denies Module targets. |
+| `providerResources` | `[]string` | No | Allowed Provider names by exact match, or `"*"` for all onboarded Providers. Empty denies Provider targets. |
+| `namespaceWidePolicyManagement` | `bool` | No | Allows selector-based and empty-target policies in allowed namespaces. Defaults to `false`. |
+
+The policy catalog is:
+
+```text
+GET /opendepot/ui/v1/scan-policies/catalog
+```
+
+It returns `{ "writesEnabled": bool, "items": [...] }`. Each item contains
+`namespace`, `canRead`, `canWrite`, `canManageNamespaceWidePolicies`, and sorted
+`modules` and `providers` arrays whose entries contain `name`. The catalog
+contains only authorized namespaces and currently onboarded resources. It does
+not disclose binding expressions, patterns, or denied resources.
+
+For OIDC policy requests, a targeted policy is authorized only when it has no
+selector, has at least one `targetRef`, and every target is allowed by the
+effective SecurityGroupBinding. Selectors and policies without `targetRefs`
+require `namespaceWidePolicyManagement: true`. The server applies the same
+scope check to reads, previews, creates, updates, and deletes; updates check
+both the persisted and proposed object.
+
 ### BrowseStats
 
 Returned by `GET /opendepot/ui/v1/stats`.
@@ -822,7 +928,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `totalProviders` | `int` | Number of visible `Provider` resources |
 | `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
 | `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
-| `totalDownloads` | `int64` | Cumulative download events recorded in Valkey; `0` until at least one download has been recorded |
+| `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window; `0` until a matching metric has been scraped |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
@@ -845,7 +951,8 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `medium` | `int` | Findings at MEDIUM severity |
 | `low` | `int` | Findings at LOW severity |
 | `unknown` | `int` | Findings at UNKNOWN severity |
-| `totalAffectedResources` | `int` | Number of distinct resources with at least one finding |
+| `exempted` | `int` | Findings currently exempted by a [`ScanPolicy`](#scanpolicy). Excluded from the severity counters above and from `totalAffectedResources`. |
+| `totalAffectedResources` | `int` | Number of distinct resources with at least one non-exempted finding |
 
 ### StorageBackendStat
 
@@ -874,4 +981,3 @@ Controls pre-signed URL generation for provider downloads. Set on `StorageConfig
 | `enabled` | `bool` | `false` | When `true`, download requests are redirected to the storage backend via a pre-signed URL instead of proxied through the server. |
 | `ttl` | `duration` | `15m` | How long the pre-signed URL remains valid (e.g. `"15m"`, `"1h"`). |
 | `fallbackToProxy` | `bool` | `true` | When `true`, if pre-sign generation fails the server falls back to proxying the download. Set to `false` to make pre-signing strictly required. |
-

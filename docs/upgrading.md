@@ -15,6 +15,91 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.11.0
+
+v0.11.0 updates the chart and application version to `0.11.0`. Download
+statistics now use Prometheus instead of Valkey, and the Stats page queries
+Prometheus over a 90-day lookback by default.
+
+### Prometheus Statistics
+
+Prometheus replaces Valkey as the statistics backend. The chart can optionally
+install a minimal kube-prometheus-stack. The bundled stack is disabled by
+default because Prometheus Operator requires cluster-wide RBAC. Enable it
+explicitly when that access is acceptable:
+
+```yaml
+monitoring:
+   bundled:
+      enabled: true
+```
+
+The server exposes download counters and registry state gauges at `/metrics` on
+the `metrics` port of the `server` Service. The chart creates a `ServiceMonitor`
+for Prometheus Operator discovery. Existing Prometheus users should leave the
+bundled stack disabled, set `server.stats.prometheusURL` to the existing
+Prometheus HTTP API base URL, and ensure that Prometheus scrapes the OpenDepot
+Service. Set `server.metrics.serviceMonitor.additionalLabels` if the existing
+operator requires matching labels, or disable the ServiceMonitor when another
+scrape configuration is already in place. The URL must be absolute.
+
+When `server.stats.prometheusURL` is empty, the server uses the bundled-service
+address only when `monitoring.enabled=true`; that fallback requires
+`monitoring.bundled.enabled=true`. To retain time series beyond the local
+90-day window, configure `monitoring.prometheus.prometheusSpec.remoteWrite` for
+Mimir or another Prometheus-compatible long-term storage system.
+
+### Security and Configuration Changes
+
+- Assembly Line validation runs OpenTofu `init` only. Retained and streamed
+   OpenTofu output is bounded by `assembly.maxOutputBytes`.
+- Provider schema extraction validates provider source, version, and path
+   inputs, bounds subprocess output, and applies the configured extraction
+   timeout.
+- The Version controller no longer exposes a directly mounted ServiceAccount
+   token. It stages credentials in the pod through an init container and uses a
+   `token-refresh-helper` sidecar to refresh the projected token. The chart grants
+   only namespace-scoped Pod-delete and Secret-read permissions for this flow.
+- Init containers use bounded CPU and memory resources.
+- UI dependencies include security patches. No application configuration change
+   is required for this update.
+- Production UI OIDC base URLs and discovered endpoints require HTTPS. HTTP is
+   available only with `global.developmentMode: true`; UI state and session
+   cookies use secure cookie settings in normal deployments.
+- Server and Version controller images source-build pinned OpenTofu; the
+   scanning image source-builds pinned Trivy.
+
+### Upgrade Steps
+
+1. Apply the updated CRDs:
+    ```bash
+    helm show crds opendepot/opendepot | kubectl apply --server-side -f -
+    ```
+2. Remove Valkey values, ACL Secrets, and
+   `server.stats.valkeyPasswordSecretName` overrides from custom values files.
+   Choose one Prometheus setup. For the bundled stack, enable it:
+    ```yaml
+    monitoring:
+       bundled:
+          enabled: true
+    ```
+   For an existing Prometheus deployment, keep the bundled stack disabled and
+   set its HTTP API URL instead:
+    ```yaml
+    server:
+       stats:
+          prometheusURL: https://prometheus.example.com
+    ```
+3. Upgrade the chart:
+    ```bash
+    helm upgrade opendepot opendepot/opendepot \
+       -n opendepot-system \
+       -f my-values.yaml
+    ```
+
+Keep production UI OIDC URLs on HTTPS. Do not enable `global.developmentMode`
+to bypass that requirement outside local development.
+
 ## v0.10.0
 
 v0.10.0 enables Valkey ACL authentication and the bundled Dex reverse proxy by default. All existing installations must create a Valkey password Secret. Existing OIDC installations must also review their Dex configuration.
@@ -36,7 +121,7 @@ This change does not affect installations with OIDC disabled. Existing OIDC inst
 
 ### Provider Upstream Registry Selection
 
-v0.10.0 adds `spec.providerConfig.upstreamRegistry` to `Provider` resources and `spec.providerConfigs[].upstreamRegistry` to `Depot` resources. The field selects the canonical registry used for provider discovery, downloads, Network Mirror identity, and Registry Explorer snippets.
+v0.10.0 adds `spec.providerConfig.upstreamRegistry` to `Provider` resources and `spec.providerConfigs[].upstreamRegistry` to `Depot` resources. The field selects the canonical registry used for provider discovery, downloads, Network Mirror identity, and OpenDepot Workshop snippets.
 
 Supported values are:
 
@@ -167,7 +252,7 @@ No action is required to keep existing behavior — `dexProxy.enabled` defaults 
 
 ## v0.8.0
 
-v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [Registry Explorer README rendering](guides/registry-explorer/browse.md#module-readmes).
+v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [OpenDepot Workshop README rendering](guides/registry-explorer/browse.md#module-readmes).
 
 ### New RBAC Permissions
 

@@ -87,7 +87,7 @@ kubectl get crds | grep opendepot
 The installation pulls the released controller, server, UI, and scanning
 images.
 
-## Step 3: Open the Registry Explorer
+## Step 3: Open OpenDepot Workshop
 
 In a second terminal, forward the UI service:
 
@@ -208,7 +208,7 @@ Watch the controllers create and synchronize the generated resources:
 kubectl get depots,modules,providers,versions -n opendepot-system
 ```
 
-Open the **Depots** and **Modules** pages in the Registry Explorer to inspect
+Open the **Depots** and **Modules** pages in OpenDepot Workshop to inspect
 the relationships, versions, scan results, and provider metadata as they become
 available.
 

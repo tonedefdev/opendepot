@@ -15,13 +15,13 @@ import { test, expect } from "@playwright/test";
  *   PLAYWRIGHT_BASE_URL=http://opendepot.localtest.me:8080 \
  *   PLAYWRIGHT_OIDC_ENABLED=true \
  *   PLAYWRIGHT_OIDC_USERNAME=dev@example.com \
- *   PLAYWRIGHT_OIDC_PASSWORD=password \
+ *   PLAYWRIGHT_OIDC_PASSWORD="$OPENDEPOT_DEV_PASSWORD" \
  *   yarn test:e2e test/e2e/oidc-flow.spec.ts
  */
 
 const oidcEnabled = process.env.PLAYWRIGHT_OIDC_ENABLED === "true";
 const oidcUsername = process.env.PLAYWRIGHT_OIDC_USERNAME ?? "dev@example.com";
-const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD ?? "password";
+const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD;
 
 /**
  * performLogin navigates to /auth/login, fills the Dex credential form, and
@@ -29,6 +29,10 @@ const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD ?? "password";
  * serving its login form at a URL matching /dex/auth/.
  */
 async function performLogin(page: import("@playwright/test").Page) {
+  if (!oidcPassword) {
+    throw new Error("PLAYWRIGHT_OIDC_PASSWORD must match OPENDEPOT_DEV_PASSWORD");
+  }
+
   await page.goto("/auth/login", { waitUntil: "domcontentloaded" });
   await page.waitForURL(/\/dex\/auth\//);
   await page.fill('input[name="login"]', oidcUsername);

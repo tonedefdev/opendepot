@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCanonicalProviderSource,
   buildProviderMirrorUrl,
+  isAssemblyProvider,
 } from "./registrySource";
 
 describe("provider network mirror helpers", () => {
@@ -18,5 +19,11 @@ describe("provider network mirror helpers", () => {
     ).toBe(
       "https://opendepot.example.com/opendepot/providers/mirror/v1/opendepot-system/",
     );
+  });
+
+  it("limits Assembly Line to OpenTofu providers", () => {
+    expect(isAssemblyProvider("registry.opentofu.org")).toBe(true);
+    expect(isAssemblyProvider("")).toBe(true);
+    expect(isAssemblyProvider("registry.terraform.io")).toBe(false);
   });
 });

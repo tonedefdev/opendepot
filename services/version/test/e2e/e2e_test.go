@@ -17,11 +17,20 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -93,6 +102,16 @@ var _ = Describe("Version", Ordered, func() {
 				g.Expect(output).To(Equal("Running"), "Incorrect version-controller pod status")
 			}
 			Eventually(verifyControllerUp).Should(Succeed())
+		})
+
+		It("should be allowed to delete Pods in its namespace", func() {
+			cmd := exec.Command("kubectl", "auth", "can-i", "delete", "pods",
+				"--as=system:serviceaccount:"+namespace+":version-controller",
+				"-n", namespace,
+			)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(Equal("yes"))
 		})
 	})
 
@@ -269,8 +288,49 @@ spec:
 			noScanRepoURL     = "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
 			noScanStorageDir  = "/data/modules"
 		)
+		var portForwardCancel context.CancelFunc
+
+		BeforeAll(func() {
+			By("upgrading Helm release to disable scanning")
+			chartPath, err := utils.GetChartPath()
+			ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+			helmCmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", "scanning.enabled=false",
+				"--set", "scanning.providerScanning=false",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, err = utils.Run(helmCmd)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release to disable scanning")
+
+			By("starting a port-forward to the server for artifact verification")
+			portForwardCtx, cancel := context.WithCancel(context.Background())
+			portForwardCancel = cancel
+			cmd := exec.CommandContext(portForwardCtx, "kubectl", "port-forward",
+				"-n", namespace, "svc/server", "18081:80",
+			)
+			cmd.Stdout = GinkgoWriter
+			cmd.Stderr = GinkgoWriter
+			Expect(cmd.Start()).To(Succeed())
+
+			Eventually(func() error {
+				resp, err := http.Get("http://localhost:18081/.well-known/terraform.json")
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				return nil
+			}, 60*time.Second, time.Second).Should(Succeed())
+		})
 
 		AfterAll(func() {
+			if portForwardCancel != nil {
+				portForwardCancel()
+			}
+
 			By("removing the no-scan Version CR")
 			cmd := exec.Command("kubectl", "delete", "version", noScanVersionName,
 				"-n", namespace, "--ignore-not-found")
@@ -326,6 +386,35 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sourceScan).To(BeEmpty(),
 				"expected status.sourceScan to be absent when scanning is disabled")
+
+			By("verifying the uploaded artifact and its checksum in storage")
+			cmd = exec.Command("kubectl", "get", "version", noScanVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.spec.fileName},{.status.checksum}",
+			)
+			artifactInfo, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			parts := strings.SplitN(strings.TrimSpace(artifactInfo), ",", 2)
+			Expect(parts).To(HaveLen(2), "unexpected artifact metadata: %s", artifactInfo)
+			Expect(parts[0]).NotTo(BeEmpty(), "expected spec.fileName to be persisted")
+			Expect(parts[1]).NotTo(BeEmpty(), "expected status.checksum to be persisted")
+
+			expectedChecksum, err := base64.StdEncoding.DecodeString(parts[1])
+			Expect(err).NotTo(HaveOccurred(), "expected status.checksum to be base64 encoded")
+			encodedDirectory := base64.RawURLEncoding.EncodeToString([]byte(noScanStorageDir))
+			artifactURL := fmt.Sprintf("http://localhost:18081/opendepot/modules/v1/download/fileSystem/%s/%s/%s",
+				encodedDirectory, noScanModule, parts[0])
+			artifactURL += "?fileChecksum=" + url.QueryEscape(parts[1])
+			resp, err := http.Get(artifactURL)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK), "expected uploaded artifact to be downloadable")
+			artifactBytes, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(artifactBytes).NotTo(BeEmpty(), "expected uploaded artifact to contain bytes")
+			artifactChecksum := sha256.Sum256(artifactBytes)
+			Expect(artifactChecksum[:]).To(Equal(expectedChecksum),
+				"expected stored artifact checksum to match status.checksum")
 		})
 	})
 
@@ -351,9 +440,6 @@ spec:
 			chartPath, err := utils.GetChartPath()
 			ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-			// Use the base image ref — the Helm ternary appends "-scanning" automatically
-			// when scanning.enabled=true, so version-controller:e2e-test becomes
-			// version-controller:e2e-test-scanning.
 			baseRepo, baseTag := utils.SplitImageRef(projectImage)
 			cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
 				"--reuse-values",
@@ -418,6 +504,230 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(findings).To(ContainSubstring("vulnerabilityID"),
 				"expected sourceScan.findings to contain at least one security finding")
+		})
+	})
+
+	Context("ScanPolicy Exemptions", Ordered, func() {
+		const (
+			exemptVersionName = "terraform-aws-s3-bucket-4-2-0"
+			exemptModuleName  = "terraform-aws-s3-bucket"
+			exemptVersion     = "4.2.0"
+			exemptRepoOwner   = "terraform-aws-modules"
+			exemptRepoURL     = "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
+			exemptStorageDir  = "/data/modules"
+			blockPolicyName   = "e2e-block-all"
+			exemptPolicyName  = "e2e-blanket-exemption"
+			lateBlockName     = "e2e-late-block"
+		)
+
+		AfterAll(func() {
+			By("removing the ScanPolicy Exemptions Version CR and ScanPolicies")
+			cmd := exec.Command("kubectl", "delete", "version", exemptVersionName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			cmd = exec.Command("kubectl", "delete", "scanpolicy", blockPolicyName, exemptPolicyName, lateBlockName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should block a module Version CR when a ScanPolicy lowers the severity threshold", func() {
+			By("applying a ScanPolicy that blocks on any finding at LOW or above")
+			blockYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  priority: 10
+  severityThreshold: LOW
+`, blockPolicyName, namespace)
+
+			blockFile := filepath.Join(GinkgoT().TempDir(), "block-policy.yaml")
+			Expect(os.WriteFile(blockFile, []byte(blockYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", blockFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply blocking ScanPolicy")
+
+			By("applying an inline module Version CR for terraform-aws-s3-bucket 4.2.0")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: %q
+  moduleConfigRef:
+    name: %q
+    repoOwner: %q
+    repoUrl: %q
+    githubClientConfig:
+      useAuthenticatedClient: false
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, exemptVersionName, namespace, exemptVersion, exemptModuleName, exemptRepoOwner, exemptRepoURL, exemptStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "exempt-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd = exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply ScanPolicy Exemptions Version CR")
+
+			By("waiting for the scan to run and record findings")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", exemptVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.sourceScan.findings}",
+				)
+				findings, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(findings).To(ContainSubstring("vulnerabilityID"),
+					"expected sourceScan.findings to contain at least one security finding")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting that the blocking ScanPolicy prevents the Version CR from syncing")
+			Consistently(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", exemptVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(Equal("true"),
+					"expected blocking findings to prevent the Version CR from syncing")
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should unblock the Version CR once a higher priority ScanPolicy exempts the findings", func() {
+			By("applying a higher priority ScanPolicy that exempts every module finding")
+			policyYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  priority: 20
+  severityThreshold: LOW
+  exemptions:
+  - reason: End-to-end test blanket exemption
+    vulnerabilityIDs:
+    - "*"
+    scanTypes:
+    - module
+`, exemptPolicyName, namespace)
+
+			policyFile := filepath.Join(GinkgoT().TempDir(), "scan-policy.yaml")
+			Expect(os.WriteFile(policyFile, []byte(policyYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", policyFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply exempting ScanPolicy")
+
+			By("waiting for the Version CR to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", exemptVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"),
+					"expected the ScanPolicy exemption to unblock the Version CR")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting that the findings are annotated as exempted rather than dropped")
+			cmd = exec.Command("kubectl", "get", "version", exemptVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.sourceScan.findings}",
+			)
+			findings, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(findings).To(ContainSubstring("vulnerabilityID"),
+				"expected exempted findings to remain visible for auditing")
+			Expect(findings).To(ContainSubstring(`"exempted":true`),
+				"expected findings to be marked as exempted")
+			Expect(findings).To(ContainSubstring(exemptPolicyName),
+				"expected findings to record the ScanPolicy that exempted them")
+		})
+
+		It("should populate ScanPolicy status with match counts and shadowing", func() {
+			By("waiting for the ScanPolicy controller to observe the winning policy")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "scanpolicy", exemptPolicyName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.activeExemptions}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("1"), "expected one active exemption")
+
+				cmd = exec.Command("kubectl", "get", "scanpolicy", exemptPolicyName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.matchedVersions}",
+				)
+				matched, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(matched).NotTo(Equal("0"),
+					"expected the ScanPolicy to report at least one matched Version")
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("asserting the lower priority ScanPolicy reports itself as superseded")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "scanpolicy", blockPolicyName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.supersededBy}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring(exemptPolicyName),
+					"expected the lower priority ScanPolicy to be superseded")
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("should re-evaluate an already-synced Version when a blocking policy is added", func() {
+			By("adding a higher priority blocking ScanPolicy after the Version is synced")
+			policyYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  priority: 30
+  severityThreshold: LOW
+`, lateBlockName, namespace)
+			policyFile := filepath.Join(GinkgoT().TempDir(), "late-block-policy.yaml")
+			Expect(os.WriteFile(policyFile, []byte(policyYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", policyFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply late blocking ScanPolicy")
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", exemptVersionName,
+					"-n", namespace, "-o", "jsonpath={.status.synced}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(Equal("true"),
+					"expected a newly written blocking policy to re-evaluate the synced Version")
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("removing the late blocking policy and confirming the exemption remains effective")
+			cmd = exec.Command("kubectl", "delete", "scanpolicy", lateBlockName,
+				"-n", namespace, "--ignore-not-found")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", exemptVersionName,
+					"-n", namespace, "-o", "jsonpath={.status.synced}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 
@@ -784,4 +1094,421 @@ spec:
 			Expect(strings.TrimSpace(ref)).To(Equal(readmeConfigMapName))
 		})
 	})
+
+	Context("Assembly Line", Ordered, func() {
+		const (
+			contractVersionName = "contract-s3-bucket-4-3-0"
+			contractModuleName  = "terraform-aws-s3-bucket"
+			contractVersion     = "4.3.0"
+			contractRepoOwner   = "terraform-aws-modules"
+			contractRepoURL     = "https://github.com/terraform-aws-modules/terraform-aws-s3-bucket"
+			assemblyStorageDir  = "/data/modules"
+			schemaProviderName  = "null-assembly-e2e"
+			schemaVersion       = "3.2.3"
+			schemaSourceRepo    = "https://github.com/hashicorp/terraform-provider-null"
+		)
+
+		// A provider schema is only extracted for the platform the controller itself runs
+		// on. The Kind node shares the host's architecture, so the matching Version CR must
+		// use runtime.GOARCH and the non-matching one must use the opposite architecture.
+		matchingArch := runtime.GOARCH
+		nonMatchingArch := "amd64"
+		if matchingArch == "amd64" {
+			nonMatchingArch = "arm64"
+		}
+
+		schemaVersionCR := fmt.Sprintf("null-assembly-e2e-3-2-3-linux-%s", matchingArch)
+		otherPlatformVersionCR := fmt.Sprintf("null-assembly-e2e-3-2-3-linux-%s", nonMatchingArch)
+
+		var contractConfigMapName string
+
+		AfterAll(func() {
+			By("removing Assembly Line test resources")
+			cmd := exec.Command("kubectl", "delete", "version",
+				contractVersionName, schemaVersionCR, otherPlatformVersionCR,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			cmd = exec.Command("kubectl", "delete", "provider", schemaProviderName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			By("disabling Assembly Line to restore baseline state")
+			chartPath, err := utils.GetChartPath()
+			if err != nil {
+				return
+			}
+
+			cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", "assembly.enabled=false",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should not derive a contract while Assembly Line is disabled", func() {
+			By("applying an inline module Version CR while assembly.enabled is false")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: Module
+  version: %q
+  moduleConfigRef:
+    name: %q
+    provider: aws
+    repoOwner: %q
+    repoUrl: %q
+    githubClientConfig:
+      useAuthenticatedClient: false
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, contractVersionName, namespace, contractVersion, contractModuleName, contractRepoOwner, contractRepoURL, assemblyStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "contract-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply Assembly Line Version CR")
+
+			By("waiting for the Version CR to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", contractVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"), "expected Version CR to reach synced=true")
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting status.contractConfigMapRef is unset")
+			cmd = exec.Command("kubectl", "get", "version", contractVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.contractConfigMapRef.name}",
+			)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(BeEmpty(),
+				"expected no contract to be derived while assembly.enabled is false")
+		})
+
+		It("should backfill a contract for an already synced module once Assembly Line is enabled", func() {
+			By("upgrading Helm release to enable Assembly Line")
+			chartPath, err := utils.GetChartPath()
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", "assembly.enabled=true",
+				"--set", "ui.baseUrl=http://localhost",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to upgrade Helm release to enable Assembly Line")
+
+			By("triggering reconciliation for the already synced Version")
+			cmd = exec.Command("kubectl", "patch", "version", contractVersionName,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"forceSync":true}}`,
+			)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to trigger Assembly Line reconciliation")
+
+			By("waiting for status.contractConfigMapRef to be populated")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", contractVersionName,
+					"-n", namespace,
+					"-o", "jsonpath={.status.contractConfigMapRef.name}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+					"expected status.contractConfigMapRef.name to be set")
+				contractConfigMapName = strings.TrimSpace(output)
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting status.contractConfigMapRef.key is 'contract.json'")
+			cmd = exec.Command("kubectl", "get", "version", contractVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.contractConfigMapRef.key}",
+			)
+			key, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(key)).To(Equal("contract.json"))
+
+			By("asserting the module grades as partial: it ships local submodules and its provider schema is absent")
+			cmd = exec.Command("kubectl", "get", "version", contractVersionName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.contractConfigMapRef.grade}",
+			)
+			grade, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(grade)).To(Equal("partial"))
+		})
+
+		It("should store a gzipped contract in a ConfigMap owned by the Version CR", func() {
+			Expect(contractConfigMapName).NotTo(BeEmpty(), "contractConfigMapName must have been captured by the previous spec")
+
+			By("reading and decoding the contract payload")
+			cmd := exec.Command("kubectl", "get", "configmap", contractConfigMapName,
+				"-n", namespace,
+				"-o", `jsonpath={.data['contract\.json']}`,
+			)
+			encoded, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(encoded).NotTo(BeEmpty(), "expected ConfigMap to contain a non-empty contract.json entry")
+
+			contract, err := decodeE2EContract(strings.TrimSpace(encoded))
+			Expect(err).NotTo(HaveOccurred(), "expected contract.json entry to be base64 encoded gzipped JSON")
+
+			Expect(contract.SchemaVersion).To(Equal("assembly.module.v1"))
+			Expect(contract.Module.Name).To(Equal(contractModuleName))
+			Expect(contract.Module.Version).To(Equal(contractVersion))
+			Expect(contract.Compatibility.Grade).To(Equal("partial"))
+			Expect(len(contract.Variables)).To(BeNumerically(">", 0), "expected the module contract to declare variables")
+			Expect(len(contract.Outputs)).To(BeNumerically(">", 0), "expected the module contract to declare outputs")
+
+			By("asserting every variable carries an encoded cty type")
+			for _, v := range contract.Variables {
+				Expect(v.Name).NotTo(BeEmpty())
+				Expect(len(v.Type)).To(BeNumerically(">", 0), "expected variable %q to carry a type", v.Name)
+			}
+
+			By("asserting the 'bucket' variable is typed as a string")
+			var bucketType string
+			for _, v := range contract.Variables {
+				if v.Name == "bucket" {
+					bucketType = string(v.Type)
+					break
+				}
+			}
+			Expect(bucketType).To(Equal(`"string"`))
+
+			By("asserting every output carries a confidence rating")
+			for _, o := range contract.Outputs {
+				Expect(o.Confidence).To(BeElementOf("exact", "inferred", "unknown"),
+					"unexpected confidence %q on output %q", o.Confidence, o.Name)
+			}
+
+			By("asserting the ConfigMap is owned by the Version CR for cascading delete")
+			cmd = exec.Command("kubectl", "get", "configmap", contractConfigMapName,
+				"-n", namespace,
+				"-o", "jsonpath={.metadata.ownerReferences[0].kind}",
+			)
+			ownerKind, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ownerKind)).To(Equal("Version"))
+
+			cmd = exec.Command("kubectl", "get", "configmap", contractConfigMapName,
+				"-n", namespace,
+				"-o", "jsonpath={.metadata.ownerReferences[0].name}",
+			)
+			ownerName, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ownerName)).To(Equal(contractVersionName))
+		})
+
+		It("should extract a reduced provider schema for a matching platform", func() {
+			By("applying the null Provider CR")
+			providerYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Provider
+metadata:
+  name: "%s"
+  namespace: %s
+spec:
+  providerConfig:
+    name: "null"
+    sourceRepository: "%s"
+    operatingSystems:
+      - linux
+    architectures:
+      - %s
+      - %s
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - version: "%s"
+`, schemaProviderName, namespace, schemaSourceRepo, matchingArch, nonMatchingArch, assemblyStorageDir, schemaVersion)
+
+			providerFile := filepath.Join(GinkgoT().TempDir(), "assembly-provider.yaml")
+			Expect(os.WriteFile(providerFile, []byte(providerYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", providerFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply Provider CR")
+
+			By("creating the matching-platform provider Version CR")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: "%s"
+  namespace: %s
+  labels:
+    opendepot.defdev.io/provider: "%s"
+spec:
+  type: Provider
+  version: "%s"
+  operatingSystem: linux
+  architecture: %s
+  providerConfigRef:
+    name: "null"
+    namespace: hashicorp
+    sourceRepository: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, schemaVersionCR, namespace, schemaProviderName, schemaVersion, matchingArch, schemaSourceRepo, assemblyStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "assembly-provider-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd = exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply provider Version CR")
+
+			By("waiting for status.providerSchemaRef to be populated")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", schemaVersionCR,
+					"-n", namespace,
+					"-o", "jsonpath={.status.providerSchemaRef.key}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).NotTo(BeEmpty(),
+					"expected status.providerSchemaRef.key to be set")
+			}, 8*time.Minute, 15*time.Second).Should(Succeed())
+
+			By("asserting the schema reference carries a sha256 digest and a non-zero size")
+			cmd = exec.Command("kubectl", "get", "version", schemaVersionCR,
+				"-n", namespace,
+				"-o", "jsonpath={.status.providerSchemaRef.digest}",
+			)
+			digest, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(digest)).To(HaveLen(64), "expected a hex encoded sha256 digest")
+
+			cmd = exec.Command("kubectl", "get", "version", schemaVersionCR,
+				"-n", namespace,
+				"-o", "jsonpath={.status.providerSchemaRef.sizeBytes}",
+			)
+			size, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(size)).NotTo(Equal("0"), "expected a non-zero schema size")
+		})
+
+		It("should not extract a schema for a provider Version on another platform", func() {
+			By("creating the non-matching-platform provider Version CR")
+			versionYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Version
+metadata:
+  name: "%s"
+  namespace: %s
+  labels:
+    opendepot.defdev.io/provider: "%s"
+spec:
+  type: Provider
+  version: "%s"
+  operatingSystem: linux
+  architecture: %s
+  providerConfigRef:
+    name: "null"
+    namespace: hashicorp
+    sourceRepository: "%s"
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+`, otherPlatformVersionCR, namespace, schemaProviderName, schemaVersion, nonMatchingArch, schemaSourceRepo, assemblyStorageDir)
+
+			versionFile := filepath.Join(GinkgoT().TempDir(), "assembly-other-platform-version.yaml")
+			Expect(os.WriteFile(versionFile, []byte(versionYAML), 0600)).To(Succeed())
+
+			cmd := exec.Command("kubectl", "apply", "-f", versionFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply non-matching platform Version CR")
+
+			By("waiting for the Version CR to reach synced=true")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "version", otherPlatformVersionCR,
+					"-n", namespace,
+					"-o", "jsonpath={.status.synced}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"), "expected Version CR to reach synced=true")
+			}, 8*time.Minute, 15*time.Second).Should(Succeed())
+
+			By("asserting status.providerSchemaRef remains unset")
+			cmd = exec.Command("kubectl", "get", "version", otherPlatformVersionCR,
+				"-n", namespace,
+				"-o", "jsonpath={.status.providerSchemaRef.key}",
+			)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(BeEmpty(),
+				"expected no schema to be extracted for a platform the controller does not run on")
+		})
+	})
 })
+
+// e2eContract mirrors the subset of the Assembly Line contract the e2e suite asserts on.
+type e2eContract struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Module        struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+		Provider  string `json:"provider"`
+		Version   string `json:"version"`
+	} `json:"module"`
+	Variables []struct {
+		Name     string          `json:"name"`
+		Type     json.RawMessage `json:"type"`
+		Required bool            `json:"required"`
+	} `json:"variables"`
+	Outputs []struct {
+		Name       string          `json:"name"`
+		Type       json.RawMessage `json:"type"`
+		Confidence string          `json:"confidence"`
+	} `json:"outputs"`
+	Compatibility struct {
+		Grade    string   `json:"grade"`
+		Warnings []string `json:"warnings"`
+	} `json:"compatibility"`
+}
+
+// decodeE2EContract base64-decodes and gunzips a contract ConfigMap payload.
+func decodeE2EContract(encoded string) (*e2eContract, error) {
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close()
+
+	raw, err := io.ReadAll(gr)
+	if err != nil {
+		return nil, err
+	}
+
+	var contract e2eContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return nil, err
+	}
+
+	return &contract, nil
+}

@@ -11,6 +11,8 @@ import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
+import GridViewIcon from "@mui/icons-material/GridView";
+import PageHeader from "@/components/PageHeader";
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -47,7 +49,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load resources.";
     if (msg.includes("401") || msg.includes("unauthorized")) {
-      redirect("/auth/login");
+      redirect("/login");
     }
     fetchError = msg;
     resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
@@ -65,8 +67,15 @@ export default async function HomePage({ searchParams }: PageProps) {
 
   return (
     <main>
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box mb={4}>
+      <PageHeader
+        icon={<GridViewIcon color="primary" fontSize="small" />}
+        title="Registry Explorer"
+        description="Browse modules and providers from your OpenDepot registry."
+        actions={<RefreshIconButton ariaLabel="refresh registry" />}
+        mobileOnly
+      />
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Box mb={4} sx={{ display: { xs: "none", sm: "block" } }}>
         <Box display="flex" alignItems="center" gap={1}>
           <Typography variant="h4" component="h1">
             Registry Explorer
@@ -77,7 +86,6 @@ export default async function HomePage({ searchParams }: PageProps) {
           Browse modules and providers from your OpenDepot registry.
         </Typography>
       </Box>
-
       {authError && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           Authentication error: {decodeURIComponent(authError)}
@@ -117,7 +125,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           />
         </>
       )}
-    </Container>
+      </Container>
     </main>
   );
 }

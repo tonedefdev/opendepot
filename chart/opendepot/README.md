@@ -14,7 +14,7 @@ This chart deploys five OpenDepot services:
 | **Provider Controller** | Disabled | Mirrors provider binaries from upstream provider registries (`registry.opentofu.org` or `registry.terraform.io`) |
 | **Server** | Enabled | Implements the Terraform Module Registry Protocol API |
 
-All images are pulled from `ghcr.io/tonedefdev/opendepot/` and default to the tag set in `global.image.tag`.
+All images are pulled from `gcr.io/opendepot-495604/opendepot/` and default to the tag set in `global.image.tag`.
 
 ## Prerequisites
 
@@ -67,7 +67,7 @@ helm install opendepot ./chart/opendepot \
 | `version.enabled` | `true` | Deploy the Version controller |
 | `version.replicaCount` | `1` | Number of replicas |
 | `version.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `version.image.repository` | `ghcr.io/tonedefdev/opendepot/version-controller` | Image repository |
+| `version.image.repository` | `gcr.io/opendepot-495604/opendepot/version-controller` | Image repository |
 | `version.image.tag` | `""` | Per-service tag override (falls back to `global.image.tag`) |
 | `version.resources` | `100m / 512Mi` req, `4Gi` limit | Resource requests and limits |
 | `version.nodeSelector` | `{}` | Node selector |
@@ -81,7 +81,7 @@ helm install opendepot ./chart/opendepot \
 | `module.enabled` | `true` | Deploy the Module controller |
 | `module.replicaCount` | `1` | Number of replicas |
 | `module.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `module.image.repository` | `ghcr.io/tonedefdev/opendepot/module-controller` | Image repository |
+| `module.image.repository` | `gcr.io/opendepot-495604/opendepot/module-controller` | Image repository |
 | `module.image.tag` | `""` | Per-service tag override |
 | `module.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `module.nodeSelector` | `{}` | Node selector |
@@ -95,7 +95,7 @@ helm install opendepot ./chart/opendepot \
 | `depot.enabled` | `true` | Deploy the Depot controller |
 | `depot.replicaCount` | `1` | Number of replicas |
 | `depot.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `depot.image.repository` | `ghcr.io/tonedefdev/opendepot/depot-controller` | Image repository |
+| `depot.image.repository` | `gcr.io/opendepot-495604/opendepot/depot-controller` | Image repository |
 | `depot.image.tag` | `""` | Per-service tag override |
 | `depot.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `depot.nodeSelector` | `{}` | Node selector |
@@ -111,7 +111,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 | `provider.enabled` | `false` | Deploy the Provider controller |
 | `provider.replicaCount` | `1` | Number of replicas |
 | `provider.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `provider.image.repository` | `ghcr.io/tonedefdev/opendepot/provider-controller` | Image repository |
+| `provider.image.repository` | `gcr.io/opendepot-495604/opendepot/provider-controller` | Image repository |
 | `provider.image.tag` | `""` | Per-service tag override |
 | `provider.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `provider.nodeSelector` | `{}` | Node selector |
@@ -126,7 +126,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 | `server.replicaCount` | `1` | Number of replicas |
 | `server.anonymousAuth` | `false` | Allow unauthenticated requests (`--anonymous-auth` flag) |
 | `server.useBearerToken` | `true` | Require bearer token authentication (`--use-bearer-token` flag) |
-| `server.image.repository` | `ghcr.io/tonedefdev/opendepot/server` | Image repository |
+| `server.image.repository` | `gcr.io/opendepot-495604/opendepot/server` | Image repository |
 | `server.image.tag` | `""` | Per-service tag override |
 | `server.service.type` | `LoadBalancer` | Kubernetes service type |
 | `server.service.port` | `80` | Exposed service port |
@@ -241,20 +241,34 @@ The filesystem storage backend uses a shared `PersistentVolumeClaim` (or a `host
 
 When `hostPath` is set, an `initContainer` (`busybox:1.37`) runs as root to `chown` the mount point to UID `65532` before the main containers start.
 
-### Valkey
+### Prometheus monitoring
 
-The bundled statistics store defaults to `valkey/valkey:8-alpine`, the rolling Valkey 8 LTS Alpine variant. The Alpine image minimizes the operating-system package surface while retaining upstream security updates. ACL authentication is enabled by default and requires a pre-existing `opendepot-valkey-auth` Secret with a `default` password key. Custom Secret names must match in `valkey.auth.usersExistingSecret` and `server.stats.valkeyPasswordSecretName`.
+The chart can optionally bundle a minimal `kube-prometheus-stack` installation by setting `monitoring.bundled.enabled=true`. It is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Grafana, Alertmanager, and node exporters remain disabled unless enabled explicitly.
+
+OpenDepot exposes download counters and registry state gauges from the `server` Service on the `metrics` port (`9090`) at `/metrics`. The chart creates a `ServiceMonitor` that selects that Service in `global.namespace`, scrapes it every 15 seconds, and uses a 10-second scrape timeout. The ServiceMonitor is enabled by default, but requires a Prometheus Operator; set `server.metrics.serviceMonitor.additionalLabels` when the external operator selects ServiceMonitors by label. Set `server.metrics.serviceMonitor.enabled=false` to disable it.
+
+The Stats page queries Prometheus using a 90-day lookback by default. To use an existing Prometheus deployment, set its HTTP API base URL explicitly:
+
+```yaml
+server:
+  stats:
+    prometheusURL: http://prometheus-operated.monitoring.svc.cluster.local:9090
+```
+
+When `server.stats.prometheusURL` is set, it takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled=true`, the server uses the bundled-service address `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`; that address is usable only when the bundled stack is installed. Set `monitoring.bundled.enabled=true` to install that stack. If an external Prometheus scrapes OpenDepot but the Stats page also needs to query it, configure the same external URL above.
+
+For time series longer than the local Prometheus retention window, configure Prometheus `remoteWrite` to Mimir or another Prometheus-compatible long-term storage system and use Grafana to query that retained data.
 
 ### Scanning
 
-Trivy-based vulnerability and IaC scanning is built into the version controller. When `scanning.enabled` is `true`, the controller automatically uses the image variant tagged with the `-scanning` suffix, which bundles the Trivy binary. Module IaC scanning (HCL misconfiguration detection via `trivy fs`) requires no additional infrastructure at this level.
+Trivy-based vulnerability and IaC scanning is built into the version controller image. The SaaS defaults enable module IaC scanning (HCL misconfiguration detection via `trivy fs`) without requiring additional infrastructure at this level.
 
 Provider binary and source scanning (`scanning.providerScanning`) requires an additional PVC and a CronJob to keep the offline Trivy vulnerability database current.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `scanning.enabled` | `false` | Enable Trivy-based scanning. Switches to the `-scanning` image variant automatically |
-| `scanning.providerScanning` | `false` | Enable provider binary and source scanning. Requires `scanning.enabled=true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob |
+| `scanning.enabled` | `true` | Enable Trivy-based scanning. The SaaS version-controller image bundles the Trivy binary |
+| `scanning.providerScanning` | `true` | Enable provider binary and source scanning. Creates the Trivy DB PVC and `trivy-db-updater` CronJob |
 | `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path for the Trivy DB cache inside the version controller. Only used when `providerScanning=true` |
 | `scanning.offline` | `true` | Pass `--offline-scan` to Trivy, preventing network calls during scans |
 | `scanning.blockOnCritical` | `false` | Block reconciliation when CRITICAL vulnerabilities are found |
@@ -265,6 +279,32 @@ Provider binary and source scanning (`scanning.providerScanning`) requires an ad
 | `scanning.dbUpdater.schedule` | `0 2 * * *` | Cron schedule for the Trivy DB update job |
 | `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Image for the DB updater CronJob |
 | `scanning.dbUpdater.image.tag` | `0.70.0` | Tag for the DB updater image |
+
+### Assembly Line
+
+Assembly Line derives a machine-readable input/output contract for every module version and a reduced provider schema for every provider version. Contracts are stored in a ConfigMap owned by the Version and surfaced by the server on `/opendepot/ui/v1/resources/{namespace}/module/{name}/contract`. Provider schemas are stored in the configured object storage backend — never in a ConfigMap, since a full provider schema routinely exceeds the etcd object size limit.
+
+Provider schema extraction runs `tofu providers schema -json` against an offline filesystem mirror of the downloaded provider archive. The `tofu` binary (~83 MB) is bundled in the version controller image, so every version controller image is that much larger regardless of whether Assembly Line is enabled.
+
+Extraction unpacks the provider archive into the container's ephemeral storage. Provider archives can be several hundred megabytes, so set an `ephemeral-storage` request and limit on `version.resources` (2Gi is a reasonable starting point) when enabling Assembly Line alongside provider onboarding.
+
+A schema is extracted only for provider versions whose `operatingSystem` and `architecture` match the version controller's own platform; a schema is platform independent, so one extraction serves every platform of that provider version.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `assembly.enabled` | `false` | Enable module contract derivation, provider schema extraction, and initialized root-module export |
+| `assembly.validationRegistryUrl` | `""` | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization; defaults to `ui.baseUrl` |
+| `assembly.validationCACertPath` | `""` | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process |
+| `assembly.tofuBinPath` | `/usr/local/bin/tofu` | Path to the `tofu` binary bundled in the version controller and server images |
+| `assembly.extractionTimeout` | `5m` | Maximum duration a single provider schema extraction may run for |
+| `assembly.initTimeout` | `2m` | Maximum duration for export `tofu init` |
+| `assembly.maxRequestBytes` | `2097152` | Maximum export request body size |
+| `assembly.maxNodes` | `100` | Maximum total canvas node count |
+| `assembly.maxOutputBytes` | `65536` | Maximum captured output for each OpenTofu command |
+| `assembly.workDir` | `/var/lib/opendepot/assembly` | Writable server validation workspace |
+| `assembly.workspaceSizeLimit` | `1Gi` | Size limit for the server validation `emptyDir` |
+
+When `server.tls.enabled=true` uses a privately signed in-cluster certificate, set `ui.serverCACertPath` to the CA file in the `opendepot-tls` Secret so Next.js can verify server-side API requests. Tilt mounts the shared development CA at `/etc/tls/ca.crt` for this purpose.
 
 ### Dex (OIDC Identity Broker)
 

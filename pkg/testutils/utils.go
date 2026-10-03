@@ -31,6 +31,8 @@ import (
 )
 
 const (
+	defaultKindCluster = "opendepot-test-e2e"
+
 	prometheusOperatorVersion = "v0.77.1"
 	prometheusOperatorURL     = "https://github.com/prometheus-operator/prometheus-operator/" +
 		"releases/download/%s/bundle.yaml"
@@ -38,6 +40,8 @@ const (
 	certmanagerVersion = "v1.16.3"
 	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
 )
+
+var kindClusterConfigured bool
 
 func warnError(err error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
@@ -85,11 +89,11 @@ func RunAt(cmd *exec.Cmd, dir string) (string, error) {
 	return string(output), nil
 }
 
-// LoadImageToKindClusterWithName loads a local docker image to the kind cluster.
-// The cluster name defaults to "kind" and can be overridden via the KIND_CLUSTER
-// environment variable.
+// LoadImageToKindClusterWithName loads a local docker image to the Kind cluster.
+// The cluster name defaults to the dedicated e2e cluster and can be overridden
+// via the KIND_CLUSTER environment variable.
 func LoadImageToKindClusterWithName(name string) error {
-	cluster := "kind"
+	cluster := defaultKindCluster
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
 		cluster = v
 	}
@@ -99,25 +103,71 @@ func LoadImageToKindClusterWithName(name string) error {
 	return err
 }
 
+// ConfigureKindCluster makes all child kubectl and helm commands target the named Kind cluster.
+func ConfigureKindCluster() error {
+	cluster := defaultKindCluster
+	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok && v != "" {
+		cluster = v
+	}
+
+	kubeconfig, err := os.CreateTemp("", "opendepot-e2e-kubeconfig-*")
+	if err != nil {
+		return fmt.Errorf("create temporary kubeconfig: %w", err)
+	}
+	kubeconfigPath := kubeconfig.Name()
+	if err := kubeconfig.Close(); err != nil {
+		return fmt.Errorf("close temporary kubeconfig: %w", err)
+	}
+	if err := os.Remove(kubeconfigPath); err != nil {
+		return fmt.Errorf("remove temporary kubeconfig: %w", err)
+	}
+	if err := os.Setenv("KUBECONFIG", kubeconfigPath); err != nil {
+		return fmt.Errorf("set KUBECONFIG: %w", err)
+	}
+
+	exportCmd := exec.Command("kind", "export", "kubeconfig", "--name", cluster, "--kubeconfig", kubeconfigPath)
+	if output, err := exportCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("export kubeconfig for Kind cluster %q: %w: %s", cluster, err, strings.TrimSpace(string(output)))
+	}
+
+	expectedContext := "kind-" + cluster
+	contextCmd := exec.Command("kubectl", "config", "current-context")
+	contextCmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfigPath)
+	output, err := contextCmd.Output()
+	if err != nil {
+		return fmt.Errorf("verify Kind kubeconfig context: %w", err)
+	}
+	if actualContext := strings.TrimSpace(string(output)); actualContext != expectedContext {
+		return fmt.Errorf("unexpected kubeconfig context %q; expected %q", actualContext, expectedContext)
+	}
+	kindClusterConfigured = true
+
+	return nil
+}
+
+// KindClusterConfigured reports whether this process verified the dedicated Kind kubeconfig.
+func KindClusterConfigured() bool {
+	return kindClusterConfigured
+}
+
 // EnsureValkeyAuthSecret creates the Secret required by the chart's secure
 // Valkey defaults. E2e clusters use a fixed, non-production test password.
 func EnsureValkeyAuthSecret(namespace string) error {
-	cmd := exec.Command(
-		"kubectl", "get", "secret", "opendepot-valkey-auth",
-		"--namespace", namespace,
-	)
-
-	_, err := Run(cmd)
-	if err == nil {
-		return nil
-	}
-
-	cmd = exec.Command(
+	createCmd := exec.Command(
 		"kubectl", "create", "secret", "generic", "opendepot-valkey-auth",
 		"--namespace", namespace,
 		"--from-literal=default=opendepot-e2e-valkey-password",
+		"--dry-run=client", "-o", "yaml",
 	)
-	_, err = Run(cmd)
+	manifest, err := Run(createCmd)
+
+	if err != nil {
+		return err
+	}
+
+	applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+	applyCmd.Stdin = strings.NewReader(manifest)
+	_, err = Run(applyCmd)
 
 	return err
 }
@@ -232,15 +282,21 @@ func ComputeBuildContextHash(repoRoot string, paths []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git ls-files: %w", err)
 	}
+
 	h := sha256.New()
 	for rel := range strings.FieldsSeq(string(out)) {
 		data, err := os.ReadFile(filepath.Join(repoRoot, rel))
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+
 			return "", fmt.Errorf("read %s: %w", rel, err)
 		}
 		fmt.Fprintf(h, "%s\n", rel)
 		h.Write(data)
 	}
+
 	return fmt.Sprintf("%x", h.Sum(nil))[:16], nil
 }
 

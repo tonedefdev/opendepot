@@ -305,15 +305,19 @@ spec:
 			"-n", moduleNamespace,
 		)
 		Expect(pfCmd.Start()).To(Succeed(), "Failed to restart port-forward")
-		time.Sleep(3 * time.Second)
 
 		By("verifying unauthenticated request returns 401")
-		unauthResp, err := http.Get(fmt.Sprintf( //nolint:noctx
-			"http://localhost:%s/opendepot/modules/v1/%s/%s/%s/versions",
-			serverPortForwardPort, moduleNamespace, moduleCRName, moduleProvider))
-		Expect(err).NotTo(HaveOccurred())
-		_ = unauthResp.Body.Close()
-		Expect(unauthResp.StatusCode).To(Equal(http.StatusUnauthorized))
+		Eventually(func() int {
+			unauthResp, requestErr := http.Get(fmt.Sprintf( //nolint:noctx
+				"http://localhost:%s/opendepot/modules/v1/%s/%s/%s/versions",
+				serverPortForwardPort, moduleNamespace, moduleCRName, moduleProvider))
+			if requestErr != nil {
+				return 0
+			}
+			_ = unauthResp.Body.Close()
+
+			return unauthResp.StatusCode
+		}, 30*time.Second, time.Second).Should(Equal(http.StatusUnauthorized))
 
 		By("creating a read-only ServiceAccount and RBAC for the auth test")
 		_, _ = utils.Run(exec.Command("kubectl", "create", "serviceaccount", authTestSA, "-n", moduleNamespace))

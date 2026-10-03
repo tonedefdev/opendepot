@@ -32,12 +32,42 @@ import (
 	"time"
 
 	"github.com/google/go-github/v81/github"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
 	"github.com/tonedefdev/opendepot/pkg/registry"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 )
 
 var lookupProviderRepo = registry.LookupProviderRepo
+
+// resolveScanPolicy lists the ScanPolicy resources in the Version's namespace and folds the
+// winning policy together with the controller's blocking flags into the effective decision.
+// A listing failure falls back to the flags so that a transient API error can never silently
+// relax enforcement.
+func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) policy.Resolved {
+	policies := &opendepotv1alpha1.ScanPolicyList{}
+	if err := r.List(ctx, policies, client.InNamespace(version.Namespace)); err != nil {
+		r.Log.Error(err, "Failed to list ScanPolicies — falling back to the controller blocking flags",
+			"version", version.Name, "namespace", version.Namespace)
+
+		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+	}
+
+	winner, errs := policy.Select(policies.Items, version)
+	for _, err := range errs {
+		r.Log.Error(err, "Skipping ScanPolicy with an invalid selector",
+			"version", version.Name, "namespace", version.Namespace)
+	}
+
+	if winner != nil {
+		r.Log.V(5).Info("ScanPolicy selected for version",
+			"version", version.Name, "scanPolicy", winner.Name, "priority", winner.Spec.Priority)
+	}
+
+	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+}
 
 // trivyVulnerability is the subset of Trivy's per-vulnerability JSON output used here.
 type trivyVulnerability struct {
@@ -171,10 +201,11 @@ func resolveProviderSourceRepository(ctx context.Context, namespace, providerNam
 		strings.TrimSpace(namespace), strings.TrimSpace(providerName))
 }
 
-// extractBinaryFromZip extracts the provider executable from a HashiCorp release zip
-// at archivePath on disk. The zip contains exactly one file: the compiled provider
-// binary. We skip any accompanying README or LICENSE files by filtering on common
-// non-binary suffixes and the absence of the executable bit.
+// extractBinaryFromZip extracts the provider executable from an OpenTofu registry
+// release zip at archivePath on disk. The zip contains exactly one file: the compiled
+// provider binary. We skip any accompanying README or LICENSE files by filtering on
+// common non-binary suffixes and the absence of the executable bit.
+
 func extractBinaryFromZip(archivePath string) ([]byte, error) {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
@@ -334,18 +365,18 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 //
 // Source scan deduplication: if Version.Status.SourceScan is already set, the source
 // scan is skipped — the result is specific to the provider version's go.mod and does
-// not vary across OS/arch variants. Binary scan always runs (unique per OS/arch artifact).
+// not vary across OS/arch variants. The stored findings are still re-evaluated against
+// the resolved policy. Binary scan always runs (unique per OS/arch artifact).
 //
-// When blockOnCritical or blockOnHigh is true and findings of that severity are present,
-// a non-nil error is returned to halt reconciliation.
+// When a finding at or above the resolved severity threshold is present and no exemption
+// covers it, a non-nil error is returned to halt reconciliation.
 func (r *VersionReconciler) runProviderScan(
 	ctx context.Context,
 	version *opendepotv1alpha1.Version,
 	archivePath string,
 	cacheDir string,
 	offline bool,
-	blockOnCritical bool,
-	blockOnHigh bool,
+	resolved policy.Resolved,
 ) (string, *opendepotv1alpha1.BinaryScan, *opendepotv1alpha1.SourceScan, error) {
 	providerName := version.Labels["opendepot.defdev.io/provider"]
 	if providerName == "" {
@@ -369,29 +400,35 @@ func (r *VersionReconciler) runProviderScan(
 			"version", version.Name)
 	} else {
 		now := time.Now().UTC().Format(time.RFC3339)
+		annotated, blocking := policy.Apply(resolved, binaryFindings, policy.ScanTypeBinary)
 		binaryScan = &opendepotv1alpha1.BinaryScan{
 			ScannedAt: now,
-			Findings:  binaryFindings,
+			Findings:  annotated,
 		}
 
-		if blockOnCritical || blockOnHigh {
-			for _, f := range binaryFindings {
-				if blockOnCritical && f.Severity == "CRITICAL" {
-					return repoURL, binaryScan, nil, fmt.Errorf("blocking: CRITICAL vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-				}
-
-				if blockOnHigh && f.Severity == "HIGH" {
-					return repoURL, binaryScan, nil, fmt.Errorf("blocking: HIGH vulnerability %s in binary (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-				}
-			}
+		if blocking != nil {
+			return repoURL, binaryScan, nil, fmt.Errorf("blocking: %s vulnerability %s in binary (%s %s)", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.InstalledVersion)
 		}
 	}
 
-	// Source scan (deduplicated per Version CR: skip if already scanned)
+	// Source scan (deduplicated per Version CR: skip the scan itself if already stored).
+	// The stored findings are still re-evaluated against the resolved policy so that adding,
+	// editing or expiring a ScanPolicy re-enforces without waiting for a fresh scan.
 	if version.Status.SourceScan != nil {
-		r.Log.V(5).Info("Source scan already present on this Version — skipping",
+		r.Log.V(5).Info("Source scan already present on this Version — re-evaluating stored findings against policy",
 			"version", version.Name)
-		return repoURL, binaryScan, nil, nil
+
+		annotated, blocking := policy.Apply(resolved, version.Status.SourceScan.Findings, policy.ScanTypeSource)
+		storedScan := &opendepotv1alpha1.SourceScan{
+			ScannedAt: version.Status.SourceScan.ScannedAt,
+			Findings:  annotated,
+		}
+
+		if blocking != nil {
+			return repoURL, binaryScan, storedScan, fmt.Errorf("blocking: %s vulnerability %s in source (%s %s)", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.InstalledVersion)
+		}
+
+		return repoURL, binaryScan, storedScan, nil
 	}
 
 	useAuthClient := version.Spec.ProviderConfigRef != nil &&
@@ -432,21 +469,14 @@ func (r *VersionReconciler) runProviderScan(
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	annotated, blocking := policy.Apply(resolved, sourceFindings, policy.ScanTypeSource)
 	sourceScan := &opendepotv1alpha1.SourceScan{
 		ScannedAt: now,
-		Findings:  sourceFindings,
+		Findings:  annotated,
 	}
 
-	if blockOnCritical || blockOnHigh {
-		for _, f := range sourceFindings {
-			if blockOnCritical && f.Severity == "CRITICAL" {
-				return repoURL, binaryScan, sourceScan, fmt.Errorf("blocking: CRITICAL vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-			}
-
-			if blockOnHigh && f.Severity == "HIGH" {
-				return repoURL, binaryScan, sourceScan, fmt.Errorf("blocking: HIGH vulnerability %s in source (%s %s)", f.VulnerabilityID, f.PkgName, f.InstalledVersion)
-			}
-		}
+	if blocking != nil {
+		return repoURL, binaryScan, sourceScan, fmt.Errorf("blocking: %s vulnerability %s in source (%s %s)", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.InstalledVersion)
 	}
 
 	return repoURL, binaryScan, sourceScan, nil
@@ -627,18 +657,32 @@ func isReadmeEntry(name string) bool {
 	return strings.EqualFold(base, "readme")
 }
 
+// extractArchiveToTempDir extracts a module archive into a fresh temp directory and
+// returns the directory path along with a cleanup function the caller must invoke.
+func extractArchiveToTempDir(archiveBytes []byte, prefix string) (string, func(), error) {
+	tmpDir, err := os.MkdirTemp("", prefix)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to create temp dir for module archive: %w", err)
+	}
+
+	cleanup := func() { os.RemoveAll(tmpDir) }
+
+	if err := extractArchiveToDir(archiveBytes, tmpDir); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("failed to extract module archive: %w", err)
+	}
+
+	return tmpDir, cleanup, nil
+}
+
 // scanModuleArchive extracts a module archive into a temp directory and runs `trivy fs` against it.
 // It returns IaC (config-class) findings from the HCL source.
 func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes []byte, cacheDir string, offline bool) ([]opendepotv1alpha1.SecurityFinding, error) {
-	tmpDir, err := os.MkdirTemp("", "opendepot-modscan-*")
+	tmpDir, cleanup, err := extractArchiveToTempDir(archiveBytes, "opendepot-modscan-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir for module scan: %w", err)
+		return nil, err
 	}
-	defer os.RemoveAll(tmpDir)
-
-	if err := extractArchiveToDir(archiveBytes, tmpDir); err != nil {
-		return nil, fmt.Errorf("failed to extract module archive: %w", err)
-	}
+	defer cleanup()
 
 	// --scanners misconfig is required: trivy fs defaults to vuln,secret only.
 	// Config-class (IaC) rules are bundled in the Trivy binary and do not need
@@ -676,8 +720,7 @@ func (r *VersionReconciler) runModuleScan(
 	archiveBytes []byte,
 	cacheDir string,
 	offline bool,
-	blockOnCritical bool,
-	blockOnHigh bool,
+	resolved policy.Resolved,
 ) (*opendepotv1alpha1.SourceScan, error) {
 	findings, err := r.scanModuleArchive(ctx, archiveBytes, cacheDir, offline)
 	if err != nil {
@@ -687,21 +730,14 @@ func (r *VersionReconciler) runModuleScan(
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	annotated, blocking := policy.Apply(resolved, findings, policy.ScanTypeModule)
 	sourceScan := &opendepotv1alpha1.SourceScan{
 		ScannedAt: now,
-		Findings:  findings,
+		Findings:  annotated,
 	}
 
-	if blockOnCritical || blockOnHigh {
-		for _, f := range findings {
-			if blockOnCritical && f.Severity == "CRITICAL" {
-				return sourceScan, fmt.Errorf("blocking: CRITICAL finding %s in module source (%s)", f.VulnerabilityID, f.PkgName)
-			}
-
-			if blockOnHigh && f.Severity == "HIGH" {
-				return sourceScan, fmt.Errorf("blocking: HIGH finding %s in module source (%s)", f.VulnerabilityID, f.PkgName)
-			}
-		}
+	if blocking != nil {
+		return sourceScan, fmt.Errorf("blocking: %s finding %s in module source (%s)", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName)
 	}
 
 	return sourceScan, nil

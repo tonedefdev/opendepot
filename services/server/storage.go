@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -81,7 +82,13 @@ func getObjectFromStorageSystem(w http.ResponseWriter, r *http.Request, s storag
 		return
 	}
 
-	if soi.ObjectChecksum != nil && *soi.ObjectChecksum != checksum {
+	if soi.ObjectChecksum == nil {
+		logger.Error("storage system did not return a checksum for object", "objectPath", soi.FilePath)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if *soi.ObjectChecksum != checksum {
 		logger.Error("checksum mismatch from storage system", "want", checksum, "received", *soi.ObjectChecksum)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -141,4 +148,42 @@ func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.St
 	}
 
 	return nil, fmt.Errorf("unsupported storage configuration")
+}
+
+func resolveModuleArchiveWrapper(ctx context.Context, versionResource *opendepotv1alpha1.Version) (string, error) {
+	storageConfig := versionResource.Spec.ModuleConfigRef.StorageConfig
+	backend, err := initStorageBackend(ctx, storageConfig)
+	if err != nil {
+		return "", fmt.Errorf("initialize storage backend: %w", err)
+	}
+
+	name := versionResource.Spec.ModuleConfigRef.Name
+	fileName := versionResource.Spec.FileName
+	objectPath := fmt.Sprintf("%s/%s", *name, *fileName)
+	if storageConfig.FileSystem != nil {
+		objectPath = path.Join(*storageConfig.FileSystem.DirectoryPath, objectPath)
+	} else if storageConfig.AzureStorage != nil {
+		objectPath = *fileName
+	} else if storageConfig.S3 != nil {
+		objectPath = *storageConfig.S3.Key
+	}
+	soi := &storageTypes.StorageObjectInput{
+		FilePath:      &objectPath,
+		ContainerName: name,
+		StorageConfig: storageConfig,
+	}
+	reader, err := backend.GetObject(ctx, soi)
+	if err != nil {
+		return "", fmt.Errorf("read module archive: %w", err)
+	}
+	if closer, ok := reader.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	wrapper, err := moduleArchiveWrapper(reader, moduleArchiveType(*fileName))
+	if err != nil {
+		return "", fmt.Errorf("identify module archive root: %w", err)
+	}
+
+	return wrapper, nil
 }

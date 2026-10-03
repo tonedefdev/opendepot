@@ -54,10 +54,15 @@ func (storage *AzureBlobStorage) GetObject(ctx context.Context, soi *storagetype
 		&azblob.DownloadStreamOptions{},
 	)
 	if err != nil {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %w", ErrNotFound, err)
+		}
+
 		return nil, err
 	}
 
-	return blob.Body, err
+	return blob.Body, nil
 }
 
 // GetObjectChecksum retrieves the sha256 checksum from the container's metadata and sets it on the soi receiver's field `ObjectChecksum`.
@@ -72,11 +77,11 @@ func (storage *AzureBlobStorage) GetObjectChecksum(ctx context.Context, soi *sto
 
 	if err != nil {
 		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) {
-			if respErr.StatusCode == http.StatusNotFound {
-				return err
-			}
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
+
+		return err
 	}
 
 	soi.ObjectChecksum = ctr.ContainerProperties.Metadata["Checksum"]

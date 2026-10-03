@@ -67,6 +67,20 @@ spec:
                 items:
                   type: string
                 type: array
+              scanPolicyManagement:
+                description: |-
+                  ScanPolicyManagement grants permission to create, update, and delete
+                  ScanPolicy resources through the server policy-management API.
+                  This is disabled when omitted.
+                type: boolean
+              scanPolicyNamespaces:
+                description: |-
+                  ScanPolicyNamespaces is the allow-list of namespaces where this binding
+                  may read or manage ScanPolicy resources. An empty list denies access.
+                  The literal "*" allows every namespace reachable by the server.
+                items:
+                  type: string
+                type: array
             required:
             - expression
             type: object

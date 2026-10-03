@@ -1,5 +1,4 @@
 {{- if and .Values.ui.enabled .Values.ui.ingress.enabled }}
-{{- $serverPort := .Values.server.service.port }}
 {{- $uiPort := .Values.ui.service.port }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -25,38 +24,7 @@ spec:
   - host: {{ .host | quote }}
     http:
       paths:
-      # Registry protocol and API paths go directly to the server service.
-      - path: /opendepot
-        pathType: Prefix
-        backend:
-          service:
-            name: server
-            port:
-              number: {{ $serverPort }}
-      - path: /.well-known
-        pathType: Prefix
-        backend:
-          service:
-            name: server
-            port:
-              number: {{ $serverPort }}
-      {{- if and $.Values.server.oidc.enabled $.Values.server.oidc.dexProxy.enabled }}
-      # Dex is reverse-proxied through the server. Routed directly to the server
-      # Service here (bypassing the UI pod) since a real Ingress controller can
-      # split traffic before it reaches any pod; the UI's own nginx also has a
-      # /dex location as a fallback for environments without an Ingress
-      # controller (e.g. local Kind via kubectl port-forward svc/ui).
-      - path: /dex
-        pathType: Prefix
-        backend:
-          service:
-            name: server
-            port:
-              number: {{ $serverPort }}
-      {{- end }}
-      # Root and all remaining paths route to the UI service.
-      # NGINX inside the UI pod re-proxies /opendepot/* and /.well-known/* to
-      # the server service for same-origin API calls from the browser.
+      # NGINX inside the UI pod owns public path routing to the server and UI.
       {{- range .paths }}
       - path: {{ .path }}
         pathType: {{ .pathType }}

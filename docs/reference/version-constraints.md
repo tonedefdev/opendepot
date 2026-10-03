@@ -6,7 +6,7 @@ tags:
 
 # Version Constraints
 
-OpenDepot supports all standard OpenTofu/Terraform version constraint syntax:
+OpenDepot supports all standard OpenTofu version constraint syntax:
 
 | Syntax | Example | Meaning |
 |--------|---------|---------|

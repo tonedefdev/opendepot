@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.25.13 AS builder
+FROM golang:1.26.6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -18,6 +18,7 @@ COPY services/provider/go.mod services/provider/go.sum services/provider/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 COPY pkg/registry/go.mod pkg/registry/
+COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
 RUN go work edit -dropuse=./test/integration

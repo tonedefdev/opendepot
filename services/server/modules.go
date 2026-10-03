@@ -1,9 +1,14 @@
 package main
 
 import (
+	"archive/tar"
+	"bufio"
+	"compress/gzip"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -67,7 +72,7 @@ func getModuleVersion(clientset *kubernetes.Clientset, w http.ResponseWriter, r 
 func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -99,54 +104,39 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var downloadPath string
-	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage != nil {
-		downloadPath = fmt.Sprintf("azure/%s/%s/%s/%s/%s/%s",
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage.SubscriptionID,
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage.ResourceGroup,
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage.AccountName,
-			url.PathEscape(moduleVersion.Spec.ModuleConfigRef.StorageConfig.AzureStorage.AccountUrl),
-			*moduleVersion.Spec.ModuleConfigRef.Name,
-			*moduleVersion.Spec.FileName,
-		)
-	}
-
-	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.FileSystem != nil {
-		downloadPath = fmt.Sprintf("fileSystem/%s/%s/%s",
-			base64.RawURLEncoding.EncodeToString([]byte(*moduleVersion.Spec.ModuleConfigRef.StorageConfig.FileSystem.DirectoryPath)),
-			*moduleVersion.Spec.ModuleConfigRef.Name,
-			*moduleVersion.Spec.FileName,
-		)
-	}
-
-	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.GCS != nil {
-		downloadPath = fmt.Sprintf("gcs/%s/%s/%s",
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.GCS.Bucket,
-			*moduleVersion.Spec.ModuleConfigRef.Name,
-			*moduleVersion.Spec.FileName,
-		)
-	}
-
-	if moduleVersion.Spec.ModuleConfigRef.StorageConfig.S3 != nil {
-		downloadPath = fmt.Sprintf("s3/%s/%s/%s",
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.S3.Bucket,
-			moduleVersion.Spec.ModuleConfigRef.StorageConfig.S3.Region,
-			*moduleVersion.Spec.ModuleConfigRef.StorageConfig.S3.Key,
-		)
-	}
-
 	if moduleVersion.Status.Checksum == nil {
 		http.Error(w, "module version checksum not yet available", http.StatusServiceUnavailable)
 		return
 	}
+	downloadPath, err := buildDownloadPathFromVersion(moduleVersion)
+	if err != nil {
+		logger.Error("unable to build module download path", "error", err, "version", moduleVersion.Name)
+		http.Error(w, "module version artifact not available", http.StatusServiceUnavailable)
 
-	checksumQuery := url.QueryEscape(*moduleVersion.Status.Checksum)
-	w.Header().Set("X-Terraform-Get", fmt.Sprintf("/opendepot/modules/v1/download/%s?fileChecksum=%s", downloadPath, checksumQuery))
+		return
+	}
+
+	wrapper, err := resolveModuleArchiveWrapper(r.Context(), moduleVersion)
+	if err != nil {
+		logger.Error("unable to resolve module archive root", "error", err, "version", moduleVersion.Name)
+		http.Error(w, "module version artifact not available", http.StatusServiceUnavailable)
+
+		return
+	}
+
+	query := url.Values{}
+	query.Set("archive", moduleArchiveType(*moduleVersion.Spec.FileName))
+	query.Set("fileChecksum", *moduleVersion.Status.Checksum)
+	w.Header().Set("X-Terraform-Get", "/opendepot/modules/v1/download/"+downloadPath+"//"+url.PathEscape(wrapper)+"?"+query.Encode())
 	// Download is recorded here (at the protocol redirect step) rather than in the
 	// serveModuleFrom* handlers because the Terraform module protocol requires clients
 	// to call this endpoint first; namespace and version are only available here.
 	// The serveModuleFrom* routes do not carry namespace or version URL params.
-	_ = recordDownload(r.Context(), statsClient, chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), chi.URLParam(r, "version"))
+	err = recordDownload(r.Context(), chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), chi.URLParam(r, "version"))
+	if err != nil {
+		logger.Error("failed to record download", "error", err, "namespace", chi.URLParam(r, "namespace"), "module", chi.URLParam(r, "name"), "version", chi.URLParam(r, "version"))
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -155,7 +145,7 @@ func getDownloadModuleUrl(w http.ResponseWriter, r *http.Request) {
 func getModuleVersions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	clientset, binding, subject, err := getKubeClientFromRequest(w, r)
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
 	if err != nil {
 		logger.Error("unable to generate kubeclient", "error", err)
 		return
@@ -251,55 +241,15 @@ func serveModuleFromAzureBlob(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
-
 	getObjectFromStorageSystem(w, r, azureStorage, soi, checksum)
 }
 
 // serveModuleFromFileSystem serves a module archive from the local filesystem.
-// When the request carries terraform-get=1 (go-getter source detection), the handler
-// returns an X-Terraform-Get header pointing to the actual download URL with the
-// correct archive type rather than streaming the file directly.
 func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 	encodedDir := chi.URLParam(r, "directory")
 	moduleName := chi.URLParam(r, "name")
 	fileName := chi.URLParam(r, "fileName")
 	checksum := r.URL.Query().Get("fileChecksum")
-
-	// go-getter sends ?terraform-get=1 to detect source URLs via HTML meta tags.
-	// We intercept this and return the X-Terraform-Get header pointing to the same
-	// download URL. go-getter reads the header before parsing the body, then processes
-	// the source URL through its full pipeline which detects the archive extension
-	// and uses direct file download (no further terraform-get detection).
-	if r.URL.Query().Get("terraform-get") == "1" {
-		scheme := "https"
-		if r.TLS == nil {
-			if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto == "http" || fwdProto == "https" {
-				scheme = fwdProto
-			} else {
-				scheme = "http"
-			}
-		}
-
-		q := url.Values{}
-		q.Set("fileChecksum", checksum)
-
-		// GitHub tarballs are gzip-compressed despite having .tar extension.
-		// go-getter uses the archive param to select the decompressor, so we
-		// must specify tar.gz for gzipped tarballs.
-		ext := path.Ext(fileName)
-		archiveType := strings.TrimPrefix(ext, ".")
-		if archiveType == "tar" {
-			archiveType = "tar.gz"
-		}
-
-		q.Set("archive", archiveType)
-		sourceURL := fmt.Sprintf("%s://%s/opendepot/modules/v1/download/fileSystem/%s/%s/%s?%s",
-			scheme, r.Host, encodedDir, moduleName, fileName, q.Encode())
-
-		w.Header().Set("X-Terraform-Get", sourceURL)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
 
 	dirBytes, err := base64.RawURLEncoding.DecodeString(encodedDir)
 	if err != nil {
@@ -324,8 +274,63 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 		FilePath: &filePath,
 		Method:   storageTypes.Get,
 	}
-
 	getObjectFromStorageSystem(w, r, fsStorage, soi, checksum)
+}
+
+func moduleArchiveType(fileName string) string {
+	if strings.HasSuffix(fileName, ".tar.gz") {
+		return "tar.gz"
+	}
+
+	archiveType := strings.TrimPrefix(path.Ext(fileName), ".")
+	if archiveType == "tar" {
+		return "tar.gz"
+	}
+
+	return archiveType
+}
+
+func moduleArchiveWrapper(reader io.Reader, archiveType string) (string, error) {
+	var entryName string
+	switch archiveType {
+	case "zip":
+		buffered := bufio.NewReader(reader)
+		header := make([]byte, 30)
+		if _, err := io.ReadFull(buffered, header); err != nil {
+			return "", fmt.Errorf("read ZIP header: %w", err)
+		}
+		if binary.LittleEndian.Uint32(header[:4]) != 0x04034b50 {
+			return "", fmt.Errorf("invalid ZIP local file header")
+		}
+		nameLength := int(binary.LittleEndian.Uint16(header[26:28]))
+		name := make([]byte, nameLength)
+		if _, err := io.ReadFull(buffered, name); err != nil {
+			return "", fmt.Errorf("read ZIP entry name: %w", err)
+		}
+		entryName = string(name)
+	case "tar.gz":
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			return "", fmt.Errorf("open gzip archive: %w", err)
+		}
+		defer gzipReader.Close()
+
+		header, err := tar.NewReader(gzipReader).Next()
+		if err != nil {
+			return "", fmt.Errorf("read tar header: %w", err)
+		}
+		entryName = header.Name
+	default:
+		return "", fmt.Errorf("unsupported module archive type %q", archiveType)
+	}
+
+	cleanEntry := strings.TrimPrefix(path.Clean(entryName), "./")
+	wrapper := strings.SplitN(cleanEntry, "/", 2)
+	if wrapper[0] == "" || wrapper[0] == "." || wrapper[0] == ".." || (len(wrapper) != 2 && !strings.HasSuffix(entryName, "/")) {
+		return "", fmt.Errorf("module archive does not contain a single wrapper directory")
+	}
+
+	return wrapper[0], nil
 }
 
 // serveModuleFromGCS proxies a module archive download from Google Cloud Storage.
@@ -351,7 +356,6 @@ func serveModuleFromGCS(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
-
 	getObjectFromStorageSystem(w, r, gcsStorage, soi, checksum)
 }
 
@@ -379,6 +383,5 @@ func serveModuleFromS3(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
-
 	getObjectFromStorageSystem(w, r, s3Storage, soi, checksum)
 }

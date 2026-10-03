@@ -67,7 +67,7 @@ helm install opendepot opendepot/opendepot \
   -f my-values.yaml
 ```
 
-See [Helm Chart](../helm-chart.md) for the full Helm values reference — Global, Server, OIDC, Dex, UI, Valkey, Controllers, GPG, Service Account & RBAC, Storage, and Scanning values.
+See [Helm Chart](../helm-chart.md) for the full Helm values reference — Global, Server, OIDC, Dex, UI, Prometheus monitoring, Controllers, GPG, Service Account & RBAC, Storage, and Scanning values.
 
 ## Build from Source (Alternative)
 

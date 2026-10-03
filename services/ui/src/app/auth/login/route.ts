@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { fetchOIDCEndpoint, validateOIDCEndpoint } from "@/lib/oidc";
+import { fetchOIDCEndpoint, validateOIDCBaseURL, validateOIDCEndpoint } from "@/lib/oidc";
 
 // PKCE + state + nonce authorization redirect.
 export async function GET(_req: NextRequest): Promise<NextResponse> {
@@ -15,6 +15,11 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   }
 
   const allowInsecureHTTP = process.env.OIDC_ALLOW_INSECURE_HTTP === "true";
+  try {
+    validateOIDCBaseURL(baseUrl, allowInsecureHTTP);
+  } catch {
+    return new NextResponse("Invalid OIDC base URL", { status: 503 });
+  }
   try {
     validateOIDCEndpoint(issuer, issuer, { allowInsecureHTTP });
   } catch {

@@ -38,7 +38,7 @@ automatically when `rbac.create: true`, which is the default.
 
     ---
 
-    Understand how OIDC GroupBinding rules affect Registry Explorer statistics
+    Understand how OIDC GroupBinding rules affect OpenDepot Workshop statistics
     and resource visibility.
 
 </div>
