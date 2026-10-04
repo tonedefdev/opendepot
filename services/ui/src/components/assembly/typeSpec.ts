@@ -220,18 +220,86 @@ const knownFunctionNames = new Set([
   "uuid", "uuidv5", "values", "yamldecode", "yamlencode",
 ]);
 
-function isKnownFunctionExpression(literal: string): boolean {
+export function isKnownFunctionExpression(literal: string): boolean {
   const match = literal.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
   return match !== null && knownFunctionNames.has(match[1]);
 }
 
-function renderScalarLiteral(type: TypeSpec, literal: string): string {
+export function renderHclHeredoc(literal: string, depth = 0): string | undefined {
+  const lines = literal.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+  const opening = lines[0]?.trim().match(/^<<(-?)([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (!opening || lines.length < 2 || lines[lines.length - 1].trim() !== opening[2]) return undefined;
+
+  if (!opening[1]) return [lines[0].trim(), ...lines.slice(1, -1), opening[2]].join("\n");
+
+  const markerIndent = indentation(depth);
+  return [
+    lines[0].trim(),
+    ...lines.slice(1, -1).map((line) => line ? `${markerIndent}${line}` : ""),
+    `${markerIndent}${opening[2]}`,
+  ].join("\n");
+}
+
+export function renderHclStringLiteral(literal: string): string {
+  let rendered = '"';
+  let expressionDepth = 0;
+  let inExpressionString = false;
+  let escaped = false;
+
+  for (let index = 0; index < literal.length; index += 1) {
+    const character = literal[index];
+
+    if (expressionDepth === 0) {
+      if (literal.startsWith("$${", index) || literal.startsWith("%%{", index)) {
+        rendered += literal.slice(index, index + 3);
+        index += 2;
+        continue;
+      }
+      if (literal.startsWith("${", index) || literal.startsWith("%{", index)) {
+        rendered += literal.slice(index, index + 2);
+        index += 1;
+        expressionDepth = 1;
+        continue;
+      }
+
+      if (character === "\\") rendered += "\\\\";
+      else if (character === '"') rendered += '\\"';
+      else if (character === "\n") rendered += "\\n";
+      else if (character === "\r") rendered += "\\r";
+      else if (character === "\t") rendered += "\\t";
+      else rendered += character;
+      continue;
+    }
+
+    rendered += character;
+    if (inExpressionString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inExpressionString = false;
+    } else if (character === '"') {
+      inExpressionString = true;
+    } else if (character === "{") {
+      expressionDepth += 1;
+    } else if (character === "}") {
+      expressionDepth -= 1;
+    }
+  }
+
+  return `${rendered}"`;
+}
+
+function renderScalarLiteral(type: TypeSpec, literal: string, depth: number): string {
   if (literal.trim() === "") {
     return "null";
   }
 
+  if (type.kind === "string") {
+    const heredoc = renderHclHeredoc(literal, depth);
+    if (heredoc) return heredoc;
+  }
+
   if (type.kind === "string" && !isKnownFunctionExpression(literal)) {
-    return JSON.stringify(literal);
+    return renderHclStringLiteral(literal);
   }
 
   return literal;
@@ -244,7 +312,7 @@ function renderScalarLiteral(type: TypeSpec, literal: string): string {
 export function renderValueSpec(type: TypeSpec, value: ValueSpec, depth = 0): string {
   if (value.kind === "scalar") {
     return type.kind === "string" || type.kind === "number" || type.kind === "bool" || type.kind === "any"
-      ? renderScalarLiteral(type, value.literal)
+      ? renderScalarLiteral(type, value.literal, depth)
       : value.literal || "null";
   }
 

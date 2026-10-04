@@ -40,6 +40,7 @@ export type { FieldValue, Multiplicity, ReferenceOption } from "./types";
 export interface ModuleNodeData {
   namespace: string;
   name: string;
+  system?: string;
   version: string;
   instanceName: string;
   instanceNameError: string | null;
@@ -50,6 +51,7 @@ export interface ModuleNodeData {
   providerOptions: ProviderOption[];
   providerBindings: Record<string, ProviderBinding>;
   values: Record<string, ModuleInputValue>;
+  optionalFieldVisibility: Record<string, boolean>;
   fieldErrors: Record<string, string>;
   referenceOptions: ReferenceOption[];
   variableOptions: VariableOption[];
@@ -60,6 +62,7 @@ export interface ModuleNodeData {
   onRemove: () => void;
   onRenameInstance: (name: string) => void;
   onFieldChange: (variableName: string, value: ModuleInputValue) => void;
+  onOptionalFieldVisibilityChange: (path: string, visible: boolean) => void;
   onMultiplicityChange: (multiplicity: Multiplicity) => void;
   onProviderBindingChange: (localName: string, providerNodeId: string) => void;
 }
@@ -112,6 +115,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     providerOptions,
     providerBindings,
     values,
+    optionalFieldVisibility,
     fieldErrors,
     referenceOptions,
     variableOptions,
@@ -122,6 +126,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     onRemove,
     onRenameInstance,
     onFieldChange,
+    onOptionalFieldVisibilityChange,
     onMultiplicityChange,
     onProviderBindingChange,
   } = data;
@@ -662,12 +667,22 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
         open={inputsOpen}
         onClose={() => setInputsOpen(false)}
         instanceName={instanceName}
+        namespace={namespace}
+        moduleName={name}
+        system={data.system}
+        version={version}
+        multiplicity={multiplicity}
+        variableOptions={variableOptions}
+        providerBindings={providerBindings}
+        providerOptions={providerOptions}
         variables={variables}
         values={values}
+        optionalFieldVisibility={optionalFieldVisibility}
         fieldErrors={fieldErrors}
         referenceOptions={referenceOptions}
         metaOptions={metaOptionsFor(multiplicity, variableOptions)}
         onFieldChange={onFieldChange}
+        onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}
       />
       <ProvidersModal
         open={providersOpen}

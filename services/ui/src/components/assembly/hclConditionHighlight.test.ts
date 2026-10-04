@@ -42,6 +42,17 @@ describe("HCL condition highlighting", () => {
     expect((highlighted.children ?? []).flatMap((node) => tokenValues(node, "variable"))).toContain("var.name");
   });
 
+  it("highlights traversals inside template interpolation", () => {
+    const highlighted = hclConditionRefractor.highlight(
+      '"lambda-${replace(each.key, "_", "-")}"',
+      "hcl",
+    ) as unknown as HighlightNode;
+    const tokens = highlighted.children ?? [];
+
+    expect(tokens.flatMap((node) => tokenValues(node, "variable"))).toContain("each.key");
+    expect(tokens.flatMap((node) => tokenValues(node, "function"))).toContain("replace");
+  });
+
   it("applies the same expression tokens to the Prism code preview", () => {
     const html = Prism.highlight(
       "alltrue([for _, fn in var.lambda_functions : length(fn.description) <= 100])",

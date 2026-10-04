@@ -10,6 +10,7 @@ import IconButton from "@mui/material/IconButton";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
+import Tooltip from "@mui/material/Tooltip";
 import TextField from "@mui/material/TextField";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
@@ -17,19 +18,31 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import CloseIcon from "@mui/icons-material/Close";
+import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import WidgetsIcon from "@mui/icons-material/Widgets";
 import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
 import { useColorScheme } from "@mui/material/styles";
+import { Highlight, type Language, themes } from "prism-react-renderer";
+import Prism from "prismjs";
+import "prismjs/components/prism-hcl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ContractVariable } from "@/lib/api";
 import { renderTypeCompact } from "@/lib/ctyType";
-import type { FieldValue, ModuleInputValue, ReferenceOption } from "./types";
+import CopyButton from "@/components/CopyButton";
+import { ReferenceSelectorControls } from "./FieldEditor";
 import FieldEditor from "./FieldEditor";
-import ModuleInputEditor from "./ModuleInputEditor";
+import ModuleInputEditor, { ComplexInputReferenceControl, isComplexType } from "./ModuleInputEditor";
 import { typeSpecFromCtyType } from "./typeSpec";
+import { extendHclGrammar } from "./hclConditionHighlight";
+import { renderModulePreview } from "./modulePreview";
+import { moduleInputPath, type FieldValue, type ModuleInputValue, type Multiplicity, type ProviderBinding, type ProviderOption, type ReferenceOption, type VariableOption } from "./types";
+
+(typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
+extendHclGrammar(Prism.languages.hcl);
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const;
 const DEFAULT_PAGE_SIZE = 10;
@@ -54,6 +67,16 @@ function sectionOf(field: FieldValue | undefined, variable: ContractVariable): S
 
 function sectionField(value: ModuleInputValue | undefined): FieldValue | undefined {
   return value?.kind === "scalar" ? value.value : undefined;
+}
+
+function configuredRegistryHost(): string {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  if (!baseUrl) return "your-opendepot-host";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
 }
 
 /** Renders a variable's description as markdown (module authors document inputs with
@@ -93,13 +116,23 @@ interface Props {
   open: boolean;
   onClose: () => void;
   instanceName: string;
+  namespace: string;
+  moduleName: string;
+  system?: string;
+  version: string;
+  multiplicity: Multiplicity;
+  variableOptions: VariableOption[];
+  providerBindings: Record<string, ProviderBinding>;
+  providerOptions: ProviderOption[];
   variables: ContractVariable[];
   values: Record<string, ModuleInputValue>;
+  optionalFieldVisibility: Record<string, boolean>;
   fieldErrors: Record<string, string>;
   referenceOptions: ReferenceOption[];
   /** This node's own each.key/each.value/count.index options, if repeated. */
   metaOptions?: string[];
   onFieldChange: (variableName: string, value: ModuleInputValue) => void;
+  onOptionalFieldVisibilityChange: (path: string, visible: boolean) => void;
 }
 
 /**
@@ -114,19 +147,31 @@ export default function InputsModal({
   open,
   onClose,
   instanceName,
+  namespace,
+  moduleName,
+  system,
+  version,
+  multiplicity,
+  variableOptions,
+  providerBindings,
+  providerOptions,
   variables,
   values,
+  optionalFieldVisibility,
   fieldErrors,
   referenceOptions,
   metaOptions = [],
   onFieldChange,
+  onOptionalFieldVisibilityChange,
 }: Props) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const ModuleIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
+  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   // Already-provided inputs float to the top, then required, then optional —
   // a stable sort so ties within a section keep the contract's own order.
@@ -168,9 +213,40 @@ export default function InputsModal({
 
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
   const errorCount = Object.keys(fieldErrors).length;
+  const previewInputs = useMemo(
+    () => variables.flatMap((variable) => {
+      const type = typeSpecFromCtyType(variable.type, variable.optionalAttributePaths, variable.optionalAttributes);
+      return type ? [{ name: variable.name, type, value: values[variable.name] }] : [];
+    }),
+    [variables, values],
+  );
+  const code = useMemo(
+    () => renderModulePreview({
+      instanceName,
+      namespace,
+      moduleName,
+      system,
+      version,
+      registryHost: configuredRegistryHost(),
+      inputs: previewInputs,
+      referenceOptions,
+      multiplicity,
+      variableOptions,
+      providerBindings,
+      providerOptions,
+      optionalFieldVisibility,
+    }),
+    [instanceName, namespace, moduleName, system, version, previewInputs, referenceOptions, multiplicity, variableOptions, providerBindings, providerOptions, optionalFieldVisibility],
+  );
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      slotProps={{ paper: { sx: { height: { xs: "calc(100vh - 32px)", sm: "min(860px, calc(100vh - 64px))" } } }}}
+    >
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
@@ -213,75 +289,182 @@ export default function InputsModal({
           </FormControl>
         </Box>
       </DialogTitle>
-      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {pageItems.length === 0 && (
-          <Typography variant="body2" color="text.secondary">
-            {variables.length === 0 ? "This module has no inputs." : "No inputs match your search."}
-          </Typography>
-        )}
-        {pageItems.map((v, idx) => {
-          const fieldError = fieldErrors[v.name];
-          const section = sectionOf(sectionField(values[v.name]), v);
-          const showSectionHeader = idx === 0 || sectionOf(sectionField(values[pageItems[idx - 1].name]), pageItems[idx - 1]) !== section;
+      <DialogContent
+        dividers
+        sx={{
+          minHeight: 0,
+          overflow: "hidden",
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            md: previewExpanded ? "minmax(0, 1fr) minmax(320px, 2fr)" : "minmax(0, 3fr) minmax(320px, 2fr)",
+          },
+          gridTemplateRows: {
+            xs: previewExpanded ? "minmax(120px, 1fr) minmax(0, 2fr)" : "minmax(0, 1fr) minmax(180px, 32%)",
+            md: "minmax(0, 1fr)",
+          },
+          gap: 1.5,
+        }}
+      >
+        <Box sx={{ minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1.5, pr: 0.5 }}>
+          {pageItems.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              {variables.length === 0 ? "This module has no inputs." : "No inputs match your search."}
+            </Typography>
+          )}
+          {pageItems.map((v, idx) => {
+            const fieldError = fieldErrors[v.name];
+            const inputType = typeSpecFromCtyType(v.type, v.optionalAttributePaths, v.optionalAttributes);
+            const inputValue = values[v.name];
+            const inputReference = inputValue?.kind === "scalar" ? inputValue.value : undefined;
+            const isCollectionReference = inputReference?.mode === "reference" && inputReference.refOutputSelector !== undefined;
+            const section = sectionOf(sectionField(values[v.name]), v);
+            const showSectionHeader = idx === 0 || sectionOf(sectionField(values[pageItems[idx - 1].name]), pageItems[idx - 1]) !== section;
 
-          return (
-            <React.Fragment key={v.name}>
-              {showSectionHeader && (
-                <Typography
-                  variant="caption"
-                  fontWeight={700}
-                  color="text.secondary"
-                  sx={{ display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}
-                >
-                  {SECTION_LABEL[section]}
-                </Typography>
-              )}
-              <Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
-                  <Typography variant="body2" fontWeight={600}>
-                    {v.name}
+            return (
+              <React.Fragment key={v.name}>
+                {showSectionHeader && (
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    color="text.secondary"
+                    sx={{ display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}
+                  >
+                    {SECTION_LABEL[section]}
                   </Typography>
-                  {v.required ? (
-                    <Chip label="required" size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
-                  ) : (
-                    <Chip label="optional" size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+                )}
+                <Box>
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, mb: 0.5 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {v.name}
+                    </Typography>
+                    {v.required ? (
+                      <Chip label="required" size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+                    ) : (
+                      <Chip label="optional" size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+                    )}
+                    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, ml: "auto", minWidth: 0 }}>
+                      {inputType && isComplexType(inputType) && !isCollectionReference && (
+                        <ComplexInputReferenceControl
+                          type={inputType}
+                          value={values[v.name]}
+                          referenceOptions={referenceOptions}
+                          fullWidth={false}
+                          compact
+                          onChange={(value) => onFieldChange(v.name, value)}
+                        />
+                      )}
+                      <Chip
+                        label={renderTypeCompact(v.type)}
+                        size="small"
+                        variant="outlined"
+                        sx={{ height: 18, fontSize: "0.65rem", flexShrink: 0 }}
+                      />
+                    </Box>
+                  </Box>
+                  {v.description && <MarkdownDescription text={v.description} />}
+                  {inputType && isComplexType(inputType) && inputReference?.mode === "reference" && (
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mb: 0.5 }}>
+                      <ReferenceSelectorControls
+                        value={inputReference}
+                        referenceOptions={referenceOptions}
+                        compact
+                        leadingControl={isCollectionReference && inputType ? (
+                          <ComplexInputReferenceControl
+                            type={inputType}
+                            value={inputValue}
+                            referenceOptions={referenceOptions}
+                            fullWidth={false}
+                            compact
+                            onChange={(value) => onFieldChange(v.name, value)}
+                          />
+                        ) : undefined}
+                        onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
+                      />
+                    </Box>
                   )}
-                  <Chip
-                    label={renderTypeCompact(v.type)}
-                    size="small"
-                    variant="outlined"
-                    sx={{ height: 18, fontSize: "0.65rem", ml: "auto" }}
-                  />
+                  {(() => {
+                    const scalarValue = sectionField(values[v.name]);
+                    return inputType ? (
+                      <ModuleInputEditor
+                        type={inputType}
+                        value={values[v.name]}
+                        referenceOptions={referenceOptions}
+                        metaOptions={metaOptions}
+                        showReferenceControl={false}
+                        path={moduleInputPath("", `variable:${v.name}`)}
+                        optionalFieldVisibility={optionalFieldVisibility}
+                        onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}
+                        error={fieldError}
+                        onChange={(value) => onFieldChange(v.name, value)}
+                      />
+                    ) : (
+                      <FieldEditor
+                        type={v.type}
+                        value={scalarValue}
+                        referenceOptions={referenceOptions}
+                        metaOptions={metaOptions}
+                        multilineHcl
+                        placeholder={v.default !== undefined ? `default: ${JSON.stringify(v.default)}` : "value or module.…"}
+                        error={fieldError}
+                        onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
+                      />
+                    );
+                  })()}
                 </Box>
-                {v.description && <MarkdownDescription text={v.description} />}
-                {(() => {
-                  const type = typeSpecFromCtyType(v.type, v.optionalAttributePaths, v.optionalAttributes);
-                  const scalarValue = sectionField(values[v.name]);
-                  return type ? (
-                    <ModuleInputEditor
-                      type={type}
-                      value={values[v.name]}
-                      referenceOptions={referenceOptions}
-                      metaOptions={metaOptions}
-                      error={fieldError}
-                      onChange={(value) => onFieldChange(v.name, value)}
-                    />
-                  ) : (
-                    <FieldEditor
-                      type={v.type}
-                      value={scalarValue}
-                      referenceOptions={referenceOptions}
-                      metaOptions={metaOptions}
-                      placeholder={v.default !== undefined ? `default: ${JSON.stringify(v.default)}` : "value or module.…"}
-                      error={fieldError}
-                      onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
-                    />
-                  );
-                })()}
+              </React.Fragment>
+            );
+          })}
+        </Box>
+        <Box data-testid="module-hcl-preview" sx={{ position: "relative", minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
+            {({ style, tokens, getLineProps, getTokenProps }) => (
+              <Box
+                component="pre"
+                aria-label="Module HCL preview"
+                sx={{
+                  m: 0,
+                  pl: 1,
+                  pr: 9,
+                  py: 0.75,
+                  minHeight: 0,
+                  flex: 1,
+                  borderRadius: 1,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  fontFamily: "monospace",
+                  fontSize: "0.75rem",
+                  lineHeight: 1.5,
+                  overflow: "auto",
+                  whiteSpace: "pre",
+                  ...style,
+                }}
+              >
+                {tokens.map((line, i) => (
+                  <div key={i} {...getLineProps({ line })}>
+                    {line.map((token, key) => (
+                      <span key={key} {...getTokenProps({ token })} />
+                    ))}
+                  </div>
+                ))}
               </Box>
-            </React.Fragment>
-          );
-        })}
+            )}
+          </Highlight>
+          <Box sx={{ position: "absolute", top: 6, right: 6, display: "flex", alignItems: "center", gap: 0.25 }}>
+            <Tooltip title={previewExpanded ? "Restore input pane space" : "Expand HCL preview"}>
+              <IconButton
+                size="small"
+                onClick={() => setPreviewExpanded((expanded) => !expanded)}
+                aria-label={previewExpanded ? "Restore HCL preview" : "Expand HCL preview"}
+                aria-pressed={previewExpanded}
+                sx={{ color: "text.secondary", transition: "color 0.2s", p: 0.4 }}
+              >
+                {previewExpanded ? <CloseFullscreenIcon sx={{ fontSize: 14 }} /> : <OpenInFullIcon sx={{ fontSize: 14 }} />}
+              </IconButton>
+            </Tooltip>
+            <CopyButton value={code} />
+          </Box>
+        </Box>
       </DialogContent>
       <DialogActions sx={{ justifyContent: "space-between", px: 3, flexWrap: "wrap", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

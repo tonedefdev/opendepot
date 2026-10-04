@@ -83,6 +83,20 @@ Values can come from several places:
 - A module output such as `module.ecr.repo_arn`.
 - A repeated value such as `each.key` or `each.value.name`.
 
+For a variable map or collection reference, choose **One instance** and enter
+the index or key expression to select one entry. When the selected entry is an
+object, optionally choose a descendant property. For example, selecting
+`var.lambda_functions`, **One instance**, `each.key`, and `spec` produces:
+
+```hcl
+var.lambda_functions[each.key].spec
+```
+
+Leave the descendant selection at **Whole value** to reference the complete
+entry. Choosing **All instances** clears the descendant selection and passes
+the full collection. Type compatibility checks use the selected entry or
+projected property type.
+
 The form keeps the expression visible on the canvas, so you can review how
 each module is connected without opening every field. Defaults owned by the
 child module remain there unless you explicitly configure the input.

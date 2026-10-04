@@ -97,6 +97,7 @@ type RawModuleData = Omit<
   | "onRemove"
   | "onRenameInstance"
   | "onFieldChange"
+  | "onOptionalFieldVisibilityChange"
   | "onMultiplicityChange"
   | "referenceOptions"
   | "fieldErrors"
@@ -163,6 +164,15 @@ function referencedValueType(type: CtyType, field: FieldValue, sourceMultiplicit
     }
   }
 
+  if (field.refAttributePath) {
+    for (const attributeName of field.refAttributePath.split(".")) {
+      if (!Array.isArray(selectedType) || selectedType[0] !== "object" || !selectedType[1] || typeof selectedType[1] !== "object") {
+        return "dynamic";
+      }
+      selectedType = (selectedType[1] as Record<string, CtyType>)[attributeName] ?? "dynamic";
+    }
+  }
+
   return selectedType;
 }
 
@@ -184,6 +194,7 @@ export function migrateStoredAssemblyNodes(saved: Node<RawNodeData>[]): Node<Raw
           ),
           requiredProviders: node.data.requiredProviders ?? [],
           providerBindings: node.data.providerBindings ?? {},
+          optionalFieldVisibility: node.data.optionalFieldVisibility ?? {},
         },
       };
     }
@@ -469,6 +480,25 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
     [setNodes],
   );
 
+  const changeOptionalFieldVisibility = useCallback(
+    (id: string, path: string, visible: boolean) => {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === id && node.data.kind === "module"
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  optionalFieldVisibility: { ...node.data.optionalFieldVisibility, [path]: visible },
+                },
+              }
+            : node,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
   const changeMultiplicity = useCallback(
     (id: string, multiplicity: Multiplicity) => {
       setNodes((nds) => nds.map((n) => (n.id === id && n.data.kind === "module" ? { ...n, data: { ...n.data, multiplicity } } : n)));
@@ -576,6 +606,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             kind: "module",
             namespace: resource.namespace,
             name: resource.name,
+            system: resource.provider,
             version,
             instanceName,
             grade: null,
@@ -584,6 +615,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             requiredProviders: [],
             providerBindings: {},
             values: {},
+            optionalFieldVisibility: {},
             multiplicity: { kind: "none" },
             loading: true,
             error: null,
@@ -1062,6 +1094,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
               onRemove: () => removeNode(n.id),
               onRenameInstance: (name: string) => renameInstance(n.id, name),
               onFieldChange: (variableName: string, value: ModuleInputValue) => changeField(n.id, variableName, value),
+              onOptionalFieldVisibilityChange: (path: string, visible: boolean) => changeOptionalFieldVisibility(n.id, path, visible),
               onMultiplicityChange: (multiplicity: Multiplicity) => changeMultiplicity(n.id, multiplicity),
               onProviderBindingChange: (localName: string, providerNodeId: string) => changeProviderBinding(n.id, localName, providerNodeId),
             },

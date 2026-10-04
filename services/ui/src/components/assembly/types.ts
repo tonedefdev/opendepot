@@ -135,6 +135,7 @@ export interface FieldValue {
   refOutput?: string;
   refSelector?: ReferenceSelector;
   refOutputSelector?: ReferenceSelector;
+  refAttributePath?: string;
 }
 
 export type ModuleInputValue =
@@ -142,6 +143,11 @@ export type ModuleInputValue =
   | { kind: "list"; items: ModuleInputValue[] }
   | { kind: "map"; entries: { key: string; value: ModuleInputValue }[] }
   | { kind: "object"; entries: { name: string; value: ModuleInputValue }[] };
+
+export function moduleInputPath(parentPath: string, segment: string): string {
+  const encodedSegment = encodeURIComponent(segment);
+  return parentPath ? `${parentPath}/${encodedSegment}` : encodedSegment;
+}
 
 export interface ProviderConfiguration {
   arguments: Record<string, FieldValue>;

@@ -1,5 +1,6 @@
 import rehypePrismGenerator from "rehype-prism-plus/generator";
 import type { Grammar } from "prismjs";
+import type { Pluggable } from "unified";
 import { refractor } from "refractor";
 import hcl from "refractor/lang/hcl";
 
@@ -16,10 +17,21 @@ const builtInFunctions = [
 ];
 
 export function extendHclGrammar(grammar: Grammar): void {
-  grammar.variable = /\b(?:var|local|each|module|data|path|terraform|self|count)\b(?:\.[A-Za-z_][\w-]*)+/;
-  grammar.function = new RegExp(`\\b(?:${builtInFunctions.join("|")})\\b(?=\\s*\\()`, "i");
-  grammar.expressionKeyword = { pattern: /\b(?:for|in|if|null)\b/, alias: "keyword" };
-  grammar.operator = /(?:==|!=|<=|>=|&&|\|\||[=<>!+*/%?-])/;
+  type NestedGrammarToken = { inside?: Record<string, unknown> };
+  const grammarTokens = grammar as unknown as Record<string, unknown>;
+  grammarTokens.variable = /\b(?:var|local|each|module|data|path|terraform|self|count)\b(?:\.[A-Za-z_][\w-]*)+/;
+  grammarTokens.function = new RegExp(`\\b(?:${builtInFunctions.join("|")})\\b(?=\\s*\\()`, "i");
+  grammarTokens.expressionKeyword = { pattern: /\b(?:for|in|if|null)\b/, alias: "keyword" };
+  grammarTokens.operator = /(?:==|!=|<=|>=|&&|\|\||[=<>!+*/%?-])/;
+
+  const stringToken = grammarTokens.string as NestedGrammarToken | undefined;
+  const interpolation = stringToken?.inside?.interpolation as NestedGrammarToken | undefined;
+  if (interpolation?.inside) {
+    interpolation.inside.type = {
+      pattern: /\b(?:count|data|each|local|module|path|self|terraform|var)\b(?:\.[\w*]+)+/i,
+      alias: "variable",
+    };
+  }
 }
 
 if (!refractor.registered("hcl")) {
@@ -28,7 +40,7 @@ if (!refractor.registered("hcl")) {
 
 extendHclGrammar(refractor.languages.hcl as Grammar);
 
-export const hclConditionPlugins = [[rehypePrismGenerator(refractor), { ignoreMissing: true }]];
+export const hclConditionPlugins: Pluggable[] = [[rehypePrismGenerator(refractor), { ignoreMissing: true }]];
 export { refractor as hclConditionRefractor };
 
 export function hclEditorColorVariables(mode: "dark" | "light") {

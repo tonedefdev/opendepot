@@ -124,7 +124,23 @@ describe("recursive type specifications", () => {
     const type: TypeSpec = { kind: "string" };
 
     expect(renderValueSpec(type, { kind: "scalar", literal: 'replace(each.key, "_", "-")' })).toBe('replace(each.key, "_", "-")');
+    expect(renderValueSpec(type, { kind: "scalar", literal: 'lambda-execution-${replace(each.key, "_", "-")}' })).toBe('"lambda-execution-${replace(each.key, "_", "-")}"');
     expect(renderValueSpec(type, { kind: "scalar", literal: "replace-this" })).toBe('"replace-this"');
+  });
+
+  it("renders heredoc string defaults as indented HCL expressions", () => {
+    expect(renderVariableSpec(
+      "user_data",
+      { kind: "string" },
+      true,
+      { kind: "scalar", literal: "<<-EOT\n#!/bin/sh\necho ready\nEOT" },
+    )).toBe(`variable "user_data" {
+  type = string
+  default = <<-EOT
+  #!/bin/sh
+  echo ready
+  EOT
+}`);
   });
 
   it("renders deeply nested types and structured optional defaults", () => {
