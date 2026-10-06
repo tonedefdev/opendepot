@@ -435,13 +435,13 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
         localStorage.getItem(PREVIOUS_STORAGE_KEY) ??
         localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
-        const saved = assemblyNodesForStorage(migrateStoredAssemblyNodes(JSON.parse(raw) as Node<RawNodeData>[]));
-        setNodes(saved);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+        const loaded = migrateStoredAssemblyNodes(JSON.parse(raw) as Node<RawNodeData>[]);
+        setNodes(loaded);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(assemblyNodesForStorage(loaded)));
         localStorage.removeItem(PREVIOUS_STORAGE_KEY);
         localStorage.removeItem(LEGACY_STORAGE_KEY);
 
-        const maxSeq = saved.reduce((max, n) => {
+        const maxSeq = loaded.reduce((max, n) => {
           const match = /-(\d+)$/.exec(n.id);
           return match ? Math.max(max, Number(match[1])) : max;
         }, 0);

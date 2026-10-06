@@ -481,7 +481,8 @@ test.describe("Assembly Line module code preview", () => {
     expect(searchSurface).toEqual(menuSurface);
     const selectedInputOption = searchPicker.getByRole("option", { name: "var.lambda_functions" });
     await expect(selectedInputOption).toHaveCSS("background-color", wholeValueSelectionColor);
-    await page.keyboard.press("Escape");
+    await page.locator(".MuiBackdrop-root").last().click({ position: { x: 2, y: 2 }, force: true });
+    await expect(searchPicker).toBeHidden();
 
     await keyExpressionForDescendant.click();
     await keyExpressionForDescendant.press("Tab");
