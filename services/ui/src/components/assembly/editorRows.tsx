@@ -82,9 +82,9 @@ export function RemoveButton({ label, onClick }: { label: string; onClick: () =>
   );
 }
 
-export function AddButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+export function AddButton({ onClick, children, disabled = false }: { onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
-    <Button size="small" startIcon={<AddIcon />} onClick={onClick} sx={{ alignSelf: "flex-start", ml: `${TOGGLE_WIDTH}px` }}>
+    <Button size="small" startIcon={<AddIcon />} onClick={onClick} disabled={disabled} sx={{ alignSelf: "flex-start", ml: `${TOGGLE_WIDTH}px` }}>
       {children}
     </Button>
   );

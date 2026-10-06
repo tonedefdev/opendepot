@@ -31,6 +31,7 @@ interface Props {
   metaOptions?: string[];
   error?: string;
   showReferenceControl?: boolean;
+  referenceControlPlacement?: "field" | "header";
   path?: string;
   optionalFieldVisibility?: Record<string, boolean>;
   onOptionalFieldVisibilityChange?: (path: string, visible: boolean) => void;
@@ -137,7 +138,7 @@ function ModuleInputRow({
         ) : (
           <Box sx={{ flex: "1 1 200px", minWidth: 0 }}>{children}</Box>
         )}
-        {actions && <Box sx={rowActionsSx}>{actions}</Box>}
+        {actions && <Box data-testid="module-input-row-actions" sx={rowActionsSx}>{actions}</Box>}
       </Box>
       {complex && (
         <Collapse in={expanded} unmountOnExit>
@@ -221,16 +222,31 @@ function MapInputEditor({
             expanded={expanded === index}
             onExpandedChange={(isExpanded) => setExpanded(isExpanded ? index : false)}
             actions={
-              <RemoveButton
-                label="Remove entry"
-                onClick={() => {
-                  setExpanded((current) => {
-                    if (current === index) return false;
-                    return current !== false && current > index ? current - 1 : current;
-                  });
-                  onChange({ kind: "map", entries: entries.filter((_, itemIndex) => itemIndex !== index) });
-                }}
-              />
+              <>
+                {isComplexType(type.element) && (
+                  <ComplexInputReferenceControl
+                    type={type.element}
+                    value={entry.value}
+                    referenceOptions={referenceOptions}
+                    fullWidth={false}
+                    onChange={(next) => {
+                      const nextEntries = entries.slice();
+                      nextEntries[index] = { ...entry, value: next };
+                      onChange({ kind: "map", entries: nextEntries });
+                    }}
+                  />
+                )}
+                <RemoveButton
+                  label="Remove entry"
+                  onClick={() => {
+                    setExpanded((current) => {
+                      if (current === index) return false;
+                      return current !== false && current > index ? current - 1 : current;
+                    });
+                    onChange({ kind: "map", entries: entries.filter((_, itemIndex) => itemIndex !== index) });
+                  }}
+                />
+              </>
             }
           >
             <ModuleInputEditor
@@ -238,6 +254,7 @@ function MapInputEditor({
               value={entry.value}
               referenceOptions={referenceOptions}
               metaOptions={metaOptions}
+              showReferenceControl={false}
               path={moduleInputPath(path, `map-entry:${index}:${entry.key}`)}
               optionalFieldVisibility={optionalFieldVisibility}
               onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}
@@ -274,6 +291,7 @@ export default function ModuleInputEditor({
   metaOptions = [],
   error,
   path = "",
+  referenceControlPlacement = "field",
   optionalFieldVisibility = {},
   onOptionalFieldVisibilityChange,
   showReferenceControl = true,
@@ -287,6 +305,7 @@ export default function ModuleInputEditor({
         referenceOptions={referenceOptions}
         metaOptions={metaOptions}
         multilineHcl
+        showReferenceControl={referenceControlPlacement !== "header"}
         error={error}
         onChange={(next) => onChange({ kind: "scalar", value: next })}
       />
@@ -343,12 +362,27 @@ export default function ModuleInputEditor({
                 toggleLabel={`${attribute.name} value`}
                 complex={isComplexType(attribute.type)}
                 summary={valueSummary(current)}
+                actions={isComplexType(attribute.type) ? (
+                  <ComplexInputReferenceControl
+                    type={attribute.type}
+                    value={current}
+                    referenceOptions={referenceOptions}
+                    fullWidth={false}
+                    onChange={(next) => {
+                      const nextEntries = entries
+                        .filter((entry) => entry.name !== attribute.name)
+                        .concat({ name: attribute.name, value: next });
+                      onChange({ kind: "object", entries: nextEntries });
+                    }}
+                  />
+                ) : undefined}
               >
                 <ModuleInputEditor
                   type={attribute.type}
                   value={current}
                   referenceOptions={referenceOptions}
                   metaOptions={metaOptions}
+                  showReferenceControl={false}
                   path={moduleInputPath(path, `attribute:${attribute.name}`)}
                   optionalFieldVisibility={optionalFieldVisibility}
                   onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}
@@ -408,20 +442,36 @@ export default function ModuleInputEditor({
               toggleLabel={`${type.kind === "tuple" ? "Element" : "Item"} ${index}`}
               complex={isComplexType(currentType)}
               summary={valueSummary(item)}
-              actions={
-                type.kind !== "tuple" ? (
-                  <RemoveButton
-                    label="Remove item"
-                    onClick={() => onChange({ kind: "list", items: items.filter((_, itemIndex) => itemIndex !== index) })}
-                  />
-                ) : undefined
-              }
+              actions={type.kind !== "tuple" || isComplexType(currentType) ? (
+                <>
+                  {isComplexType(currentType) && (
+                    <ComplexInputReferenceControl
+                      type={currentType}
+                      value={item}
+                      referenceOptions={referenceOptions}
+                      fullWidth={false}
+                      onChange={(next) => {
+                        const nextItems = items.slice();
+                        nextItems[index] = next;
+                        onChange({ kind: "list", items: nextItems });
+                      }}
+                    />
+                  )}
+                  {type.kind !== "tuple" && (
+                    <RemoveButton
+                      label="Remove item"
+                      onClick={() => onChange({ kind: "list", items: items.filter((_, itemIndex) => itemIndex !== index) })}
+                    />
+                  )}
+                </>
+              ) : undefined}
             >
               <ModuleInputEditor
                 type={currentType}
                 value={item}
                 referenceOptions={referenceOptions}
                 metaOptions={metaOptions}
+                showReferenceControl={false}
                 path={moduleInputPath(path, `item:${index}`)}
                 optionalFieldVisibility={optionalFieldVisibility}
                 onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}

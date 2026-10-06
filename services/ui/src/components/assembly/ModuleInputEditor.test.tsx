@@ -79,6 +79,70 @@ describe("ModuleInputEditor", () => {
     expect(screen.getByTestId("value").textContent).toContain('"key":"primary"');
   });
 
+  it("places the map entry input chip beside the remove action", () => {
+    render(
+      <Harness
+        type={{
+          kind: "map",
+          element: { kind: "object", attributes: [{ name: "name", type: { kind: "string" } }] },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add entry" }));
+
+    const rowActions = screen.getByTestId("module-input-row-actions");
+    const inputChip = rowActions.querySelector('[aria-label="Use input"]');
+    const removeButton = rowActions.querySelector('[aria-label="Remove entry"]');
+    expect(inputChip).toBeTruthy();
+    expect(removeButton).toBeTruthy();
+    expect(rowActions.contains(inputChip)).toBe(true);
+    expect(rowActions.contains(removeButton)).toBe(true);
+  });
+
+  it("places nested object and list input chips on their owning rows", () => {
+    const type: TypeSpec = {
+      kind: "object",
+      attributes: [{
+        name: "custom_iam_policy",
+        type: {
+          kind: "list",
+          element: {
+            kind: "object",
+            attributes: [
+              { name: "actions", type: { kind: "list", element: { kind: "string" } } },
+              { name: "resources", type: { kind: "list", element: { kind: "string" } } },
+            ],
+          },
+        },
+      }],
+    };
+    const value: ModuleInputValue = {
+      kind: "object",
+      entries: [{
+        name: "custom_iam_policy",
+        value: { kind: "list", items: [{ kind: "object", entries: [] }] },
+      }],
+    };
+
+    render(
+      <ModuleInputEditor
+        type={type}
+        value={value}
+        referenceOptions={complexReferenceOptions}
+        showReferenceControl={false}
+        onChange={() => undefined}
+      />,
+    );
+
+    const rowActions = screen.getAllByTestId("module-input-row-actions");
+    expect(rowActions).toHaveLength(4);
+    for (const actions of rowActions) {
+      expect(actions.querySelector('[aria-label="Use input"]')).toBeTruthy();
+    }
+    expect(rowActions[1].querySelector('[aria-label="Remove item"]')).toBeTruthy();
+  });
+
   it("highlights and accepts multiline HCL scalar values", () => {
     function ScalarHarness() {
       const [value, setValue] = React.useState<ModuleInputValue>({ kind: "scalar", value: { mode: "literal", literal: "" } });
@@ -98,6 +162,34 @@ describe("ModuleInputEditor", () => {
     expect(screen.getByTestId("value").textContent).toContain(JSON.stringify(expression));
     expect(container.querySelector(".token.function")?.textContent).toBe("replace");
     expect(container.querySelector(".token.variable")?.textContent).toBe("each.key");
+  });
+
+  it("shows a built-in function hint while the caret is inside the call", () => {
+    function FunctionHintHarness() {
+      const [value, setValue] = React.useState<ModuleInputValue>({
+        kind: "scalar",
+        value: { mode: "literal", literal: "" },
+      });
+      return <ModuleInputEditor type={{ kind: "string" }} value={value} referenceOptions={referenceOptions} onChange={setValue} />;
+    }
+
+    render(<FunctionHintHarness />);
+    const editor = screen.getByRole("textbox", { name: "HCL value" }) as HTMLTextAreaElement;
+    fireEvent.focus(editor);
+    fireEvent.change(editor, { target: { value: "length(var.items)" } });
+    editor.setSelectionRange(10, 10);
+    fireEvent.select(editor);
+
+    expect(screen.getByText(/Returns the number of elements/)).toBeTruthy();
+    const docsLink = screen.getByRole("link", { name: "OpenTofu docs" });
+    expect(docsLink.getAttribute("href"))
+      .toBe("https://opentofu.org/docs/language/functions/length/");
+
+    fireEvent.blur(editor, { relatedTarget: docsLink });
+    expect(screen.getByRole("link", { name: "OpenTofu docs" })).toBeTruthy();
+
+    fireEvent.blur(docsLink, { relatedTarget: document.body });
+    expect(screen.queryByText(/Returns the number of elements/)).toBeNull();
   });
 
   it("keeps module output references selectable beside the code editor", () => {
@@ -121,6 +213,21 @@ describe("ModuleInputEditor", () => {
     expect(screen.getByTestId("value").textContent).toContain('"refNodeId":"module-network"');
   });
 
+  it("can leave scalar reference selection to the enclosing input header", () => {
+    render(
+      <ModuleInputEditor
+        type={{ kind: "string" }}
+        value={{ kind: "scalar", value: { mode: "literal", literal: "" } }}
+        referenceOptions={referenceOptions}
+        referenceControlPlacement="header"
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "HCL value" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use input" })).toBeNull();
+  });
+
   it("allows a complex map input to use and clear a whole-value reference", () => {
     function ComplexReferenceHarness() {
       const [value, setValue] = React.useState<ModuleInputValue>({
@@ -141,7 +248,7 @@ describe("ModuleInputEditor", () => {
     }
 
     const { container } = render(<ComplexReferenceHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Use input" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Use input" })[0]);
     fireEvent.mouseDown(screen.getByPlaceholderText("Search module outputs"));
     fireEvent.click(screen.getByRole("option", { name: "module.roles_source.roles" }));
 

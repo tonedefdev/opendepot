@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Multiplicity, TypeSpec, ValueSpec, VariableOption } from "./types";
+import { builtInFunctions } from "./hclConditionHighlight";
 import {
   emptyValueSpec,
   forEachShapeFromTypeSpec,
@@ -126,6 +127,67 @@ describe("recursive type specifications", () => {
     expect(renderValueSpec(type, { kind: "scalar", literal: 'replace(each.key, "_", "-")' })).toBe('replace(each.key, "_", "-")');
     expect(renderValueSpec(type, { kind: "scalar", literal: 'lambda-execution-${replace(each.key, "_", "-")}' })).toBe('"lambda-execution-${replace(each.key, "_", "-")}"');
     expect(renderValueSpec(type, { kind: "scalar", literal: "replace-this" })).toBe('"replace-this"');
+  });
+
+  it("preserves HCL traversals in string values", () => {
+    const type: TypeSpec = { kind: "string" };
+
+    for (const literal of [
+      "module.foo",
+      "var.foo",
+      "local.foo",
+      "output.foo",
+      "module.lambda_roles[each.key].role_arns[each.key]",
+    ]) {
+      expect(renderValueSpec(type, { kind: "scalar", literal })).toBe(literal);
+    }
+    expect(renderValueSpec(type, { kind: "scalar", literal: "the module.foo value" })).toBe('"the module.foo value"');
+  });
+
+  it("preserves balanced delimited HCL expressions in string values", () => {
+    const type: TypeSpec = { kind: "string" };
+    const expressions = [
+      "(\n  var.enable\n  && var.foo\n  ? true\n  : false\n)",
+      "[\n  var.first,\n  local.second,\n]",
+      "{\n  name = var.name\n}",
+    ];
+
+    for (const expression of expressions) {
+      expect(renderValueSpec(type, { kind: "scalar", literal: expression })).toBe(expression);
+    }
+    expect(renderValueSpec(type, { kind: "scalar", literal: "(\n var.foo" })).toBe('"(\\n var.foo"');
+  });
+
+  it("preserves bare HCL conditional expressions in string values", () => {
+    const type: TypeSpec = { kind: "string" };
+    const expressions = [
+      'var.private ? "private" : "public"',
+      'var.enabled ? upper(var.name) : "fallback"',
+    ];
+
+    for (const expression of expressions) {
+      expect(renderValueSpec(type, { kind: "scalar", literal: expression })).toBe(expression);
+    }
+  });
+
+  it("quotes HCL conditionals containing unknown function calls", () => {
+    const type: TypeSpec = { kind: "string" };
+    const expressions = [
+      'var.enabled ? custom(var.name) : "fallback"',
+      '(var.enabled ? custom(var.name) : "fallback")',
+    ];
+
+    for (const expression of expressions) {
+      expect(renderValueSpec(type, { kind: "scalar", literal: expression })).toBe(JSON.stringify(expression));
+    }
+  });
+
+  it("preserves every registered OpenTofu function call as an HCL expression", () => {
+    const type: TypeSpec = { kind: "string" };
+
+    for (const name of Object.keys(builtInFunctions)) {
+      expect(renderValueSpec(type, { kind: "scalar", literal: `${name}()` })).toBe(`${name}()`);
+    }
   });
 
   it("renders heredoc string defaults as indented HCL expressions", () => {

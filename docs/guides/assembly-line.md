@@ -29,7 +29,7 @@ resource, so you can experiment freely and export only when the graph is ready.
 
 ## Build a Root Module
 
-Add module, provider, and variable nodes to the canvas. Every module and provider node pins an exact version. Module inputs and provider configuration fields are rendered only when they are set on the canvas; defaults owned by the child module or provider remain in the child configuration.
+Add module, provider, and variable nodes to the canvas. Module and provider nodes select a specific onboarded release. When exported, module releases use pessimistic constraints and provider releases remain exact. Module inputs and provider configuration fields are rendered only when they are set on the canvas; defaults owned by the child module or provider remain in the child configuration.
 
 Variable nodes become declarations in `variables.tf`. A variable default is emitted only when the canvas defines one. Recursive collection, tuple, object, and optional object attribute types are preserved.
 
@@ -212,7 +212,13 @@ Generated module source addresses continue to use the OpenDepot module registry 
 <ui.baseUrl host>/<kubernetes namespace>/<Module resource name>/<provider system>
 ```
 
-Exact versions are emitted without a leading `v`.
+Module versions are emitted as pessimistic constraints without a leading `v`. For example, selecting module version `1.1.1` produces:
+
+```hcl
+version = "~> 1.1.1"
+```
+
+Provider versions remain exact and are emitted without a leading `v`.
 
 ## Export
 

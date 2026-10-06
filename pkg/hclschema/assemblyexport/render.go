@@ -251,7 +251,7 @@ func renderMain(model RenderModel) ([]byte, error) {
 		}
 
 		blockBody.SetAttributeValue("source", cty.StringVal(moduleSource(model.RegistryHost, module)))
-		blockBody.SetAttributeValue("version", cty.StringVal(normalizeVersion(module.Version)))
+		blockBody.SetAttributeValue("version", cty.StringVal("~> "+normalizeVersion(module.Version)))
 
 		if len(module.Inputs) > 0 || len(module.ProviderBindings) > 0 {
 			blockBody.AppendNewline()

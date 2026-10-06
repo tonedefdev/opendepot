@@ -13,8 +13,11 @@ import Typography from "@mui/material/Typography";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import CloseIcon from "@mui/icons-material/Close";
+import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import DataObjectIcon from "@mui/icons-material/DataObject";
+import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
@@ -82,6 +85,7 @@ export default function VariableModal({
   onHasDefaultChange,
   onDefaultChange,
 }: Props) {
+  const [previewExpanded, setPreviewExpanded] = React.useState(false);
   const code = React.useMemo(
     () => renderVariableSpec(name, type, hasDefault, defaultValue, description, validations),
     [name, type, hasDefault, defaultValue, description, validations],
@@ -140,8 +144,14 @@ export default function VariableModal({
           minHeight: 0,
           overflow: "hidden",
           display: "grid",
-          gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 3fr) minmax(320px, 2fr)" },
-          gridTemplateRows: { xs: "minmax(0, 1fr) minmax(180px, 32%)", md: "minmax(0, 1fr)" },
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            md: previewExpanded ? "minmax(0, 1fr) minmax(320px, 2fr)" : "minmax(0, 3fr) minmax(320px, 2fr)",
+          },
+          gridTemplateRows: {
+            xs: previewExpanded ? "minmax(120px, 1fr) minmax(0, 2fr)" : "minmax(0, 1fr) minmax(180px, 32%)",
+            md: "minmax(0, 1fr)",
+          },
           gap: 1.5,
         }}
       >
@@ -162,7 +172,7 @@ export default function VariableModal({
                 sx={{
                   m: 0,
                   pl: 1,
-                  pr: 5,
+                  pr: 9,
                   py: 0.75,
                   minHeight: 0,
                   flex: 1,
@@ -187,7 +197,18 @@ export default function VariableModal({
               </Box>
             )}
           </Highlight>
-          <Box sx={{ position: "absolute", top: 6, right: 6 }}>
+          <Box sx={{ position: "absolute", top: 6, right: 6, display: "flex", alignItems: "center", gap: 0.25 }}>
+            <Tooltip title={previewExpanded ? "Restore input pane space" : "Expand HCL preview"}>
+              <IconButton
+                size="small"
+                onClick={() => setPreviewExpanded((expanded) => !expanded)}
+                aria-label={previewExpanded ? "Restore HCL preview" : "Expand HCL preview"}
+                aria-pressed={previewExpanded}
+                sx={{ color: "text.secondary", transition: "color 0.2s", p: 0.4 }}
+              >
+                {previewExpanded ? <CloseFullscreenIcon sx={{ fontSize: 14 }} /> : <OpenInFullIcon sx={{ fontSize: 14 }} />}
+              </IconButton>
+            </Tooltip>
             <CopyButton value={code} />
           </Box>
         </Box>

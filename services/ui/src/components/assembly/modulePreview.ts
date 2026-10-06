@@ -1,7 +1,8 @@
 import type { TypeSpec } from "./types";
 import { moduleInputPath, type FieldValue, type ModuleInputValue, type Multiplicity, type ProviderBinding, type ProviderOption, type ReferenceOption, type VariableOption } from "./types";
 import { buildModuleSource, stripV } from "@/lib/registrySource";
-import { isKnownFunctionExpression, renderHclHeredoc, renderHclStringLiteral } from "./typeSpec";
+import { isKnownHclExpression, renderHclHeredoc, renderHclStringLiteral } from "./typeSpec";
+import { renderReferenceExpression } from "./hclReference";
 
 export interface ModulePreviewInput {
   name: string;
@@ -39,37 +40,26 @@ function isIterationExpression(expression: string): boolean {
   return value === "count.index" || value === "each.key" || value === "each.value" || value.startsWith("each.key.") || value.startsWith("each.value.");
 }
 
-function referenceExpression(value: FieldValue, references: ReferenceOption[]): string {
-  const target = references.find((option) => option.nodeId === value.refNodeId && option.output === value.refOutput);
-  if (!target) return "null";
-
-  let expression = target.sourceKind === "variable" ? `var.${target.instanceName}` : `module.${target.instanceName}`;
-  if (value.refOutput) expression += `.${value.refOutput}`;
-
-  if (target.sourceKind === "module" && target.sourceMultiplicity === "count") {
-    if (value.refSelector?.kind === "all") expression = `module.${target.instanceName}[*].${value.refOutput}`;
-    else if (value.refSelector?.kind === "index") expression = `module.${target.instanceName}[${value.refSelector.expr.literal}].${value.refOutput}`;
-  } else if (target.sourceKind === "module" && target.sourceMultiplicity === "for_each") {
-    if (value.refSelector?.kind === "all") expression = `[for instance in module.${target.instanceName} : instance.${value.refOutput}]`;
-    else if (value.refSelector?.kind === "key") expression = `module.${target.instanceName}[${value.refSelector.expr.literal}].${value.refOutput}`;
-  }
-
-  if (value.refOutputSelector?.kind === "index" || value.refOutputSelector?.kind === "key") {
-    expression += `[${value.refOutputSelector.expr.literal}]`;
-  }
-  if (value.refAttributePath) expression += `.${value.refAttributePath}`;
-  return expression;
+function indentExpressionContinuations(expression: string, depth: number): string {
+  const indentation = "  ".repeat(depth);
+  return expression
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line, index) => index > 0 && line ? `${indentation}${line}` : line)
+    .join("\n");
 }
 
 function renderScalar(type: TypeSpec, value: FieldValue, references: ReferenceOption[], depth: number): string {
-  if (value.mode === "reference") return referenceExpression(value, references);
+  if (value.mode === "reference") return renderReferenceExpression(value, references);
   const literal = value.literal.trim();
   if (!literal) return "null";
   if (type.kind === "string") {
     const heredoc = renderHclHeredoc(value.literal, depth);
     if (heredoc) return heredoc;
   }
-  if (isIterationExpression(literal) || (type.kind === "string" && isKnownFunctionExpression(literal))) return literal;
+  if (isIterationExpression(literal) || (type.kind === "string" && isKnownHclExpression(literal))) {
+    return indentExpressionContinuations(literal, depth);
+  }
   return type.kind === "string" ? renderHclStringLiteral(value.literal) : value.literal;
 }
 
@@ -156,7 +146,7 @@ function renderMultiplicity(
     const expression = multiplicity.expr.mode === "reference"
       ? variable
         ? `var.${variable.name}`
-        : referenceExpression(multiplicity.expr, references)
+        : renderReferenceExpression(multiplicity.expr, references)
       : multiplicity.expr.literal;
     return {
       key: "count",
@@ -191,7 +181,7 @@ export function renderModulePreview({
   if (repetition) lines.push(`  ${repetition.key} = ${repetition.value}`);
   lines.push(
     `  source  = ${JSON.stringify(buildModuleSource(registryHost, namespace, moduleName, system))}`,
-    `  version = ${JSON.stringify(stripV(version))}`,
+    `  version = ${JSON.stringify(`~> ${stripV(version)}`)}`,
   );
   const renderedBindings = renderProviderBindings(providerBindings, providerOptions);
 

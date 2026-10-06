@@ -52,7 +52,7 @@ func TestRenderProducesDeterministicRootModule(t *testing.T) {
 		`provider "aws"`,
 		`alias  = "primary"`,
 		`source  = "opendepot.example.com:8443/platform/vpc/aws"`,
-		`version = "1.2.3"`,
+		`version = "~> 1.2.3"`,
 		`aws = aws.primary`,
 	} {
 		if !strings.Contains(main, expected) {
@@ -174,13 +174,13 @@ func TestRenderOrdersModuleArguments(t *testing.T) {
 	want := `module "kms" {
   count   = var.create_kms_key ? 1 : 0
   source  = "opendepot.example.com/platform/kms/aws"
-  version = "4.2.1"
+  version = "~> 4.2.1"
 }
 
 module "s3_buckets" {
   for_each = var.s3_buckets
   source   = "opendepot.example.com/platform/s3/aws"
-  version  = "5.15.4"
+  version  = "~> 5.15.4"
 
   bucket = each.value.spec.bucket_name
 }

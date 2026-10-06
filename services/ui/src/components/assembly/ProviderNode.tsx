@@ -32,6 +32,7 @@ export interface ProviderNodeData {
   schema: ProviderSchemaBlock;
   configuration: ProviderConfiguration;
   referenceOptions: ReferenceOption[];
+  diagnostics?: string[];
   loading: boolean;
   error: string | null;
   onRemove: () => void;
@@ -45,7 +46,7 @@ function ProviderNode({ data }: NodeProps<ProviderNodeData>) {
   const providerDetailsHref = `/${encodeURIComponent(data.namespace)}/provider/${encodeURIComponent(data.name)}`;
 
   return (
-    <Box sx={{ width: 300, borderRadius: 2, border: "1px solid", borderColor: data.error || data.localNameError || data.aliasError ? "error.main" : "transparent", bgcolor: "background.paper", boxShadow: 3, overflow: "hidden" }}>
+    <Box sx={{ width: 300, borderRadius: 2, border: "1px solid", borderColor: data.error || data.localNameError || data.aliasError || (data.diagnostics?.length ?? 0) > 0 ? "error.main" : "transparent", bgcolor: "background.paper", boxShadow: 3, overflow: "hidden" }}>
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <SettingsInputComponentIcon sx={{ fontSize: 16, color: "warning.main" }} />
@@ -138,11 +139,17 @@ function ProviderNode({ data }: NodeProps<ProviderNodeData>) {
         {!data.loading && !data.error && <ChevronRightIcon sx={{ fontSize: 16, opacity: 0.6, ml: "auto" }} />}
       </Box>
       {data.error && <Typography variant="caption" color="error" sx={{ display: "block", px: 1, pb: 1 }}>{data.error}</Typography>}
+      {data.diagnostics?.map((diagnostic, index) => (
+        <Typography key={`${index}-${diagnostic}`} variant="caption" sx={{ display: "block", px: 1, pt: index === 0 ? 1 : 0, pb: 0.5, color: "error.main" }}>
+          {diagnostic}
+        </Typography>
+      ))}
 
       <ProviderConfigurationModal
         open={open}
         onClose={() => setOpen(false)}
-        providerName={`${data.localName}${data.alias ? `.${data.alias}` : ""}`}
+        localName={data.localName}
+        alias={data.alias}
         schema={data.schema}
         value={data.configuration}
         referenceOptions={data.referenceOptions}

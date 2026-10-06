@@ -53,6 +53,7 @@ export interface ModuleNodeData {
   values: Record<string, ModuleInputValue>;
   optionalFieldVisibility: Record<string, boolean>;
   fieldErrors: Record<string, string>;
+  diagnostics?: string[];
   referenceOptions: ReferenceOption[];
   variableOptions: VariableOption[];
   multiplicity: Multiplicity;
@@ -117,6 +118,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     values,
     optionalFieldVisibility,
     fieldErrors,
+    diagnostics = [],
     referenceOptions,
     variableOptions,
     multiplicity,
@@ -203,7 +205,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
         width: NODE_WIDTH,
         borderRadius: 2,
         border: "1px solid",
-        borderColor: error || instanceNameError ? "#f85149" : "transparent",
+        borderColor: error || instanceNameError || diagnostics.length > 0 ? "#f85149" : "transparent",
         bgcolor: "background.paper",
         // A repeated (count/for_each) module reads as "N instances" via a
         // layered box-shadow stacked-card look rather than extra DOM nodes —
@@ -449,6 +451,11 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
 
       {!loading && !error && (
         <>
+          {diagnostics.map((diagnostic, index) => (
+            <Typography key={`${index}-${diagnostic}`} variant="caption" sx={{ display: "block", px: 1.5, pt: index === 0 ? 1.5 : 0, color: "error.main" }}>
+              {diagnostic}
+            </Typography>
+          ))}
           <Box
             role="button"
             tabIndex={0}

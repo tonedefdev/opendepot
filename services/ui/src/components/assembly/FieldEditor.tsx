@@ -3,6 +3,7 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
+import Link from "@mui/material/Link";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -16,7 +17,7 @@ import { useColorScheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
 import type { CtyType } from "@/lib/api";
 import type { FieldValue, ReferenceOption } from "./types";
-import { hclConditionPlugins, hclEditorColorVariables } from "./hclConditionHighlight";
+import { getHclFunctionHint, hclConditionPlugins, hclEditorColorVariables } from "./hclConditionHighlight";
 import { monoSx } from "./editorRows";
 
 const expressionSurfaceSx = {
@@ -61,6 +62,7 @@ interface Props {
   placeholder?: string;
   error?: string;
   multilineHcl?: boolean;
+  showReferenceControl?: boolean;
   referenceOnly?: boolean;
   referenceOnlyFullWidth?: boolean;
   referenceOnlyCompact?: boolean;
@@ -311,6 +313,7 @@ export default function FieldEditor({
   placeholder,
   error,
   multilineHcl = false,
+  showReferenceControl = true,
   referenceOnly = false,
   referenceOnlyFullWidth = true,
   referenceOnlyCompact = false,
@@ -318,9 +321,15 @@ export default function FieldEditor({
 }: Props) {
   const [referenceAnchorEl, setReferenceAnchorEl] = React.useState<HTMLElement | null>(null);
   const [referenceSearch, setReferenceSearch] = React.useState("");
+  const [hclCaretPosition, setHclCaretPosition] = React.useState<number | null>(null);
+  const [hclEditorFocused, setHclEditorFocused] = React.useState(false);
   const { mode, systemMode } = useColorScheme();
   const editorMode = (mode === "system" ? systemMode : mode) === "light" ? "light" : "dark";
   const currentValue = currentAutocompleteValue(value, referenceOptions);
+  const hclLiteral = value?.mode === "literal" ? value.literal : "";
+  const activeFunctionHint = hclEditorFocused && hclCaretPosition !== null
+    ? getHclFunctionHint(hclLiteral, hclCaretPosition)
+    : undefined;
   const options: Array<string | ReferenceOption> = [
     ...(type === "bool" ? ["true", "false"] : []),
     ...metaOptions,
@@ -380,7 +389,7 @@ export default function FieldEditor({
         <Box
           sx={{
             display: "flex",
-            alignItems: "center",
+            alignItems: referenceOnly ? "center" : "flex-start",
             justifyContent: referenceOnly ? "flex-end" : undefined,
             gap: 1,
             minWidth: 0,
@@ -388,9 +397,21 @@ export default function FieldEditor({
         >
           {multilineHcl && (
             <Box
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHclEditorFocused(false);
+              }}
               sx={{
                 flex: "1 1 auto",
                 minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 0.5,
+              }}
+            >
+              <Box
+                sx={{
+                  width: "100%",
+                  minWidth: 0,
                 px: 0.75,
                 py: 0.25,
                 ...expressionSurfaceSx,
@@ -409,14 +430,36 @@ export default function FieldEditor({
                 padding={0}
                 indentWidth={2}
                 placeholder={placeholder ?? "Value or HCL expression"}
-                onChange={(event) => onChange({ mode: "literal", literal: event.target.value })}
+                onChange={(event) => {
+                  setHclCaretPosition(event.currentTarget.selectionStart);
+                  onChange({ mode: "literal", literal: event.target.value });
+                }}
+                onSelect={(event) => setHclCaretPosition(event.currentTarget.selectionStart)}
+                onKeyUp={(event) => setHclCaretPosition(event.currentTarget.selectionStart)}
+                onClick={(event) => setHclCaretPosition(event.currentTarget.selectionStart)}
+                onFocus={(event) => {
+                  setHclEditorFocused(true);
+                  setHclCaretPosition(event.currentTarget.selectionStart);
+                }}
                 aria-label="HCL value"
                 aria-invalid={!!error}
                 style={{ ...monoSx, width: "100%", backgroundColor: "transparent" }}
               />
+              </Box>
+              {activeFunctionHint && (
+                <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, pl: 0.75, flexWrap: "wrap" }}>
+                  <Typography variant="caption" color="text.secondary">
+                    <Box component="code" sx={{ color: "text.primary", fontWeight: 600 }}>{activeFunctionHint.name}()</Box>
+                    {" "}{activeFunctionHint.hint}
+                  </Typography>
+                  <Link href={activeFunctionHint.docsUrl} target="_blank" rel="noreferrer" variant="caption">
+                    OpenTofu docs
+                  </Link>
+                </Box>
+              )}
             </Box>
           )}
-          {pickerOptions.length > 0 && !moveCollectionChip && referenceChip}
+          {pickerOptions.length > 0 && showReferenceControl && !moveCollectionChip && referenceChip}
         </Box>
       )}
       {multilineHcl || referenceOnly ? (
@@ -517,7 +560,7 @@ export default function FieldEditor({
         />
       )}
       {(multilineHcl || referenceOnly) && error && <Typography variant="caption" color="error">{error}</Typography>}
-      {!referenceOnlyCompact && (
+      {!referenceOnlyCompact && showReferenceControl && (
         <ReferenceSelectorControls
           value={value}
           referenceOptions={referenceOptions}

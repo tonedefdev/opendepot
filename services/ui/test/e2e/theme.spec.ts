@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+if (process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+  test.use({ storageState: process.env.PLAYWRIGHT_AUTH_STORAGE_STATE });
+}
+
 /**
  * Theme toggle tests: verify the light/dark mode switch in the sidebar,
  * cookie-based persistence across reloads, and first-visit OS-preference

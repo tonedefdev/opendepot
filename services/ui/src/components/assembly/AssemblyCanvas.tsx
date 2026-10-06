@@ -63,6 +63,10 @@ function displayVersion(v: string): string {
   return v.startsWith("v") ? v : `v${v}`;
 }
 
+function formatAssemblyDiagnostic(diagnostic: AssemblyDiagnostic): string {
+  return diagnostic.path ? `${diagnostic.path}: ${diagnostic.message}` : diagnostic.message;
+}
+
 const nodeTypes: NodeTypes = { module: ModuleNode, variable: VariableNode, provider: ProviderNode };
 
 interface Props {
@@ -372,9 +376,20 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
   const [exportError, setExportError] = useState<{ message: string; output?: string } | null>(null);
   const [exportOutput, setExportOutput] = useState("");
   const [serverDiagnostics, setServerDiagnostics] = useState<AssemblyDiagnostic[]>([]);
+  const diagnosticDocumentRef = useRef<string | null>(null);
+  const documentFingerprint = useMemo(() => JSON.stringify(serializeAssemblyDocument(nodes)), [nodes]);
+  const currentDocumentFingerprintRef = useRef(documentFingerprint);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { screenToFlowPosition } = useReactFlow();
+
+  useEffect(() => {
+    currentDocumentFingerprintRef.current = documentFingerprint;
+    if (diagnosticDocumentRef.current && diagnosticDocumentRef.current !== documentFingerprint) {
+      diagnosticDocumentRef.current = null;
+      setServerDiagnostics([]);
+    }
+  }, [documentFingerprint]);
 
   useEffect(() => {
     const toggleNodeMap = () => setMobileMapOpen((open) => !open);
@@ -1081,6 +1096,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
     () =>
       nodes.map((n) => {
         if (n.data.kind === "module") {
+            const diagnostics = serverDiagnostics
+              .filter((diagnostic) => diagnostic.nodeId === n.id)
+              .map(formatAssemblyDiagnostic);
           return {
             ...n,
             data: {
@@ -1090,7 +1108,8 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
               instanceNameError: instanceNameErrorsByNode.get(n.id) ?? null,
               variableOptions,
               providerOptions,
-              error: n.data.error ?? serverDiagnostics.find((diagnostic) => diagnostic.nodeId === n.id)?.message ?? null,
+              diagnostics,
+              error: n.data.error,
               onRemove: () => removeNode(n.id),
               onRenameInstance: (name: string) => renameInstance(n.id, name),
               onFieldChange: (variableName: string, value: ModuleInputValue) => changeField(n.id, variableName, value),
@@ -1102,14 +1121,18 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
         }
 
         if (n.data.kind === "provider") {
+          const diagnostics = serverDiagnostics
+            .filter((diagnostic) => diagnostic.nodeId === n.id)
+            .map(formatAssemblyDiagnostic);
           return {
             ...n,
             data: {
               ...n.data,
               referenceOptions: referenceOptionsByNode.get(n.id) ?? [],
+              diagnostics,
               localNameError: instanceNameErrorsByNode.get(n.id) ?? null,
               aliasError: n.data.alias && !isValidInstanceName(n.data.alias) ? "Alias is invalid" : null,
-              error: n.data.error ?? serverDiagnostics.find((diagnostic) => diagnostic.nodeId === n.id)?.message ?? null,
+              error: n.data.error,
               onRemove: () => removeNode(n.id),
               onAliasChange: (alias: string) => changeProvider(n.id, { alias }),
               onConfigurationChange: (configuration: ProviderConfiguration) => changeProvider(n.id, { configuration }),
@@ -1121,6 +1144,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           ...n,
           data: {
             ...n.data,
+            diagnostics: serverDiagnostics
+              .filter((diagnostic) => diagnostic.nodeId === n.id)
+              .map(formatAssemblyDiagnostic),
             nameError: instanceNameErrorsByNode.get(n.id) ?? null,
             validationError: variableValidationErrorsByNode.get(n.id) ?? null,
             onRename: (name: string) => renameVariable(n.id, name),
@@ -1178,6 +1204,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
 
   const clearCanvas = useCallback(() => {
     setNodes([]);
+    diagnosticDocumentRef.current = null;
     setServerDiagnostics([]);
     setClearConfirmationOpen(false);
     try {
@@ -1194,9 +1221,11 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
     setExportComplete(false);
     setExportError(null);
     setExportOutput("");
+    diagnosticDocumentRef.current = null;
     setServerDiagnostics([]);
 
     const document = serializeAssemblyDocument(nodes);
+    const submittedFingerprint = JSON.stringify(document);
 
     try {
       const result = await exportAssembly(document, ({ phase, output }) => {
@@ -1204,7 +1233,10 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
         setExportOutput((current) => current ? `${current}\n${line}` : line);
       });
       if (result.error) {
-        setServerDiagnostics(result.error.diagnostics ?? []);
+        if (currentDocumentFingerprintRef.current === submittedFingerprint) {
+          diagnosticDocumentRef.current = submittedFingerprint;
+          setServerDiagnostics(result.error.diagnostics ?? []);
+        }
         setExportError({ message: result.error.message, output: result.error.output });
         return;
       }
@@ -1400,7 +1432,10 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
       <Box ref={wrapperRef} sx={{ flex: 1, minWidth: 0, position: "relative" }} onDrop={onDrop} onDragOver={onDragOver}>
         <IconButton
           aria-label={resourceMenuOpen ? "Hide Assembly Line menu" : "Show Assembly Line menu"}
-          onClick={() => setResourceMenuOpen((open) => !open)}
+          onClick={(event) => {
+            event.stopPropagation();
+            setResourceMenuOpen((open) => !open);
+          }}
           sx={{
             display: { xs: "flex", sm: "none" },
             position: "absolute",

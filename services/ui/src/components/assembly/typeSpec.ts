@@ -1,5 +1,6 @@
 import type { Multiplicity, TypeSpec, ValueSpec, VariableOption, VariableValidation } from "./types";
 import type { CtyType } from "@/lib/api";
+import { builtInFunctions } from "./hclConditionHighlight";
 
 function attributeTypeOrder(type: TypeSpec): number {
   if (type.kind === "string" || type.kind === "number" || type.kind === "bool" || type.kind === "any") return 0;
@@ -206,23 +207,157 @@ export function isComplexVariableType(type: TypeSpec): boolean {
   return type.kind === "object" || (type.kind === "map" && type.element.kind === "object");
 }
 
-/** Quotes a scalar literal per its declared type for HCL source form. */
-const knownFunctionNames = new Set([
-  "abs", "base64encode", "base64gzip", "base64sha256", "base64sha512",
-  "basename", "bcrypt", "can", "ceil", "chomp", "cidrhost", "cidrnetmask", "cidrsubnet", "cidrsubnets",
-  "coalesce", "coalescelist", "compact", "concat", "contains", "dirname", "distinct", "element", "endswith",
-  "file", "filebase64", "filebase64sha256", "fileexists", "filemd5", "filesha1", "filesha256", "filesha512",
-  "flatten", "floor", "format", "formatlist", "indent", "index", "join", "jsondecode", "jsonencode", "keys",
-  "length", "lookup", "lower", "merge", "nonsensitive", "one", "parseint", "pathexpand", "plantimestamp", "pow",
-  "regexall", "replace", "reverse", "setintersection", "setsubtract", "setunion", "sha1", "sha256", "sha512", "signum", "slice", "sort", "split",
-  "startswith", "strcontains", "strrev", "substr", "timeadd", "timecmp", "timestamp", "title", "tolist", "tomap",
-  "tonumber", "toset", "tostring", "trim", "trimprefix", "trimspace", "trimsuffix", "try", "upper", "urlencode",
-  "uuid", "uuidv5", "values", "yamldecode", "yamlencode",
-]);
+function isHclTraversal(expression: string): boolean {
+  const match = /^(?:module|var|local|output)\.[A-Za-z_][A-Za-z0-9_]*/.exec(expression);
+  if (!match) return false;
 
-export function isKnownFunctionExpression(literal: string): boolean {
-  const match = literal.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
-  return match !== null && knownFunctionNames.has(match[1]);
+  let cursor = match[0].length;
+  while (cursor < expression.length) {
+    const attribute = /^\.[A-Za-z_][A-Za-z0-9_]*/.exec(expression.slice(cursor));
+    if (attribute) {
+      cursor += attribute[0].length;
+      continue;
+    }
+
+    if (expression[cursor] !== "[") return false;
+
+    let depth = 1;
+    let quote: string | undefined;
+    let escaped = false;
+    const start = cursor + 1;
+    cursor += 1;
+    while (cursor < expression.length && depth > 0) {
+      const character = expression[cursor];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === quote) quote = undefined;
+      } else if (character === "\"" || character === "'") {
+        quote = character;
+      } else if (character === "[") {
+        depth += 1;
+      } else if (character === "]") {
+        depth -= 1;
+        if (depth === 0 && expression.slice(start, cursor).trim() === "") return false;
+      }
+      cursor += 1;
+    }
+    if (depth !== 0 || quote) return false;
+  }
+
+  return true;
+}
+
+function isDelimitedHclExpression(expression: string): boolean {
+  const closingFor: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  const rootClosing = closingFor[expression[0]];
+  if (!rootClosing) return false;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (closingFor[character]) {
+      stack.push(closingFor[character]);
+    } else if (")]}".includes(character)) {
+      if (stack[stack.length - 1] !== character) {
+        if (character === rootClosing && expression.slice(index + 1).trim() === "") return true;
+        return false;
+      }
+      stack.pop();
+    }
+  }
+
+  return !inString && stack.length === 0;
+}
+
+function isConditionalHclExpression(expression: string): boolean {
+  const pendingQuestions = new Map<number, number>();
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const character of expression) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "(" || character === "[" || character === "{") {
+      stack.push(character);
+    } else if (character === ")" || character === "]" || character === "}") {
+      stack.pop();
+    } else if (character === "?") {
+      const depth = stack.length;
+      pendingQuestions.set(depth, (pendingQuestions.get(depth) ?? 0) + 1);
+    } else if (character === ":") {
+      const depth = stack.length;
+      const pending = pendingQuestions.get(depth) ?? 0;
+      if (pending > 0) return true;
+    }
+  }
+
+  return false;
+}
+
+function hasOnlyKnownHclFunctionCalls(expression: string): boolean {
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+
+    const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(expression.slice(index));
+    if (!match) continue;
+
+    const name = match[0];
+    let nextIndex = index + name.length;
+    while (nextIndex < expression.length && /\s/.test(expression[nextIndex])) nextIndex += 1;
+    if (
+      expression[nextIndex] === "(" &&
+      !Object.prototype.hasOwnProperty.call(builtInFunctions, name)
+    ) {
+      return false;
+    }
+    index += name.length - 1;
+  }
+
+  return true;
+}
+
+/** Identifies expressions that should remain unquoted in HCL source form. */
+export function isKnownHclExpression(literal: string): boolean {
+  const expression = literal.trim();
+  if (!hasOnlyKnownHclFunctionCalls(expression)) return false;
+  if (isHclTraversal(expression) || isDelimitedHclExpression(expression) || isConditionalHclExpression(expression)) return true;
+  const match = expression.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+  return match !== null && Object.prototype.hasOwnProperty.call(builtInFunctions, match[1]);
 }
 
 export function renderHclHeredoc(literal: string, depth = 0): string | undefined {
@@ -298,7 +433,7 @@ function renderScalarLiteral(type: TypeSpec, literal: string, depth: number): st
     if (heredoc) return heredoc;
   }
 
-  if (type.kind === "string" && !isKnownFunctionExpression(literal)) {
+  if (type.kind === "string" && !isKnownHclExpression(literal)) {
     return renderHclStringLiteral(literal);
   }
 

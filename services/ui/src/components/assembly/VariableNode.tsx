@@ -25,6 +25,7 @@ export interface VariableNodeData {
   name: string;
   nameError: string | null;
   validationError: string | null;
+  diagnostics?: string[];
   type: TypeSpec;
   description: string;
   validations: VariableValidation[];
@@ -46,6 +47,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
     name,
     nameError,
     validationError,
+    diagnostics = [],
     type,
     description,
     validations,
@@ -69,7 +71,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
         width: NODE_WIDTH,
         borderRadius: 2,
         border: "1px solid",
-        borderColor: nameError || validationError ? "#f85149" : "transparent",
+        borderColor: nameError || validationError || diagnostics.length > 0 ? "#f85149" : "transparent",
         bgcolor: "background.paper",
         boxShadow: 3,
         overflow: "hidden",
@@ -147,6 +149,11 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
           {nameError}
         </Typography>
       )}
+      {diagnostics.map((diagnostic, index) => (
+        <Typography key={`${index}-${diagnostic}`} variant="caption" sx={{ display: "block", px: 1, pt: index === 0 ? 0.5 : 0, color: "error.main" }}>
+          {diagnostic}
+        </Typography>
+      ))}
 
       <Box
         role="button"

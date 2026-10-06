@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -238,6 +239,7 @@ func BuildModel(request Request, registryHost string, documents AuthoritativeDoc
 
 				break
 			}
+
 			if module.Multiplicity.Mode == "conditional" {
 				expression = expression + " ? 1 : 0"
 			} else if module.Multiplicity.Mode != "fixed" {
@@ -247,13 +249,12 @@ func BuildModel(request Request, registryHost string, documents AuthoritativeDoc
 		case "for_each":
 			if module.Multiplicity.VariableNodeID == nil {
 				diagnostics = append(diagnostics, Diagnostic{Code: "invalid_for_each", Message: "for_each must reference a canvas variable", Path: path + ".multiplicity.variableNodeId", NodeID: module.NodeID})
-
 				break
 			}
+
 			variable, exists := variableNodes[*module.Multiplicity.VariableNodeID]
 			if !exists {
 				diagnostics = append(diagnostics, Diagnostic{Code: "invalid_for_each", Message: "for_each must reference a canvas variable", Path: path + ".multiplicity.variableNodeId", NodeID: module.NodeID})
-
 				break
 			}
 			renderModule.ForEachExpression = "var." + variable.Name
@@ -265,23 +266,23 @@ func BuildModel(request Request, registryHost string, documents AuthoritativeDoc
 		for _, required := range contract.RequiredProviders {
 			requiredProviders[required.LocalName] = required
 		}
+
 		for childName, binding := range module.ProviderBindings {
 			required, exists := requiredProviders[childName]
 			if !exists {
 				diagnostics = append(diagnostics, Diagnostic{Code: "unknown_provider_binding", Message: "provider binding is not declared by the module contract", Path: path + ".providerBindings." + childName, NodeID: module.NodeID})
-
 				continue
 			}
+
 			provider, exists := providerNodes[binding.ProviderNodeID]
 			document, documentExists := documents.Providers[binding.ProviderNodeID]
 			if !exists || !documentExists {
 				diagnostics = append(diagnostics, Diagnostic{Code: "dangling_provider_binding", Message: "provider binding references an unavailable provider node", Path: path + ".providerBindings." + childName, NodeID: module.NodeID})
-
 				continue
 			}
+
 			if normalizeProviderIdentity(required.Source) != document.ProviderNamespace+"/"+document.ProviderName {
 				diagnostics = append(diagnostics, Diagnostic{Code: "provider_binding_mismatch", Message: "provider binding does not match the module's required provider identity", Path: path + ".providerBindings." + childName, NodeID: module.NodeID})
-
 				continue
 			}
 			renderModule.ProviderBindings[childName] = ProviderReference{LocalName: provider.LocalName, Alias: provider.Alias}
@@ -300,6 +301,7 @@ func inputValueProvided(value InputValue) bool {
 	if value.Kind == "scalar" {
 		return value.Value != nil && (value.Value.Mode != "literal" || strings.TrimSpace(value.Value.Literal) != "")
 	}
+
 	if value.Kind == "list" {
 		return len(value.Items) > 0
 	}
@@ -311,6 +313,7 @@ func resolveModuleInputType(value InputValue, typeData json.RawMessage, nodeID, 
 	if value.Kind != "scalar" {
 		return renderInputValue(value, typeData, nodeID, path, depth, resolve)
 	}
+
 	if value.Value == nil {
 		return "", &Diagnostic{Code: "malformed_expression", Message: "scalar input value is missing", Path: path, NodeID: nodeID}
 	}
@@ -333,7 +336,7 @@ func resolveModuleScalar(value FieldValue, variable hclschema.ContractVariable, 
 	if contractVariableType(variable) != "string" && !strings.Contains(value.Literal, "${") {
 		return resolve(value, nodeID, path)
 	}
-	if contractVariableType(variable) == "string" && isKnownFunctionExpression(value.Literal) {
+	if contractVariableType(variable) == "string" && isKnownStringExpression(value.Literal) {
 		return value.Literal, nil
 	}
 
@@ -351,46 +354,86 @@ func resolveModuleScalar(value FieldValue, variable hclschema.ContractVariable, 
 	return strings.TrimSpace(string(hclwrite.Format(tokens.Bytes()))), nil
 }
 
-func isKnownFunctionExpression(value string) bool {
+func isKnownStringExpression(value string) bool {
 	expression := strings.TrimSpace(value)
 	parsed, diagnostics := hclsyntax.ParseExpression([]byte(expression), "function.hcl", hcl.InitialPos)
 	if diagnostics.HasErrors() {
 		return false
 	}
 
-	call, ok := parsed.(*hclsyntax.FunctionCallExpr)
-	return ok && hclschema.IsKnownFunction(call.Name)
+	if _, ok := parsed.(*hclsyntax.TemplateExpr); ok {
+		return false
+	}
+
+	hasKnownFunction := false
+	hasConditional := false
+	hasUnknownFunction := false
+	hclsyntax.VisitAll(parsed, func(node hclsyntax.Node) hcl.Diagnostics {
+		switch node := node.(type) {
+		case *hclsyntax.FunctionCallExpr:
+			if hclschema.IsKnownFunction(node.Name) {
+				hasKnownFunction = true
+			} else {
+				hasUnknownFunction = true
+			}
+		case *hclsyntax.ConditionalExpr:
+			hasConditional = true
+		}
+		return nil
+	})
+	if hasUnknownFunction {
+		return false
+	}
+
+	knownRoot := false
+	for _, traversal := range parsed.Variables() {
+		root, ok := traversal[0].(hcl.TraverseRoot)
+		if !ok {
+			return false
+		}
+		switch root.Name {
+		case "count", "data", "each", "local", "module", "path", "self", "terraform", "var":
+			knownRoot = true
+		default:
+			return false
+		}
+	}
+
+	return knownRoot || hasKnownFunction || hasConditional
 }
 
 func renderInputValue(value InputValue, typeData json.RawMessage, nodeID, path string, depth int, resolve func(FieldValue, string, string) (string, *Diagnostic)) (string, *Diagnostic) {
 	if value.Kind == "list" {
 		parts := make([]string, 0, len(value.Items))
 		for index, item := range value.Items {
-			part, diagnostic := resolveModuleInputType(item, nestedInputType(typeData, "element", ""), nodeID, fmt.Sprintf("%s.items[%d]", path, index), depth+1, resolve)
+			part, diagnostic := resolveModuleInputType(item, nestedInputType(typeData, "element", fmt.Sprintf("%d", index)), nodeID, fmt.Sprintf("%s.items[%d]", path, index), depth+1, resolve)
 			if diagnostic != nil {
 				return "", diagnostic
 			}
 			parts = append(parts, part)
 		}
-
 		return "[" + strings.Join(parts, ", ") + "]", nil
 	}
 	if value.Kind == "map" || value.Kind == "object" {
 		parts := make([]string, 0, len(value.Entries))
+
 		indent := strings.Repeat("  ", depth+1)
 		for index, entry := range value.Entries {
 			name := entry.Key
 			if value.Kind == "object" {
 				name = entry.Name
 			}
+
 			keyTokens, err := renderStructuredKeyTokens(value.Kind, name)
 			if err != nil {
 				return "", &Diagnostic{Code: "malformed_expression", Message: err.Error(), Path: fmt.Sprintf("%s.entries[%d].key", path, index), NodeID: nodeID}
 			}
+
 			item, diagnostic := resolveModuleInputType(entry.Value, nestedInputType(typeData, value.Kind, name), nodeID, fmt.Sprintf("%s.entries[%d].value", path, index), depth+1, resolve)
 			if diagnostic != nil {
 				return "", diagnostic
 			}
+
 			parts = append(parts, indent+strings.TrimSpace(string(hclwrite.Format(keyTokens.Bytes())))+" = "+item)
 		}
 
@@ -428,25 +471,55 @@ func isExpressionKey(key string) bool {
 }
 
 func nestedInputType(typeData json.RawMessage, kind, name string) json.RawMessage {
-	var shape map[string]json.RawMessage
-	if json.Unmarshal(typeData, &shape) != nil {
-		return json.RawMessage(`"dynamic"`)
+	parent, err := hclschema.DecodeType(typeData)
+	if err != nil {
+		return dynamicInputType()
 	}
+
 	if kind == "object" {
-		var attributes []map[string]json.RawMessage
-		if json.Unmarshal(shape["object"], &attributes) == nil {
-			for _, attribute := range attributes {
-				if attributeType, ok := attribute[name]; ok {
-					return attributeType
-				}
-			}
+		if !parent.IsObjectType() {
+			return dynamicInputType()
 		}
-		return json.RawMessage(`"dynamic"`)
+
+		nested, ok := parent.AttributeTypes()[name]
+		if !ok {
+			return dynamicInputType()
+		}
+
+		return encodeNestedInputType(nested)
 	}
-	var elements []json.RawMessage
-	if json.Unmarshal(shape[kind], &elements) == nil && len(elements) > 0 {
-		return elements[0]
+
+	if kind == "element" && parent.IsTupleType() {
+		index, err := strconv.Atoi(name)
+		if err != nil {
+			return dynamicInputType()
+		}
+
+		elements := parent.TupleElementTypes()
+		if index < 0 || index >= len(elements) {
+			return dynamicInputType()
+		}
+
+		return encodeNestedInputType(elements[index])
 	}
+
+	if parent.IsListType() || parent.IsSetType() || parent.IsMapType() {
+		return encodeNestedInputType(parent.ElementType())
+	}
+
+	return dynamicInputType()
+}
+
+func encodeNestedInputType(nested cty.Type) json.RawMessage {
+	encoded, err := hclschema.EncodeType(nested)
+	if err != nil {
+		return dynamicInputType()
+	}
+
+	return encoded
+}
+
+func dynamicInputType() json.RawMessage {
 	return json.RawMessage(`"dynamic"`)
 }
 
@@ -480,15 +553,15 @@ func buildProviderConfiguration(configuration ProviderConfiguration, schema prov
 		attribute, exists := schema.Attributes[name]
 		if !exists {
 			diagnostics = append(diagnostics, Diagnostic{Code: "unknown_provider_argument", Message: fmt.Sprintf("provider argument %s is not declared by the authoritative schema", name), Path: path + ".arguments." + name, NodeID: nodeID})
-
 			continue
 		}
+
 		expression, diagnostic := resolveProviderArgument(configuration.Arguments[name], attribute, nodeID, path+".arguments."+name, resolve)
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
-
 			continue
 		}
+
 		rendered.Arguments[name] = expression
 	}
 
@@ -496,9 +569,9 @@ func buildProviderConfiguration(configuration ProviderConfiguration, schema prov
 		nested, exists := schema.Blocks[name]
 		if !exists {
 			diagnostics = append(diagnostics, Diagnostic{Code: "unknown_provider_block", Message: fmt.Sprintf("provider block %s is not declared by the authoritative schema", name), Path: path + ".blocks." + name, NodeID: nodeID})
-
 			continue
 		}
+
 		for index, child := range configuration.Blocks[name] {
 			childBlock, childDiagnostics := buildProviderConfiguration(child, nested.Block, nodeID, fmt.Sprintf("%s.blocks.%s[%d]", path, name, index), resolve)
 			diagnostics = append(diagnostics, childDiagnostics...)
@@ -511,6 +584,7 @@ func buildProviderConfiguration(configuration ProviderConfiguration, schema prov
 		if count < nested.MinItems {
 			diagnostics = append(diagnostics, Diagnostic{Code: "missing_required_provider_block", Message: fmt.Sprintf("provider block %s requires at least %d instance(s)", name, nested.MinItems), Path: path + ".blocks." + name, NodeID: nodeID})
 		}
+
 		if nested.MaxItems > 0 && count > nested.MaxItems {
 			diagnostics = append(diagnostics, Diagnostic{Code: "too_many_provider_blocks", Message: fmt.Sprintf("provider block %s permits at most %d instance(s)", name, nested.MaxItems), Path: path + ".blocks." + name, NodeID: nodeID})
 		}
@@ -524,13 +598,52 @@ func resolveProviderArgument(value FieldValue, attribute providerschema.Attribut
 	if value.Mode != "literal" || json.Unmarshal(attribute.Type, &kind) != nil || kind != "string" {
 		return resolve(value, nodeID, path)
 	}
+
 	if strings.TrimSpace(value.Literal) == "" {
 		return "", &Diagnostic{Code: "malformed_expression", Message: "literal expression is empty", Path: path, NodeID: nodeID}
 	}
+	if isKnownStringExpression(value.Literal) {
+		return value.Literal, nil
+	}
 
 	tokens := hclwrite.TokensForValue(cty.StringVal(value.Literal))
-
 	return strings.TrimSpace(string(hclwrite.Format(tokens.Bytes()))), nil
+}
+
+func moduleForEachKeys(module ModuleNode, variables map[string]VariableNode) map[string]bool {
+	keys := map[string]bool{}
+	if module.Multiplicity.VariableNodeID == nil {
+		return keys
+	}
+	variable, exists := variables[*module.Multiplicity.VariableNodeID]
+	if !exists || !variable.HasDefault {
+		return keys
+	}
+
+	switch variable.Type.Kind {
+	case "map":
+		if variable.Default.Kind != "map" {
+			return keys
+		}
+		for _, entry := range variable.Default.Entries {
+			key := strings.TrimSpace(entry.Key)
+			if key != "" {
+				keys[key] = true
+			}
+		}
+	case "list", "set":
+		if variable.Default.Kind != "list" {
+			return keys
+		}
+		for _, item := range variable.Default.Items {
+			if item.Kind != "scalar" || strings.TrimSpace(item.Literal) == "" {
+				continue
+			}
+			keys[item.Literal] = true
+		}
+	}
+
+	return keys
 }
 
 func resolveFieldValue(value FieldValue, variables map[string]VariableNode, modules map[string]ModuleNode, nodeID, path string) (string, *Diagnostic) {
@@ -577,14 +690,16 @@ func resolveFieldValue(value FieldValue, variables map[string]VariableNode, modu
 		if value.RefSelector == nil {
 			return "", &Diagnostic{Code: "missing_reference_selector", Message: "counted module reference requires a selector", Path: path + ".refSelector", NodeID: nodeID}
 		}
+
 		if value.RefSelector.Kind == "all" {
 			expression = base + "[*]." + value.RefOutput
-
 			break
 		}
+
 		if value.RefSelector.Kind != "index" || value.RefSelector.Expr == nil {
 			return "", &Diagnostic{Code: "invalid_reference_selector", Message: "counted module selector must be all or index", Path: path + ".refSelector", NodeID: nodeID}
 		}
+
 		selector, diagnostic := resolveFieldValue(*value.RefSelector.Expr, variables, modules, nodeID, path+".refSelector.expr")
 		if diagnostic != nil {
 			return "", diagnostic
@@ -595,17 +710,22 @@ func resolveFieldValue(value FieldValue, variables map[string]VariableNode, modu
 		if value.RefSelector == nil {
 			return "", &Diagnostic{Code: "missing_reference_selector", Message: "for_each module reference requires a selector", Path: path + ".refSelector", NodeID: nodeID}
 		}
+
 		if value.RefSelector.Kind == "all" {
 			expression = fmt.Sprintf("[for instance in %s : instance.%s]", base, value.RefOutput)
-
 			break
 		}
+
 		if value.RefSelector.Kind != "key" || value.RefSelector.Expr == nil {
 			return "", &Diagnostic{Code: "invalid_reference_selector", Message: "for_each module selector must be all or key", Path: path + ".refSelector", NodeID: nodeID}
 		}
+
 		selector, diagnostic := resolveFieldValue(*value.RefSelector.Expr, variables, modules, nodeID, path+".refSelector.expr")
 		if diagnostic != nil {
 			return "", diagnostic
+		}
+		if value.RefSelector.Expr.Mode == "literal" && moduleForEachKeys(module, variables)[value.RefSelector.Expr.Literal] {
+			selector = strings.TrimSpace(string(hclwrite.Format(hclwrite.TokensForValue(cty.StringVal(value.RefSelector.Expr.Literal)).Bytes())))
 		}
 
 		expression = base + "[" + selector + "]." + value.RefOutput
@@ -620,6 +740,7 @@ func applyOutputSelector(expression string, selector *ReferenceSelector, variabl
 	if selector == nil || selector.Kind == "all" {
 		return expression, nil
 	}
+
 	if (selector.Kind != "index" && selector.Kind != "key") || selector.Expr == nil {
 		return "", &Diagnostic{Code: "invalid_output_selector", Message: "output selector must be all, index, or key", Path: path + ".refOutputSelector", NodeID: nodeID}
 	}
@@ -642,10 +763,12 @@ func renderTypeSpec(spec TypeSpec) (string, error) {
 		if spec.Element == nil {
 			return "", fmt.Errorf("%s type requires an element type", spec.Kind)
 		}
+
 		element, err := renderTypeSpecTokens(*spec.Element)
 		if err != nil {
 			return "", err
 		}
+
 		tokens = hclwrite.TokensForFunctionCall(spec.Kind, element)
 	case "tuple":
 		elements := make([]hclwrite.Tokens, 0, len(spec.Elements))
@@ -654,8 +777,10 @@ func renderTypeSpec(spec TypeSpec) (string, error) {
 			if err != nil {
 				return "", err
 			}
+
 			elements = append(elements, elementTokens)
 		}
+
 		tokens = hclwrite.TokensForFunctionCall("tuple", hclwrite.TokensForTuple(elements))
 	case "object":
 		attributes := append([]TypeAttribute(nil), spec.Attributes...)
@@ -665,20 +790,24 @@ func renderTypeSpec(spec TypeSpec) (string, error) {
 			if !validIdentifier(attribute.Name) {
 				return "", fmt.Errorf("object attribute %q is not a valid identifier", attribute.Name)
 			}
+
 			attributeType, err := renderTypeSpecTokens(attribute.Type)
 			if err != nil {
 				return "", err
 			}
+
 			if attribute.Optional {
 				arguments := []hclwrite.Tokens{attributeType}
 				if attribute.HasDefault {
 					if attribute.Default == nil {
 						return "", fmt.Errorf("optional object attribute %q has no default value", attribute.Name)
 					}
+
 					defaultTokens, err := renderValueSpecTokens(attribute.Type, *attribute.Default)
 					if err != nil {
 						return "", err
 					}
+
 					arguments = append(arguments, defaultTokens)
 				}
 				attributeType = hclwrite.TokensForFunctionCall("optional", arguments...)
@@ -717,6 +846,7 @@ func renderValueSpecTokens(spec TypeSpec, value ValueSpec) (hclwrite.Tokens, err
 		if value.Kind != "scalar" {
 			return nil, fmt.Errorf("string value must be scalar")
 		}
+
 		if strings.TrimSpace(value.Literal) == "" {
 			return hclwrite.TokensForIdentifier("null"), nil
 		}
@@ -732,6 +862,7 @@ func renderValueSpecTokens(spec TypeSpec, value ValueSpec) (hclwrite.Tokens, err
 		if value.Kind != "list" {
 			return nil, fmt.Errorf("%s value must be a list", spec.Kind)
 		}
+
 		items := make([]hclwrite.Tokens, 0, len(value.Items))
 		for index, item := range value.Items {
 			var element TypeSpec
@@ -739,18 +870,22 @@ func renderValueSpecTokens(spec TypeSpec, value ValueSpec) (hclwrite.Tokens, err
 				if index >= len(spec.Elements) {
 					return nil, fmt.Errorf("tuple has too many values")
 				}
+
 				element = spec.Elements[index]
 			} else if spec.Element != nil {
 				element = *spec.Element
 			} else {
 				return nil, fmt.Errorf("%s type requires an element type", spec.Kind)
 			}
+
 			tokens, err := renderValueSpecTokens(element, item)
 			if err != nil {
 				return nil, err
 			}
+
 			items = append(items, tokens)
 		}
+
 		if spec.Kind == "tuple" && len(items) != len(spec.Elements) {
 			return nil, fmt.Errorf("tuple value count does not match its type")
 		}
@@ -760,19 +895,23 @@ func renderValueSpecTokens(spec TypeSpec, value ValueSpec) (hclwrite.Tokens, err
 		if value.Kind != "map" || spec.Element == nil {
 			return nil, fmt.Errorf("map value does not match its type")
 		}
+
 		entries := append([]ValueEntry(nil), value.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 		object := make([]hclwrite.ObjectAttrTokens, 0, len(entries))
 		seen := map[string]bool{}
+
 		for _, entry := range entries {
 			if seen[entry.Key] {
 				return nil, fmt.Errorf("map value contains duplicate key %q", entry.Key)
 			}
+
 			seen[entry.Key] = true
 			tokens, err := renderValueSpecTokens(*spec.Element, entry.Value)
 			if err != nil {
 				return nil, err
 			}
+
 			object = append(object, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(entry.Key)), Value: tokens})
 		}
 
@@ -781,29 +920,35 @@ func renderValueSpecTokens(spec TypeSpec, value ValueSpec) (hclwrite.Tokens, err
 		if value.Kind != "object" {
 			return nil, fmt.Errorf("object value does not match its type")
 		}
+
 		attributeTypes := make(map[string]TypeSpec, len(spec.Attributes))
 		optionalAttributes := make(map[string]bool, len(spec.Attributes))
 		for _, attribute := range spec.Attributes {
 			attributeTypes[attribute.Name] = attribute.Type
 			optionalAttributes[attribute.Name] = attribute.Optional
 		}
+
 		entries := append([]ValueEntry(nil), value.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 		object := make([]hclwrite.ObjectAttrTokens, 0, len(entries))
+
 		seen := map[string]bool{}
 		for _, entry := range entries {
 			if seen[entry.Name] {
 				return nil, fmt.Errorf("object value contains duplicate attribute %q", entry.Name)
 			}
+
 			seen[entry.Name] = true
 			attributeType, exists := attributeTypes[entry.Name]
 			if !exists {
 				return nil, fmt.Errorf("object value contains unknown attribute %q", entry.Name)
 			}
+
 			tokens, err := renderValueSpecTokens(attributeType, entry.Value)
 			if err != nil {
 				return nil, err
 			}
+
 			object = append(object, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForIdentifier(entry.Name), Value: tokens})
 		}
 		for name := range attributeTypes {

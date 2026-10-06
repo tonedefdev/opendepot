@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+if (process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+  test.use({ storageState: process.env.PLAYWRIGHT_AUTH_STORAGE_STATE });
+}
+
 const STORAGE_KEY = "opendepot:assembly:v1";
 
 const nestedVariable = {
@@ -81,6 +85,16 @@ test.describe("Assembly Line recursive variable defaults", () => {
     const preview = dialog.getByTestId("hcl-preview");
     await expect(preview).toBeVisible();
     await expect(preview).toBeInViewport();
+    const editor = dialog.getByTestId("variable-editor");
+    const previewWidth = (await preview.boundingBox())?.width ?? 0;
+    const editorWidth = (await editor.boundingBox())?.width ?? 0;
+    const expandPreview = dialog.getByRole("button", { name: "Expand HCL preview" });
+    await expandPreview.click();
+    await expect(dialog.getByRole("button", { name: "Restore HCL preview" })).toHaveAttribute("aria-pressed", "true");
+    expect((await preview.boundingBox())?.width ?? 0).toBeGreaterThan(previewWidth);
+    expect((await editor.boundingBox())?.width ?? 0).toBeLessThan(editorWidth);
+    await dialog.getByRole("button", { name: "Restore HCL preview" }).click();
+    await expect(dialog.getByRole("button", { name: "Expand HCL preview" })).toHaveAttribute("aria-pressed", "false");
 
     const nestedObject = dialog.getByRole("button", { name: "settings definition" });
     await nestedObject.click();
@@ -167,6 +181,8 @@ test.describe("Assembly Line module code preview", () => {
             grade: "full",
             variables: [
               { name: "region", type: "string", required: true },
+              { name: "environment_variables", type: ["map", "string"], required: false },
+              { name: "empty_environment_variables", type: ["map", "string"], required: false },
               {
                 name: "settings",
                 type: ["object", { environment: "string", labels: ["map", "string"] }],
@@ -179,6 +195,10 @@ test.describe("Assembly Line module code preview", () => {
             providerBindings: {},
             values: {
               region: { kind: "scalar", value: { mode: "literal", literal: "us-west-2" } },
+              environment_variables: {
+                kind: "map",
+                entries: [{ key: "NODE_ENV", value: { kind: "scalar", value: { mode: "literal", literal: "dev" } } }],
+              },
               settings: {
                 kind: "object",
                 entries: [
@@ -201,9 +221,16 @@ test.describe("Assembly Line module code preview", () => {
 
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/assembly", { waitUntil: "networkidle" });
-    await page.getByTestId("rf__node-module-1").getByText("Inputs (2)").click();
+    await page.getByTestId("rf__node-module-1").getByText("Inputs (4)").click();
 
     const dialog = page.getByRole("dialog");
+    const environmentVariables = dialog.locator("p").filter({ hasText: /^environment_variables$/ });
+    const optionalSection = dialog.getByText("Optional", { exact: true });
+    const environmentVariablesBeforeOptional = await environmentVariables.evaluate(
+      (element, heading) => element.compareDocumentPosition(heading as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      await optionalSection.elementHandle(),
+    );
+    expect(environmentVariablesBeforeOptional).toBeTruthy();
     const preview = dialog.getByTestId("module-hcl-preview");
     await expect(preview).toBeVisible();
     await expect(preview).toContainText('module "worker" {');
@@ -240,8 +267,10 @@ test.describe("Assembly Line module code preview", () => {
     await page.getByRole("option", { name: "each.key" }).click();
     const editorBox = await hclEditor.boundingBox();
     const chipBox = await inputChip.boundingBox();
-    if (!editorBox || !chipBox) throw new Error("The HCL editor or input chip has no visible bounds.");
-    expect(chipBox.x).toBeGreaterThan(editorBox.x + editorBox.width - 1);
+    const typeBadgeBox = await dialog.getByText("string", { exact: true }).first().boundingBox();
+    if (!editorBox || !chipBox || !typeBadgeBox) throw new Error("The HCL editor, input chip, or type badge has no visible bounds.");
+    expect(Math.abs((chipBox.y + chipBox.height / 2) - (typeBadgeBox.y + typeBadgeBox.height / 2))).toBeLessThan(2);
+    expect(chipBox.x).toBeLessThan(typeBadgeBox.x);
     await hclEditor.fill('replace(each.key, "_", "-")');
     await expect(preview).toContainText('region = replace(each.key, "_", "-")');
     await expect(dialog.locator(".w-tc-editor .token.function")).toHaveText("replace");
@@ -260,7 +289,7 @@ test.describe("Assembly Line module code preview", () => {
     await dialog.getByRole("button", { name: "Expand HCL preview" }).click();
     await expect(dialog.getByRole("button", { name: "Restore HCL preview" })).toHaveAttribute("aria-pressed", "true");
     expect((await preview.boundingBox())?.width ?? 0).toBeGreaterThan(desktopPreviewWidth);
-    await expect(preview).toContainText('version = "1.2.3"');
+    await expect(preview).toContainText('version = "~> 1.2.3"');
     const fieldLabel = dialog.getByText("environment", { exact: true }).first();
     await expect(fieldLabel).toHaveCSS("flex-basis", "120px");
 
@@ -281,7 +310,7 @@ test.describe("Assembly Line module code preview", () => {
       return raw ? JSON.parse(raw).find((node: { id: string }) => node.id === "module-1")?.data?.optionalFieldVisibility : undefined;
     });
     expect(reloadedVisibility).toEqual({ "variable%3Asettings": false });
-    await page.getByTestId("rf__node-module-1").getByText("Inputs (2)").click();
+    await page.getByTestId("rf__node-module-1").getByText("Inputs (4)").click();
     const reloadedDialog = page.getByRole("dialog");
     await expect(reloadedDialog.getByRole("checkbox", { name: "Show optional fields" })).not.toBeChecked();
     await expect(reloadedDialog.getByTestId("module-hcl-preview")).not.toContainText("labels");
@@ -383,6 +412,15 @@ test.describe("Assembly Line module code preview", () => {
     if (!typeBadgeBounds || !useInputBounds) throw new Error("The input type badge or Use input control has no visible bounds.");
     expect(Math.abs((typeBadgeBounds.y + typeBadgeBounds.height / 2) - (useInputBounds.y + useInputBounds.height / 2))).toBeLessThan(2);
     expect(useInputBounds.x).toBeLessThan(typeBadgeBounds.x);
+    await dialog.getByRole("button", { name: "Add entry" }).click();
+    const entryActions = dialog.getByTestId("module-input-row-actions").last();
+    const entryInput = entryActions.getByRole("button", { name: "Use input" });
+    const removeEntry = entryActions.getByRole("button", { name: "Remove entry" });
+    const entryInputBounds = await entryInput.boundingBox();
+    const removeEntryBounds = await removeEntry.boundingBox();
+    if (!entryInputBounds || !removeEntryBounds) throw new Error("The map entry input or remove control has no visible bounds.");
+    expect(Math.abs((entryInputBounds.y + entryInputBounds.height / 2) - (removeEntryBounds.y + removeEntryBounds.height / 2))).toBeLessThan(2);
+    expect(entryInputBounds.x).toBeLessThan(removeEntryBounds.x);
     await useInputButton.click();
     await page.getByPlaceholder("Search module outputs").fill("module.roles_source.roles");
     await page.getByRole("option", { name: "module.roles_source.roles" }).click();
@@ -394,9 +432,10 @@ test.describe("Assembly Line module code preview", () => {
     const selectorLabelBounds = await selectorLabel.boundingBox();
     const rolesNameBounds = await dialog.getByText("roles", { exact: true }).first().boundingBox();
     if (!selectedBounds || !selectorLabelBounds || !rolesNameBounds) throw new Error("The selected reference, collection selector, or input name has no visible bounds.");
+    await expect(dialog.getByText("roles is a map —", { exact: true })).toHaveCount(1);
     expect(Math.abs((selectedBounds.y + selectedBounds.height / 2) - (selectorLabelBounds.y + selectorLabelBounds.height / 2))).toBeLessThan(2);
     expect(selectedBounds.x).toBeLessThan(selectorLabelBounds.x);
-    expect(Math.abs(selectedBounds.x - rolesNameBounds.x)).toBeLessThan(2);
+    await expect(selectorLabel).toBeVisible();
     const rolesDescriptionBounds = await dialog.getByText("Execution roles to create, keyed by a stable caller-defined identifier.", { exact: true }).boundingBox();
     if (!rolesDescriptionBounds) throw new Error("The input description has no visible bounds.");
     expect(rolesDescriptionBounds.y).toBeGreaterThan(rolesNameBounds.y);
@@ -452,5 +491,133 @@ test.describe("Assembly Line module code preview", () => {
     await page.getByRole("option", { name: "spec", exact: true }).click();
     await expect(dialog.getByTestId("module-hcl-preview")).toContainText("spec = var.lambda_functions[each.key].spec");
     await expect(page.getByText("spec [each.key]", { exact: true })).toBeVisible();
+  });
+
+  test("keeps inputs editable and clears export diagnostics after correcting HCL", async ({ page }) => {
+    const diagnostic = "invalid HCL expression: test diagnostic";
+    await page.route("**/api/assembly/export", (route) => route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "invalid_assembly",
+        message: "Assembly validation failed",
+        diagnostics: [{ code: "invalid_hcl_expression", message: diagnostic, path: "modules[0].values.region", nodeId: "module-invalid" }],
+      }),
+    }));
+    await page.addInitScript(() => {
+      window.localStorage.setItem("opendepot:assembly:v3", JSON.stringify([
+        {
+          id: "module-invalid",
+          type: "module",
+          position: { x: 120, y: 100 },
+          data: {
+            kind: "module",
+            namespace: "platform",
+            name: "worker",
+            system: "aws",
+            version: "1.0.0",
+            instanceName: "worker",
+            grade: "full",
+            variables: [{ name: "region", type: "string", required: true }],
+            outputs: [],
+            requiredProviders: [],
+            providerBindings: {},
+            values: { region: { kind: "scalar", value: { mode: "literal", literal: "" } } },
+            multiplicity: { kind: "none" },
+            loading: false,
+            error: null,
+          },
+        },
+      ]));
+    });
+
+    await page.goto("/assembly", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Export" }).click();
+    const exportDialog = page.getByRole("dialog");
+    await expect(exportDialog).toContainText("Assembly validation failed");
+    await exportDialog.getByRole("button", { name: "Close" }).click();
+
+    const node = page.getByTestId("rf__node-module-invalid");
+    await expect(node).toContainText(diagnostic);
+    await expect(node).toContainText(`modules[0].values.region: ${diagnostic}`);
+    const inputsButton = node.getByText("Inputs (1)");
+    await expect(inputsButton).toBeVisible();
+    await inputsButton.click();
+    const inputsDialog = page.getByRole("dialog");
+    await inputsDialog.getByRole("textbox", { name: "HCL value" }).fill('replace(var.region, "_", "-")');
+    await expect(node).not.toContainText(diagnostic);
+    await expect(inputsDialog).toBeVisible();
+  });
+});
+
+test.describe("Assembly Line provider code preview", () => {
+  test("shows and updates provider HCL at mobile and desktop widths", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("opendepot:assembly:v3", JSON.stringify([
+        {
+          id: "provider-1",
+          type: "provider",
+          position: { x: 120, y: 100 },
+          data: {
+            kind: "provider",
+            namespace: "hashicorp",
+            name: "aws",
+            version: "5.0.0",
+            providerNamespace: "hashicorp",
+            providerName: "aws",
+            localName: "aws",
+            alias: "west",
+            schema: {
+              attributes: { region: { type: "string", optional: true } },
+              blocks: {
+                assume_role: {
+                  nesting: "list",
+                  block: { attributes: { role_arn: { type: "string", optional: true } } },
+                },
+              },
+            },
+            configuration: {
+              arguments: { region: { mode: "literal", literal: "us-west-2" } },
+              blocks: {
+                assume_role: [{
+                  arguments: { role_arn: { mode: "literal", literal: "arn:aws:iam::123:role/deploy" } },
+                  blocks: {},
+                }],
+              },
+            },
+            loading: false,
+            error: null,
+          },
+        },
+      ]));
+    });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/assembly", { waitUntil: "networkidle" });
+    await page.getByTestId("rf__node-provider-1").getByText("Configuration").click();
+
+    const dialog = page.getByRole("dialog");
+    const preview = dialog.getByTestId("provider-hcl-preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText('provider "aws" {');
+    await expect(preview).toContainText('alias = "west"');
+    await expect(preview).toContainText('region = "us-west-2"');
+    await expect(preview).toContainText('assume_role {');
+    await expect(preview).toContainText('role_arn = "arn:aws:iam::123:role/deploy"');
+    await expect(preview).toBeInViewport();
+
+    await dialog.getByRole("textbox", { name: "HCL value" }).last().fill("us-east-1");
+    await expect(preview).toContainText('region = "us-east-1"');
+    const mobilePreviewHeight = (await preview.boundingBox())?.height ?? 0;
+    await dialog.getByRole("button", { name: "Expand HCL preview" }).click();
+    await expect(dialog.getByRole("button", { name: "Restore HCL preview" })).toHaveAttribute("aria-pressed", "true");
+    expect((await preview.boundingBox())?.height ?? 0).toBeGreaterThan(mobilePreviewHeight);
+
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await expect(preview).toBeInViewport();
+    const mobileExpandedWidth = (await preview.boundingBox())?.width ?? 0;
+    await dialog.getByRole("button", { name: "Restore HCL preview" }).click();
+    await expect(dialog.getByRole("button", { name: "Expand HCL preview" })).toHaveAttribute("aria-pressed", "false");
+    expect((await preview.boundingBox())?.width ?? 0).toBeLessThan(mobileExpandedWidth);
   });
 });

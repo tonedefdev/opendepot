@@ -52,16 +52,18 @@ type Section = "provided" | "required" | "optional";
 const SECTION_RANK: Record<Section, number> = { provided: 0, required: 1, optional: 2 };
 const SECTION_LABEL: Record<Section, string> = { provided: "Provided", required: "Required", optional: "Optional" };
 
-/** Whether a field has actually been filled in — a reference needs a picked
- * target, a literal needs non-blank text. Used to bump already-answered
- * inputs to the top of the modal, ahead of the required/optional split. */
-function isFieldProvided(field: FieldValue | undefined): boolean {
-  if (!field) return false;
-  return field.mode === "reference" ? !!field.refNodeId : field.literal.trim() !== "";
+/** Whether an input has a selected reference, a non-blank scalar, or entries. */
+function isInputProvided(value: ModuleInputValue | undefined): boolean {
+  if (!value) return false;
+  if (value.kind === "scalar") {
+    return value.value.mode === "reference" ? !!value.value.refNodeId : value.value.literal.trim() !== "";
+  }
+  if (value.kind === "list") return value.items.length > 0;
+  return value.entries.length > 0;
 }
 
-function sectionOf(field: FieldValue | undefined, variable: ContractVariable): Section {
-  if (isFieldProvided(field)) return "provided";
+function sectionOf(value: ModuleInputValue | undefined, variable: ContractVariable): Section {
+  if (isInputProvided(value)) return "provided";
   return variable.required ? "required" : "optional";
 }
 
@@ -178,7 +180,7 @@ export default function InputsModal({
   const sorted = useMemo(
     () =>
       [...variables].sort(
-        (a, b) => SECTION_RANK[sectionOf(sectionField(values[a.name]), a)] - SECTION_RANK[sectionOf(sectionField(values[b.name]), b)],
+        (a, b) => SECTION_RANK[sectionOf(values[a.name], a)] - SECTION_RANK[sectionOf(values[b.name], b)],
       ),
     [variables, values],
   );
@@ -317,9 +319,10 @@ export default function InputsModal({
             const inputType = typeSpecFromCtyType(v.type, v.optionalAttributePaths, v.optionalAttributes);
             const inputValue = values[v.name];
             const inputReference = inputValue?.kind === "scalar" ? inputValue.value : undefined;
-            const isCollectionReference = inputReference?.mode === "reference" && inputReference.refOutputSelector !== undefined;
-            const section = sectionOf(sectionField(values[v.name]), v);
-            const showSectionHeader = idx === 0 || sectionOf(sectionField(values[pageItems[idx - 1].name]), pageItems[idx - 1]) !== section;
+            const scalarValue = sectionField(inputValue);
+            const moveReferenceToCollectionControls = inputReference?.mode === "reference" && inputReference.refOutputSelector !== undefined;
+            const section = sectionOf(values[v.name], v);
+            const showSectionHeader = idx === 0 || sectionOf(values[pageItems[idx - 1].name], pageItems[idx - 1]) !== section;
 
             return (
               <React.Fragment key={v.name}>
@@ -344,7 +347,7 @@ export default function InputsModal({
                       <Chip label="optional" size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
                     )}
                     <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, ml: "auto", minWidth: 0 }}>
-                      {inputType && isComplexType(inputType) && !isCollectionReference && (
+                      {!moveReferenceToCollectionControls && inputType && isComplexType(inputType) ? (
                         <ComplexInputReferenceControl
                           type={inputType}
                           value={values[v.name]}
@@ -353,7 +356,18 @@ export default function InputsModal({
                           compact
                           onChange={(value) => onFieldChange(v.name, value)}
                         />
-                      )}
+                      ) : !moveReferenceToCollectionControls ? (
+                        <FieldEditor
+                          type={v.type}
+                          value={scalarValue}
+                          referenceOptions={referenceOptions}
+                          metaOptions={metaOptions}
+                          referenceOnly
+                          referenceOnlyFullWidth={false}
+                          referenceOnlyCompact
+                          onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
+                        />
+                      ) : null}
                       <Chip
                         label={renderTypeCompact(v.type)}
                         size="small"
@@ -363,20 +377,22 @@ export default function InputsModal({
                     </Box>
                   </Box>
                   {v.description && <MarkdownDescription text={v.description} />}
-                  {inputType && isComplexType(inputType) && inputReference?.mode === "reference" && (
+                  {inputReference?.mode === "reference" && (
                     <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mb: 0.5 }}>
                       <ReferenceSelectorControls
                         value={inputReference}
                         referenceOptions={referenceOptions}
                         compact
-                        leadingControl={isCollectionReference && inputType ? (
-                          <ComplexInputReferenceControl
-                            type={inputType}
-                            value={inputValue}
+                        leadingControl={moveReferenceToCollectionControls ? (
+                          <FieldEditor
+                            type={v.type}
+                            value={inputReference}
                             referenceOptions={referenceOptions}
-                            fullWidth={false}
-                            compact
-                            onChange={(value) => onFieldChange(v.name, value)}
+                            metaOptions={metaOptions}
+                            referenceOnly
+                            referenceOnlyFullWidth={false}
+                            referenceOnlyCompact
+                            onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
                           />
                         ) : undefined}
                         onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
@@ -392,6 +408,7 @@ export default function InputsModal({
                         referenceOptions={referenceOptions}
                         metaOptions={metaOptions}
                         showReferenceControl={false}
+                        referenceControlPlacement="header"
                         path={moduleInputPath("", `variable:${v.name}`)}
                         optionalFieldVisibility={optionalFieldVisibility}
                         onOptionalFieldVisibilityChange={onOptionalFieldVisibilityChange}
@@ -405,6 +422,7 @@ export default function InputsModal({
                         referenceOptions={referenceOptions}
                         metaOptions={metaOptions}
                         multilineHcl
+                        showReferenceControl={false}
                         placeholder={v.default !== undefined ? `default: ${JSON.stringify(v.default)}` : "value or module.…"}
                         error={fieldError}
                         onChange={(value) => onFieldChange(v.name, { kind: "scalar", value })}
