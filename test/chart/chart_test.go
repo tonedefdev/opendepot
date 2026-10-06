@@ -201,11 +201,15 @@ func TestUIUpstreamTLSVerification(t *testing.T) {
 				`proxy_ssl_verify_depth           3;`,
 			},
 			exactCounts: map[string]int{
-				`proxy_ssl_verify                 on;`: 3,
-				`proxy_ssl_trusted_certificate   "/etc/ssl/cert.pem";`: 3,
-				`proxy_ssl_server_name           on;`: 3,
+				  `proxy_ssl_verify                 on;`:
+				  3,
+				  `proxy_ssl_trusted_certificate   "/etc/ssl/cert.pem";`:
+				  3,
+				  `proxy_ssl_server_name           on;`:
+				  3,
 				`proxy_ssl_name                  "server.opendepot-system.svc.cluster.local";`: 3,
-				`proxy_ssl_verify_depth           3;`: 3,
+				  `proxy_ssl_verify_depth           3;`:
+				  3,
 			},
 		},
 		"private CA and custom certificate name": {
@@ -224,11 +228,15 @@ func TestUIUpstreamTLSVerification(t *testing.T) {
 				`proxy_ssl_verify_depth           3;`,
 			},
 			exactCounts: map[string]int{
-				`proxy_ssl_verify                 on;`: 3,
-				`proxy_ssl_trusted_certificate   "/etc/tls/ca.crt";`: 3,
-				`proxy_ssl_server_name           on;`: 3,
+				  `proxy_ssl_verify                 on;`:
+				  3,
+				  `proxy_ssl_trusted_certificate   "/etc/tls/ca.crt"`:
+				  3,
+				  `proxy_ssl_server_name           on;`:
+				  3,
 				`proxy_ssl_name                  "server.internal.example.com";`: 3,
-				`proxy_ssl_verify_depth           3;`: 3,
+				  `proxy_ssl_verify_depth           3;`:
+				  3,
 			},
 		},
 		"plain HTTP has no upstream TLS directives": {
