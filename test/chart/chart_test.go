@@ -180,6 +180,83 @@ func TestChartPermutations(t *testing.T) {
 	}
 }
 
+func TestUIUpstreamTLSVerification(t *testing.T) {
+	tests := map[string]struct {
+		values      map[string]string
+		contains    []string
+		notContains []string
+		exactCounts map[string]int
+	}{
+		"public CA and default service name": {
+			values: map[string]string{
+				"ui.enabled":                   "true",
+				"ui.sessionPasswordSecretName": "ui-session",
+				"server.tls.enabled":           "true",
+			},
+			contains: []string{
+				`proxy_ssl_verify                 on;`,
+				`proxy_ssl_trusted_certificate   "/etc/ssl/cert.pem";`,
+				`proxy_ssl_server_name           on;`,
+				`proxy_ssl_name                  "server.opendepot-system.svc.cluster.local";`,
+				`proxy_ssl_verify_depth           3;`,
+			},
+			exactCounts: map[string]int{
+				`proxy_ssl_verify                 on;`: 3,
+				`proxy_ssl_trusted_certificate   "/etc/ssl/cert.pem";`: 3,
+				`proxy_ssl_server_name           on;`: 3,
+				`proxy_ssl_name                  "server.opendepot-system.svc.cluster.local";`: 3,
+				`proxy_ssl_verify_depth           3;`: 3,
+			},
+		},
+		"private CA and custom certificate name": {
+			values: map[string]string{
+				"ui.enabled":                   "true",
+				"ui.sessionPasswordSecretName": "ui-session",
+				"server.tls.enabled":           "true",
+				"ui.serverCACertPath":          "/etc/tls/ca.crt",
+				"ui.serverTLSName":             "server.internal.example.com",
+			},
+			contains: []string{
+				`proxy_ssl_verify                 on;`,
+				`proxy_ssl_trusted_certificate   "/etc/tls/ca.crt";`,
+				`proxy_ssl_server_name           on;`,
+				`proxy_ssl_name                  "server.internal.example.com";`,
+				`proxy_ssl_verify_depth           3;`,
+			},
+			exactCounts: map[string]int{
+				`proxy_ssl_verify                 on;`: 3,
+				`proxy_ssl_trusted_certificate   "/etc/tls/ca.crt";`: 3,
+				`proxy_ssl_server_name           on;`: 3,
+				`proxy_ssl_name                  "server.internal.example.com";`: 3,
+				`proxy_ssl_verify_depth           3;`: 3,
+			},
+		},
+		"plain HTTP has no upstream TLS directives": {
+			values: map[string]string{
+				"ui.enabled":                   "true",
+				"ui.sessionPasswordSecretName": "ui-session",
+				"server.tls.enabled":           "false",
+			},
+			notContains: []string{"proxy_ssl_"},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			rendered := renderTemplate(t, test.values, nil, "templates/ui-configmap.yaml")
+			for _, expected := range test.contains {
+				assert.Contains(t, rendered, expected)
+			}
+			for _, unexpected := range test.notContains {
+				assert.NotContains(t, rendered, unexpected)
+			}
+			for directive, expectedCount := range test.exactCounts {
+				assert.Equal(t, expectedCount, strings.Count(rendered, directive), "unexpected count for %q", directive)
+			}
+		})
+	}
+}
+
 func TestChartResourceEnablement(t *testing.T) {
 	tests := map[string]struct {
 		values  map[string]string

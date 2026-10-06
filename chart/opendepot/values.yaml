@@ -406,8 +406,11 @@ ui:
   # container will proxy registry protocol requests to.
   # Defaults to server.<global.namespace>.svc.cluster.local:80 when empty.
   serverHost: ""
-  # serverCACertPath adds a private CA from the opendepot-tls Secret to the
-  # Next.js trust store when the in-cluster server uses a privately signed cert.
+  # serverTLSName is the expected DNS name in the server certificate. Defaults
+  # to server.<global.namespace>.svc.cluster.local; set it for custom upstreams.
+  serverTLSName: ""
+  # serverCACertPath points to a private CA in the opendepot-tls Secret for
+  # NGINX and the Next.js trust stores. NGINX otherwise uses the system CA bundle.
   serverCACertPath: ""
   nginx:
     # preserveHostPort passes the client Host header including the port ($http_host)

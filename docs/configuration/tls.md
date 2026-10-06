@@ -21,6 +21,8 @@ server:
 !!! note
     When TLS is enabled, the server listens on port `443` instead of `8080`. Ensure your Service `targetPort` and any probes are updated accordingly.
 
+When `server.tls.enabled=true` and the UI is enabled, its NGINX proxy verifies the server certificate and hostname for all upstream HTTPS requests by default. It trusts the UI image's system CA bundle unless `ui.serverCACertPath` points to a private CA certificate. To use a private CA, include its PEM certificate as the `ca.crt` key in the `opendepot-tls` Secret and set `ui.serverCACertPath: /etc/tls/ca.crt`. The expected certificate DNS name defaults to `server.<global.namespace>.svc.cluster.local`; set `ui.serverTLSName` when using a custom server certificate name.
+
 !!! note
     When `anonymousAuth` is enabled, the server uses its own ServiceAccount to query the Kubernetes API for Module and Version resources. No client credentials are required. The server's ClusterRole only permits reading `modules` and `versions`, so anonymous users cannot create or modify resources.
 

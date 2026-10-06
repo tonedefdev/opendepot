@@ -153,6 +153,17 @@ kubectl create secret tls opendepot-tls \
   -n opendepot-system
 ```
 
+When the UI is enabled, NGINX verifies the server certificate for its API, registry discovery, and Dex proxy requests. Publicly trusted certificates use the UI image's system CA bundle. For a private CA, include its PEM certificate as the `ca.crt` key in `opendepot-tls` and set `ui.serverCACertPath: /etc/tls/ca.crt`. The default certificate name is `server.<global.namespace>.svc.cluster.local`; set `ui.serverTLSName` when the server certificate uses a different DNS name.
+
+#### UI — Upstream TLS
+
+When `server.tls.enabled=true`, NGINX verifies the server certificate and hostname for all HTTPS upstream requests by default. It trusts the UI image's system CA bundle unless `ui.serverCACertPath` is set. For a private CA, the path must point to the `ca.crt` key mounted from the `opendepot-tls` Secret.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `ui.serverTLSName` | `server.<global.namespace>.svc.cluster.local` | DNS name expected in the server certificate. Override for a custom certificate name |
+| `ui.serverCACertPath` | `""` | Path to the private CA certificate file from the `ca.crt` key in `opendepot-tls`. When empty, NGINX uses the system CA bundle |
+
 #### Server — Ingress
 
 | Parameter | Default | Description |
@@ -304,7 +315,7 @@ A schema is extracted only for provider versions whose `operatingSystem` and `ar
 | `assembly.workDir` | `/var/lib/opendepot/assembly` | Writable server validation workspace |
 | `assembly.workspaceSizeLimit` | `1Gi` | Size limit for the server validation `emptyDir` |
 
-When `server.tls.enabled=true` uses a privately signed in-cluster certificate, set `ui.serverCACertPath` to the CA file in the `opendepot-tls` Secret so Next.js can verify server-side API requests. Tilt mounts the shared development CA at `/etc/tls/ca.crt` for this purpose.
+When `server.tls.enabled=true` uses a privately signed in-cluster certificate, set `ui.serverCACertPath` to the CA file in the `opendepot-tls` Secret. This CA is trusted by both NGINX upstream verification and Next.js server-side API requests. Tilt mounts the shared development CA at `/etc/tls/ca.crt` for this purpose.
 
 ### Dex (OIDC Identity Broker)
 

@@ -1,4 +1,5 @@
 {{- if .Values.ui.enabled }}
+{{- $serverTLSName := default (printf "server.%s.svc.cluster.local" .Values.global.namespace) .Values.ui.serverTLSName }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -48,10 +49,11 @@ data:
             location /opendepot/ {
                 proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
                 {{- if .Values.server.tls.enabled }}
-                # proxy_ssl_verify is disabled because the server uses a self-signed or
-                # cluster-internal certificate. Replace with a CA bundle reference if using
-                # a publicly trusted cert on the server service.
-                proxy_ssl_verify   off;
+                proxy_ssl_verify                 on;
+                proxy_ssl_trusted_certificate   {{ default "/etc/ssl/cert.pem" .Values.ui.serverCACertPath | quote }};
+                proxy_ssl_server_name           on;
+                proxy_ssl_name                  {{ $serverTLSName | quote }};
+                proxy_ssl_verify_depth           3;
                 {{- end }}
                 proxy_set_header   Host              {{ if .Values.ui.nginx.preserveHostPort }}$http_host{{ else }}$host{{ end }};
                 proxy_set_header   X-Forwarded-For   $remote_addr;
@@ -63,10 +65,11 @@ data:
             location /.well-known/terraform.json {
                 proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
                 {{- if .Values.server.tls.enabled }}
-                # proxy_ssl_verify is disabled because the server uses a self-signed or
-                # cluster-internal certificate. Replace with a CA bundle reference if using
-                # a publicly trusted cert on the server service.
-                proxy_ssl_verify   off;
+                proxy_ssl_verify                 on;
+                proxy_ssl_trusted_certificate   {{ default "/etc/ssl/cert.pem" .Values.ui.serverCACertPath | quote }};
+                proxy_ssl_server_name           on;
+                proxy_ssl_name                  {{ $serverTLSName | quote }};
+                proxy_ssl_verify_depth           3;
                 {{- end }}
                 proxy_set_header   Host              {{ if .Values.ui.nginx.preserveHostPort }}$http_host{{ else }}$host{{ end }};
                 proxy_set_header   X-Forwarded-For   $remote_addr;
@@ -83,10 +86,11 @@ data:
             location /dex/ {
                 proxy_pass         http{{- if .Values.server.tls.enabled }}s{{- end }}://opendepot_server;
                 {{- if .Values.server.tls.enabled }}
-                # proxy_ssl_verify is disabled because the server uses a self-signed or
-                # cluster-internal certificate. Replace with a CA bundle reference if using
-                # a publicly trusted cert on the server service.
-                proxy_ssl_verify   off;
+                proxy_ssl_verify                 on;
+                proxy_ssl_trusted_certificate   {{ default "/etc/ssl/cert.pem" .Values.ui.serverCACertPath | quote }};
+                proxy_ssl_server_name           on;
+                proxy_ssl_name                  {{ $serverTLSName | quote }};
+                proxy_ssl_verify_depth           3;
                 {{- end }}
                 proxy_set_header   Host              {{ if .Values.ui.nginx.preserveHostPort }}$http_host{{ else }}$host{{ end }};
                 proxy_set_header   X-Forwarded-For   $remote_addr;
