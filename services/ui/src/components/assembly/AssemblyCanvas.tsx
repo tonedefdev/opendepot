@@ -218,6 +218,34 @@ export function migrateStoredAssemblyNodes(saved: Node<RawNodeData>[]): Node<Raw
   });
 }
 
+function persistableProviderConfiguration(configuration: ProviderConfiguration): ProviderConfiguration {
+  const persistableReference = (value: FieldValue): FieldValue => ({
+    ...value,
+    literal: "",
+  });
+
+  return {
+    arguments: Object.fromEntries(
+      Object.entries(configuration.arguments)
+        .filter(([, value]) => value.mode === "reference")
+        .map(([name, value]) => [name, persistableReference(value)]),
+    ),
+    blocks: Object.fromEntries(
+      Object.entries(configuration.blocks).map(([name, instances]) => [
+        name,
+        instances.map(persistableProviderConfiguration),
+      ]),
+    ),
+  };
+}
+
+export function assemblyNodesForStorage(nodes: Node<RawNodeData>[]): Node<RawNodeData>[] {
+
+  return nodes.map((node) => node.data.kind === "provider"
+    ? { ...node, data: { ...node.data, configuration: persistableProviderConfiguration(node.data.configuration) } }
+    : node);
+}
+
 function normalizeModuleInputValue(value: unknown): ModuleInputValue {
   if (!value || typeof value !== "object") return { kind: "scalar", value: { mode: "literal", literal: "" } };
 
@@ -326,7 +354,7 @@ export function serializeAssemblyDocument(nodes: Node<RawNodeData>[]) {
       version: node.data.version,
       localName: node.data.localName,
       alias: node.data.alias,
-      configuration: node.data.configuration,
+      configuration: persistableProviderConfiguration(node.data.configuration),
     })),
   };
 }
@@ -407,8 +435,11 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
         localStorage.getItem(PREVIOUS_STORAGE_KEY) ??
         localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
-        const saved = migrateStoredAssemblyNodes(JSON.parse(raw) as Node<RawNodeData>[]);
+        const saved = assemblyNodesForStorage(migrateStoredAssemblyNodes(JSON.parse(raw) as Node<RawNodeData>[]));
         setNodes(saved);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+        localStorage.removeItem(PREVIOUS_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
 
         const maxSeq = saved.reduce((max, n) => {
           const match = /-(\d+)$/.exec(n.id);
@@ -434,7 +465,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
 
     saveTimeoutRef.current = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(assemblyNodesForStorage(nodes)));
       } catch {
         // Storage unavailable or full — saving is best-effort only.
       }

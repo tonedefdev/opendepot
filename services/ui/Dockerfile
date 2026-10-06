@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Install dependencies first (layer caching).
 COPY package.json yarn.lock* .yarnrc.yml* ./
+COPY .yarn/patches/ ./.yarn/patches/
 RUN corepack enable && yarn install --immutable
 
 # Copy source and build.

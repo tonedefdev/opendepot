@@ -5,6 +5,7 @@ RUN apk upgrade --no-cache && apk add --no-cache gettext nginx
 WORKDIR /app
 
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/patches/ ./.yarn/patches/
 RUN corepack enable && yarn install --immutable
 
 COPY public/ public/

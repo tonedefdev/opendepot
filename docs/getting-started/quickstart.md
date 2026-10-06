@@ -180,27 +180,17 @@ spec:
         - darwin
         - linux
       versionConstraints: "~> 6.60.0"
----
-apiVersion: opendepot.defdev.io/v1alpha1
-kind: GroupBinding
-metadata:
-  name: quickstart-public-access
-  namespace: opendepot-system
-spec:
-  expression: "true"
-  moduleResources:
-    - "*"
-  providerResources:
-    - "*"
 ```
 
 ```bash
 kubectl apply -f quickstart-depot.yaml
 ```
 
-The `GroupBinding` makes the generated modules and providers visible through
-the anonymous browse API. No separate `Module` or `Provider` resources are
-needed.
+The chart's `server.anonymousAuth=true` setting makes the generated modules
+and providers visible through the anonymous browse API. No separate `Module`
+or `Provider` resources are needed. This quickstart does not create a
+`GroupBinding`; for OIDC deployments, create one scoped to your IdP group and
+the specific module and provider names users need.
 
 Watch the controllers create and synchronize the generated resources:
 

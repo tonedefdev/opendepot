@@ -150,6 +150,9 @@ export default function ProviderConfigurationModal({
           {search.trim() ? `${filtered.length} of ${entries.length}` : entries.length} field
           {entries.length === 1 ? "" : "s"} · {configuredCount} configured
         </Typography>
+        <Typography variant="caption" color="warning.main">
+          Literal values are not saved in the browser. Use references to externally supplied values for credentials.
+        </Typography>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <TextField
             size="small"

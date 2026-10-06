@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assemblyResourceMatchesQuery, duplicateMapKeys, migrateStoredAssemblyNodes, serializeAssemblyDocument } from "./AssemblyCanvas";
+import { assemblyNodesForStorage, assemblyResourceMatchesQuery, duplicateMapKeys, migrateStoredAssemblyNodes, serializeAssemblyDocument } from "./AssemblyCanvas";
 
 const moduleNode = {
   id: "module-1",
@@ -153,7 +153,7 @@ describe("Assembly canvas persistence", () => {
     });
   });
 
-  it("serializes provider bindings and recursive provider configuration", () => {
+  it("serializes provider bindings, references, and recursive configuration without literals", () => {
     const providerNode = {
       id: "provider-2",
       type: "provider",
@@ -192,7 +192,75 @@ describe("Assembly canvas persistence", () => {
     expect(document.providers[0]).toMatchObject({
       localName: "aws",
       alias: "primary",
-      configuration: { arguments: { region: { literal: '"us-east-1"' } } },
+      configuration: { arguments: {} },
+    });
+  });
+
+  it("omits literal provider values from browser storage but preserves references", () => {
+    const providerNode = {
+      id: "provider-2",
+      type: "provider",
+      position: { x: 40, y: 50 },
+      data: {
+        kind: "provider",
+        namespace: "platform",
+        name: "aws",
+        version: "v6.0.0",
+        providerNamespace: "hashicorp",
+        providerName: "aws",
+        localName: "aws",
+        alias: "primary",
+        schema: {},
+        configuration: {
+          arguments: {
+            region: { mode: "literal", literal: "us-west-2" },
+            profile: { mode: "reference", literal: "stale-secret", refNodeId: "variable-profile" },
+          },
+          blocks: {
+            assume_role: [{
+              arguments: {
+                role_arn: { mode: "literal", literal: "arn:secret" },
+                external_id: { mode: "reference", literal: "", refNodeId: "variable-external-id" },
+              },
+              blocks: {},
+            }],
+          },
+        },
+        loading: false,
+        error: null,
+      },
+    };
+
+    const [persisted] = assemblyNodesForStorage([providerNode] as never);
+    const exportedDocument = serializeAssemblyDocument([providerNode] as never);
+
+    expect(persisted.data.kind).toBe("provider");
+    expect(exportedDocument.providers[0].configuration).toEqual({
+      arguments: { profile: { mode: "reference", literal: "", refNodeId: "variable-profile" } },
+      blocks: {
+        assume_role: [{
+          arguments: { external_id: { mode: "reference", literal: "", refNodeId: "variable-external-id" } },
+          blocks: {},
+        }],
+      },
+    });
+    if (persisted.data.kind === "provider") {
+      expect(persisted.data.configuration).toEqual({
+        arguments: { profile: { mode: "reference", literal: "", refNodeId: "variable-profile" } },
+        blocks: {
+          assume_role: [{
+            arguments: { external_id: { mode: "reference", literal: "", refNodeId: "variable-external-id" } },
+            blocks: {},
+          }],
+        },
+      });
+    }
+    expect(providerNode.data.configuration.arguments.region.literal).toBe("us-west-2");
+
+    const [loadedNode] = assemblyNodesForStorage(migrateStoredAssemblyNodes([providerNode] as never));
+    const loadedDocument = serializeAssemblyDocument([loadedNode] as never);
+    expect(loadedDocument.providers[0].configuration.arguments).toEqual({
+      profile: { mode: "reference", literal: "", refNodeId: "variable-profile" },
     });
   });
 });

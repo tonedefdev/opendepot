@@ -4,7 +4,7 @@ name: "OpenDepot UI Developer"
 model: "GPT-5.6 Luna"
 reasoning-effort: medium
 tools: [read, edit, search, execute, browser, todo, vscode/memory, agent, browser]
-agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation"]
+agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation" ,"OpenDepot Developer"]
 argument-hint: "UI feature or fix to implement (page, component, style change, or auth flow)"
 ---
 

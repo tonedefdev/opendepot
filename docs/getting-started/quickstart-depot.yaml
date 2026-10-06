@@ -66,15 +66,3 @@ spec:
         - darwin
         - linux
       versionConstraints: "~> 6.60.0"
----
-apiVersion: opendepot.defdev.io/v1alpha1
-kind: GroupBinding
-metadata:
-  name: quickstart-public-access
-  namespace: opendepot-system
-spec:
-  expression: "true"
-  moduleResources:
-    - "*"
-  providerResources:
-    - "*"
