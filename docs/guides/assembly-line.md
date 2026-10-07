@@ -40,11 +40,11 @@ Building a canvas node requires the underlying module or provider version to alr
 ## Define Complex Variables
 
 Variables are first-class canvas nodes. Open **Type** on a variable to choose a
-primitive, collection, tuple, or object type. For nested objects, add attributes
-and mark them optional as needed. Assembly Line shows the equivalent OpenTofu
-declaration as you build it.
+primitive, collection, tuple, or object type. Add nested object attributes and
+set optional or default values in the type editor. Its syntax-highlighted HCL
+preview shows the equivalent OpenTofu declaration as you build the type.
 
-![Assembly Line variable definition for var.lambda_functions showing a map of objects and generated OpenTofu](../img/assembly-line-variable-current.png)
+![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current.png)
 
 This example defines a map whose values contain a nested `spec` object with
 `description` and `timeout` attributes. That shape is useful for `for_each`
@@ -54,34 +54,59 @@ instance's configuration.
 ### Validate Variable Values
 
 Add one or more validations to reject invalid input before the generated root
-module is used. Each validation has two parts:
+module is used. Enter each condition as an HCL expression; syntax highlighting
+distinguishes functions, variables, and nested attributes while you edit. Each
+validation has two parts:
 
 - A condition written as an HCL expression, such as `length(var.spec.description) > 100`.
 - An error message that explains how to correct the value.
 
-The condition can reference the variable and its nested attributes. Assembly
-Line includes the validation in the generated OpenTofu declaration, so the
-constraint travels with the exported `variables.tf` file.
+The condition can reference the variable and its nested attributes. The HCL
+preview renders the validation block in the generated OpenTofu declaration, so
+the constraint travels with the exported `variables.tf` file.
 
-![Assembly Line variable validation condition and error message](../img/assembly-line-variable-validations.png)
+![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations.png)
 
-![Generated OpenTofu validation block for var.lambda_functions](../img/assembly-line-variable-generated-code.png)
+![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code.png)
 
 ## Configure Module Inputs
 
-Select **Inputs** on a module node to open its typed input form. The form shows
-required inputs, accepted types, current values, and nested collection or object
-fields. Use the search box and pagination controls when a module exposes many
-inputs.
+Select **Inputs** on a module node to open its typed input form. Compact rows
+show each input's required or optional status, accepted type, and value
+controls. Collection entries are grouped under their input, and the generated
+module HCL remains visible beside the form. Use the search box and pagination
+controls when a module exposes many inputs.
 
-![Assembly Line module input form showing required values, each.key selectors, and module output references](../img/assembly-line-module-inputs-current.png)
+![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current.png)
+
+Enter literal values or HCL expressions in the value fields. Expressions are
+syntax highlighted. When a field contains a supported OpenTofu function, the
+editor displays a short function description and a link to the OpenTofu
+documentation beneath the field.
+
+![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions.png)
 
 Values can come from several places:
 
 - A literal value entered in the form.
-- A root variable such as `var.aws_account_id`.
-- A module output such as `module.ecr.repo_arn`.
-- A repeated value such as `each.key` or `each.value.name`.
+- A root variable such as `var.account_id`.
+- A module output such as `module.ecr.repo_url`.
+- A repeated value such as `each.key` or `each.value.spec.description`.
+
+![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png)
+
+Enter literal values directly in an input field. To reference a root variable or
+module output, choose **Use input** and select a source from the menu. When a
+source is repeated or contains a collection, the form provides instance
+selectors and key or index controls.
+
+![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-input-repeated-values.png)
+
+Repeated modules can also use `each.key` and `each.value` in HCL expression
+fields. For example, this description input reads a nested value from the
+current `for_each` object:
+
+![Module description input using the each.value.spec.description expression](../img/assembly-line-input-each-value.png)
 
 For a variable map or collection reference, choose **One instance** and enter
 the index or key expression to select one entry. When the selected entry is an
@@ -96,6 +121,10 @@ Leave the descendant selection at **Whole value** to reference the complete
 entry. Choosing **All instances** clears the descendant selection and passes
 the full collection. Type compatibility checks use the selected entry or
 projected property type.
+
+![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png)
+
+![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png)
 
 The form keeps the expression visible on the canvas, so you can review how
 each module is connected without opening every field. Defaults owned by the
@@ -177,11 +206,14 @@ A module's provider selector lists only provider nodes whose upstream identity m
 Multiple configurations of one provider share one `required_providers` entry. Give additional configurations an alias, then bind each module-local provider name to the appropriate root configuration.
 
 Select **Configuration** on a provider node to configure provider arguments from
-the extracted schema. Optional attributes are clearly marked, and nested blocks
-such as `assume_role` can be added only when needed. The provider form supports
-the same typed expression references as module inputs.
+the extracted schema. The paginated form marks optional attributes and shows
+complex attribute types, such as `map(string)`, alongside their value controls.
+Add or remove nested blocks such as `assume_role` and configure their fields
+inline. A provider-specific HCL preview shows the provider configuration as it
+is assembled. Provider values support the same typed expression references as
+module inputs.
 
-![Assembly Line provider configuration form showing optional attributes and nested blocks](../img/assembly-line-provider-configuration.png)
+![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration.png)
 
 Provider configuration belongs on the root provider node. Modules then select
 the matching provider configuration through their **Providers** panel, keeping
