@@ -14,11 +14,12 @@ import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Button from "@mui/material/Button";
 import Tooltip from "@mui/material/Tooltip";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import CloseIcon from "@mui/icons-material/Close";
 import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import { useColorScheme } from "@mui/material/styles";
+import { useColorScheme, useTheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
@@ -86,6 +87,8 @@ export default function VariableModal({
   onDefaultChange,
 }: Props) {
   const [previewExpanded, setPreviewExpanded] = React.useState(false);
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const code = React.useMemo(
     () => renderVariableSpec(name, type, hasDefault, defaultValue, description, validations),
     [name, type, hasDefault, defaultValue, description, validations],
@@ -94,7 +97,7 @@ export default function VariableModal({
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
-  const typeEditor = <TypeEditor value={type} onChange={onTypeChange} />;
+  const typeEditor = <TypeEditor value={type} onChange={onTypeChange} compactRows={previewExpanded && isDesktop} />;
   const descriptionEditor = (
     <TextField
       variant="filled"
@@ -146,7 +149,7 @@ export default function VariableModal({
           display: "grid",
           gridTemplateColumns: {
             xs: "minmax(0, 1fr)",
-            md: previewExpanded ? "minmax(0, 1fr) minmax(320px, 2fr)" : "minmax(0, 3fr) minmax(320px, 2fr)",
+            md: previewExpanded ? "minmax(360px, 1.2fr) minmax(320px, 1.8fr)" : "minmax(0, 3fr) minmax(320px, 2fr)",
           },
           gridTemplateRows: {
             xs: previewExpanded ? "minmax(120px, 1fr) minmax(0, 2fr)" : "minmax(0, 1fr) minmax(180px, 32%)",

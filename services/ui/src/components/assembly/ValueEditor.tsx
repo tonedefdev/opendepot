@@ -72,6 +72,7 @@ export function ValueRow({
   expanded: controlledExpanded,
   onExpandedChange,
   alignToValueColumn = false,
+  compactIndent = false,
 }: Props & {
   label: React.ReactNode;
   toggleLabel: string;
@@ -79,6 +80,7 @@ export function ValueRow({
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   alignToValueColumn?: boolean;
+  compactIndent?: boolean;
 }) {
   const [localExpanded, setLocalExpanded] = React.useState(true);
   const expanded = controlledExpanded ?? localExpanded;
@@ -86,7 +88,7 @@ export function ValueRow({
 
   if (isScalar(type)) {
     return (
-      <Box sx={rowSx}>
+      <Box sx={compactIndent ? { ...rowSx, flexWrap: "nowrap", gap: 0.5 } : rowSx}>
         <RowSpacer />
         {label}
         <Box sx={{ flex: "1 1 200px", minWidth: 0 }}>
@@ -110,7 +112,11 @@ export function ValueRow({
         {actions && <Box sx={rowActionsSx}>{actions}</Box>}
       </Box>
       <Collapse in={expanded} unmountOnExit>
-        <Box sx={alignToValueColumn ? { ...childBranchSx, ...valueBranchSx } : childBranchSx}>
+        <Box
+          sx={compactIndent
+            ? alignToValueColumn ? { ml: 1, pl: 0 } : { ...childBranchSx, ml: 1, pl: 1 }
+            : alignToValueColumn ? { ...childBranchSx, ...valueBranchSx } : childBranchSx}
+        >
           <ValueEditor type={type} value={value} onChange={onChange} />
         </Box>
       </Collapse>

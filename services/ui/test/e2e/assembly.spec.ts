@@ -24,7 +24,17 @@ const nestedVariable = {
               kind: "map",
               element: {
                 kind: "object",
-                attributes: [{ name: "enabled", type: { kind: "bool" } }],
+                attributes: [
+                  { name: "description", type: { kind: "string" } },
+                  { name: "enabled", type: { kind: "bool" } },
+                  {
+                    name: "timeout",
+                    type: { kind: "number" },
+                    optional: true,
+                    hasDefault: true,
+                    default: { kind: "scalar", literal: "30" },
+                  },
+                ],
               },
             },
           },
@@ -49,7 +59,11 @@ const nestedVariable = {
                       key: "primary",
                       value: {
                         kind: "object",
-                        entries: [{ name: "enabled", value: { kind: "scalar", literal: "true" } }],
+                        entries: [
+                          { name: "description", value: { kind: "scalar", literal: "A service description" } },
+                          { name: "enabled", value: { kind: "scalar", literal: "true" } },
+                          { name: "timeout", value: { kind: "scalar", literal: "30" } },
+                        ],
                       },
                     },
                   ],
@@ -86,6 +100,12 @@ test.describe("Assembly Line recursive variable defaults", () => {
     await expect(preview).toBeVisible();
     await expect(preview).toBeInViewport();
     const editor = dialog.getByTestId("variable-editor");
+    const defaultLabel = editor.locator("p").filter({ hasText: /^default$/ });
+    await expect(defaultLabel).toHaveCount(1);
+    const defaultLabelStyle = await defaultLabel.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { fontFamily: style.fontFamily, fontSize: style.fontSize, color: style.color, paddingLeft: style.paddingLeft, paddingRight: style.paddingRight };
+    });
     const previewWidth = (await preview.boundingBox())?.width ?? 0;
     const editorWidth = (await editor.boundingBox())?.width ?? 0;
     const expandPreview = dialog.getByRole("button", { name: "Expand HCL preview" });
@@ -93,6 +113,24 @@ test.describe("Assembly Line recursive variable defaults", () => {
     await expect(dialog.getByRole("button", { name: "Restore HCL preview" })).toHaveAttribute("aria-pressed", "true");
     expect((await preview.boundingBox())?.width ?? 0).toBeGreaterThan(previewWidth);
     expect((await editor.boundingBox())?.width ?? 0).toBeLessThan(editorWidth);
+    expect((await editor.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(360);
+    const descriptionName = dialog.getByRole("textbox", { name: "Attribute name" }).nth(1);
+    await expect(descriptionName).toHaveAttribute("title", "description");
+    await expect(descriptionName).toHaveCSS("text-overflow", "ellipsis");
+    await expect(defaultLabel).toHaveCSS("font-family", defaultLabelStyle.fontFamily);
+    await expect(defaultLabel).toHaveCSS("font-size", defaultLabelStyle.fontSize);
+    await expect(defaultLabel).toHaveCSS("color", defaultLabelStyle.color);
+    await expect(defaultLabel).toHaveCSS("padding-left", defaultLabelStyle.paddingLeft);
+    await expect(defaultLabel).toHaveCSS("padding-right", defaultLabelStyle.paddingRight);
+    const nestedAttributeName = dialog.getByRole("textbox", { name: "Attribute name" }).last();
+    const nestedAttributeType = dialog.getByRole("combobox", { name: "timeout type" });
+    const nestedAttributeDefault = dialog.getByRole("textbox", { name: "timeout default value" });
+    const nameBounds = await nestedAttributeName.boundingBox();
+    const typeBounds = await nestedAttributeType.boundingBox();
+    const defaultBounds = await nestedAttributeDefault.boundingBox();
+    if (!nameBounds || !typeBounds || !defaultBounds) throw new Error("The nested attribute name, type, or default has no visible bounds.");
+    expect(Math.abs((nameBounds.y + nameBounds.height / 2) - (typeBounds.y + typeBounds.height / 2))).toBeLessThan(2);
+    expect(Math.abs(typeBounds.x - defaultBounds.x)).toBeLessThan(32);
     await dialog.getByRole("button", { name: "Restore HCL preview" }).click();
     await expect(dialog.getByRole("button", { name: "Expand HCL preview" })).toHaveAttribute("aria-pressed", "false");
 
