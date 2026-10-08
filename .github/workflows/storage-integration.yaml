@@ -78,13 +78,13 @@ jobs:
       - name: Authenticate to Google Cloud (Workload Identity Federation)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: projects/789629963060/locations/global/workloadIdentityPools/github-oidc-pool/providers/github-provider
+          service_account: opendepot-test@opendepot-495604.iam.gserviceaccount.com
 
       - name: Run GCS integration tests
         working-directory: test/integration
         env:
-          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GCP_PROJECT: opendepot-495604
           GCP_LOCATION: us
           # Disable workspace mode — same reason as s3-integration job.
           GOWORK: "off"
