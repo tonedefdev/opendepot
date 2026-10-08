@@ -324,7 +324,7 @@ Streams the provider binary archive (`.zip`) directly from storage. Does **not**
 
 ## Browse API
 
-The browse endpoints power [OpenDepot Workshop](../guides/registry-explorer/index.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer/index.md#browse-visibility-rules).
+The browse endpoints power [OpenDepot Workshop](../guides/registry-explorer/index.md) and can also be called directly. All endpoints are accessible without authentication; providing an `Authorization: Bearer <token>` header extends visibility per the [browse visibility rules](../guides/registry-explorer/index.md).
 
 ### List Namespaces
 
@@ -558,7 +558,7 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 `selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
 
-This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/browse.md#scan-findings) refresh button to re-fetch findings without a full page reload.
+This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
 ### List Depots
 
@@ -599,7 +599,7 @@ Returns a flat list of all visible `Depot` resources with their storage backend,
 GET /opendepot/ui/v1/depots/graph
 ```
 
-Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](../guides/registry-explorer.md#depots-page) in OpenDepot Workshop to render the interactive relationship diagram.
+Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](../guides/registry-explorer/depots.md) in OpenDepot Workshop to render the interactive relationship diagram.
 
 **Visibility:** same rules as [List Depots](#list-depots).
 

@@ -124,7 +124,7 @@ scanning:
 !!! warning "`blockOnHigh` now blocks at HIGH **or above**"
     Prior to this release, `blockOnHigh` only matched findings whose severity was exactly `HIGH` — a `blockOnHigh: true, blockOnCritical: false` configuration silently let CRITICAL findings through. `blockOnHigh` now means "block at HIGH or above", so CRITICAL findings are blocked as well. This is strictly more restrictive than before, so no previously-blocked version becomes unblocked, but your effective enforcement may tighten on upgrade. See [Upgrading](../upgrading.md) for details.
 
-A blocked `Version` still has its `status.sourceScan` and `status.binaryScan` populated with the findings that caused the block. This is required so an exemption can be authored against a finding, but it also means **anyone with `get` on `Version` resources in a namespace can enumerate the known vulnerabilities of stored artifacts**, whether or not the version is currently blocked. Factor this into your [RBAC](../rbac.md) design.
+A blocked `Version` still has its `status.sourceScan` and `status.binaryScan` populated with the findings that caused the block. This is required so an exemption can be authored against a finding, but it also means **anyone with `get` on `Version` resources in a namespace can enumerate the known vulnerabilities of stored artifacts**, whether or not the version is currently blocked. Factor this into your [RBAC](../reference/rbac/index.md) design.
 
 ### Fine-Grained Exemptions with `ScanPolicy`
 
@@ -177,7 +177,7 @@ When more than one `ScanPolicy` matches a `Version`, only the single highest-`pr
 
 **Exempted findings stay visible, they are not hidden:**
 
-A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in [OpenDepot Workshop](../guides/registry-explorer.md#scan-findings).
+A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings).
 
 **Expiry:**
 
@@ -189,7 +189,7 @@ If the controller cannot list `ScanPolicy` resources (e.g. a transient API serve
 
 **RBAC is the control, there is no separate kill switch:**
 
-There is intentionally no global flag to disable `ScanPolicy` enforcement. Controlling who may create or edit `scanpolicies` in a namespace **is** the control over who may waive scan enforcement. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`, and deliberately does not ship any user-facing `Role` granting write access to `scanpolicies` — binding that permission to specific users or groups is a decision for your cluster administrators. See [Kubernetes RBAC](../rbac.md#controller-permissions).
+There is intentionally no global flag to disable `ScanPolicy` enforcement. Controlling who may create or edit `scanpolicies` in a namespace **is** the control over who may waive scan enforcement. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`, and deliberately does not ship any user-facing `Role` granting write access to `scanpolicies` — binding that permission to specific users or groups is a decision for your cluster administrators. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
 
 ### Migrating from global thresholds
 

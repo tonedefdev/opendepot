@@ -101,4 +101,4 @@ disabling the UI write gate. Keep the CRD installed until policy objects have
 been removed through the chosen declarative workflow.
 
 See the [API reference](../reference/api.md#securitygroupbinding) and
-[Kubernetes RBAC](../rbac.md) for the resource and ServiceAccount permissions.
+[Kubernetes RBAC](../reference/rbac/index.md) for the resource and ServiceAccount permissions.

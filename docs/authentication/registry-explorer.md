@@ -52,5 +52,5 @@ paste a raw Kubernetes ServiceAccount token, such as the output of
 and stores it as `devToken` in the encrypted session. Subsequent server renders
 prefer it over the OIDC access token. Submit an empty value to clear it.
 
-See [Developer Token Input](../guides/registry-explorer/index.md#enabling-the-ui)
+See [Developer Token Input](#developer-token-input)
 for Helm configuration details.
