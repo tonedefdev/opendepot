@@ -49,7 +49,7 @@ See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scan
 
 ## Trivy-Enabled Image
 
-The SaaS release publishes one ARM64 version-controller image with the Trivy binary bundled using the `INCLUDE_TRIVY=true` build argument. The chart uses this standard image tag for both module IaC scanning and provider binary/source scanning; there is no separate `-scanning` image variant.
+The release publishes one ARM64 version-controller image with the Trivy binary bundled using the `INCLUDE_TRIVY=true` build argument. The chart uses this standard image tag for both module IaC scanning and provider binary/source scanning; there is no separate `-scanning` image variant.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ The PVC must use a `StorageClass` that supports `ReadWriteMany` access so that t
 
 ## Scanning Defaults
 
-SaaS defaults enable module IaC scanning and provider binary/source scanning. Provider scanning creates the shared Trivy database PVC and updater CronJob:
+The chart defaults enable module IaC scanning and provider binary/source scanning. Provider scanning creates the shared Trivy database PVC and updater CronJob:
 
 ```yaml
 scanning:

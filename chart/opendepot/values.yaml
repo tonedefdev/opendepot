@@ -248,7 +248,7 @@ storage:
 
 ## Scanning configuration (Trivy-based vulnerability and IaC scanning)
 scanning:
-  # Enable Trivy-based scanning. The SaaS release image bundles the Trivy binary.
+  # Enable Trivy-based scanning. The version-controller image bundles the Trivy binary.
   # Module IaC scanning (HCL misconfiguration detection) is active at this level;
   # no PVC or CronJob infrastructure is required.
   enabled: true

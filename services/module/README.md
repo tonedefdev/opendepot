@@ -3,7 +3,6 @@
 
 Release images are built from version tags by the repository release workflow,
 using each service directory as its Docker build context.
-The SaaS release workflow publishes ARM64 images for the ARM64 GKE node pool.
 
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use

@@ -272,13 +272,13 @@ For time series longer than the local Prometheus retention window, configure Pro
 
 ### Scanning
 
-Trivy-based vulnerability and IaC scanning is built into the version controller image. The SaaS defaults enable module IaC scanning (HCL misconfiguration detection via `trivy fs`) without requiring additional infrastructure at this level.
+Trivy-based vulnerability and IaC scanning is built into the version controller image. The default values enable module IaC scanning (HCL misconfiguration detection via `trivy fs`) without requiring additional infrastructure at this level.
 
 Provider binary and source scanning (`scanning.providerScanning`) requires an additional PVC and a CronJob to keep the offline Trivy vulnerability database current.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `scanning.enabled` | `true` | Enable Trivy-based scanning. The SaaS version-controller image bundles the Trivy binary |
+| `scanning.enabled` | `true` | Enable Trivy-based scanning. The version-controller image bundles the Trivy binary |
 | `scanning.providerScanning` | `true` | Enable provider binary and source scanning. Creates the Trivy DB PVC and `trivy-db-updater` CronJob |
 | `scanning.cacheMountPath` | `/var/cache/trivy` | Mount path for the Trivy DB cache inside the version controller. Only used when `providerScanning=true` |
 | `scanning.offline` | `true` | Pass `--offline-scan` to Trivy, preventing network calls during scans |
