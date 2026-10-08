@@ -36,7 +36,7 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 | `server.anonymousAuth` | bool | Use the server's service account for unauthenticated module access. Default: `false` |
 | `server.useBearerToken` | bool | Use bearer token auth instead of kubeconfig. Default: `true` |
 | `server.policyManagement.enabled` | bool | Enable server-side ScanPolicy create, update, and delete routes. Reads remain available when false; writes are disabled by default. Default: `false` |
-| `server.image.repository` | string | Server image repository. Default: `gcr.io/opendepot-495604/opendepot/server` |
+| `server.image.repository` | string | Server image repository. Default: `ghcr.io/tonedefdev/opendepot/server` |
 | `server.service.type` | string | Kubernetes Service type. Default: `LoadBalancer` |
 | `server.service.port` | int | Service port. Default: `80` |
 | `server.service.targetPort` | int | Container port. Default: `8080` |
@@ -153,7 +153,7 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 |-------|------|-------------|
 | `<service>.enabled` | bool | Deploy the controller. Default: `true` (`provider`: `false`) |
 | `<service>.replicaCount` | int | Number of replicas. Default: `1` |
-| `<service>.image.repository` | string | Image repository. Default: `gcr.io/opendepot-495604/opendepot/<service>-controller` |
+| `<service>.image.repository` | string | Image repository. Default: `ghcr.io/tonedefdev/opendepot/<service>-controller` |
 | `<service>.image.tag` | string | Overrides `global.image.tag` when set. |
 | `<service>.resources.requests.cpu` | string | CPU request. Default: `100m` |
 | `<service>.resources.requests.memory` | string | Memory request. Default: `512Mi` for `version`, `128Mi` for others |
@@ -230,7 +230,7 @@ The `ui` section deploys the OpenDepot Workshop frontend. See [OpenDepot Worksho
 |-------|------|-------------|
 | `ui.enabled` | bool | When true, deploys the OpenDepot Workshop UI and NGINX proxy. Also suppresses `server-ingress.yaml` — migrate traffic to `ui.ingress` before enabling. Default: `false` |
 | `ui.replicaCount` | int | Number of UI pod replicas. Default: `1` |
-| `ui.image.repository` | string | UI container image repository. Default: `gcr.io/opendepot-495604/opendepot/ui` |
+| `ui.image.repository` | string | UI container image repository. Default: `ghcr.io/tonedefdev/opendepot/ui` |
 | `ui.image.tag` | string | Image tag. Defaults to `global.image.tag`, then the chart `appVersion`. |
 | `ui.serverHost` | string | Upstream `host:port` that NGINX proxies registry requests to. Defaults to `server.<namespace>.svc.cluster.local:80` when blank. |
 | `ui.serverCACertPath` | string | Optional PEM CA path from the `opendepot-tls` Secret that Next.js trusts when connecting to a privately signed TLS server. Default: `""` |

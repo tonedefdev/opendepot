@@ -14,7 +14,7 @@ This chart deploys five OpenDepot services:
 | **Provider Controller** | Disabled | Mirrors provider binaries from upstream provider registries (`registry.opentofu.org` or `registry.terraform.io`) |
 | **Server** | Enabled | Implements the Terraform Module Registry Protocol API |
 
-All images are pulled from `gcr.io/opendepot-495604/opendepot/` and default to the tag set in `global.image.tag`.
+All images are pulled from `ghcr.io/tonedefdev/opendepot/` and default to the tag set in `global.image.tag`.
 
 ## Prerequisites
 
@@ -67,7 +67,7 @@ helm install opendepot ./chart/opendepot \
 | `version.enabled` | `true` | Deploy the Version controller |
 | `version.replicaCount` | `1` | Number of replicas |
 | `version.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `version.image.repository` | `gcr.io/opendepot-495604/opendepot/version-controller` | Image repository |
+| `version.image.repository` | `ghcr.io/tonedefdev/opendepot/version-controller` | Image repository |
 | `version.image.tag` | `""` | Per-service tag override (falls back to `global.image.tag`) |
 | `version.resources` | `100m / 512Mi` req, `4Gi` limit | Resource requests and limits |
 | `version.nodeSelector` | `{}` | Node selector |
@@ -81,7 +81,7 @@ helm install opendepot ./chart/opendepot \
 | `module.enabled` | `true` | Deploy the Module controller |
 | `module.replicaCount` | `1` | Number of replicas |
 | `module.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `module.image.repository` | `gcr.io/opendepot-495604/opendepot/module-controller` | Image repository |
+| `module.image.repository` | `ghcr.io/tonedefdev/opendepot/module-controller` | Image repository |
 | `module.image.tag` | `""` | Per-service tag override |
 | `module.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `module.nodeSelector` | `{}` | Node selector |
@@ -95,7 +95,7 @@ helm install opendepot ./chart/opendepot \
 | `depot.enabled` | `true` | Deploy the Depot controller |
 | `depot.replicaCount` | `1` | Number of replicas |
 | `depot.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `depot.image.repository` | `gcr.io/opendepot-495604/opendepot/depot-controller` | Image repository |
+| `depot.image.repository` | `ghcr.io/tonedefdev/opendepot/depot-controller` | Image repository |
 | `depot.image.tag` | `""` | Per-service tag override |
 | `depot.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `depot.nodeSelector` | `{}` | Node selector |
@@ -111,7 +111,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 | `provider.enabled` | `false` | Deploy the Provider controller |
 | `provider.replicaCount` | `1` | Number of replicas |
 | `provider.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
-| `provider.image.repository` | `gcr.io/opendepot-495604/opendepot/provider-controller` | Image repository |
+| `provider.image.repository` | `ghcr.io/tonedefdev/opendepot/provider-controller` | Image repository |
 | `provider.image.tag` | `""` | Per-service tag override |
 | `provider.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
 | `provider.nodeSelector` | `{}` | Node selector |
@@ -126,7 +126,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 | `server.replicaCount` | `1` | Number of replicas |
 | `server.anonymousAuth` | `false` | Allow unauthenticated requests (`--anonymous-auth` flag) |
 | `server.useBearerToken` | `true` | Require bearer token authentication (`--use-bearer-token` flag) |
-| `server.image.repository` | `gcr.io/opendepot-495604/opendepot/server` | Image repository |
+| `server.image.repository` | `ghcr.io/tonedefdev/opendepot/server` | Image repository |
 | `server.image.tag` | `""` | Per-service tag override |
 | `server.service.type` | `LoadBalancer` | Kubernetes service type |
 | `server.service.port` | `80` | Exposed service port |

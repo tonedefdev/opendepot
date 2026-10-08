@@ -18,7 +18,7 @@ version:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: gcr.io/opendepot-495604/opendepot/version-controller
+    repository: ghcr.io/tonedefdev/opendepot/version-controller
     tag: ""
   resources:
     requests:
@@ -38,7 +38,7 @@ module:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: gcr.io/opendepot-495604/opendepot/module-controller
+    repository: ghcr.io/tonedefdev/opendepot/module-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -58,7 +58,7 @@ depot:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: gcr.io/opendepot-495604/opendepot/depot-controller
+    repository: ghcr.io/tonedefdev/opendepot/depot-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -78,7 +78,7 @@ provider:
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
   image:
-    repository: gcr.io/opendepot-495604/opendepot/provider-controller
+    repository: ghcr.io/tonedefdev/opendepot/provider-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
@@ -160,7 +160,7 @@ server:
     dexProxy:
       enabled: true
   image:
-    repository: gcr.io/opendepot-495604/opendepot/server
+    repository: ghcr.io/tonedefdev/opendepot/server
     tag: ""  # Overrides global.image.tag when set
   service:
     type: ClusterIP
@@ -401,7 +401,7 @@ ui:
   enabled: false
   replicaCount: 1
   image:
-    repository: gcr.io/opendepot-495604/opendepot/ui
+    repository: ghcr.io/tonedefdev/opendepot/ui
     tag: ""  # Overrides global.image.tag when set
   # serverHost is the upstream address (host:port) that NGINX inside the UI
   # container will proxy registry protocol requests to.
