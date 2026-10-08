@@ -1,7 +1,7 @@
 ---
 description: "Use when: reviewing security of Go code, TypeScript/React UI, NGINX config, Helm charts, or Kubernetes manifests; running Trivy scans; validating OIDC or OAuth2 authentication flows; checking for secrets in code; auditing GroupBinding expressions; reviewing RBAC configurations; or approving/blocking a change on security grounds in the OpenDepot project."
 name: "OpenDepot Security Review"
-model: GPT-6 Luna (copilot)
+model: "Claude Haiku 5.5 (copilot)"
 reasoning-effort: high
 tools: [read, search, execute, agent, todo, browser, github/issue_read, github/issue_write, github/list_issues, github/add_issue_comment]
 agents: ["OpenDepot Developer"]

@@ -1,7 +1,7 @@
 ---
 description: "Use when: reviewing that the Developer agent implemented everything to spec, validating implementation completeness against the plan, checking for missed steps, ensuring acceptance criteria are met, or passing off to Documentation once implementation is confirmed complete. Sits between the Developer agent and Documentation agent in the OpenDepot workflow."
 name: "OpenDepot Code Review"
-model: "GPT-6 Luna (copilot)"
+model: "Claude Haiku 5.5 (copilot)"
 reasoning-effort: high
 tools: [read, search, execute, agent, todo, vscode/memory, browser]
 agents: ["OpenDepot Developer"]
