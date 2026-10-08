@@ -33,7 +33,7 @@ The architecture explainer should be placed between the hero and comparison sect
 - The current page uses CSS variables `--blue`, `--teal`, `--black`, `--ink`, `--muted`, and `--line`; preserve and reuse them.
 - Typography is Aspekta-first, with Avenir Next/Helvetica Neue fallbacks. Keep the clean geometric brand character.
 - Prefer strong blue/white/mint contrast, editorial composition, sharp directional lines, and restrained but meaningful motion.
-- Avoid generic SaaS cards, purple palettes, decorative orbs, stock imagery, and unnecessary explanatory UI text.
+- Avoid generic feature cards, purple palettes, decorative orbs, stock imagery, and unnecessary explanatory UI text.
 - Keep page sections unframed; cards are appropriate for repeated comparison items and genuinely framed tools.
 
 ## Responsive Rules And Known Fixes

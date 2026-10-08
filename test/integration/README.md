@@ -202,7 +202,7 @@ The IAM role trust policy must allow:
 |---|---|
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full resource name of the Workload Identity Provider |
 | `GCP_SERVICE_ACCOUNT` | Email of the service account to impersonate |
-| `GCP_PROJECT` | GCP project ID (e.g. `opendepot-495604`) |
+| `GCP_PROJECT` | GCP project ID (e.g. `my-gcp-project`) |
 | `GCP_LOCATION` | GCS bucket location (e.g. `US`). Defaults to `US` if omitted |
 
 The Workload Identity Pool binding must allow:
