@@ -24,6 +24,23 @@ assembly:
   enabled: true
 ```
 
+Assembly Line requires OpenTofu, which is not bundled in the default `server`
+and `version` images. Point both images at the `-assembly` tag variant of your
+release, which includes the OpenTofu binary:
+
+```yaml
+server:
+  image:
+    tag: "<release>-assembly"
+
+version:
+  image:
+    tag: "<release>-assembly"
+```
+
+The server refuses to start with Assembly Line enabled if the OpenTofu binary is
+missing from its image.
+
 See the [Helm Chart Reference](../helm-chart.md#assembly-line) for the complete
 `assembly.*` value table, including request, node, timeout, output, and
 workspace limits.

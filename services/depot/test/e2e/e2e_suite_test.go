@@ -87,6 +87,7 @@ var _ = BeforeSuite(func() {
 	if _, inspectErr := exec.Command("docker", "image", "inspect", versionImage).Output(); inspectErr != nil {
 		By("building the version controller image")
 		versionBuildCmd := exec.Command("docker", "build",
+			"--build-arg", "INCLUDE_TOFU=true",
 			"-t", versionImage,
 			"-f", "services/version/Dockerfile",
 			".",
@@ -100,6 +101,7 @@ var _ = BeforeSuite(func() {
 	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
 		By("building the server image")
 		serverBuildCmd := exec.Command("docker", "build",
+			"--build-arg", "INCLUDE_TOFU=true",
 			"-t", serverImage,
 			"-f", "services/server/Dockerfile",
 			".",

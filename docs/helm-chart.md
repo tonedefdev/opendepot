@@ -180,7 +180,7 @@ Assembly Line derives module contracts and provider configuration schemas and en
 | `assembly.enabled` | bool | Enable contract/schema extraction and initialized exports. Default: `false` |
 | `assembly.validationRegistryUrl` | string | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization. Defaults to `ui.baseUrl`. |
 | `assembly.validationCACertPath` | string | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process. Default: `""` |
-| `assembly.tofuBinPath` | string | OpenTofu binary path in the version and server images. Default: `/usr/local/bin/tofu` |
+| `assembly.tofuBinPath` | string | OpenTofu binary path in the `-assembly` version and server images. Default: `/usr/local/bin/tofu` |
 | `assembly.extractionTimeout` | duration | Provider schema extraction timeout. Default: `5m` |
 | `assembly.initTimeout` | duration | Export `tofu init` timeout. Default: `2m` |
 | `assembly.maxRequestBytes` | int | Maximum export request body. Default: `2097152` |
@@ -292,8 +292,8 @@ The Stats page uses the configured lookback window, not an all-time total. For t
 
 ### Source-built controller dependencies
 
-The server and Version controller images build the pinned OpenTofu source commit
-used for initialization and schema extraction. The scanning image also builds
+The `-assembly` server and Version controller images build the pinned OpenTofu source commit
+used for initialization and schema extraction. The default images do not include OpenTofu. The scanning image also builds
 Trivy from a pinned source commit. The chart release metadata is the source of
 the default image tag; release `0.11.0` uses chart and application version
 `0.11.0`.

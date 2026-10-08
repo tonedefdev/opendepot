@@ -302,8 +302,9 @@ assembly:
   # CA certificate trusted only by the temporary OpenTofu validation process.
   # Set this when validationRegistryUrl uses a certificate from a private CA.
   validationCACertPath: ""
-  # Path to the tofu binary bundled in the version-controller image. Only used when
-  # assembly.enabled is true.
+  # Path to the tofu binary bundled in the version-controller and server images. Only used
+  # when assembly.enabled is true. Default images do not bundle OpenTofu; use the -assembly
+  # image tags for both server and version when enabling Assembly Line.
   tofuBinPath: /usr/local/bin/tofu
   # Maximum duration a single provider schema extraction may run for. Large providers
   # (aws, azurerm, google) can take a minute or more to emit their full schema.

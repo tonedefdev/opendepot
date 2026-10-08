@@ -91,6 +91,7 @@ var _ = BeforeSuite(func() {
 		if utils.NeedsRebuild(serverImage, serverHash) {
 			By("building the server image (context changed or image absent)")
 			buildCmd := exec.Command("docker", "build",
+				"--build-arg", "INCLUDE_TOFU=true",
 				"-t", serverImage,
 				"--label", "opendepot.build.hash="+serverHash,
 				"-f", "services/server/Dockerfile",

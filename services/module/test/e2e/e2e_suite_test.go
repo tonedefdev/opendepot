@@ -101,6 +101,7 @@ var _ = BeforeSuite(func() {
 		if utils.NeedsRebuild(versionImage, versionHash) {
 			By("building the version controller image (context changed or image absent)")
 			versionBuildCmd := exec.Command("docker", "build",
+				"--build-arg", "INCLUDE_TOFU=true",
 				"-t", versionImage,
 				"--label", "opendepot.build.hash="+versionHash,
 				"--build-arg", "INCLUDE_TRIVY=true",
@@ -125,6 +126,7 @@ var _ = BeforeSuite(func() {
 		if utils.NeedsRebuild(serverImage, serverHash) {
 			By("building the server image (context changed or image absent)")
 			serverBuildCmd := exec.Command("docker", "build",
+				"--build-arg", "INCLUDE_TOFU=true",
 				"-t", serverImage,
 				"--label", "opendepot.build.hash="+serverHash,
 				"-f", "services/server/Dockerfile",

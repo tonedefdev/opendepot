@@ -26,7 +26,7 @@ provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui
 
-.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning
+.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning build-server-assembly load-server-assembly build-version-controller-assembly load-version-controller-assembly
 
 ## Build all images for the target platform
 build: $(addprefix build-,$(SERVICES))
@@ -45,6 +45,31 @@ build-version-controller-scanning:
 ## Load the Trivy-enabled version-controller into the kind cluster
 load-version-controller-scanning:
 	kind load docker-image $(REGISTRY)/version-controller:$(TAG) --name $(KIND_CLUSTER)
+
+## Build the server image with OpenTofu bundled (Assembly Line), tagged $(TAG)-assembly
+build-server-assembly:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/server:$(TAG)-assembly \
+		--build-arg INCLUDE_TOFU=true \
+		-f services/server/Dockerfile \
+		.
+
+## Load the OpenTofu-enabled server into the kind cluster
+load-server-assembly:
+	kind load docker-image $(REGISTRY)/server:$(TAG)-assembly --name $(KIND_CLUSTER)
+
+## Build the version-controller image with Trivy and OpenTofu bundled (Assembly Line), tagged $(TAG)-assembly
+build-version-controller-assembly:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/version-controller:$(TAG)-assembly \
+		--build-arg INCLUDE_TRIVY=true \
+		--build-arg INCLUDE_TOFU=true \
+		-f services/version/Dockerfile \
+		.
+
+## Load the OpenTofu-enabled version-controller into the kind cluster
+load-version-controller-assembly:
+	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-assembly --name $(KIND_CLUSTER)
 
 ## Build and load all images into the kind cluster
 deploy: build load
@@ -520,7 +545,7 @@ endif
 	  'server:' \
 	  '  image:' \
 	  '    repository: $(REGISTRY)/server' \
-	  "    tag: \"$(TAG)\"" \
+	  "    tag: \"$(TAG)-assembly\"" \
 	  '  gpg:' \
 	  '    secretName: opendepot-provider-gpg' \
 	  '  oidc:' \
@@ -548,6 +573,7 @@ endif
 	  '  zapLogLevel: 5' \
 	  '  image:' \
 	  '    repository: $(REGISTRY)/version-controller' \
+	  "    tag: \"$(TAG)-assembly\"" \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -640,7 +666,7 @@ ui-setup: chart-deps deploy build-version-controller-scanning load-version-contr
 ## HTTPS. Dex itself needs no separate port-forward: server.oidc.dexProxy.enabled
 ## reverse-proxies it through the same single UI port-forward.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
+ui-setup-oidc: chart-deps deploy build-server-assembly load-server-assembly build-version-controller-assembly load-version-controller-assembly ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80

@@ -1,3 +1,6 @@
+# select final stage via build arg (default: no OpenTofu)
+ARG INCLUDE_TOFU=false
+
 # Build the manager binary
 FROM golang:1.26.6 AS builder
 ARG TARGETOS
@@ -38,7 +41,7 @@ COPY services/server/ services/server/
 # Build
 RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
 
-# Supply the same patched OpenTofu binary used by the version controller.
+# Supply the same patched OpenTofu binary used by the version controller; only copied into the final image when INCLUDE_TOFU=true.
 FROM golang:1.27.1 AS tofu-source
 ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
 RUN apt-get update \
@@ -55,10 +58,21 @@ RUN set -eux; \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot AS final-false
+WORKDIR /
+COPY --from=builder /workspace/server .
+USER 65532:65532
+
+ENTRYPOINT ["/server"]
+
+# final image with OpenTofu binary bundled (assembly line)
+FROM gcr.io/distroless/static:nonroot AS final-true
 WORKDIR /
 COPY --from=builder /workspace/server .
 COPY --from=tofu-source /usr/local/bin/tofu /usr/local/bin/tofu
 USER 65532:65532
 
 ENTRYPOINT ["/server"]
+
+# select which final stage was built (default: no OpenTofu)
+FROM final-${INCLUDE_TOFU}

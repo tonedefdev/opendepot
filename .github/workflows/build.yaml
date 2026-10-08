@@ -24,6 +24,11 @@ jobs:
             path: services/version
             buildArgs: "INCLUDE_TRIVY=true"
             tagSuffix: ""
+          - name: version-controller
+            context: .
+            path: services/version
+            buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"
+            tagSuffix: "-assembly"
           - name: module-controller
             context: .
             path: services/module
@@ -39,6 +44,11 @@ jobs:
             path: services/server
             buildArgs: ""
             tagSuffix: ""
+          - name: server
+            context: .
+            path: services/server
+            buildArgs: "INCLUDE_TOFU=true"
+            tagSuffix: "-assembly"
           - name: provider-controller
             context: .
             path: services/provider
@@ -52,7 +62,7 @@ jobs:
         arch:
           - amd64
           - arm64
-    name: Build ${{ matrix.service.name }} (${{ matrix.arch }})
+    name: Build ${{ matrix.service.name }}${{ matrix.service.tagSuffix }} (${{ matrix.arch }})
     
     steps:
       - name: Checkout code
@@ -82,7 +92,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_REGISTRY }}/${{ matrix.service.name }}
           flavor: |
-            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }}
+            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }},onlatest=${{ matrix.service.tagSuffix != '' }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -110,13 +120,17 @@ jobs:
       matrix:
         service:
           - name: version-controller
+          - name: version-controller
+            tagSuffix: "-assembly"
           - name: module-controller
           - name: depot-controller
           - name: server
+          - name: server
+            tagSuffix: "-assembly"
           - name: provider-controller
           - name: ui
 
-    name: Manifest ${{ matrix.service.name }}
+    name: Manifest ${{ matrix.service.name }}${{ matrix.service.tagSuffix }}
 
     steps:
       - name: Authenticate to Google Cloud
@@ -139,6 +153,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_REGISTRY }}/${{ matrix.service.name }}
+          flavor: |
+            suffix=${{ matrix.service.tagSuffix }},onlatest=${{ matrix.service.tagSuffix != '' }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -148,10 +164,12 @@ jobs:
 
       - name: Create and push multi-arch manifest
         run: |
+          SUFFIX="${{ matrix.service.tagSuffix }}"
           for TAG in $(echo "${{ steps.meta.outputs.tags }}" | tr '\n' ' '); do
+            BASE="${TAG%"${SUFFIX}"}"
             docker buildx imagetools create -t "${TAG}" \
-              "${TAG}-amd64" \
-              "${TAG}-arm64"
+              "${BASE}-amd64${SUFFIX}" \
+              "${BASE}-arm64${SUFFIX}"
           done
 
   build-status:

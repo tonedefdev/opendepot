@@ -295,7 +295,7 @@ Provider binary and source scanning (`scanning.providerScanning`) requires an ad
 
 Assembly Line derives a machine-readable input/output contract for every module version and a reduced provider schema for every provider version. Contracts are stored in a ConfigMap owned by the Version and surfaced by the server on `/opendepot/ui/v1/resources/{namespace}/module/{name}/contract`. Provider schemas are stored in the configured object storage backend — never in a ConfigMap, since a full provider schema routinely exceeds the etcd object size limit.
 
-Provider schema extraction runs `tofu providers schema -json` against an offline filesystem mirror of the downloaded provider archive. The `tofu` binary (~83 MB) is bundled in the version controller image, so every version controller image is that much larger regardless of whether Assembly Line is enabled.
+Provider schema extraction runs `tofu providers schema -json` against an offline filesystem mirror of the downloaded provider archive. The `tofu` binary (~83 MB) is bundled only in the `-assembly` version controller and server image variants. Default images omit it, so Assembly Line requires setting `version.image.tag` and `server.image.tag` to `<release>-assembly`.
 
 Extraction unpacks the provider archive into the container's ephemeral storage. Provider archives can be several hundred megabytes, so set an `ephemeral-storage` request and limit on `version.resources` (2Gi is a reasonable starting point) when enabling Assembly Line alongside provider onboarding.
 
@@ -306,7 +306,7 @@ A schema is extracted only for provider versions whose `operatingSystem` and `ar
 | `assembly.enabled` | `false` | Enable module contract derivation, provider schema extraction, and initialized root-module export |
 | `assembly.validationRegistryUrl` | `""` | HTTPS registry and Provider Network Mirror origin used only by server-side OpenTofu initialization; defaults to `ui.baseUrl` |
 | `assembly.validationCACertPath` | `""` | Optional PEM CA bundle trusted only by the temporary OpenTofu initialization process |
-| `assembly.tofuBinPath` | `/usr/local/bin/tofu` | Path to the `tofu` binary bundled in the version controller and server images |
+| `assembly.tofuBinPath` | `/usr/local/bin/tofu` | Path to the `tofu` binary, present only in the `-assembly` version controller and server images |
 | `assembly.extractionTimeout` | `5m` | Maximum duration a single provider schema extraction may run for |
 | `assembly.initTimeout` | `2m` | Maximum duration for export `tofu init` |
 | `assembly.maxRequestBytes` | `2097152` | Maximum export request body size |

@@ -1,5 +1,6 @@
-# select final stage via build arg (default: no Trivy)
+# select final stage via build args (defaults: no Trivy, no OpenTofu)
 ARG INCLUDE_TRIVY=false
+ARG INCLUDE_TOFU=false
 
 # Build the manager binary
 FROM golang:1.26.6 AS builder
@@ -55,7 +56,7 @@ RUN set -eux; \
   cd /tmp/trivy; \
   CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/trivy ./cmd/trivy
 
-# tofu-source: supplies the statically linked patched tofu binary used to extract provider schemas.
+# tofu-source: supplies the statically linked patched tofu binary used to extract provider schemas; only copied into the final image when INCLUDE_TOFU=true.
 FROM golang:1.27.1 AS tofu-source
 ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
 RUN apt-get update \
@@ -70,8 +71,15 @@ RUN set -eux; \
     GOWORK=off go mod tidy; \
     GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
 
-# final image without Trivy binary
-FROM gcr.io/distroless/static:nonroot AS final-false
+# final image without Trivy or OpenTofu binaries
+FROM gcr.io/distroless/static:nonroot AS final-false-false
+WORKDIR /
+COPY --from=builder /workspace/version-controller .
+USER 65532:65532
+ENTRYPOINT ["/version-controller"]
+
+# final image with OpenTofu binary bundled (assembly line)
+FROM gcr.io/distroless/static:nonroot AS final-false-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=tofu-source /usr/local/bin/tofu /usr/local/bin/tofu
@@ -79,7 +87,15 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with Trivy binary bundled
-FROM gcr.io/distroless/static:nonroot AS final-true
+FROM gcr.io/distroless/static:nonroot AS final-true-false
+WORKDIR /
+COPY --from=builder /workspace/version-controller .
+COPY --from=trivy-source /usr/local/bin/trivy /usr/local/bin/trivy
+USER 65532:65532
+ENTRYPOINT ["/version-controller"]
+
+# final image with Trivy and OpenTofu binaries bundled
+FROM gcr.io/distroless/static:nonroot AS final-true-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=trivy-source /usr/local/bin/trivy /usr/local/bin/trivy
@@ -88,4 +104,4 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # select which final stage was built
-FROM final-${INCLUDE_TRIVY}
+FROM final-${INCLUDE_TRIVY}-${INCLUDE_TOFU}
