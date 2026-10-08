@@ -111,8 +111,8 @@ jobs:
 
           build_json=$(printf '%s\n' "${build_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
-              if . == "version-controller" then {service: ., dockerfile: "services/version/Dockerfile", buildArgs: "INCLUDE_TRIVY=true"}
-              else {service: ., dockerfile: ("services/" + (if . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: ""}
+              if . == "version-controller" then {service: ., dockerfile: "services/version/Dockerfile", buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"}
+              else {service: ., dockerfile: ("services/" + (if . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: (if . == "server" then "INCLUDE_TOFU=true" else "" end)}
               end] | {include: .}')
           e2e_json=$(printf '%s\n' "${e2e_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
