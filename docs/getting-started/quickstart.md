@@ -84,8 +84,8 @@ kubectl get pods -n opendepot-system
 kubectl get crds | grep opendepot
 ```
 
-The installation pulls the released controller, server, UI, and scanning
-images.
+The installation pulls the released controller, server, and UI images. The
+version-controller image includes Trivy for module and provider scanning.
 
 ## Step 3: Open OpenDepot Workshop
 

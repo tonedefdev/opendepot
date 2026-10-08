@@ -173,7 +173,7 @@ directly mounted Kubernetes ServiceAccount token.
 
 ## Assembly Line
 
-Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
+Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. Default images do not include OpenTofu, so enabling Assembly Line requires `server.image.tag` and `version.image.tag` set to a `-assembly` tag. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -293,8 +293,8 @@ The Stats page uses the configured lookback window, not an all-time total. For t
 ### Source-built controller dependencies
 
 The `-assembly` server and Version controller images build the pinned OpenTofu source commit
-used for initialization and schema extraction. The default images do not include OpenTofu. The scanning image also builds
-Trivy from a pinned source commit. The chart release metadata is the source of
+used for initialization and schema extraction. The default images do not include OpenTofu. The version-controller image built with `INCLUDE_TRIVY=true` also builds
+Trivy from a pinned source commit, and the `-assembly` version-controller image includes both Trivy and OpenTofu. The chart release metadata is the source of
 the default image tag; release `0.11.0` uses chart and application version
 `0.11.0`.
 
@@ -306,7 +306,7 @@ The `scanning` section controls Trivy-based vulnerability scanning for modules a
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `scanning.enabled` | bool | Enable Trivy-based scanning. Switches the version-controller to the `-scanning` image variant and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `false` |
+| `scanning.enabled` | bool | Enable Trivy-based scanning. Requires a version-controller image that bundles Trivy, which the standard tag includes, and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `false` |
 | `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `false` |
 | `scanning.cacheMountPath` | string | Mount path inside the version-controller container for the Trivy DB cache. Default: `/var/cache/trivy` |
 | `scanning.offline` | bool | Pass `--offline-scan` to Trivy, preventing network calls during scans. Only applies to provider scanning. Default: `true` |

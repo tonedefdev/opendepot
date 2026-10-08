@@ -40,7 +40,7 @@ This section is useful when comparing the module's published README with the int
 Use **Show more** to expand additional inputs or outputs. Contracts appear only when Assembly Line is enabled and the module version has a successfully derived contract.
 
 !!! note
-    Enable Assembly Line with `assembly.enabled: true` in the Helm values. The UI must also be enabled with `ui.enabled: true`. See [Assembly Line Configuration](../../configuration/assembly-line.md).
+    Enable Assembly Line with `assembly.enabled: true` in the Helm values, and set `server.image.tag` and `version.image.tag` to a `-assembly` image tag. The UI must also be enabled with `ui.enabled: true`. See [Assembly Line Configuration](../../configuration/assembly-line.md).
 
 ## Storage, GitHub, and Depot settings
 

@@ -103,7 +103,7 @@ The launcher performs the following setup before starting Tilt:
 
 The scripts set the Docker API compatibility version required by ctlptl automatically. You do not need to export `DOCKER_API_VERSION` yourself.
 
-The initial build is large because the Go development images include the compiler and the version controller includes Trivy and OpenTofu. Subsequent source updates use Tilt's build cache and live-update paths.
+The initial build is large because the Go development images include the compiler and the version controller includes Trivy. Subsequent source updates use Tilt's build cache and live-update paths.
 
 When the `ui` resource is ready, open:
 
@@ -435,6 +435,8 @@ make load
 # Or build+load a single service
 make service NAME=depot-controller
 ```
+
+The default `server` and `version-controller` images do not include OpenTofu. To build the Assembly Line variants that do, use `make build-server-assembly` and `make build-version-controller-assembly` (tagged `$(TAG)-assembly`).
 
 To build for a different platform (e.g. x86-64):
 

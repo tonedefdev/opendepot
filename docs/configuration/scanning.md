@@ -12,7 +12,7 @@ tags:
 
 OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts and module archives. Scanning is split into two tiers:
 
-- **Module IaC scanning** — enabled by `scanning.enabled: true`. Detects HCL misconfigurations in module archives using Trivy's bundled config rules. Requires no external infrastructure. Setting this flag automatically switches the version-controller to the `-scanning` image variant, which bundles the Trivy binary.
+- **Module IaC scanning** — enabled by `scanning.enabled: true`. Detects HCL misconfigurations in module archives using Trivy's bundled config rules. Requires no external infrastructure. The published version-controller image bundles the Trivy binary, so no separate image tag is required.
 - **Provider scanning** — enabled by `scanning.providerScanning: true` (requires `scanning.enabled: true`). Scans provider binaries and source dependencies against the Trivy vulnerability database. Requires a shared PersistentVolumeClaim and a CronJob to keep the database current.
 
 ## Provider Scanning

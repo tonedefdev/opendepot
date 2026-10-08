@@ -66,8 +66,8 @@ Mimir or another Prometheus-compatible long-term storage system.
 - Production UI OIDC base URLs and discovered endpoints require HTTPS. HTTP is
    available only with `global.developmentMode: true`; UI state and session
    cookies use secure cookie settings in normal deployments.
-- Server and Version controller images source-build pinned OpenTofu; the
-   scanning image source-builds pinned Trivy.
+- The `-assembly` Server and Version controller images source-build pinned OpenTofu; the
+   default images do not include it. The Trivy-enabled Version controller image source-builds pinned Trivy.
 
 ### Upgrade Steps
 
