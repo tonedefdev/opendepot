@@ -24,6 +24,8 @@ import {
   rowsSx,
 } from "./editorRows";
 
+const listIndexLabelSx = { ...rowLabelSx, flex: "0 0 32px", px: 0.5 };
+
 interface Props {
   type: TypeSpec;
   value: ModuleInputValue | undefined;
@@ -110,6 +112,7 @@ function ModuleInputRow({
   onExpandedChange,
   actions,
   children,
+  reserveToggleSpace = true,
 }: {
   label: React.ReactNode;
   toggleLabel: string;
@@ -119,6 +122,7 @@ function ModuleInputRow({
   onExpandedChange?: (expanded: boolean) => void;
   actions?: React.ReactNode;
   children: React.ReactNode;
+  reserveToggleSpace?: boolean;
 }) {
   const [localExpanded, setLocalExpanded] = React.useState(true);
   const expanded = controlledExpanded ?? localExpanded;
@@ -127,7 +131,7 @@ function ModuleInputRow({
   return (
     <Box>
       <Box sx={rowSx}>
-        {complex ? <RowToggle label={toggleLabel} expanded={expanded} onToggle={() => setExpanded(!expanded)} /> : <RowSpacer />}
+        {complex ? <RowToggle label={toggleLabel} expanded={expanded} onToggle={() => setExpanded(!expanded)} /> : reserveToggleSpace ? <RowSpacer /> : null}
         {label}
         {complex ? (
           !expanded && summary ? (
@@ -199,6 +203,7 @@ function MapInputEditor({
         {entries.map((entry, index) => (
           <ModuleInputRow
             key={index}
+            reserveToggleSpace={false}
             label={
               <TextField
                 variant="filled"
@@ -438,7 +443,8 @@ export default function ModuleInputEditor({
           return (
             <ModuleInputRow
               key={index}
-              label={<Typography sx={rowLabelSx}>[{index}]</Typography>}
+              reserveToggleSpace={false}
+              label={<Typography sx={listIndexLabelSx}>[{index}]</Typography>}
               toggleLabel={`${type.kind === "tuple" ? "Element" : "Item"} ${index}`}
               complex={isComplexType(currentType)}
               summary={valueSummary(item)}

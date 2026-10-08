@@ -219,6 +219,7 @@ test.describe("Assembly Line module code preview", () => {
             grade: "full",
             variables: [
               { name: "region", type: "string", required: true },
+              { name: "command_args", type: ["list", "string"], required: false },
               { name: "environment_variables", type: ["map", "string"], required: false },
               { name: "empty_environment_variables", type: ["map", "string"], required: false },
               {
@@ -233,6 +234,10 @@ test.describe("Assembly Line module code preview", () => {
             providerBindings: {},
             values: {
               region: { kind: "scalar", value: { mode: "literal", literal: "us-west-2" } },
+              command_args: {
+                kind: "list",
+                items: [{ kind: "scalar", value: { mode: "literal", literal: "--debug" } }],
+              },
               environment_variables: {
                 kind: "map",
                 entries: [{ key: "NODE_ENV", value: { kind: "scalar", value: { mode: "literal", literal: "dev" } } }],
@@ -259,7 +264,7 @@ test.describe("Assembly Line module code preview", () => {
 
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/assembly", { waitUntil: "networkidle" });
-    await page.getByTestId("rf__node-module-1").getByText("Inputs (4)").click();
+    await page.getByTestId("rf__node-module-1").getByText("Inputs (5)").click();
 
     const dialog = page.getByRole("dialog");
     const environmentVariables = dialog.locator("p").filter({ hasText: /^environment_variables$/ });
@@ -328,6 +333,17 @@ test.describe("Assembly Line module code preview", () => {
     await expect(dialog.getByRole("button", { name: "Restore HCL preview" })).toHaveAttribute("aria-pressed", "true");
     expect((await preview.boundingBox())?.width ?? 0).toBeGreaterThan(desktopPreviewWidth);
     await expect(preview).toContainText('version = "~> 1.2.3"');
+    const nodeEnvKey = dialog.getByRole("textbox", { name: "Key" }).first();
+    const keyBounds = await nodeEnvKey.boundingBox();
+    const keyRowBounds = await nodeEnvKey.locator("xpath=../../..").boundingBox();
+    if (!keyBounds || !keyRowBounds) throw new Error("The NODE_ENV key or its input row has no visible bounds.");
+    expect(keyBounds.x - keyRowBounds.x).toBeLessThan(20);
+    const listIndex = dialog.getByText("[0]", { exact: true });
+    const listRow = listIndex.locator("xpath=..");
+    const listIndexBounds = await listIndex.boundingBox();
+    const listValueBounds = await listRow.getByRole("textbox", { name: "HCL value" }).boundingBox();
+    if (!listIndexBounds || !listValueBounds) throw new Error("The list index or value editor has no visible bounds.");
+    expect(Math.abs((listIndexBounds.y + listIndexBounds.height / 2) - (listValueBounds.y + listValueBounds.height / 2))).toBeLessThan(2);
     const fieldLabel = dialog.getByText("environment", { exact: true }).first();
     await expect(fieldLabel).toHaveCSS("flex-basis", "120px");
 
@@ -348,7 +364,7 @@ test.describe("Assembly Line module code preview", () => {
       return raw ? JSON.parse(raw).find((node: { id: string }) => node.id === "module-1")?.data?.optionalFieldVisibility : undefined;
     });
     expect(reloadedVisibility).toEqual({ "variable%3Asettings": false });
-    await page.getByTestId("rf__node-module-1").getByText("Inputs (4)").click();
+    await page.getByTestId("rf__node-module-1").getByText("Inputs (5)").click();
     const reloadedDialog = page.getByRole("dialog");
     await expect(reloadedDialog.getByRole("checkbox", { name: "Show optional fields" })).not.toBeChecked();
     await expect(reloadedDialog.getByTestId("module-hcl-preview")).not.toContainText("labels");
