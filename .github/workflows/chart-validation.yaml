@@ -1,0 +1,46 @@
+name: Helm Chart Validation
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+    paths:
+      - 'chart/**'
+      - 'test/chart/**'
+      - '.github/workflows/chart-validation.yaml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    name: Validate Helm chart
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chart/opendepot
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Lint chart
+        working-directory: chart/opendepot
+        run: helm lint .
+
+      - name: Run chart Terratest
+        working-directory: test/chart
+        run: GOWORK=off go test ./... -v -count=1

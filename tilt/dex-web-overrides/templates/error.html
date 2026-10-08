@@ -1,0 +1,8 @@
+{{ template "header.html" . }}
+
+<section class="theme-panel" aria-labelledby="error-heading">
+  <h1 id="error-heading" class="theme-heading">{{ .ErrType }}</h1>
+  <p class="opendepot-copy">{{ .ErrMsg }}</p>
+</section>
+
+{{ template "footer.html" . }}

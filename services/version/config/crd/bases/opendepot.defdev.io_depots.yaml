@@ -98,8 +98,8 @@ spec:
                           is used in its place.
                         type: string
                       provider:
-                        description: The main terraform or tofu provider required
-                          for this module.
+                        description: The main OpenTofu provider required for this
+                          module.
                         type: string
                       repoOwner:
                         description: Owner of the Github repository.
@@ -330,8 +330,7 @@ spec:
                         is used in its place.
                       type: string
                     provider:
-                      description: The main terraform or tofu provider required for
-                        this module.
+                      description: The main OpenTofu provider required for this module.
                       type: string
                     repoOwner:
                       description: Owner of the Github repository.

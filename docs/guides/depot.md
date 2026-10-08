@@ -23,6 +23,8 @@ When you self-host a registry, you take ownership of provider distribution. The 
 
 Providers mirrored by OpenDepot retain their **canonical identity** (e.g., `registry.opentofu.org/hashicorp/aws` or `registry.terraform.io/hashicorp/aws`). Your configurations reference the canonical source, and you configure OpenDepot as the installation source via the Network Mirror Protocol. The upstream registry is controlled per `Provider` resource via `spec.providerConfig.upstreamRegistry` (defaults to `registry.opentofu.org`). See [Consuming Providers](../guides/providers.md) for full CLI configuration examples.
 
+Providers mirrored by OpenDepot retain their **canonical identity** (e.g., `registry.opentofu.org/hashicorp/aws`). Your OpenTofu configurations reference the canonical source, and you configure OpenDepot as the installation source via the Network Mirror Protocol. See [Consuming Providers](../guides/providers.md) for full `.tofurc` configuration examples.
+
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot

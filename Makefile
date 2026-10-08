@@ -1,7 +1,12 @@
 REGISTRY ?= ghcr.io/tonedefdev/opendepot
 PLATFORM ?= linux/arm64
 KIND_CLUSTER ?= opendepot
-TAG ?= dev
+
+# Computed once per invocation so build, load, and helm all agree on the same tag.
+# Override with TAG=foo make ... when a stable tag is needed.
+ifndef TAG
+TAG := $(shell date +%s)
+endif
 
 SERVICES := server depot-controller module-controller provider-controller version-controller ui
 
@@ -21,7 +26,7 @@ provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui
 
-.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning
+.PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning build-server-assembly load-server-assembly build-version-controller-assembly load-version-controller-assembly
 
 ## Build all images for the target platform
 build: $(addprefix build-,$(SERVICES))
@@ -29,18 +34,42 @@ build: $(addprefix build-,$(SERVICES))
 ## Load all images into the kind cluster
 load: $(addprefix load-,$(SERVICES))
 
-## Build the version-controller image with Trivy bundled (required for scanning.enabled=true)
+## Build the version-controller image with Trivy bundled
 build-version-controller-scanning:
 	docker build --platform $(PLATFORM) \
-		--no-cache \
-		-t $(REGISTRY)/version-controller:$(TAG)-scanning \
+		-t $(REGISTRY)/version-controller:$(TAG) \
 		--build-arg INCLUDE_TRIVY=true \
 		-f services/version/Dockerfile \
 		.
 
-## Load the scanning variant of the version-controller into the kind cluster
+## Load the Trivy-enabled version-controller into the kind cluster
 load-version-controller-scanning:
-	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-scanning --name $(KIND_CLUSTER)
+	kind load docker-image $(REGISTRY)/version-controller:$(TAG) --name $(KIND_CLUSTER)
+
+## Build the server image with OpenTofu bundled (Assembly Line), tagged $(TAG)-assembly
+build-server-assembly:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/server:$(TAG)-assembly \
+		--build-arg INCLUDE_TOFU=true \
+		-f services/server/Dockerfile \
+		.
+
+## Load the OpenTofu-enabled server into the kind cluster
+load-server-assembly:
+	kind load docker-image $(REGISTRY)/server:$(TAG)-assembly --name $(KIND_CLUSTER)
+
+## Build the version-controller image with Trivy and OpenTofu bundled (Assembly Line), tagged $(TAG)-assembly
+build-version-controller-assembly:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/version-controller:$(TAG)-assembly \
+		--build-arg INCLUDE_TRIVY=true \
+		--build-arg INCLUDE_TOFU=true \
+		-f services/version/Dockerfile \
+		.
+
+## Load the OpenTofu-enabled version-controller into the kind cluster
+load-version-controller-assembly:
+	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-assembly --name $(KIND_CLUSTER)
 
 ## Build and load all images into the kind cluster
 deploy: build load
@@ -54,8 +83,8 @@ kind-restart:
 	kind delete cluster --name $(KIND_CLUSTER)
 	@echo "=== Creating kind cluster ==="
 	kind create cluster --name $(KIND_CLUSTER)
-	@echo "=== Loading images into kind ==="
-	@$(MAKE) load
+	@echo "=== Building and loading images into kind ==="
+	@$(MAKE) build load TAG=$(TAG)
 	@echo "=== Installing Istio ==="
 	helm install istio-base istio/base -n istio-system --create-namespace --wait
 	helm install istiod istio/istiod -n istio-system --wait
@@ -67,8 +96,10 @@ kind-restart:
 	kubectl apply -f $(CHART_PATH)/tls-secret.yaml
 	@echo "=== Applying Istio gateway ==="
 	kubectl apply -f $(CHART_PATH)/gateway.yaml
+	@echo "=== Applying CRDs (helm upgrade never updates existing CRDs) ==="
+	kubectl apply -f $(CHART_PATH)/crds/
 	@echo "=== Deploying Helm chart ==="
-	helm upgrade --install opendepot $(CHART_PATH) -n opendepot-system --create-namespace --wait --force-conflicts
+	helm upgrade --install opendepot $(CHART_PATH) -n opendepot-system --create-namespace --wait --force-conflicts --set-string global.image.tag=$(TAG)
 	@echo "=== Starting cloud-provider-kind ==="
 	@pkill -f cloud-provider-kind 2>/dev/null || true
 	@sleep 1
@@ -83,7 +114,6 @@ define SERVICE_RULES
 
 build-$(1):
 	docker build --platform $(PLATFORM) \
-		--no-cache \
 		-t $(REGISTRY)/$(1):$(TAG) \
 		-f $($(1)_PATH)/Dockerfile \
 		$($(1)_CONTEXT)
@@ -94,16 +124,20 @@ endef
 
 $(foreach svc,$(SERVICES),$(eval $(call SERVICE_RULES,$(svc))))
 
-## Build and load a single service: make service NAME=provider-controller
+## Build, load, and deploy a single service: make service NAME=provider-controller
 service:
-	@$(MAKE) build-$(NAME) load-$(NAME)
+	@$(MAKE) build-$(NAME) load-$(NAME) sync-tag TAG=$(TAG)
 
 ## Restart deployments in opendepot-system after loading new images
 restart:
 	kubectl rollout restart deployment -n opendepot-system
 
-## Build, load, and restart all
-redeploy: deploy restart
+## Point the running Helm release at the tag just built and loaded
+sync-tag:
+	helm upgrade opendepot $(CHART_PATH) -n opendepot-system --reuse-values --set-string global.image.tag=$(TAG) --wait --force-conflicts
+
+## Build, load, and update the running release to the new image tag
+redeploy: deploy sync-tag
 
 clean:
 	@for svc in $(SERVICES); do \
@@ -276,7 +310,7 @@ endif
 	echo "=== Deploying with OIDC values (dex issuer: $(OIDC_DEX_EXTERNAL_URL)) ==="; \
 	helm upgrade --install opendepot $(CHART_PATH) \
 	  -n opendepot-system --create-namespace \
-	  --set global.image.tag=$(TAG) \
+	  --set-string global.image.tag=$(TAG) \
 	  -f "$$tmpfile" --wait --force-conflicts; \
 	rm -f "$$tmpfile"
 
@@ -367,7 +401,7 @@ UI_OIDC_SECRET    ?= ui-local-test-secret
 
 .PHONY: ui-session-secret ui-gpg-secret ui-deploy-anon ui-deploy ui-forward ui-stop ui-tofurc ui-setup ui-setup-oidc ui-dev ui-dev-stop chart-deps
 
-## Download and cache Helm chart dependencies (Dex, Valkey). Run once after cloning.
+## Download and cache Helm chart dependencies (Dex, Prometheus). Run once after cloning.
 ## make ui-setup and make ui-setup-oidc call this automatically.
 chart-deps:
 	helm dependency update $(CHART_PATH)
@@ -411,17 +445,19 @@ ui-session-secret:
 ## Deploy the UI in anonymous-auth mode. No OIDC required — all resources are visible to everyone.
 ## Usage: make ui-deploy-anon
 ui-deploy-anon: ui-session-secret
+	@echo "=== Applying CRDs (helm upgrade never updates existing CRDs) ==="
+	@kubectl apply -f $(CHART_PATH)/crds/
 	@helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
 	  -n $(OIDC_NAMESPACE) --create-namespace \
-	  --set global.image.tag=$(TAG) \
+	  --set-string global.image.tag=$(TAG) \
 	  --set server.enabled=true \
 	  --set server.image.repository=$(REGISTRY)/server \
-	  --set server.image.tag=$(TAG) \
+	  --set-string server.image.tag=$(TAG) \
 	  --set server.anonymousAuth=true \
 	  --set server.useBearerToken=false \
 	  --set ui.enabled=true \
 	  --set ui.image.repository=$(REGISTRY)/ui \
-	  --set ui.image.tag=$(TAG) \
+	  --set-string ui.image.tag=$(TAG) \
 	  --set ui.sessionPasswordSecretName=ui-session-secret \
 	  --set ui.nginx.preserveHostPort=true \
 	  --set storage.filesystem.enabled=true \
@@ -435,10 +471,11 @@ ui-deploy-anon: ui-session-secret
 	  --wait --force-conflicts \
 	kubectl create job trivy-cache-db from=cronjob/trivy-db-updater -n $(OIDC_NAMESPACE) -w
 
-## Full e2e deployment: UI + OIDC login + module/provider scanning + tofu login support.
+## Full e2e deployment: UI + OIDC login + module/provider scanning + Assembly Line + tofu login support.
 ## This is the single target to validate the entire system end-to-end.
 ## Deploys: server (OIDC), module, version, provider, depot, scanning (w/ provider scanning),
-## UI (OIDC), and Dex. Configures a test user ($(OIDC_EMAIL)) who can log in via the UI
+## Assembly Line (contract derivation + provider schema extraction), UI (OIDC), and Dex.
+## Configures a test user ($(OIDC_EMAIL)) who can log in via the UI
 ## and use `tofu login` through the UI proxy at http://opendepot.localtest.me:$(UI_PORT).
 ## Usage: make ui-deploy PASS=yourpassword
 ui-deploy: ui-session-secret ui-gpg-secret
@@ -508,7 +545,7 @@ endif
 	  'server:' \
 	  '  image:' \
 	  '    repository: $(REGISTRY)/server' \
-	  "    tag: \"$(TAG)\"" \
+	  "    tag: \"$(TAG)-assembly\"" \
 	  '  gpg:' \
 	  '    secretName: opendepot-provider-gpg' \
 	  '  oidc:' \
@@ -530,10 +567,13 @@ endif
 	  '  cache:' \
 	  '    storageClassName: standard' \
 	  '    accessMode: ReadWriteOnce' \
+	  'assembly:' \
+	  '  enabled: true' \
 	  'version:' \
 	  '  zapLogLevel: 5' \
 	  '  image:' \
 	  '    repository: $(REGISTRY)/version-controller' \
+	  "    tag: \"$(TAG)-assembly\"" \
 	  'storage:' \
 	  '  filesystem:' \
 	  '    enabled: true' \
@@ -554,10 +594,12 @@ endif
 	  '  nginx:' \
 	  '    preserveHostPort: true' \
 	  > "$$tmpfile"; \
+	echo "=== Applying CRDs (helm upgrade never updates existing CRDs) ==="; \
+	kubectl apply -f $(CHART_PATH)/crds/; \
 	echo "=== Deploying full e2e stack: UI + OIDC + scanning (dex issuer: $(UI_DEX_EXTERNAL_URL)) ==="; \
 	helm upgrade --install $(OIDC_RELEASE_NAME) $(CHART_PATH) \
 	  -n $(OIDC_NAMESPACE) --create-namespace \
-	  --set global.image.tag=$(TAG) \
+	  --set-string global.image.tag=$(TAG) \
 	  -f "$$tmpfile" --wait --force-conflicts; \
 	rm -f "$$tmpfile"; \
 	echo "=== Seeding Trivy vulnerability DB cache ==="; \
@@ -617,14 +659,14 @@ ui-tofurc:
 ## Usage: make ui-setup
 ui-setup: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy-anon restart ui-forward
 
-## Build all images, deploy the full e2e stack (UI + OIDC + scanning), start
+## Build all images, deploy the full e2e stack (UI + OIDC + scanning + Assembly Line), start
 ## the port-forward, and write ~/.tofurc so `tofu login opendepot.localtest.me:$(UI_PORT)`
 ## works immediately. ~/.tofurc is still required because this local registry is
 ## plain HTTP (no mkcert TLS) — OpenTofu's service discovery only works over
 ## HTTPS. Dex itself needs no separate port-forward: server.oidc.dexProxy.enabled
 ## reverse-proxies it through the same single UI port-forward.
 ## Usage: make ui-setup-oidc PASS=yourpassword
-ui-setup-oidc: chart-deps deploy build-version-controller-scanning load-version-controller-scanning ui-deploy restart ui-forward ui-tofurc
+ui-setup-oidc: chart-deps deploy build-server-assembly load-server-assembly build-version-controller-assembly load-version-controller-assembly ui-deploy restart ui-forward ui-tofurc
 
 ## One-shot local UI development against a running kind cluster server.
 ## - Starts server API port-forward: localhost:$(UI_API_PORT) -> svc/server:80

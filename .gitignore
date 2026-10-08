@@ -47,3 +47,5 @@ tilt/.generated/
 test/local/.terraform/
 test/local/terraform.tfstate
 test/local/terraform.tfstate.backup
+.terraform/
+*.tfstate

@@ -41,8 +41,8 @@ func (gcs *GoogleCloudStorage) GetObjectChecksum(ctx context.Context, soi *stora
 	attrs, err := obj.Attrs(ctx)
 	if err != nil {
 		var apiErr *googleapi.Error
-		if errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound {
-			return err
+		if errors.Is(err, storage.ErrObjectNotExist) || (errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound) {
+			return fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 		return err
 	}
@@ -65,8 +65,8 @@ func (gcs *GoogleCloudStorage) GetObject(ctx context.Context, soi *storagetypes.
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
 		var apiErr *googleapi.Error
-		if errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound {
-			return nil, err
+		if errors.Is(err, storage.ErrObjectNotExist) || (errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound) {
+			return nil, fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 		return nil, err
 	}

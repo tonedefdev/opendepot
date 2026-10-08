@@ -478,6 +478,281 @@
       font-weight: 900;
       line-height: 1.2;
     }
+    .policy {
+      padding: 120px 0 128px;
+      background: #ffffff;
+      color: #000000;
+    }
+    .policy-inner,
+    .assembly-inner {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      gap: 40px 64px;
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    .policy-eyebrow,
+    .assembly-eyebrow { margin-bottom: 20px; }
+    .policy-eyebrow { color: #000000; }
+    .policy-eyebrow::before { background: var(--blue); }
+    .policy h2,
+    .assembly h2 {
+      margin: 0;
+      font-size: clamp(2.4rem, 4vw, 4.8rem);
+      font-weight: 800;
+      letter-spacing: -.045em;
+      line-height: .95;
+    }
+    .policy h2 span {
+      display: block;
+      color: var(--blue);
+    }
+    .policy-lede {
+      margin: 24px 0 40px;
+      color: rgba(0, 0, 0, .7);
+      font-size: 1.08rem;
+      line-height: 1.55;
+    }
+    .policy-rules {
+      display: grid;
+      gap: 0;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .policy-rules li {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      padding: 18px 0;
+      border-top: 1px solid rgba(0, 0, 0, .14);
+    }
+    .policy-rules span {
+      color: var(--blue);
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .1em;
+      line-height: 1.6;
+    }
+    .policy-rules strong {
+      font-size: 1rem;
+      letter-spacing: -.01em;
+    }
+    .policy-rules p {
+      margin: 4px 0 0;
+      color: rgba(0, 0, 0, .62);
+      font-size: .88rem;
+      line-height: 1.45;
+    }
+    .policy-visual {
+      position: relative;
+      align-self: start;
+      margin: 8px 0 0;
+    }
+    .screen-policy,
+    .screen-policy:hover,
+    .screen-policy:focus-visible {
+      border-color: #000000;
+      background: #000000;
+      box-shadow: 0 18px 34px rgba(0, 0, 0, .18), 16px 16px 0 var(--blue);
+    }
+    .policy-manifest {
+      position: relative;
+      z-index: 3;
+      width: min(430px, 64%);
+      margin: -96px 0 0 -32px;
+      padding: 18px 22px 20px;
+      border-radius: 10px;
+      background: #000000;
+      box-shadow: 12px 12px 0 var(--teal);
+    }
+    .policy-manifest-label {
+      display: block;
+      margin-bottom: 12px;
+      color: rgba(255, 255, 255, .5);
+      font-size: .62rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .policy-manifest pre {
+      margin: 0;
+      overflow-x: auto;
+      color: #ffffff;
+      font-size: .76rem;
+      line-height: 1.6;
+    }
+    .policy-manifest b {
+      color: var(--teal);
+      font-weight: 600;
+    }
+    .policy-manifest i {
+      color: #8fb4ff;
+      font-style: normal;
+    }
+    .policy-visual figcaption,
+    .assembly-visual figcaption {
+      margin: 24px 0 0;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      line-height: 1.5;
+      text-align: right;
+      text-transform: uppercase;
+    }
+    .policy-visual figcaption {
+      margin-top: -28px;
+      margin-left: auto;
+      max-width: 32%;
+      color: rgba(0, 0, 0, .55);
+    }
+    .assembly {
+      position: relative;
+      z-index: 2;
+      padding: 120px 0 96px;
+      background: #000000;
+      color: #ffffff;
+    }
+    .assembly h2 span {
+      display: block;
+      color: var(--teal);
+    }
+    .assembly-heading > p:last-child {
+      margin: 24px 0 0;
+      color: rgba(255, 255, 255, .72);
+      font-size: 1.08rem;
+      line-height: 1.55;
+    }
+    .assembly-visual {
+      grid-row: span 1;
+      margin: 8px 0 0;
+    }
+    .screen-assembly,
+    .screen-assembly:hover,
+    .screen-assembly:focus-visible {
+      border-width: 0;
+      box-shadow: 16px 16px 0 var(--teal);
+    }
+    .screen-contract {
+      z-index: 2;
+      width: 48%;
+      margin: -88px 24px 0 auto;
+      border-width: 0;
+      box-shadow: 0 14px 28px rgba(0, 0, 0, .28), 12px 12px 0 var(--blue);
+    }
+    .screen-contract:hover,
+    .screen-contract:focus-visible {
+      box-shadow: 0 18px 34px rgba(0, 0, 0, .34), 12px 12px 0 var(--blue);
+    }
+    .assembly-visual figcaption { color: rgba(255, 255, 255, .5); }
+    .assembly-track {
+      grid-column: 1 / -1;
+      margin: 24px 300px 0 0;
+    }
+    .assembly-belt {
+      position: relative;
+      height: 30px;
+      margin: 26px 0 28px;
+      border: 2px solid var(--teal);
+      border-radius: 15px;
+      background: radial-gradient(circle, rgba(3, 222, 184, .16) 0 4px, var(--teal) 4.5px 6.5px, transparent 7px) 0 50% / 52px 100% round no-repeat;
+    }
+    .assembly-belt::before,
+    .assembly-belt::after {
+      position: absolute;
+      right: 14px;
+      left: 14px;
+      height: 3px;
+      background: repeating-linear-gradient(90deg, var(--teal) 0 2px, transparent 2px 16px);
+      content: "";
+      opacity: .65;
+      animation: belt-tread .27s linear infinite;
+    }
+    .assembly-belt::before { top: 2px; }
+    .assembly-belt::after {
+      bottom: 2px;
+      animation-direction: reverse;
+    }
+    .assembly-belt i {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 14px;
+      width: 22px;
+      height: 16px;
+      border: 2px solid var(--teal);
+      border-radius: 2px;
+      opacity: 0;
+      animation: belt-crate 16s linear infinite;
+    }
+    .assembly-belt i:nth-child(odd) { background: var(--teal); }
+    .assembly-belt i:nth-child(2) { animation-delay: -4s; }
+    .assembly-belt i:nth-child(3) { animation-delay: -8s; }
+    .assembly-belt i:nth-child(4) {
+      border-color: #ffffff;
+      animation-delay: -12s;
+    }
+    .assembly-stations {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 32px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .assembly-stations li { position: relative; }
+    .assembly-stations li::before {
+      position: absolute;
+      top: -28px;
+      left: 4px;
+      width: 2px;
+      height: 20px;
+      background: rgba(3, 222, 184, .5);
+      content: "";
+    }
+    .assembly-stations span {
+      display: block;
+      color: var(--teal);
+      font-size: .7rem;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+    .assembly-stations strong {
+      display: block;
+      margin: 8px 0 6px;
+      font-size: 1.3rem;
+      letter-spacing: -.02em;
+    }
+    .assembly-stations p {
+      margin: 0;
+      color: rgba(255, 255, 255, .62);
+      font-size: .86rem;
+      line-height: 1.45;
+    }
+    .assembly-stations code {
+      color: #ffffff;
+      font-size: .82em;
+    }
+    .assembly-crane {
+      --crane-width: 260px;
+      position: absolute;
+      right: max(24px, calc((100% - 1320px) / 2 + 24px));
+      bottom: calc(var(--crane-width) * -212 / 260);
+      width: var(--crane-width);
+      height: auto;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .crane-load {
+      transform-box: view-box;
+      transform-origin: 162px 56px;
+      animation: crane-sway 6s ease-in-out infinite;
+    }
+    @keyframes belt-tread { to { background-position: 16px 0; } }
+    @keyframes belt-crate { 0% { left: 14px; opacity: 0; } 4%, 94% { opacity: 1; } 100% { left: calc(100% - 36px); opacity: 0; } }
+    @keyframes belt-tread-vertical { to { background-position: 0 16px; } }
+    @keyframes crane-sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(1.6deg); } 75% { transform: rotate(-1.6deg); } }
     .image-modal {
       position: fixed;
       z-index: 10;
@@ -642,6 +917,18 @@
       .architecture-track > .storage-group { grid-column: 3; }
       .consumption-path { grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1.2fr); }
       .consumption-path > .consumption-result-group { grid-column: 3; }
+      .policy,
+      .assembly { padding-top: 88px; }
+      .policy-inner,
+      .assembly-inner { grid-template-columns: minmax(0, 1fr); }
+      .policy-copy,
+      .assembly-heading { max-width: 720px; }
+      .policy-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+      .policy-manifest { margin-left: 24px; }
+      .assembly-track { margin-right: 240px; }
+      .assembly-stations { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 40px; }
+      .assembly-stations li:nth-child(n + 3)::before { display: none; }
+      .assembly-crane { --crane-width: 220px; }
     }
     @media (max-width: 760px) {
       header { padding: 20px 0; }
@@ -733,7 +1020,44 @@
       .architecture-depot { min-height: 210px; }
       .consumption-path { grid-template-columns: 1fr; gap: 12px; padding-top: 50px; }
       .consumption-path > .consumption-result-group { grid-column: 1; }
-      .comparison { padding: 72px 0 80px; }
+      .policy { padding: 72px 0 88px; }
+      .assembly { padding: 72px 0 128px; }
+      .policy-inner,
+      .assembly-inner { grid-template-columns: minmax(0, 1fr); gap: 32px; padding: 0 20px; }
+      .policy-visual { width: 100%; min-width: 0; }
+      .policy-lede,
+      .assembly-heading > p:last-child { font-size: 1rem; }
+      .policy-lede { margin-bottom: 28px; }
+      .screen-policy,
+      .screen-policy:hover,
+      .screen-policy:focus-visible { border-width: 5px; box-shadow: 10px 10px 0 var(--blue); }
+      .policy-manifest { width: calc(100% - 12px); margin: 28px 0 0; padding: 16px 16px 18px; box-shadow: 8px 8px 0 var(--teal); }
+      .policy-manifest pre { font-size: .7rem; }
+      .policy-visual figcaption { max-width: none; margin-top: 24px; text-align: left; }
+      .screen-assembly,
+      .screen-assembly:hover,
+      .screen-assembly:focus-visible { border-width: 0; box-shadow: 10px 10px 0 var(--teal); }
+      .screen-contract {
+        width: 64%;
+        margin: -48px 8px 0 auto;
+        border-width: 0;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, .24), 7px 7px 0 var(--blue);
+      }
+      .screen-contract:hover,
+      .screen-contract:focus-visible { box-shadow: 0 12px 20px rgba(0, 0, 0, .28), 7px 7px 0 var(--blue); }
+      .assembly-visual figcaption { margin-top: 20px; text-align: left; }
+      .assembly-track { position: relative; margin: 8px 0 0; padding-left: 52px; }
+      .assembly-belt { position: absolute; top: 0; bottom: 0; left: 0; width: 30px; height: auto; margin: 0; background-position: 50% 0; background-size: 100% 52px; background-repeat: no-repeat round; }
+      .assembly-belt::before,
+      .assembly-belt::after { top: 14px; bottom: 14px; width: 3px; height: auto; background: repeating-linear-gradient(180deg, var(--teal) 0 2px, transparent 2px 16px); animation-name: belt-tread-vertical; }
+      .assembly-belt::before { right: auto; left: 2px; animation-direction: reverse; }
+      .assembly-belt::after { right: 2px; left: auto; animation-direction: normal; }
+      .assembly-belt i { display: none; }
+      .assembly-stations { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+      .assembly-stations li::before,
+      .assembly-stations li:nth-child(n + 3)::before { display: block; top: 8px; left: -22px; width: 16px; height: 2px; }
+      .assembly-crane { --crane-width: 150px; right: 16px; }
+      .comparison { padding: 152px 0 80px; }
       .comparison-inner { padding: 0 20px; }
       .comparison-heading { margin-bottom: 30px; }
       .comparison-heading > p:not(.eyebrow) { font-size: 1rem; }
@@ -756,8 +1080,7 @@
       .comparison-card-terraform {
         margin-bottom: 0;
       }
-      .comparison-card dl > div:nth-child(4),
-      .comparison-card dl > div:nth-child(8) {
+      .comparison-card dl > div:nth-child(4) {
         display: none;
       }
       ::-webkit-scrollbar {
@@ -780,5 +1103,14 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
       }
+      .crane-load,
+      .assembly-belt::before,
+      .assembly-belt::after,
+      .assembly-belt i { animation: none !important; }
+      .assembly-belt i { opacity: 1; }
+      .assembly-belt i:nth-child(1) { left: 12%; }
+      .assembly-belt i:nth-child(2) { left: 36%; }
+      .assembly-belt i:nth-child(3) { left: 60%; }
+      .assembly-belt i:nth-child(4) { left: 84%; }
     }
     @keyframes lane-pulse-mobile { from { transform: translateY(0); opacity: .45; } 15%, 85% { opacity: 1; } to { transform: translateY(21px); opacity: .45; } }

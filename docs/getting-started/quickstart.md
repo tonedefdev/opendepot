@@ -84,10 +84,10 @@ kubectl get pods -n opendepot-system
 kubectl get crds | grep opendepot
 ```
 
-The installation pulls the released controller, server, UI, and scanning
-images.
+The installation pulls the released controller, server, and UI images. The
+version-controller image includes Trivy for module and provider scanning.
 
-## Step 3: Open the Registry Explorer
+## Step 3: Open OpenDepot Workshop
 
 In a second terminal, forward the UI service:
 
@@ -180,27 +180,17 @@ spec:
         - darwin
         - linux
       versionConstraints: "~> 6.60.0"
----
-apiVersion: opendepot.defdev.io/v1alpha1
-kind: GroupBinding
-metadata:
-  name: quickstart-public-access
-  namespace: opendepot-system
-spec:
-  expression: "true"
-  moduleResources:
-    - "*"
-  providerResources:
-    - "*"
 ```
 
 ```bash
 kubectl apply -f quickstart-depot.yaml
 ```
 
-The `GroupBinding` makes the generated modules and providers visible through
-the anonymous browse API. No separate `Module` or `Provider` resources are
-needed.
+The chart's `server.anonymousAuth=true` setting makes the generated modules
+and providers visible through the anonymous browse API. No separate `Module`
+or `Provider` resources are needed. This quickstart does not create a
+`GroupBinding`; for OIDC deployments, create one scoped to your IdP group and
+the specific module and provider names users need.
 
 Watch the controllers create and synchronize the generated resources:
 
@@ -208,7 +198,7 @@ Watch the controllers create and synchronize the generated resources:
 kubectl get depots,modules,providers,versions -n opendepot-system
 ```
 
-Open the **Depots** and **Modules** pages in the Registry Explorer to inspect
+Open the **Depots** and **Modules** pages in OpenDepot Workshop to inspect
 the relationships, versions, scan results, and provider metadata as they become
 available.
 

@@ -10,6 +10,8 @@ tags:
 
 `GroupBinding` is a namespaced CRD that restricts which modules and providers an OIDC-authenticated user may access, based on the groups present in their JWT. It requires [OIDC authentication](../configuration/oidc/index.md) to be enabled.
 
+`GroupBinding` controls Registry and browse authorization only. ScanPolicy administration uses the separate [`SecurityGroupBinding`](security-groupbinding.md) resource; changing a GroupBinding does not grant policy access.
+
 ## How It Works
 
 When a user authenticates via OIDC, the server extracts the configured groups claim from their JWT and evaluates all `GroupBinding` resources in the server namespace in alphabetical order by name. The first `GroupBinding` whose `expression` evaluates to `true` for the user's groups is applied. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden` rather than skipping to the next binding. The user may then access only the modules whose names match the `moduleResources` glob patterns and the providers whose type names are listed in `providerResources` on that `GroupBinding`.
@@ -194,6 +196,12 @@ View server logs:
 ```bash
 kubectl logs -n opendepot-system -l app=server --follow
 ```
+
+ScanPolicy writes add structured `ScanPolicy created`, `ScanPolicy updated`, and
+`ScanPolicy deleted` events with the subject, namespace, and policy name. These
+events complement Kubernetes API-server audit records; they do not replace them.
+Use [SecurityGroupBinding](security-groupbinding.md) to grant policy administration
+without changing Registry access.
 
 ## See Also
 

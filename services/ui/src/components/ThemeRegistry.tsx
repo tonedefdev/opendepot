@@ -32,7 +32,7 @@ export default function ThemeRegistry({
   return (
     <AppRouterCacheProvider>
       <ThemeProvider theme={theme} defaultMode="system">
-        <CssBaseline />
+        <CssBaseline enableColorScheme />
         <ColorModeCookieSync />
         {children}
       </ThemeProvider>

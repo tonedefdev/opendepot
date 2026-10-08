@@ -61,6 +61,9 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	err := utils.ConfigureKindCluster()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to configure the Kind kubeconfig")
+
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
@@ -84,6 +87,7 @@ var _ = BeforeSuite(func() {
 	if _, inspectErr := exec.Command("docker", "image", "inspect", versionImage).Output(); inspectErr != nil {
 		By("building the version controller image")
 		versionBuildCmd := exec.Command("docker", "build",
+			"--build-arg", "INCLUDE_TOFU=true",
 			"-t", versionImage,
 			"-f", "services/version/Dockerfile",
 			".",
@@ -97,6 +101,7 @@ var _ = BeforeSuite(func() {
 	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
 		By("building the server image")
 		serverBuildCmd := exec.Command("docker", "build",
+			"--build-arg", "INCLUDE_TOFU=true",
 			"-t", serverImage,
 			"-f", "services/server/Dockerfile",
 			".",
@@ -125,10 +130,6 @@ var _ = BeforeSuite(func() {
 	cmd = exec.Command("kubectl", "create", "namespace", namespace)
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
-	By("creating the Valkey authentication secret")
-	err = utils.EnsureValkeyAuthSecret(namespace)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Valkey authentication secret")
-
 	By("upgrading Helm release to deploy depot controller with local image")
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -142,6 +143,10 @@ var _ = BeforeSuite(func() {
 		"--create-namespace",
 		"--namespace", namespace,
 		"--skip-crds",
+		"--set", "monitoring.enabled=false",
+		"--set", "monitoring.bundled.enabled=false",
+		"--set", "scanning.enabled=false",
+		"--set", "scanning.providerScanning=false",
 		"--set", "global.image.tag=",
 		"--set", "depot.enabled=true",
 		"--set", fmt.Sprintf("depot.image.repository=%s", depotRepo),
@@ -164,6 +169,10 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if !utils.KindClusterConfigured() {
+		return
+	}
+
 	By("uninstalling Helm release to clean up depot e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,
 		"--namespace", namespace,

@@ -1,13 +1,13 @@
 # -----------------------------
-# Fixed values for your project
+# Values for your project
 # -----------------------------
-PROJECT_ID="opendepot-495604"
-PROJECT_NUMBER="789629963060"
-POOL_ID="github-oidc-pool"
-PROVIDER_ID="github-provider"
-REPO="tonedefdev/opendepot"
+PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID to your GCP project ID}"
+PROJECT_NUMBER="${PROJECT_NUMBER:?Set PROJECT_NUMBER to your GCP project number}"
+SA_EMAIL="${SA_EMAIL:?Set SA_EMAIL to the service account email}"
+POOL_ID="${POOL_ID:-github-oidc-pool}"
+PROVIDER_ID="${PROVIDER_ID:-github-provider}"
+REPO="${REPO:-tonedefdev/opendepot}"
 WORKFLOW_PATH=".github/workflows/storage-integration.yaml"
-SA_EMAIL="opendepot-test@opendepot-495604.iam.gserviceaccount.com"
 
 # Optional sanity check: pool exists
 gcloud iam workload-identity-pools list \

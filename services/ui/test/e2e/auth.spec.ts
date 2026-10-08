@@ -9,6 +9,14 @@ import { test, expect } from "@playwright/test";
  * CSRF checks, and session destruction.
  */
 
+test.describe("login entry point", () => {
+  test("/login redirects into the Dex authorization flow", async ({ request }) => {
+    const response = await request.get("/login", { maxRedirects: 0 });
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toContain('url=/auth/login');
+  });
+});
+
 test.describe("login route", () => {
   test("GET /auth/login redirects to the OIDC provider when OIDC is configured", async ({
     request,

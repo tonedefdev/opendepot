@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+if (process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+  test.use({ storageState: process.env.PLAYWRIGHT_AUTH_STORAGE_STATE });
+}
+
 /**
  * Theme toggle tests: verify the light/dark mode switch in the sidebar,
  * cookie-based persistence across reloads, and first-visit OS-preference
@@ -73,6 +77,27 @@ test.describe("theme toggle — mobile", () => {
 });
 
 test.describe("first-time visitor — OS preference detection", () => {
+  for (const colorScheme of ["dark", "light"] as const) {
+    test(`hydrates without a color-scheme mismatch when the OS prefers ${colorScheme}`, async ({
+      page,
+    }) => {
+      const hydrationErrors: string[] = [];
+      page.on("console", (message) => {
+        if (
+          message.type() === "error" &&
+          message.text().includes("server rendered HTML didn't match the client properties")
+        ) {
+          hydrationErrors.push(message.text());
+        }
+      });
+
+      await page.emulateMedia({ colorScheme });
+      await page.goto("/", { waitUntil: "networkidle" });
+
+      expect(hydrationErrors).toEqual([]);
+    });
+  }
+
   test("renders dark when the OS prefers dark and no cookie is set", async ({
     page,
   }) => {

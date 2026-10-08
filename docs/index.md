@@ -15,11 +15,23 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
 <div class="grid cards" markdown>
 
-- :material-view-dashboard-outline: &nbsp;__Registry Explorer UI__
+- :material-view-dashboard-outline: &nbsp;__OpenDepot Workshop__
 
     ---
 
-    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [Registry Explorer guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
+    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [OpenDepot Workshop guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
+
+- :material-graph-outline: &nbsp;__Assembly Line__
+
+    ---
+
+    Compose onboarded modules and providers into a validated, downloadable OpenTofu root module with the [Assembly Line](guides/assembly-line.md).
+
+- :material-shield-check-outline: &nbsp;__Security Policies__
+
+    ---
+
+    Define scan thresholds and finding exemptions for matched resources through [OpenDepot Workshop Security Policies](guides/registry-explorer/security-policies.md).
 
 - :material-login: &nbsp;__OIDC Single Sign-On (SSO)__
 
@@ -44,7 +56,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
     ---
 
-    The Kubernetes API stores registry state, while the bundled Valkey instance persists download statistics. No separately managed application database is required.
+    Declarative controllers continuously reconcile toward desired state. Transient errors retry with exponential backoff. Applying the same manifest twice is a no-op.
 
 - :material-cloud-check: &nbsp;__Multi-Cloud Storage__
 

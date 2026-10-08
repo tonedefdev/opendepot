@@ -1,6 +1,9 @@
 # opendepot
 // TODO(user): Add simple overview of use/purpose
 
+Release images are built from version tags by the repository release workflow,
+using each service directory as its Docker build context.
+
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
 

@@ -1,6 +1,7 @@
 name: Build Docker Images
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -16,34 +17,49 @@ jobs:
       matrix:
         service:
           - name: version-controller
-            path: services/version
-            buildArgs: ""
-            tagSuffix: ""
-          - name: version-controller
+            context: .
             path: services/version
             buildArgs: "INCLUDE_TRIVY=true"
-            tagSuffix: "-scanning"
+            tagSuffix: ""
+          - name: version-controller
+            context: .
+            path: services/version
+            buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"
+            tagSuffix: "-assembly"
           - name: module-controller
+            context: .
             path: services/module
             buildArgs: ""
             tagSuffix: ""
           - name: depot-controller
+            context: .
             path: services/depot
             buildArgs: ""
             tagSuffix: ""
           - name: server
+            context: .
             path: services/server
             buildArgs: ""
             tagSuffix: ""
+          - name: server
+            context: .
+            path: services/server
+            buildArgs: "INCLUDE_TOFU=true"
+            tagSuffix: "-assembly"
           - name: provider-controller
+            context: .
             path: services/provider
+            buildArgs: ""
+            tagSuffix: ""
+          - name: ui
+            context: services/ui
+            path: services/ui
             buildArgs: ""
             tagSuffix: ""
         arch:
           - amd64
           - arm64
-    
-    name: Build ${{ matrix.service.name }} (${{ matrix.arch }})
+    name: Build ${{ matrix.service.name }}${{ matrix.service.tagSuffix }} (${{ matrix.arch }})
     
     steps:
       - name: Checkout code
@@ -65,7 +81,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.service.name }}
           flavor: |
-            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }}
+            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }},onlatest=${{ matrix.service.tagSuffix != '' }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -76,7 +92,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ${{ matrix.service.context }}
           file: ${{ matrix.service.path }}/Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' }}
@@ -93,17 +109,15 @@ jobs:
       matrix:
         service:
           - name: version-controller
-            tagSuffix: ""
           - name: version-controller
-            tagSuffix: "-scanning"
+            tagSuffix: "-assembly"
           - name: module-controller
-            tagSuffix: ""
           - name: depot-controller
-            tagSuffix: ""
           - name: server
-            tagSuffix: ""
+          - name: server
+            tagSuffix: "-assembly"
           - name: provider-controller
-            tagSuffix: ""
+          - name: ui
 
     name: Manifest ${{ matrix.service.name }}${{ matrix.service.tagSuffix }}
 
@@ -121,7 +135,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.service.name }}
           flavor: |
-            suffix=${{ matrix.service.tagSuffix }}
+            suffix=${{ matrix.service.tagSuffix }},onlatest=${{ matrix.service.tagSuffix != '' }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -133,18 +147,10 @@ jobs:
         run: |
           SUFFIX="${{ matrix.service.tagSuffix }}"
           for TAG in $(echo "${{ steps.meta.outputs.tags }}" | tr '\n' ' '); do
-            if [ -n "$SUFFIX" ]; then
-              # Build job produced tags like: 0.2.7-amd64-scanning
-              # Strip the tagSuffix from the end of TAG to get the base, then append arch+suffix
-              BASE="${TAG%$SUFFIX}"
-              docker buildx imagetools create -t "${TAG}" \
-                "${BASE}-amd64${SUFFIX}" \
-                "${BASE}-arm64${SUFFIX}" || true
-            else
-              docker buildx imagetools create -t "${TAG}" \
-                "${TAG}-amd64" \
-                "${TAG}-arm64" || true
-            fi
+            BASE="${TAG%"${SUFFIX}"}"
+            docker buildx imagetools create -t "${TAG}" \
+              "${BASE}-amd64${SUFFIX}" \
+              "${BASE}-arm64${SUFFIX}"
           done
 
   build-status:

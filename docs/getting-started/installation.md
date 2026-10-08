@@ -67,7 +67,7 @@ helm install opendepot opendepot/opendepot \
   -f my-values.yaml
 ```
 
-See [Helm Chart](../helm-chart.md) for the full Helm values reference — Global, Server, OIDC, Dex, UI, Valkey, Controllers, GPG, Service Account & RBAC, Storage, and Scanning values.
+See [Helm Chart](../helm-chart.md) for the full Helm values reference — Global, Server, OIDC, Dex, UI, Prometheus monitoring, Controllers, GPG, Service Account & RBAC, Storage, and Scanning values.
 
 ## Build from Source (Alternative)
 
@@ -91,6 +91,11 @@ make deploy
 | `make build` | Build all container images |
 | `make load` | Load all images into the kind cluster |
 | `make deploy` | Build and load all images |
+| `make build-server-assembly` | Build the `server` image with OpenTofu (`INCLUDE_TOFU=true`), tagged `$(TAG)-assembly` |
+| `make load-server-assembly` | Load the `-assembly` server image into the kind cluster |
+| `make build-version-controller-assembly` | Build the `version-controller` image with Trivy and OpenTofu (`INCLUDE_TRIVY=true INCLUDE_TOFU=true`), tagged `$(TAG)-assembly` |
+| `make load-version-controller-assembly` | Load the `-assembly` version-controller image into the kind cluster |
+| `make build-version-controller-scanning` | Build the `version-controller` image with Trivy (`INCLUDE_TRIVY=true`) |
 | `make service NAME=server` | Build and load a single service |
 | `make restart` | Restart all deployments in `opendepot-system` |
 | `make redeploy` | Build, load, and restart all services |
@@ -102,5 +107,10 @@ make deploy
 |----------|---------|-------------|
 | `PLATFORM` | `linux/arm64` | Target platform for container builds |
 | `KIND_CLUSTER` | `kind` | Name of the kind cluster |
-| `TAG` | `dev` | Image tag for all services |
+| `TAG` | Current Unix timestamp (`date +%s`) | Image tag for all services. Set `TAG` explicitly for a stable tag |
 | `REGISTRY` | `ghcr.io/tonedefdev/opendepot` | Container registry prefix |
+
+`make build` produces the default images, which do not include OpenTofu. `make build-server-assembly` and `make build-version-controller-assembly` build the OpenTofu-enabled `-assembly` variants. Point `server.image.tag` and `version.image.tag` at the `-assembly` tag when you enable Assembly Line. See [Assembly Line Configuration](../configuration/assembly-line.md) for the Helm values.
+
+!!! note
+    `make ui-deploy` and `make ui-setup-oidc` set `server.image.tag` and `version.image.tag` to `$(TAG)-assembly` automatically. `make ui-setup-oidc` also builds and loads the `-assembly` images.

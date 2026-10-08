@@ -1,0 +1,24 @@
+{{- if and .Values.monitoring.enabled .Values.server.enabled .Values.server.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: server
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: server
+    {{- with .Values.server.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: server
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: {{ .Values.server.metrics.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.server.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

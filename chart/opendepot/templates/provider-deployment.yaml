@@ -23,6 +23,28 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        fsGroup: 65532
+      initContainers:
+      - name: init-restart-proc
+        image: busybox:1.37
+        command: ["touch", "/tmp/.restart-proc"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsUser: 65532
+        resources:
+          limits:
+            cpu: 100m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        volumeMounts:
+        - name: provider-tmp
+          mountPath: /tmp
       containers:
       - name: provider-controller
         image: "{{ .Values.provider.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.provider.image.tag }}"
@@ -43,6 +65,12 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.provider.resources | nindent 10 }}
+        volumeMounts:
+        - name: provider-tmp
+          mountPath: /tmp
+      volumes:
+      - name: provider-tmp
+        emptyDir: {}
       {{- with .Values.provider.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

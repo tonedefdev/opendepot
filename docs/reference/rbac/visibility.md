@@ -8,7 +8,7 @@ tags:
 
 # GroupBinding and Stats Visibility
 
-The Registry Explorer Stats page, `GET /opendepot/ui/v1/stats`, aggregates only
+The OpenDepot Workshop Stats page, `GET /opendepot/ui/v1/stats`, aggregates only
 resources visible to the authenticated user.
 
 For OIDC users with a matching `GroupBinding`, module and provider counts,

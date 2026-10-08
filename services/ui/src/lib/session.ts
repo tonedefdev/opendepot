@@ -17,7 +17,7 @@ export const sessionOptions: SessionOptions = {
   cookieOptions: {
     // Require HTTPS only when the configured base URL uses HTTPS.
     // Using NODE_ENV would set secure=true even on HTTP port-forwards.
-    secure: (process.env.NEXT_PUBLIC_BASE_URL ?? "").startsWith("https://"),
+    secure: process.env.OIDC_ALLOW_INSECURE_HTTP !== "true",
     httpOnly: true,
     sameSite: "lax",
   },

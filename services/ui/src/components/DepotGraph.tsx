@@ -1,12 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
   Handle,
   MiniMap,
+  getRectOfNodes,
+  getTransformForBounds,
+  useNodesInitialized,
+  useReactFlow,
+  useStore,
   type Edge,
   type Node,
   type NodeMouseHandler,
@@ -25,6 +30,7 @@ import type {
   BrowseStorageConfig,
 } from "@/lib/api";
 import DepotNodePanel from "./DepotNodePanel";
+import { TOGGLE_NODE_MAP_EVENT } from "./MobileMapButton";
 
 // ── Brand palette ─────────────────────────────────────────────────────────
 const DEPOT_BORDER = "#04cfd0";
@@ -45,6 +51,11 @@ const NODE_WIDTH = 200;
 const NODE_HEIGHT = 64;
 // Number of version nodes shown per resource before collapsing the rest.
 const VERSION_PAGE_SIZE = 3;
+const FIT_PADDING = 0.2;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+const MIN_READABLE_ZOOM = 0.8;
+const VIEWPORT_INSET = 40;
 
 // ── Node types ─────────────────────────────────────────────────────────────
 type NodeKind = "depot" | "module" | "provider" | "version" | "versionOverflow";
@@ -613,9 +624,46 @@ type SelectedNode = {
   lastScanned?: string;
 } | null;
 
+// Fits the whole graph on first render unless that would shrink nodes below a
+// readable zoom; large graphs instead open at that zoom anchored to the top.
+function InitialViewport() {
+  const nodesInitialized = useNodesInitialized();
+  const { getNodes, setViewport } = useReactFlow();
+  const width = useStore((state) => state.width);
+  const height = useStore((state) => state.height);
+  const applied = React.useRef(false);
+
+  useEffect(() => {
+    if (applied.current || !nodesInitialized || !width || !height) return;
+    applied.current = true;
+    const bounds = getRectOfNodes(getNodes());
+    const [x, y, zoom] = getTransformForBounds(bounds, width, height, MIN_ZOOM, MAX_ZOOM, FIT_PADDING);
+    if (zoom >= MIN_READABLE_ZOOM) {
+      setViewport({ x, y, zoom });
+      return;
+    }
+    const graphWidth = bounds.width * MIN_READABLE_ZOOM;
+    const left = graphWidth + VIEWPORT_INSET * 2 <= width ? (width - graphWidth) / 2 : VIEWPORT_INSET;
+    setViewport({
+      x: left - bounds.x * MIN_READABLE_ZOOM,
+      y: VIEWPORT_INSET - bounds.y * MIN_READABLE_ZOOM,
+      zoom: MIN_READABLE_ZOOM,
+    });
+  }, [nodesInitialized, width, height, getNodes, setViewport]);
+
+  return null;
+}
+
 export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVersionsByKey = {}, providerVersionMetaByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {} }: DepotGraphProps) {
   const [selected, setSelected] = useState<SelectedNode>(null);
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
+  const [mobileMapOpen, setMobileMapOpen] = useState(false);
+
+  useEffect(() => {
+    const toggleMap = () => setMobileMapOpen((open) => !open);
+    window.addEventListener(TOGGLE_NODE_MAP_EVENT, toggleMap);
+    return () => window.removeEventListener(TOGGLE_NODE_MAP_EVENT, toggleMap);
+  }, []);
 
   const { nodes, edges } = useMemo(
     () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, expandedResources),
@@ -670,35 +718,37 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
           edges={edges}
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.2}
-          maxZoom={2}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
           proOptions={{ hideAttribution: true }}
           style={{ background: "var(--mui-palette-background-default)" }}
         >
+          <InitialViewport />
           <Background color="var(--mui-palette-divider)" gap={20} />
           <Controls
+            fitViewOptions={{ padding: FIT_PADDING }}
             style={{
               background: "var(--mui-palette-background-paper)",
               border: "1px solid var(--mui-palette-divider)",
               borderRadius: 6,
             }}
           />
-          <MiniMap
-            style={{
-              background: "var(--mui-palette-background-paper)",
-              border: "1px solid var(--mui-palette-divider)",
-              borderRadius: 6,
-            }}
-            nodeColor={(n) => {
-              const d = n.data as NodeData;
-              if (d.kind === "depot") return DEPOT_BORDER;
-              if (d.kind === "module") return MODULE_BORDER;
-              if (d.kind === "provider") return PROVIDER_BORDER;
-              return VERSION_BORDER;
-            }}
-          />
+          <Box sx={{ display: { xs: mobileMapOpen ? "block" : "none", sm: "block" } }}>
+            <MiniMap
+              style={{
+                background: "var(--mui-palette-background-paper)",
+                border: "1px solid var(--mui-palette-divider)",
+                borderRadius: 6,
+              }}
+              nodeColor={(n) => {
+                const d = n.data as NodeData;
+                if (d.kind === "depot") return DEPOT_BORDER;
+                if (d.kind === "module") return MODULE_BORDER;
+                if (d.kind === "provider") return PROVIDER_BORDER;
+                return VERSION_BORDER;
+              }}
+            />
+          </Box>
         </ReactFlow>
       </Box>
 

@@ -16,7 +16,7 @@ The security review runs two Trivy scans against every pull request:
 - `trivy image` — scans each built service image for OS package and Go module CVEs.
 - `trivy config` — scans the Helm chart templates for Kubernetes misconfigurations.
 
-OpenDepot bundles Trivy v0.74.0 in the `-scanning` image variant. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Add any suppression to both the repository root and `chart/opendepot/.trivyignore`, and include the tracking issue URL as a comment.
+OpenDepot bundles Trivy v0.74.0 in the version-controller image built with `INCLUDE_TRIVY=true`. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Add any suppression to both the repository root and `chart/opendepot/.trivyignore`, and include the tracking issue URL as a comment.
 
 !!! note
     `.trivyignore` suppressions are scoped to the repository and apply only to findings in the embedded Trivy binary. CVEs in the controller's own dependencies must be resolved, not suppressed.
@@ -99,5 +99,7 @@ The `oidc-deploy` target configures `server.oidc.dexProxy.enabled: true`, so Dex
 The `ui-setup-oidc` target configures the same `dexProxy` setup for the CLI login path, and additionally routes the UI's own browser login through the UI's nginx, which has a `/dex` location proxying to the server for environments without a real Ingress controller (local Kind has none). `make ui-forward` port-forwards only the UI (`localhost:8080`); both `tofu login` and the UI's own OIDC login work through that single port-forward.
 
 `ui-setup-oidc` still writes `~/.tofurc` (via `make ui-tofurc`), since this local registry is plain HTTP and OpenTofu's service discovery only works over HTTPS — a CLI config `host` block is required regardless of `dexProxy`. The `login.v1` URLs in that block now point at Dex through the single UI port-forward instead of a separate Dex port-forward.
+
+`ui-setup-oidc` also builds and loads the `-assembly` server and version-controller images (`INCLUDE_TOFU=true`), and `ui-deploy` sets `server.image.tag` and `version.image.tag` to `$(TAG)-assembly` so Assembly Line has the OpenTofu binary it needs. `make ui-setup` builds only the Trivy-enabled version-controller image and does not enable Assembly Line.
 
 The older split-network pattern — where the server reaches Dex via the in-cluster service URL while `authzUrl`/`tokenUrl` overrides redirect the browser through a separately port-forwarded Dex — is still available and described in [Split-Network OIDC](configuration/oidc/proxy.md#split-network-oidc), but is no longer used by the local Kind Make targets since `dexProxy` covers the common case with fewer port-forwards.

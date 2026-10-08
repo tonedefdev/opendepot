@@ -160,7 +160,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
   const items = data?.items ?? [];
 
   // Table column count for skeleton/empty colspans.
-  const colCount = isProvider ? 9 : 7;
+  const colCount = isProvider ? 10 : 7;
 
   return (
     <Box mb={4}>
@@ -285,6 +285,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
               <TableCell sx={{ whiteSpace: "nowrap" }}>Resource Name</TableCell>
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>OS</TableCell>}
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>Arch</TableCell>}
+              {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>Schema</TableCell>}
               <TableCell sx={{ whiteSpace: "nowrap" }}>File Name</TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Checksum</TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Last Scanned</TableCell>
@@ -342,6 +343,19 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                   {isProvider && (
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
                       {v.arch || "—"}
+                    </TableCell>
+                  )}
+                  {isProvider && (
+                    <TableCell sx={{ verticalAlign: "top" }}>
+                      {v.schemaState === "Succeeded" ? (
+                        <Chip size="small" color="success" label="Extracted" />
+                      ) : v.schemaState === "Failed" ? (
+                        <Tooltip title={v.schemaMessage || "Schema extraction failed"}>
+                          <Chip size="small" color="error" label="Failed" />
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
                     </TableCell>
                   )}
                   <TableCell

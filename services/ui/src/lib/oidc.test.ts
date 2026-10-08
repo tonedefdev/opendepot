@@ -6,7 +6,7 @@ import {
 } from "jose";
 import { createServer, type Server } from "node:http";
 import { beforeAll, describe, expect, it } from "vitest";
-import { fetchOIDCEndpoint, validateOIDCEndpoint, verifyIDToken } from "./oidc";
+import { fetchOIDCEndpoint, validateOIDCBaseURL, validateOIDCEndpoint, verifyIDToken } from "./oidc";
 
 const issuer = "https://issuer.example.com";
 const clientId = "opendepot-ui";
@@ -117,6 +117,19 @@ describe("validateOIDCEndpoint", () => {
         allowCrossOrigin: true,
       }).href,
     ).toBe("https://login.example.com/auth");
+  });
+});
+
+describe("validateOIDCBaseURL", () => {
+  it("accepts HTTPS base URLs", () => {
+    expect(validateOIDCBaseURL("https://opendepot.example.com").href).toBe(
+      "https://opendepot.example.com/",
+    );
+  });
+
+  it("rejects HTTP unless explicitly allowed", () => {
+    expect(() => validateOIDCBaseURL("http://localhost:3000")).toThrow();
+    expect(validateOIDCBaseURL("http://localhost:3000", true).protocol).toBe("http:");
   });
 });
 

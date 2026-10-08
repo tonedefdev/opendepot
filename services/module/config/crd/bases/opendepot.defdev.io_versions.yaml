@@ -61,7 +61,7 @@ spec:
                 description: |-
                   The name of the file with its extension.
                   For a Module the file extension must be one of .zip or .tar.gz
-                  since terraform/tofu currently only support these two
+                  since OpenTofu currently only supports these two
                   extension types.
                 type: string
               forceSync:
@@ -100,8 +100,7 @@ spec:
                       is used in its place.
                     type: string
                   provider:
-                    description: The main terraform or tofu provider required for
-                      this module.
+                    description: The main OpenTofu provider required for this module.
                     type: string
                   repoOwner:
                     description: Owner of the Github repository.
@@ -397,6 +396,19 @@ spec:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.
                       properties:
+                        exempted:
+                          description: |-
+                            Whether a ScanPolicy exempted this finding from blocking reconciliation. Exempted
+                            findings are still reported so that they remain visible and auditable.
+                          type: boolean
+                        exemptedBy:
+                          description: The name of the ScanPolicy that exempted this
+                            finding.
+                          type: string
+                        exemptionReason:
+                          description: The justification recorded on the ScanPolicy
+                            exemption that covered this finding.
+                          type: string
                         fixedVersion:
                           description: The minimum version of the package that resolves
                             the vulnerability, if known.
@@ -434,6 +446,88 @@ spec:
                 description: The SHA256 checksum of the module as a base64 encoded
                   string.
                 type: string
+              contractConfigMapRef:
+                description: |-
+                  ContractConfigMapRef references the ConfigMap holding this module Version's
+                  Assembly Line contract JSON. Only populated for module Version resources when
+                  contract derivation is enabled.
+                properties:
+                  derivedAt:
+                    description: The RFC3339 timestamp at which the contract was derived.
+                    type: string
+                  grade:
+                    description: The compatibility grade of this module for Assembly
+                      Line.
+                    enum:
+                    - full
+                    - partial
+                    - unsupported
+                    type: string
+                  key:
+                    description: The key within the ConfigMap's data holding the contract
+                      JSON.
+                    type: string
+                  name:
+                    description: The name of the ConfigMap holding the contract.
+                    type: string
+                required:
+                - derivedAt
+                - grade
+                - key
+                - name
+                type: object
+              providerSchemaRef:
+                description: |-
+                  ProviderSchemaRef references the reduced provider schema stored in the object
+                  storage backend for this provider Version. Only populated for provider Version
+                  resources whose OS/arch matches the controller's own platform.
+                properties:
+                  digest:
+                    description: The SHA256 digest of the uncompressed reduced schema,
+                      as a hex string.
+                    type: string
+                  extractedAt:
+                    description: The RFC3339 timestamp at which the schema was extracted.
+                    type: string
+                  key:
+                    description: The storage key of the gzipped reduced schema object.
+                    type: string
+                  sizeBytes:
+                    description: The size in bytes of the stored gzipped object.
+                    format: int64
+                    type: integer
+                required:
+                - digest
+                - extractedAt
+                - key
+                - sizeBytes
+                type: object
+              providerSchemaStatus:
+                description: |-
+                  ProviderSchemaStatus records the outcome of the most recent provider schema
+                  extraction attempt. Unlike ProviderSchemaRef, which is only ever set on success,
+                  this field is also set when an extraction attempt fails, so the failure is
+                  visible instead of the Version silently having no schema. Only populated for
+                  provider Version resources whose OS/arch matches the controller's own platform.
+                properties:
+                  attemptedAt:
+                    description: The RFC3339 timestamp of the most recent extraction
+                      attempt.
+                    type: string
+                  message:
+                    description: A human readable description of the failure. Only
+                      set when state is Failed.
+                    type: string
+                  state:
+                    description: The outcome of the most recent extraction attempt.
+                    enum:
+                    - Succeeded
+                    - Failed
+                    type: string
+                required:
+                - attemptedAt
+                - state
+                type: object
               readmeConfigMapRef:
                 description: |-
                   ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
@@ -462,6 +556,19 @@ spec:
                       description: SecurityFinding represents a single vulnerability
                         finding from a Trivy scan.
                       properties:
+                        exempted:
+                          description: |-
+                            Whether a ScanPolicy exempted this finding from blocking reconciliation. Exempted
+                            findings are still reported so that they remain visible and auditable.
+                          type: boolean
+                        exemptedBy:
+                          description: The name of the ScanPolicy that exempted this
+                            finding.
+                          type: string
+                        exemptionReason:
+                          description: The justification recorded on the ScanPolicy
+                            exemption that covered this finding.
+                          type: string
                         fixedVersion:
                           description: The minimum version of the package that resolves
                             the vulnerability, if known.

@@ -10,6 +10,18 @@ export function fetchOIDCEndpoint(
   return fetch(input, { ...init, redirect: "error" });
 }
 
+export function validateOIDCBaseURL(baseUrl: string, allowInsecureHTTP = false): URL {
+  const baseURL = new URL(baseUrl);
+  if (baseURL.protocol !== "https:" && (!allowInsecureHTTP || baseURL.protocol !== "http:")) {
+    throw new Error("OIDC base URL must use HTTPS");
+  }
+  if (baseURL.username || baseURL.password || baseURL.hash) {
+    throw new Error("OIDC base URL must not contain credentials or a fragment");
+  }
+
+  return baseURL;
+}
+
 export function validateOIDCEndpoint(
   endpoint: string,
   issuer: string,

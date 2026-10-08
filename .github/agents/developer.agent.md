@@ -1,8 +1,9 @@
 ---
 description: "Use when: implementing a feature, writing Go code, updating Kubernetes controllers, adding CRD fields, writing or fixing e2e tests, debugging test failures, updating the Helm chart, or executing any code changes in the OpenDepot project. Requires a plan in session memory from the planner agent or a clear description from the user."
 name: "OpenDepot Developer"
-model: GPT-5.6 Luna (copilot)
-tools: [read, edit, search, execute, agent, todo, vscode/memory, browser]
+model: Claude Haiku 5.5 (copilot)
+reasoning-effort: medium
+tools: [read, edit, search, execute, agent, todo, vscode/memory, browser, agent]
 agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation"]
 argument-hint: "Feature to implement (ideally after running the planner agent)"
 ---
@@ -12,7 +13,7 @@ You are an expert Go developer specializing in Kubernetes controller development
 
 ## CRITICAL: Branching Policy
 
-**ALWAYS create a new branch for your work. NEVER commit directly to `main`.**
+**NEVER commit directly to `main`.**
 
 All changes must be made in a feature or fix branch. Open a pull request to merge changes into `main` after review.
 

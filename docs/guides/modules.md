@@ -7,7 +7,7 @@ tags:
 
 # Consuming Modules
 
-Once modules are synced, reference them in your OpenTofu or Terraform configuration:
+Once modules are synced, reference them in your OpenTofu configuration:
 
 ```hcl
 module "eks" {
@@ -32,7 +32,7 @@ tofu login opendepot.defdev.io
 tofu init
 ```
 
-If you have not configured a host mapping yet, add this to your `.tofurc` (or `.terraformrc`) so OpenTofu can find the module registry API:
+If you have not configured a host mapping yet, add this to your `.tofurc` so OpenTofu can find the module registry API:
 
 ```hcl
 host "opendepot.defdev.io" {

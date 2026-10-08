@@ -9,6 +9,9 @@ import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import DepotsGraphClient from "@/components/DepotsGraphClient";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import WarehouseIcon from "@mui/icons-material/Warehouse";
+import PageHeader from "@/components/PageHeader";
+import MobileMapButton from "@/components/MobileMapButton";
 
 export default async function DepotsPage() {
   const token = await getServerSessionToken();
@@ -165,7 +168,7 @@ export default async function DepotsPage() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("unauthorized")) {
-      redirect("/auth/login");
+      redirect("/login");
     }
     fetchError = msg;
     graph = { depots: [], modules: [], providers: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0 }, generatedAt: "" };
@@ -173,8 +176,20 @@ export default async function DepotsPage() {
 
   return (
     <main>
+      <PageHeader
+        icon={<WarehouseIcon color="primary" fontSize="small" />}
+        title="Depots"
+        description="Visualise the relationships between Depots and their managed Modules and Providers."
+        actions={
+          <>
+            <MobileMapButton />
+            <RefreshIconButton ariaLabel="refresh depots" />
+          </>
+        }
+        mobileOnly
+      />
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Box mb={3}>
+        <Box mb={3} sx={{ display: { xs: "none", sm: "block" } }}>
           <Box display="flex" alignItems="center" gap={1}>
             <Typography variant="h4" component="h1">
               Depots
@@ -185,7 +200,6 @@ export default async function DepotsPage() {
             Visualise the relationships between Depots and their managed Modules and Providers.
           </Typography>
         </Box>
-
         {fetchError ? (
           <Alert severity="error">Failed to load depot graph: {fetchError}</Alert>
         ) : (

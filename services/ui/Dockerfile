@@ -1,10 +1,11 @@
 # Stage 1: Build the Next.js app.
-FROM node:22-alpine AS builder
+FROM node:22.23.2-alpine3.23 AS builder
 
 WORKDIR /app
 
 # Install dependencies first (layer caching).
 COPY package.json yarn.lock* .yarnrc.yml* ./
+COPY .yarn/patches/ ./.yarn/patches/
 RUN corepack enable && yarn install --immutable
 
 # Copy source and build.

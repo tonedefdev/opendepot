@@ -15,13 +15,14 @@ import { test, expect } from "@playwright/test";
  *   PLAYWRIGHT_BASE_URL=http://opendepot.localtest.me:8080 \
  *   PLAYWRIGHT_OIDC_ENABLED=true \
  *   PLAYWRIGHT_OIDC_USERNAME=dev@example.com \
- *   PLAYWRIGHT_OIDC_PASSWORD=password \
+ *   PLAYWRIGHT_OIDC_PASSWORD="$OPENDEPOT_DEV_PASSWORD" \
  *   yarn test:e2e test/e2e/oidc-flow.spec.ts
  */
 
 const oidcEnabled = process.env.PLAYWRIGHT_OIDC_ENABLED === "true";
 const oidcUsername = process.env.PLAYWRIGHT_OIDC_USERNAME ?? "dev@example.com";
-const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD ?? "password";
+const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD;
+const appOrigin = new URL(process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000").origin;
 
 /**
  * performLogin navigates to /auth/login, fills the Dex credential form, and
@@ -29,12 +30,16 @@ const oidcPassword = process.env.PLAYWRIGHT_OIDC_PASSWORD ?? "password";
  * serving its login form at a URL matching /dex/auth/.
  */
 async function performLogin(page: import("@playwright/test").Page) {
+  if (!oidcPassword) {
+    throw new Error("PLAYWRIGHT_OIDC_PASSWORD must match OPENDEPOT_DEV_PASSWORD");
+  }
+
   await page.goto("/auth/login", { waitUntil: "domcontentloaded" });
   await page.waitForURL(/\/dex\/auth\//);
   await page.fill('input[name="login"]', oidcUsername);
   await page.fill('input[name="password"]', oidcPassword);
   await page.click('button[type="submit"]');
-  await page.waitForURL("/");
+  await page.waitForURL((url) => url.origin === appOrigin && url.pathname === "/");
   await page.waitForLoadState("domcontentloaded");
 }
 
@@ -147,6 +152,7 @@ test.describe("OIDC logout — toast and no page navigation", () => {
 
   test("clicking Sign out shows a success toast and never navigates to /auth/logout", async ({
     page,
+    context,
   }) => {
     await performLogin(page);
     await page.waitForLoadState("networkidle");
@@ -163,9 +169,9 @@ test.describe("OIDC logout — toast and no page navigation", () => {
     await expect(page.getByText("Successfully signed out")).toBeVisible();
     expect(navigatedToLogoutRoute).toHaveLength(0);
 
-    // The app should settle back on the root, signed-out state.
-    await page.waitForURL("/", { timeout: 5_000 });
-    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+    await page.waitForURL((url) => url.pathname.startsWith("/dex/auth/"), { timeout: 10_000 });
+    await expect(page.locator('input[name="login"]')).toBeVisible();
+    expect((await context.cookies()).some((cookie) => cookie.name === "opendepot_session")).toBe(false);
   });
 });
 

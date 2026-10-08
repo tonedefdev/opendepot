@@ -98,12 +98,16 @@ type ProviderSigningKey struct {
 }
 
 // BrowseScanCounts holds compact per-severity finding counts for UI card icons.
+// The per-severity counters cover only findings that are actively blocking; findings a
+// ScanPolicy has exempted are tallied separately in Exempted so that an accepted risk
+// never inflates a resource's apparent severity.
 type BrowseScanCounts struct {
 	Critical int `json:"critical"`
 	High     int `json:"high"`
 	Medium   int `json:"medium"`
 	Low      int `json:"low"`
 	Unknown  int `json:"unknown"`
+	Exempted int `json:"exempted"`
 }
 
 // BrowseResource is a card-ready summary of a Module or Provider resource.
@@ -131,7 +135,7 @@ type BrowseResource struct {
 	LastScanned string            `json:"lastScanned,omitempty"`
 	// Public reports whether the namespace and resource are both explicitly public.
 	Public bool `json:"public"`
-	// Download stats (populated from Valkey).
+	// Download stats (populated from Prometheus over the configured lookback).
 	TotalDownloads   int64  `json:"totalDownloads,omitempty"`
 	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
 }
@@ -170,6 +174,15 @@ type BrowseVersionSummary struct {
 	DownloadCount    int64             `json:"downloadCount,omitempty"`
 	LastDownloadedAt string            `json:"lastDownloadedAt,omitempty"`
 	ArchiveSizeBytes *int64            `json:"archiveSizeBytes,omitempty"`
+	// SchemaState is the outcome of the most recent Assembly Line provider schema
+	// extraction attempt for this version: "Succeeded", "Failed", or empty when no
+	// extraction has been attempted (e.g. Assembly Line disabled or a non-matching
+	// controller platform). Only populated for provider versions.
+	SchemaState string `json:"schemaState,omitempty"`
+	// SchemaMessage describes the failure. Only set when SchemaState is "Failed".
+	SchemaMessage string `json:"schemaMessage,omitempty"`
+	// SchemaAttemptedAt is the RFC3339 timestamp of the most recent extraction attempt.
+	SchemaAttemptedAt string `json:"schemaAttemptedAt,omitempty"`
 }
 
 // BrowseVersionList is the paginated response for the version listing endpoint.
@@ -329,6 +342,7 @@ type BrowseStats struct {
 	TotalVersions       int                  `json:"totalVersions"`
 	TotalStorageBytes   int64                `json:"totalStorageBytes"`
 	TotalDownloads      int64                `json:"totalDownloads"`
+	DownloadWindow      string               `json:"downloadWindow"`
 	SyncHealth          SyncHealthStats      `json:"syncHealth"`
 	SecurityPosture     SecurityPostureStats `json:"securityPosture"`
 	StorageDistribution []StorageBackendStat `json:"storageDistribution"`
@@ -343,12 +357,15 @@ type SyncHealthStats struct {
 }
 
 // SecurityPostureStats aggregates severity counts across all scan findings.
+// The per-severity counters cover only actively blocking findings; findings a ScanPolicy
+// has exempted are tallied in Exempted and excluded from TotalAffectedResources.
 type SecurityPostureStats struct {
 	Critical               int `json:"critical"`
 	High                   int `json:"high"`
 	Medium                 int `json:"medium"`
 	Low                    int `json:"low"`
 	Unknown                int `json:"unknown"`
+	Exempted               int `json:"exempted"`
 	TotalAffectedResources int `json:"totalAffectedResources"`
 }
 

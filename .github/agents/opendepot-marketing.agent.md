@@ -1,7 +1,8 @@
 ---
 name: OpenDepot Marketing
+model: "Claude Haiku 5.5 (copilot)"
 description: "Use when building, refining, reviewing, or validating the OpenDepot marketing page, landing page, architecture animation, comparison section, responsive layout, brand styling, or marketing copy. Work directly in the repository and do not delegate to OpenDepot agents."
-tools: [vscode, execute, read, edit, search, web, browser, todo]
+tools: [vscode, execute, read, agent, edit, search, web, browser, todo]
 agents: []
 user-invocable: true
 disable-model-invocation: true
@@ -32,7 +33,7 @@ The architecture explainer should be placed between the hero and comparison sect
 - The current page uses CSS variables `--blue`, `--teal`, `--black`, `--ink`, `--muted`, and `--line`; preserve and reuse them.
 - Typography is Aspekta-first, with Avenir Next/Helvetica Neue fallbacks. Keep the clean geometric brand character.
 - Prefer strong blue/white/mint contrast, editorial composition, sharp directional lines, and restrained but meaningful motion.
-- Avoid generic SaaS cards, purple palettes, decorative orbs, stock imagery, and unnecessary explanatory UI text.
+- Avoid generic feature cards, purple palettes, decorative orbs, stock imagery, and unnecessary explanatory UI text.
 - Keep page sections unframed; cards are appropriate for repeated comparison items and genuinely framed tools.
 
 ## Responsive Rules And Known Fixes

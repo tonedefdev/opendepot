@@ -63,4 +63,10 @@ Configure OpenDepot for your environment. All configuration is done through Helm
 
     Terminate TLS on the OpenDepot server using a Kubernetes Secret, or delegate to an Ingress controller or service mesh.
 
+- :material-view-dashboard-outline: &nbsp;[__Assembly Line__](assembly-line.md)
+
+    ---
+
+    Enable and configure browser-based OpenTofu root-module composition and server-side validation.
+
 </div>
