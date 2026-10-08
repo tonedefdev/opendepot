@@ -42,7 +42,7 @@ jobs:
           app-id: ${{ secrets.OPENDEPOT_RELEASE_APP_ID }}
           owner: ${{ github.repository_owner }}
           private-key: ${{ secrets.OPENDEPOT_RELEASE_APP_PRIVATE_KEY }}
-          repositories: opendepot-cloud
+          repositories: opendepot
       - name: Checkout
         uses: actions/checkout@v4
         with:
