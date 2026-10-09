@@ -99,6 +99,7 @@ func main() {
 	var scanAgents bool
 	var agentAllowedDomains string
 	var jevEnabled bool
+	var branchSourcingEnabled bool
 	var jevEndpoint string
 	flag.BoolVar(&scanningEnabled, "scanning-enabled", false,
 		"Enable Trivy vulnerability scanning for provider artifacts.")
@@ -120,6 +121,8 @@ func main() {
 		"Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy.")
 	flag.StringVar(&jevEndpoint, "jev-endpoint", "",
 		"Override the TypeSafe Jev API endpoint. Empty uses the default endpoint.")
+	flag.BoolVar(&branchSourcingEnabled, "branch-sourcing-enabled", false,
+		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
 	var assemblyEnabled bool
 	var tofuBinPath string
 	var schemaExtractionTimeout time.Duration
@@ -300,6 +303,8 @@ func main() {
 		AgentAllowedDomains:     allowedDomains,
 		JevEnabled:              jevEnabled,
 		JevEndpoint:             jevEndpoint,
+		BranchSourcingEnabled:   branchSourcingEnabled,
+		APIReader:               mgr.GetAPIReader(),
 		TrivyCacheDir:           trivyCacheDir,
 		ScanOffline:             scanOffline,
 		BlockOnCritical:         scanBlockOnCritical,

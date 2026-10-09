@@ -397,3 +397,119 @@ func TestCheckRedirectRevalidatesEndpoint(t *testing.T) {
 		t.Fatal("CheckRedirect() allowed an eleventh redirect, want error")
 	}
 }
+
+func TestClassifyBumpParsesResponse(t *testing.T) {
+	fixture := loadFixture(t, "bump_ok.json")
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Questions map[string]Question `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+
+		if _, ok := body.Questions["bump"]; !ok {
+			t.Errorf("request missing bump question")
+		}
+
+		if _, ok := body.Questions["risk"]; ok {
+			t.Errorf("bump request must not include the risk question")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	})
+
+	got, err := c.ClassifyBump(context.Background(), sentinelToken, "skill", "state")
+	if err != nil {
+		t.Fatalf("ClassifyBump() error = %v", err)
+	}
+
+	if got.Model != "jev-1.13.0" {
+		t.Errorf("Model = %q", got.Model)
+	}
+
+	if got.MajorProbability != 0.35 || got.MinorProbability != 0.45 || got.PatchProbability != 0.2 {
+		t.Errorf("probabilities = %v/%v/%v", got.MajorProbability, got.MinorProbability, got.PatchProbability)
+	}
+
+	if got.Category != "Minor" || got.CategoryConfidence != 0.82 {
+		t.Errorf("category = %q confidence = %v", got.Category, got.CategoryConfidence)
+	}
+}
+
+func TestClassifyBumpRequiresAllLabels(t *testing.T) {
+	fixture := loadFixture(t, "bump_missing_label.json")
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(fixture)
+	})
+
+	if _, err := c.ClassifyBump(context.Background(), sentinelToken, "skill", "state"); err == nil {
+		t.Fatal("ClassifyBump() with a legend missing Minor should fail")
+	}
+}
+
+func TestClassifyBumpRetriesServerError(t *testing.T) {
+	fixture := loadFixture(t, "bump_ok.json")
+
+	calls := 0
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		_, _ = w.Write(fixture)
+	})
+
+	if _, err := c.ClassifyBump(context.Background(), sentinelToken, "agent", "state"); err != nil {
+		t.Fatalf("ClassifyBump() error = %v", err)
+	}
+
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+}
+
+func TestClassifyBumpRequiresTokenKindAndSize(t *testing.T) {
+	c := NewClient()
+
+	if _, err := c.ClassifyBump(context.Background(), "", "skill", "state"); err == nil {
+		t.Error("expected error for empty token")
+	}
+
+	if _, err := c.ClassifyBump(context.Background(), sentinelToken, "module", "state"); err == nil {
+		t.Error("expected error for unsupported kind")
+	}
+
+	if _, err := c.ClassifyBump(context.Background(), sentinelToken, "skill", strings.Repeat("a", MaxStateBytes+1)); err == nil {
+		t.Error("expected error for oversized state")
+	}
+}
+
+func TestBumpQuestions(t *testing.T) {
+	q := BumpQuestions("skill")
+
+	for _, id := range []string{"bump", "bump_removes_capability", "bump_adds_capability", "bump_non_behavioral"} {
+		if _, ok := q[id]; !ok {
+			t.Errorf("missing question %q", id)
+		}
+	}
+
+	if q["bump"].Type != "score" {
+		t.Errorf("bump type = %q, want score", q["bump"].Type)
+	}
+
+	if want := []string{"Patch", "Minor", "Major"}; !reflect.DeepEqual(q["bump"].Criteria, want) {
+		t.Errorf("bump criteria = %v, want %v", q["bump"].Criteria, want)
+	}
+
+	for _, id := range []string{"bump_removes_capability", "bump_adds_capability", "bump_non_behavioral"} {
+		if q[id].Type != "noul" {
+			t.Errorf("%s type = %q, want noul", id, q[id].Type)
+		}
+	}
+}

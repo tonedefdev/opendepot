@@ -53,7 +53,7 @@ func TestScanModuleArchiveFailsClosedOnUnusableTrivyOutput(t *testing.T) {
 	}{
 		{name: "empty output", output: nil, wantErr: true},
 		{name: "non-json output", output: []byte("FATAL error"), wantErr: true},
-		{name: "valid empty report", output: []byte(`{"Results":[]}`), wantErr: false},
+		{name: "valid empty report", output: []byte(`{"SchemaVersion":2,"Results":[]}`), wantErr: false},
 	}
 
 	for _, test := range tests {
