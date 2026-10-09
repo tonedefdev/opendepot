@@ -226,6 +226,10 @@ For rollback, first stop policy writes, remove or revert the affected `ScanPolic
 
 Validate the rollout with an end-to-end test in a disposable namespace: create a blocked finding, confirm the global baseline blocks it, apply an exact exemption and confirm the finding remains visible but reconciliation proceeds, confirm expiry restores blocking, verify priority shadowing, and exercise preview/create/update/delete through the UI with both an authorized and unauthorized identity. Also test first-match binding order, an invalid earlier binding, denied cross-namespace and non-onboarded targets, selector/empty-target rejection for scoped operators, and a stale `If-Match` update with `409 Conflict` without losing the draft. The repository includes focused server, controller, and UI tests for the implemented paths; production rollout validation should additionally verify the deployed chart RBAC and OIDC identity configuration.
 
+## Skill and Agent Version Bumps
+
+Skill and Agent sources in branch mode run Trivy scans before the optional Jev assessment. A flagged entry file sets the bump to MAJOR with source `Withheld`, and Jev is not called for that Version. If Jev is enabled and a call fails, the Version is Held rather than published as PATCH. The full classification rules, thresholds, and the `opendepot.defdev.io/bump-override` annotation are in [Version bump classification](../guides/agents.md#version-bump-classification).
+
 ## Offline Mode
 
 By default, provider scanning runs in offline mode (`scanning.offline: true`). Trivy reads the vulnerability database from the shared PVC populated by the `trivy-db-updater` CronJob and makes no outbound network calls during a scan. This is the recommended configuration for production clusters.
