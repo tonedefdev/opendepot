@@ -849,6 +849,82 @@ References the ConfigMap and data key holding a module `Version`'s base64 encode
 |---|---|---|
 | `resolvedSourceRepository` | `string` | The VCS source URL resolved by the Version controller. Set automatically on first scan; `spec.providerConfig.sourceRepository` takes precedence if set. See [Provider Source Repository Resolution](../configuration/scanning.md#provider-source-repository-resolution). |
 
+### Branch source fields
+
+These fields apply to `AgentSourceConfig`, which is used by Depot `skillConfigs` and `agentConfigs`, by `Skill.spec`, `Agent.spec`, and by `Version.spec.agentSourceRef`. Branch sourcing is enabled only when the chart sets `branchSourcing.enabled: true`. See [Branch sourcing](../guides/agents.md#branch-sourcing).
+
+| Field | Type | Description |
+|---|---|---|
+| `ref` | `string` | A Git branch to follow instead of tags. Must match `^[A-Za-z0-9._+/-]+$` and is validated in the controller. Mutually exclusive with `versionConstraints` and `tagPrefix`. |
+| `branchPolicy` | `BranchPolicy` | Branch-mode thresholds. Requires `ref`. Applies to branch sources only. |
+
+The following rules are enforced by CEL on the type:
+
+- `ref` and `versionConstraints` are mutually exclusive: "ref and versionConstraints are mutually exclusive".
+- `tagPrefix` is not used with `ref`: "tagPrefix is not used with ref".
+- `branchPolicy` requires `ref`: "branchPolicy requires ref".
+
+`versionConstraints` applies to tag mode only.
+
+### BranchPolicy fields
+
+`BranchPolicy` classifies each new commit and never blocks a Version. Defaults apply when a field or the whole policy is omitted.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `minVersionInterval` | `Duration` | `10m` | The minimum time between Versions for a source. `0s` disables the interval. Negative values are rejected. |
+| `majorThreshold` | `float64` | `0.5` | MAJOR when the major-change probability is at least this value. Between `0` and `1`. |
+| `minorThreshold` | `float64` | `0.5` | MINOR when the major-change probability plus the minor-change probability is at least this value. Between `0` and `1`. |
+| `minConfidence` | `float64` | `0.5` | A Version whose confidence is below this value is marked `needsReview`. Informational only. Between `0` and `1`. |
+
+For the classification rules, see [Version bump classification](../guides/agents.md#version-bump-classification).
+
+### SkillVersion and AgentVersion fields
+
+These types are used by `spec.versions` and `status.versionRefs` on the Skill and Agent resources.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | The name of the Version resource. |
+| `version` | `string` | The semver for the entry. Empty for a branch entry until it is assigned. |
+| `commit` | `string` | The 40-character commit SHA for a branch entry. Must match `^[0-9a-f]{40}$`. |
+| `discoveredAt` | `Time` | When the commit was discovered. Used to order branch entries. |
+| `state` | `string` | `Pending`, `Assigned`, or `Rejected`. Set in the spec for branch entries. |
+
+### VersionSpec branch fields
+
+| Field | Type | Description |
+|---|---|---|
+| `sourceCommit` | `string` | The 40-character commit SHA the Version is pinned to. Must match `^[0-9a-f]{40}$`. Immutable once set. |
+
+For a branch Version, `version` is empty until the version controller assigns a semver, and then it cannot change. A Version without a `version` must set `sourceCommit`, and `sourceCommit` requires `agentSourceRef.ref`.
+
+### VersionStatus branch fields
+
+| Field | Type | Description |
+|---|---|---|
+| `sourceCommit` | `string` | The commit SHA that was actually downloaded. |
+| `branchPhase` | `string` | `Pending`, `Held`, `Assigned`, or `Rejected`. |
+| `bumpAssessment` | `BumpAssessment` | The bump decision for this Version. Never contains the Jev token or prompt content. |
+
+### BumpAssessment fields
+
+| Field | Type | Description |
+|---|---|---|
+| `commit` | `string` | The commit this assessment is for. |
+| `previousCommit` | `string` | The commit of the previous Version. |
+| `previousVersion` | `string` | The semver of the previous Version. |
+| `category` | `string` | `Major`, `Minor`, or `Patch`. |
+| `source` | `string` | `Initial`, `Default`, `Jev`, `Withheld`, or `Manual`. |
+| `reason` | `string` | The reason for the decision. |
+| `model` | `string` | The Jev model that produced the answer, when Jev was used. |
+| `evaluatedAt` | `string` | RFC3339 time of the decision. |
+| `majorProbability`, `minorProbability`, `patchProbability` | `float64` | Optional. The Jev probabilities for each bump size. |
+| `confidence` | `float64` | Optional. The Jev confidence. |
+| `needsReview` | `bool` | Set when the confidence is below `minConfidence`. Informational only. |
+| `attempts` | `int` | The number of Jev attempts. |
+| `error` | `string` | The redacted error message, when a Jev call failed. |
+
 ### GroupBinding
 
 `GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules, providers, skills, and agents. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.

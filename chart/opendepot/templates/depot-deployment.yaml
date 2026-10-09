@@ -27,8 +27,9 @@ spec:
       - name: depot-controller
         image: "{{ .Values.depot.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.depot.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-        {{- if .Values.depot.zapLogLevel }}
         args:
+        - --branch-sourcing-enabled={{ .Values.branchSourcing.enabled }}
+        {{- if .Values.depot.zapLogLevel }}
         - --zap-log-level={{ .Values.depot.zapLogLevel }}
         {{- end }}
         {{- if .Values.rbac.scopeToNamespace }}
