@@ -81,7 +81,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.service.name }}
           flavor: |
-            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }},onlatest=${{ matrix.service.tagSuffix != '' }}
+            suffix=-${{ matrix.arch }}${{ matrix.service.tagSuffix }},onlatest=true
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
