@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -393,6 +394,243 @@ func TestGetAgentDownloadMetadataInternalServerErrorOnFingerprintMismatch(t *tes
 	}
 }
 
+// agentTestJSON marshals the value for use as a stubbed API response.
+func agentTestJSON(t *testing.T, value any) []byte {
+	t.Helper()
+
+	payload, err := json.Marshal(value)
+
+	if err != nil {
+		t.Fatalf("marshal test payload: %v", err)
+	}
+
+	return payload
+}
+
+// agentTestAPIServer serves the payloads by request path and counts the requests made to each path.
+func agentTestAPIServer(t *testing.T, payloads map[string][]byte) (*httptest.Server, func(string) int) {
+	t.Helper()
+
+	var mu sync.Mutex
+	hits := map[string]int{}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits[r.URL.Path]++
+		mu.Unlock()
+
+		payload, ok := payloads[r.URL.Path]
+
+		if !ok {
+			http.NotFound(w, r)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(api.Close)
+
+	return api, func(path string) int {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return hits[path]
+	}
+}
+
+// agentTestUseKubeconfigAuth authenticates requests with the kubeconfig token and restores the globals on cleanup.
+func agentTestUseKubeconfigAuth(t *testing.T) {
+	t.Helper()
+
+	originalAnonymous := opendepotAnonymousAuth
+	originalUseBearerToken := opendepotUseBearerToken
+	originalVerifier := oidcVerifier
+	t.Cleanup(func() {
+		opendepotAnonymousAuth = originalAnonymous
+		opendepotUseBearerToken = originalUseBearerToken
+		oidcVerifier = originalVerifier
+	})
+
+	anonymous := false
+	useBearerToken := false
+	opendepotAnonymousAuth = &anonymous
+	opendepotUseBearerToken = &useBearerToken
+	oidcVerifier = nil
+}
+
+// agentTestGet sends an authenticated GET to the agent router against the stubbed API server.
+func agentTestGet(t *testing.T, api *httptest.Server, target string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Header.Set("Authorization", base64.StdEncoding.EncodeToString([]byte(agentTestKubeconfig(api.URL, "agent-test-token"))))
+	response := httptest.NewRecorder()
+	agentTestRouter().ServeHTTP(response, request)
+
+	return response
+}
+
+// agentTestVersionRef returns a Skill or Agent status.versionRefs entry for a synced Version.
+func agentTestVersionRef(name, version string) map[string]any {
+	return map[string]any{"name": name, "version": version, "commit": "3f2a9c1d", "synced": true}
+}
+
+// agentTestReviewerPayload returns the Agent resource with the given status.versionRefs.
+func agentTestReviewerPayload(t *testing.T, versionRefs map[string]any) []byte {
+	t.Helper()
+
+	return agentTestJSON(t, map[string]any{
+		"metadata": map[string]any{"name": "reviewer", "namespace": "team"},
+		"status":   map[string]any{"versionRefs": versionRefs},
+	})
+}
+
+const (
+	agentTestBranchVersionName = "agent-reviewer-3f2a9c1d"
+	agentTestVersionsPath      = "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/versions"
+	agentTestAgentPath         = "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/agents/reviewer"
+)
+
+func TestAgentBranchVersionResolvesThroughParentRef(t *testing.T) {
+	privateKeyBase64, fingerprint := agentTestSigningKey(t)
+	t.Setenv("OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64", privateKeyBase64)
+
+	version := agentTestVersion(agentTestBranchVersionName)
+	version.Labels = map[string]string{"opendepot.defdev.io/agent": "reviewer"}
+	version.Status.SigningKeyFingerprint = fingerprint
+	api, hits := agentTestAPIServer(t, map[string][]byte{
+		agentTestVersionsPath + "/" + agentTestBranchVersionName: agentTestJSON(t, version),
+		agentTestAgentPath: agentTestReviewerPayload(t, map[string]any{"1.2.0": agentTestVersionRef(agentTestBranchVersionName, "1.2.0")}),
+	})
+	agentTestUseKubeconfigAuth(t)
+
+	for _, endpoint := range []string{"download", "archive", "SHA256SUMS", "SHA256SUMS.sig"} {
+		response := agentTestGet(t, api, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/"+endpoint)
+
+		if response.Code == http.StatusNotFound || response.Code == http.StatusForbidden {
+			t.Fatalf("%s status = %d, want the branch Version resolved: %s", endpoint, response.Code, response.Body.String())
+		}
+
+		if endpoint == "download" && response.Code != http.StatusOK {
+			t.Fatalf("download status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+		}
+	}
+
+	if hits(agentTestAgentPath) == 0 {
+		t.Fatalf("expected the fallback to read the parent Agent, got no request to %s", agentTestAgentPath)
+	}
+}
+
+func TestAgentBranchVersionRefRejectsForeignOrMismatchedVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*opendepotv1alpha1.Version)
+		versionRef map[string]any
+	}{
+		{
+			name: "source name of another agent",
+			mutate: func(version *opendepotv1alpha1.Version) {
+				other := "other-agent"
+				version.Spec.AgentSourceRef.Name = &other
+			},
+			versionRef: agentTestVersionRef(agentTestBranchVersionName, "1.2.0"),
+		},
+		{
+			name: "label of another agent",
+			mutate: func(version *opendepotv1alpha1.Version) {
+				version.Labels = map[string]string{"opendepot.defdev.io/agent": "other-agent"}
+			},
+			versionRef: agentTestVersionRef(agentTestBranchVersionName, "1.2.0"),
+		},
+		{
+			name:       "spec.version mismatch",
+			mutate:     func(version *opendepotv1alpha1.Version) { version.Spec.Version = "1.3.0" },
+			versionRef: agentTestVersionRef(agentTestBranchVersionName, "1.2.0"),
+		},
+		{
+			name:       "no versionRefs entry for the requested version",
+			mutate:     func(version *opendepotv1alpha1.Version) {},
+			versionRef: agentTestVersionRef(agentTestBranchVersionName, "1.1.0"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			version := agentTestVersion(agentTestBranchVersionName)
+			version.Labels = map[string]string{"opendepot.defdev.io/agent": "reviewer"}
+			tc.mutate(version)
+			api, _ := agentTestAPIServer(t, map[string][]byte{
+				agentTestVersionsPath + "/" + agentTestBranchVersionName: agentTestJSON(t, version),
+				agentTestAgentPath: agentTestReviewerPayload(t, map[string]any{tc.versionRef["version"].(string): tc.versionRef}),
+			})
+			agentTestUseKubeconfigAuth(t)
+
+			response := agentTestGet(t, api, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download")
+
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("download status = %d, want %d: %s", response.Code, http.StatusNotFound, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAgentTagModeLookupMakesNoParentGet(t *testing.T) {
+	privateKeyBase64, fingerprint := agentTestSigningKey(t)
+	t.Setenv("OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64", privateKeyBase64)
+
+	version := agentTestVersion("agent-reviewer-1-2-0")
+	version.Status.SigningKeyFingerprint = fingerprint
+	api, hits := agentTestAPIServer(t, map[string][]byte{
+		agentTestVersionsPath + "/agent-reviewer-1-2-0": agentTestJSON(t, version),
+	})
+	agentTestUseKubeconfigAuth(t)
+
+	response := agentTestGet(t, api, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download")
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("download status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	if hits(agentTestAgentPath) != 0 {
+		t.Fatalf("tag-mode lookup read the parent Agent %d times, want 0", hits(agentTestAgentPath))
+	}
+}
+
+func TestGetAgentVersionsListsBranchVersionsByRefName(t *testing.T) {
+	branch := agentTestVersion(agentTestBranchVersionName)
+	branch.Labels = map[string]string{"opendepot.defdev.io/agent": "reviewer"}
+
+	pending := agentTestVersion("agent-reviewer-9b8e7f6a")
+	pending.Spec.Version = ""
+	pending.Status.Synced = false
+
+	api, _ := agentTestAPIServer(t, map[string][]byte{
+		agentTestVersionsPath: agentTestJSON(t, opendepotv1alpha1.VersionList{Items: []opendepotv1alpha1.Version{*branch, *pending}}),
+		agentTestAgentPath: agentTestReviewerPayload(t, map[string]any{
+			"1.2.0": agentTestVersionRef(agentTestBranchVersionName, "1.2.0"),
+			"1.3.0": agentTestVersionRef("agent-reviewer-missing", "1.3.0"),
+		}),
+	})
+	agentTestUseKubeconfigAuth(t)
+
+	response := agentTestGet(t, api, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/versions")
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("versions status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var list AgentVersionsResponse
+
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal versions: %v", err)
+	}
+
+	if len(list.Versions) != 1 || list.Versions[0].Version != "1.2.0" {
+		t.Fatalf("Versions = %+v, want only [1.2.0]", list.Versions)
+	}
+}
+
 func TestIsResourceAllowedSkillAndAgentPatterns(t *testing.T) {
 	binding := &opendepotv1alpha1.GroupBinding{
 		Spec: opendepotv1alpha1.GroupBindingSpec{
@@ -491,6 +729,7 @@ func agentTestAnonymousAuth(t *testing.T) {
 
 func agentTestRouter() http.Handler {
 	router := chi.NewRouter()
+	router.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/versions", getAgentVersions)
 	router.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/download", getAgentDownloadMetadata)
 	router.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/archive", serveAgentArchive)
 	router.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS", serveAgentSHA256SUMS)

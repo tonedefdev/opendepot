@@ -303,6 +303,35 @@ func TestBrowseAgentKindMappingVersionsAndScanFindings(t *testing.T) {
 	}
 }
 
+func TestBrowseAgentVersionsSkipVersionsWithoutSpecVersion(t *testing.T) {
+	const name = "reviewer"
+	labels := map[string]string{labelPublic: "true"}
+	pending := browseAgentTestVersion("agent", name)
+	pending.Name = "agent-reviewer-9b8e7f6a"
+	pending.Spec.Version = ""
+	versions := []opendepotv1alpha1.Version{browseAgentTestVersion("agent", name), pending}
+	api := browseAgentTestServer(t, "agent", name, labels, browseAgentTestObject("agent", name, labels, nil), versions, nil)
+	browseAgentTestSetup(t, api, false, false)
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name+"/versions", nil)
+	response := httptest.NewRecorder()
+	browseAgentTestRouter().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var list BrowseVersionList
+
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal versions: %v", err)
+	}
+
+	if list.TotalCount != 1 {
+		t.Fatalf("TotalCount = %d, want 1", list.TotalCount)
+	}
+}
+
 func TestAgentVersionSummariesOmitDownloadMetadataForNonServableVersions(t *testing.T) {
 	const name = "reviewer"
 	cases := []struct {
