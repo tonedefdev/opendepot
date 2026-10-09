@@ -662,7 +662,7 @@ func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespac
 
 	var result []opendepotv1alpha1.Version
 	for _, v := range list.Items {
-		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil {
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil || v.Spec.Version == "" {
 			continue
 		}
 
