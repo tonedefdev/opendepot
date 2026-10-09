@@ -51,6 +51,8 @@ type agentContent struct {
 	entryBytes []byte
 	// entryFlagged reports whether Trivy flagged the entry file for a secret.
 	entryFlagged bool
+	// flaggedFiles holds the base names of every file Trivy flagged for a secret.
+	flaggedFiles map[string]struct{}
 	// parseErr is the agentspec validation error, which is non-nil only when a HIGH finding was raised.
 	parseErr error
 	// definition is the parsed frontmatter and body of the entry file.
@@ -216,7 +218,9 @@ func (r *VersionReconciler) runAgentScan(
 		return nil, nil, nil, err
 	}
 
+	content.flaggedFiles = make(map[string]struct{}, len(flagged))
 	for target := range flagged {
+		content.flaggedFiles[filepath.Base(target)] = struct{}{}
 		if filepath.Base(target) == content.entryName {
 			content.entryFlagged = true
 		}

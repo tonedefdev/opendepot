@@ -112,7 +112,32 @@ type trivySecret struct {
 
 // trivyReport is the top-level structure of `trivy --format json` output.
 type trivyReport struct {
-	Results []trivyResult `json:"Results"`
+	SchemaVersion int           `json:"SchemaVersion"`
+	Results       []trivyResult `json:"Results"`
+}
+
+// decodeTrivyReport parses raw Trivy JSON output. Output that is not valid JSON, is not a JSON object
+// (including null), or lacks a SchemaVersion is rejected so that a malformed report can never pass as a clean scan.
+func decodeTrivyReport(data []byte) (trivyReport, error) {
+	var report trivyReport
+	trimmed := bytes.TrimSpace(data)
+	if !json.Valid(trimmed) {
+		return report, fmt.Errorf("failed to parse trivy JSON output: output is not valid JSON")
+	}
+
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return report, fmt.Errorf("failed to parse trivy JSON output: top-level value must be an object")
+	}
+
+	if err := json.Unmarshal(trimmed, &report); err != nil {
+		return report, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	}
+
+	if report.SchemaVersion <= 0 {
+		return report, fmt.Errorf("failed to parse trivy JSON output: SchemaVersion is missing")
+	}
+
+	return report, nil
 }
 
 // runTrivy executes the trivy binary with the supplied arguments and returns raw stdout.
@@ -139,9 +164,9 @@ var runTrivy = func(ctx context.Context, args ...string) ([]byte, error) {
 // The optional filter function allows callers to select specific result targets (e.g. go.mod only).
 // An empty (non-nil) slice is returned when the report contains no matching findings.
 func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1alpha1.SecurityFinding, error) {
-	var report trivyReport
-	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	report, err := decodeTrivyReport(data)
+	if err != nil {
+		return nil, err
 	}
 
 	findings := make([]opendepotv1alpha1.SecurityFinding, 0)
@@ -189,9 +214,9 @@ func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1
 // returns the set of result targets that contain a secret so that callers can keep them out of
 // any content they forward elsewhere.
 func parseTrivySecrets(data []byte) ([]opendepotv1alpha1.SecurityFinding, map[string]struct{}, error) {
-	var report trivyReport
-	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	report, err := decodeTrivyReport(data)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	findings := make([]opendepotv1alpha1.SecurityFinding, 0)

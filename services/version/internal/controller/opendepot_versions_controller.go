@@ -88,6 +88,11 @@ type VersionReconciler struct {
 	JevEnabled bool
 	// JevEndpoint overrides the default TypeSafe Jev API endpoint.
 	JevEndpoint string
+	// BranchSourcingEnabled allows Skill and Agent Versions that pin a commit SHA (spec.sourceCommit) to be synced.
+	BranchSourcingEnabled bool
+	// APIReader reads sibling Versions straight from the API server, bypassing the cache, for the
+	// ordering, superseded, and semver uniqueness checks on branch Versions.
+	APIReader client.Reader
 	// AssemblyEnabled turns on Assembly Line contract derivation for module Versions
 	// and reduced provider schema extraction for provider Versions.
 	AssemblyEnabled bool
@@ -169,6 +174,12 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	if version.Spec.SourceCommit != "" {
+		if done, result, err := r.reconcileBranchPreflight(ctx, req, version); done {
+			return result, err
+		}
+	}
+
 	var prepareResult ctrl.Result
 	var prepareErr error
 
@@ -209,6 +220,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	var fileBytes []byte
+	var agentTree *agentContent
 	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
 	var archiveChecksum *string
 	var providerTmpPath string
@@ -618,10 +630,15 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		sourceScan = agentSourceScan
+		agentTree = content
 		if blocking != nil {
 			blockErr := fmt.Errorf("blocking: %s finding %s in %s: %s", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.Title)
 			if err := r.persistScanViolation(ctx, req, nil, sourceScan, blockErr); err != nil {
 				r.Log.Error(err, "Failed to persist scan findings for blocked version", "version", version.Name)
+			}
+
+			if version.Spec.SourceCommit != "" {
+				return ctrl.Result{}, nil
 			}
 
 			return ctrl.Result{}, blockErr
@@ -660,6 +677,24 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		agentSigned = signed
 		agentJevAssessment = jevAssessment
+	}
+
+	var branchAssessment *opendepotv1alpha1.BumpAssessment
+	if branchAssignmentPending(version) {
+		assessment, requeueAfter, assignErr := r.assignBranchVersion(ctx, req, version, agentTree, fileBytes)
+		if assignErr != nil {
+			if err := r.setBranchStatus(ctx, req, branchPhaseHeld, fmt.Sprintf("Failed to assign version: %v", assignErr)); err != nil {
+				r.Log.Error(err, "Failed to persist branch assignment failure", "version", version.Name)
+			}
+
+			return ctrl.Result{}, assignErr
+		}
+
+		if requeueAfter > 0 {
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
+
+		branchAssessment = assessment
 	}
 
 	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -722,6 +757,15 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if agentJevAssessment != nil {
 			currentVersion.Status.JevAssessment = agentJevAssessment
+		}
+
+		if version.Spec.SourceCommit != "" {
+			currentVersion.Status.SourceCommit = version.Spec.SourceCommit
+			currentVersion.Status.BranchPhase = branchPhaseAssigned
+		}
+
+		if branchAssessment != nil {
+			currentVersion.Status.BumpAssessment = branchAssessment
 		}
 
 		if err := r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
@@ -798,6 +842,10 @@ func (r *VersionReconciler) persistScanViolation(
 			currentVersion.Status.SourceScan = sourceScan
 		}
 
+		if currentVersion.Spec.SourceCommit != "" {
+			currentVersion.Status.BranchPhase = branchPhaseRejected
+		}
+
 		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
 			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
 		})
@@ -827,6 +875,13 @@ func (r *VersionReconciler) persistAgentBlock(
 
 		if jevAssessment != nil {
 			currentVersion.Status.JevAssessment = jevAssessment
+		}
+
+		if currentVersion.Spec.SourceCommit != "" {
+			currentVersion.Status.BranchPhase = branchPhaseHeld
+			if strings.HasPrefix(syncStatus, "JevBlocked:") {
+				currentVersion.Status.BranchPhase = branchPhaseRejected
+			}
 		}
 
 		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
@@ -1160,7 +1215,8 @@ func (r *VersionReconciler) prepareAgentVersion(version *opendepotv1alpha1.Versi
 
 // fetchAgentArchive downloads the Skill or Agent source directory from GitHub, validates its definition file,
 // and returns a deterministic tar.gz of only that directory along with its checksum, parsed metadata, and README body.
-func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, error) {
+// downloadAgentArchive fetches the first ref in refs that GitHub serves and returns the tarball with the repository name.
+func (r *VersionReconciler) downloadAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version, refs []string) ([]byte, string, error) {
 	sourceRef := version.Spec.AgentSourceRef
 
 	useAuthClient := false
@@ -1173,25 +1229,20 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 	if useAuthClient {
 		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, "", err
 		}
 	}
 
 	githubClient, err := opendepotGithub.CreateGithubClient(ctx, useAuthClient, githubClientConfig)
 	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	tagPrefix := ""
-	if sourceRef.TagPrefix != nil {
-		tagPrefix = *sourceRef.TagPrefix
+		return nil, "", err
 	}
 
 	repoName := opendepotGithub.AgentSourceRepoName(sourceRef)
 	var tarball []byte
 	var lastErr error
-	for _, tag := range opendepotGithub.TagCandidates(tagPrefix, version.Spec.Version) {
-		resp, reqErr := opendepotGithub.GetArchiveRequest(ctx, githubClient, sourceRef.RepoOwner, repoName, github.Tarball, tag)
+	for _, ref := range refs {
+		resp, reqErr := opendepotGithub.GetArchiveRequest(ctx, githubClient, sourceRef.RepoOwner, repoName, github.Tarball, ref)
 		if reqErr != nil {
 			lastErr = reqErr
 			continue
@@ -1199,14 +1250,14 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
-			lastErr = fmt.Errorf("failed to get archive for tag '%s': status code %d", tag, resp.StatusCode)
+			lastErr = fmt.Errorf("failed to get archive for ref '%s': status code %d", ref, resp.StatusCode)
 			continue
 		}
 
 		tarball, err = io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to read archive data: %w", err)
+			return nil, "", fmt.Errorf("failed to read archive data: %w", err)
 		}
 
 		lastErr = nil
@@ -1214,7 +1265,34 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 	}
 
 	if lastErr != nil {
-		return nil, nil, nil, nil, lastErr
+		return nil, "", lastErr
+	}
+
+	return tarball, repoName, nil
+}
+
+func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, error) {
+	sourceRef := version.Spec.AgentSourceRef
+
+	var refs []string
+	if version.Spec.SourceCommit != "" {
+		if err := opendepotGithub.ValidateCommitSHA(version.Spec.SourceCommit); err != nil {
+			return nil, nil, nil, nil, err
+		}
+
+		refs = []string{version.Spec.SourceCommit}
+	} else {
+		tagPrefix := ""
+		if sourceRef.TagPrefix != nil {
+			tagPrefix = *sourceRef.TagPrefix
+		}
+
+		refs = opendepotGithub.TagCandidates(tagPrefix, version.Spec.Version)
+	}
+
+	tarball, repoName, err := r.downloadAgentArchive(ctx, version, refs)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	tmpDir, err := os.MkdirTemp("", "agent-archive-")

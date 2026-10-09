@@ -106,8 +106,37 @@ type request struct {
 	Questions map[string]Question `json:"questions"`
 }
 
+// BumpResult is the classification of a version bump between two states.
+type BumpResult struct {
+	Model              string
+	MajorProbability   float64
+	MinorProbability   float64
+	PatchProbability   float64
+	Category           string
+	CategoryConfidence float64
+}
+
 // Assess evaluates state with the default question set for kind ("skill" or "agent") in a single request.
 func (c *Client) Assess(ctx context.Context, token, kind, state string) (*Result, error) {
+	raw, err := c.send(ctx, token, kind, state, DefaultQuestions(kind))
+	if err != nil {
+		return nil, err
+	}
+
+	return parseResponse(raw)
+}
+
+// ClassifyBump classifies the bump size between a previous and a new state for kind ("skill" or "agent").
+func (c *Client) ClassifyBump(ctx context.Context, token, kind, state string) (*BumpResult, error) {
+	raw, err := c.send(ctx, token, kind, state, BumpQuestions(kind))
+	if err != nil {
+		return nil, err
+	}
+
+	return parseBumpResponse(raw)
+}
+
+func (c *Client) send(ctx context.Context, token, kind, state string, questions map[string]Question) ([]byte, error) {
 	if token == "" {
 		return nil, errors.New("jev: token is required")
 	}
@@ -123,18 +152,13 @@ func (c *Client) Assess(ctx context.Context, token, kind, state string) (*Result
 	body, err := json.Marshal(request{
 		State:     state,
 		Model:     Model,
-		Questions: DefaultQuestions(kind),
+		Questions: questions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("jev: marshal request: %w", err)
 	}
 
-	raw, err := c.do(ctx, token, body)
-	if err != nil {
-		return nil, err
-	}
-
-	return parseResponse(raw)
+	return c.do(ctx, token, body)
 }
 
 func (c *Client) do(ctx context.Context, token string, body []byte) ([]byte, error) {
@@ -318,9 +342,63 @@ func parseNoul(answers map[string]json.RawMessage, id string) (float64, error) {
 }
 
 func parseRisk(answers map[string]json.RawMessage, result *Result) error {
-	raw, ok := answers[idRisk]
+	a, err := parseScore(answers, idRisk)
+	if err != nil {
+		return err
+	}
+
+	result.RiskScore = a.score
+	result.RiskLevel = a.level
+	result.RiskConfidence = a.confidence
+
+	return nil
+}
+
+func parseBumpResponse(raw []byte) (*BumpResult, error) {
+	var resp response
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("jev: decode response: %w", err)
+	}
+
+	if resp.Model == "" {
+		return nil, errors.New("jev: response missing model")
+	}
+
+	a, err := parseScore(resp.Answers, idBump)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &BumpResult{
+		Model:              resp.Model,
+		MajorProbability:   a.probabilities["Major"],
+		MinorProbability:   a.probabilities["Minor"],
+		PatchProbability:   a.probabilities["Patch"],
+		Category:           a.level,
+		CategoryConfidence: a.confidence,
+	}
+
+	for _, label := range []string{"Major", "Minor", "Patch"} {
+		if _, ok := a.probabilities[label]; !ok {
+			return nil, fmt.Errorf("jev: answer %q: legend missing %q", idBump, label)
+		}
+	}
+
+	return result, nil
+}
+
+// scoreAnswer is a validated score answer. Probabilities are keyed by legend label.
+type scoreAnswer struct {
+	score         float64
+	level         string
+	probabilities map[string]float64
+	confidence    float64
+}
+
+func parseScore(answers map[string]json.RawMessage, id string) (*scoreAnswer, error) {
+	raw, ok := answers[id]
 	if !ok {
-		return fmt.Errorf("jev: response missing answer %q", idRisk)
+		return nil, fmt.Errorf("jev: response missing answer %q", id)
 	}
 
 	var a struct {
@@ -331,39 +409,43 @@ func parseRisk(answers map[string]json.RawMessage, result *Result) error {
 		Confidence    *float64           `json:"confidence"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
-		return fmt.Errorf("jev: answer %q: %w", idRisk, err)
+		return nil, fmt.Errorf("jev: answer %q: %w", id, err)
 	}
 
 	if a.Type != "score" || a.Score == nil || a.Confidence == nil {
-		return fmt.Errorf("jev: answer %q is not a valid score answer", idRisk)
+		return nil, fmt.Errorf("jev: answer %q is not a valid score answer", id)
 	}
 
 	if len(a.Legend) == 0 {
-		return fmt.Errorf("jev: answer %q: legend is empty", idRisk)
+		return nil, fmt.Errorf("jev: answer %q: legend is empty", id)
 	}
 
 	if *a.Score < 0 || *a.Score > float64(len(a.Legend)-1) {
-		return fmt.Errorf("jev: answer %q: score %g is outside the legend range", idRisk, *a.Score)
+		return nil, fmt.Errorf("jev: answer %q: score %g is outside the legend range", id, *a.Score)
 	}
 
 	if *a.Confidence < 0 || *a.Confidence > 1 {
-		return fmt.Errorf("jev: answer %q: confidence %g is outside [0, 1]", idRisk, *a.Confidence)
+		return nil, fmt.Errorf("jev: answer %q: confidence %g is outside [0, 1]", id, *a.Confidence)
 	}
 
-	level, err := topLevel(a.Legend, a.Probabilities)
+	probabilities, level, err := labelProbabilities(a.Legend, a.Probabilities)
 	if err != nil {
-		return fmt.Errorf("jev: answer %q: %w", idRisk, err)
+		return nil, fmt.Errorf("jev: answer %q: %w", id, err)
 	}
 
-	result.RiskScore = *a.Score
-	result.RiskLevel = level
-	result.RiskConfidence = *a.Confidence
-
-	return nil
+	return &scoreAnswer{
+		score:         *a.Score,
+		level:         level,
+		probabilities: probabilities,
+		confidence:    *a.Confidence,
+	}, nil
 }
 
-// topLevel returns the legend name with the highest probability. Ties resolve to the lowest index.
-func topLevel(legend map[string]string, probabilities map[string]float64) (string, error) {
+// labelProbabilities maps each legend label to its probability and returns the label with the highest probability.
+// Ties resolve to the lowest index.
+func labelProbabilities(legend map[string]string, probabilities map[string]float64) (map[string]float64, string, error) {
+	byLabel := make(map[string]float64, len(legend))
+
 	var (
 		best     string
 		bestProb = -1.0
@@ -374,17 +456,19 @@ func topLevel(legend map[string]string, probabilities map[string]float64) (strin
 
 		name, ok := legend[key]
 		if !ok {
-			return "", fmt.Errorf("legend missing index %s", key)
+			return nil, "", fmt.Errorf("legend missing index %s", key)
 		}
 
 		p, ok := probabilities[key]
 		if !ok {
-			return "", fmt.Errorf("probabilities missing index %s", key)
+			return nil, "", fmt.Errorf("probabilities missing index %s", key)
 		}
 
 		if p < 0 || p > 1 {
-			return "", fmt.Errorf("probability %g at index %s is outside [0, 1]", p, key)
+			return nil, "", fmt.Errorf("probability %g at index %s is outside [0, 1]", p, key)
 		}
+
+		byLabel[name] = p
 
 		if p > bestProb {
 			best = name
@@ -392,5 +476,5 @@ func topLevel(legend map[string]string, probabilities map[string]float64) (strin
 		}
 	}
 
-	return best, nil
+	return byLabel, best, nil
 }
