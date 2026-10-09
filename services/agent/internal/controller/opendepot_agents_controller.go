@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-logr/logr"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -61,33 +62,58 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	versions := make([]string, 0, len(agent.Spec.Versions))
+	sourceConfig := agent.Spec.AgentSourceConfig
+	configName := agentConfigName(agent, sourceConfig)
+	branch := sourceConfig.Ref != nil
+
+	entries := make([]opendepotv1alpha1.AgentVersion, 0, len(agent.Spec.Versions))
 	for _, version := range agent.Spec.Versions {
-		versions = append(versions, version.Version)
+		entries = append(entries, version)
 	}
 
-	keep := trimAgentVersions(versions, agent.Spec.AgentSourceConfig.VersionHistoryLimit)
-	versionObjects, err := reconcileAgentVersions(ctx, r.Client, r.Scheme, r.Log, agent, agentKindDef, agent.Spec.AgentSourceConfig, keep)
+	original := slices.Clone(entries)
+	var branchVersions map[string]*opendepotv1alpha1.Version
+	if branch {
+		branchVersions, err = getBranchVersions(ctx, r.Client, agent, agentKindDef, configName, entries)
+		if err != nil {
+			r.Log.Error(err, "Failed to get Agent branch versions", "agent", agent.Name)
+			return ctrl.Result{}, err
+		}
+
+		syncBranchEntries(agentKindDef, configName, entries, branchVersions)
+	}
+
+	limit := agentVersionHistoryLimit(sourceConfig)
+	keep := trimAgentEntries(entries, limit, branch)
+	versionObjects, err := reconcileAgentVersions(ctx, r.Client, r.Scheme, r.Log, agent, agentKindDef, sourceConfig, keep)
 	if err != nil {
 		r.Log.Error(err, "Failed to reconcile Agent versions", "agent", agent.Name)
 		return ctrl.Result{}, err
 	}
 
-	if len(keep) < len(versions) {
-		keptVersions := make([]opendepotv1alpha1.AgentVersion, 0, len(keep))
-		for _, v := range keep {
-			keptVersions = append(keptVersions, opendepotv1alpha1.AgentVersion{Version: v})
-		}
-
+	if !agentEntriesEqual(original, keep) {
 		if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 			if err = r.Get(ctx, req.NamespacedName, agent); err != nil {
 				return err
 			}
 
-			agent.Spec.Versions = keptVersions
+			// Recompute from the latest spec so entries added while reconciling are not overwritten.
+			latest := make([]opendepotv1alpha1.AgentVersion, 0, len(agent.Spec.Versions))
+			for _, version := range agent.Spec.Versions {
+				latest = append(latest, version)
+			}
+
+			syncBranchEntries(agentKindDef, configName, latest, branchVersions)
+			keep = trimAgentEntries(latest, limit, branch)
+
+			agent.Spec.Versions = make([]opendepotv1alpha1.AgentVersion, 0, len(keep))
+			for _, entry := range keep {
+				agent.Spec.Versions = append(agent.Spec.Versions, entry)
+			}
+
 			return r.Update(ctx, agent, &client.UpdateOptions{FieldManager: agentsControllerName})
 		}); err != nil {
-			r.Log.Error(err, "Failed to trim Agent versions to history limit", "agent", agent.Name)
+			r.Log.Error(err, "Failed to update Agent versions", "agent", agent.Name)
 			return ctrl.Result{}, err
 		}
 	}
@@ -108,13 +134,20 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	versionRefs := make(map[string]*opendepotv1alpha1.AgentVersion, len(keep))
-	for _, v := range keep {
-		versionObject := versionObjects[v]
-		versionRefs[v] = &opendepotv1alpha1.AgentVersion{
+	assigned := make([]string, 0, len(keep))
+	for _, entry := range keep {
+		versionObject, ok := versionObjects[agentEntryVersionName(agentKindDef, configName, entry, branch)]
+		if !ok || entry.Version == "" {
+			continue
+		}
+
+		assigned = append(assigned, entry.Version)
+		versionRefs[entry.Version] = &opendepotv1alpha1.AgentVersion{
 			Name:     versionObject.Name,
 			FileName: versionObject.Spec.FileName,
 			Synced:   true,
-			Version:  v,
+			Version:  entry.Version,
+			Commit:   entry.Commit,
 		}
 	}
 
@@ -124,7 +157,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		agent.Status.VersionRefs = versionRefs
-		agent.Status.LatestVersion = latestAgentVersion(keep)
+		agent.Status.LatestVersion = latestAgentVersion(assigned)
 		agent.Status.Synced = true
 		agent.Status.SyncStatus = "Successfully synced agent"
 
@@ -136,7 +169,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	if err = reconcileAgentVersionRemovals(ctx, r.Client, r.Log, agent, agentKindDef, keep); err != nil {
+	if err = reconcileAgentVersionRemovals(ctx, r.Client, r.Log, agent, agentKindDef, agentVersionNameSet(versionObjects)); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -147,10 +180,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	versionPredicates := predicate.Funcs{
-		// Do not reconcile on any events. This controller is only responsible for creating and deleting the Versions
-		// when the Agent spec has changed.
+		// Only reconcile when a branch Version is assigned a semantic version or rejected so that the Agent can copy
+		// the result back to its entry. Other events are ignored.
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return false
+			return branchVersionChanged(e)
 		},
 
 		CreateFunc: func(e event.CreateEvent) bool {

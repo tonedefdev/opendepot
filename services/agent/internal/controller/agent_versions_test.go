@@ -19,6 +19,12 @@ package controller
 import (
 	"slices"
 	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
 func TestSanitizeAgentVersion(t *testing.T) {
@@ -77,5 +83,110 @@ func TestTrimAgentVersions(t *testing.T) {
 				t.Errorf("trimAgentVersions() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAgentEntryVersionName(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	tag := opendepotv1alpha1.AgentVersion{Version: "1.0.0"}
+	if got := agentEntryVersionName(skillKind, "my-skill", tag, false); got != "skill-my-skill-1-0-0" {
+		t.Errorf("tag entry name = %q, want %q", got, "skill-my-skill-1-0-0")
+	}
+
+	branch := opendepotv1alpha1.AgentVersion{Commit: commit}
+	if got := agentEntryVersionName(skillKind, "my-skill", branch, true); got != "skill-my-skill-"+commit {
+		t.Errorf("branch entry name = %q, want %q", got, "skill-my-skill-"+commit)
+	}
+
+	if got := agentEntryVersionName(skillKind, "my-skill", opendepotv1alpha1.AgentVersion{}, true); got != "" {
+		t.Errorf("branch entry without commit name = %q, want empty", got)
+	}
+}
+
+func TestAgentVersionHistoryLimit(t *testing.T) {
+	ref := "main"
+	limit := 3
+
+	if got := agentVersionHistoryLimit(opendepotv1alpha1.AgentSourceConfig{Ref: &ref}); got == nil || *got != 10 {
+		t.Errorf("branch default limit = %v, want 10", got)
+	}
+
+	if got := agentVersionHistoryLimit(opendepotv1alpha1.AgentSourceConfig{}); got != nil {
+		t.Errorf("tag default limit = %v, want nil", *got)
+	}
+
+	if got := agentVersionHistoryLimit(opendepotv1alpha1.AgentSourceConfig{Ref: &ref, VersionHistoryLimit: &limit}); got == nil || *got != 3 {
+		t.Errorf("branch explicit limit = %v, want 3", got)
+	}
+}
+
+func TestTrimAgentEntriesBranch(t *testing.T) {
+	now := time.Now()
+	at := func(d time.Duration) *metav1.Time {
+		return &metav1.Time{Time: now.Add(d)}
+	}
+
+	entries := []opendepotv1alpha1.AgentVersion{
+		{Commit: "c1", Version: "1.0.0", DiscoveredAt: at(1 * time.Hour)},
+		{Commit: "c2", Version: "2.0.0", DiscoveredAt: at(2 * time.Hour)},
+		{Commit: "c3", State: branchStatePending},
+		{Commit: "c4", State: branchStateRejected, DiscoveredAt: at(4 * time.Hour)},
+		{Commit: "c5", State: branchStateRejected, DiscoveredAt: at(0)},
+		{Version: "0.1.0"},
+	}
+
+	limit := 1
+	got := trimAgentEntries(entries, &limit, true)
+	want := []string{"c2", "c3", "c4", ""}
+	if len(got) != len(want) {
+		t.Fatalf("trimAgentEntries() kept %d entries, want %d", len(got), len(want))
+	}
+
+	for i := range want {
+		if got[i].Commit != want[i] {
+			t.Errorf("trimAgentEntries()[%d].Commit = %q, want %q", i, got[i].Commit, want[i])
+		}
+	}
+}
+
+func TestSyncBranchEntries(t *testing.T) {
+	entries := []opendepotv1alpha1.AgentVersion{
+		{Commit: "c1", State: branchStatePending},
+		{Commit: "c2", State: branchStatePending},
+	}
+
+	versions := map[string]*opendepotv1alpha1.Version{
+		"skill-my-skill-c1": {Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}},
+		"skill-my-skill-c2": {Status: opendepotv1alpha1.VersionStatus{BranchPhase: branchPhaseRejected}},
+	}
+
+	syncBranchEntries(skillKind, "my-skill", entries, versions)
+	if entries[0].Version != "1.0.0" || entries[0].State != branchStateAssigned {
+		t.Errorf("assigned entry = %+v, want version 1.0.0 and state %q", entries[0], branchStateAssigned)
+	}
+
+	if entries[1].Version != "" || entries[1].State != branchStateRejected {
+		t.Errorf("rejected entry = %+v, want state %q", entries[1], branchStateRejected)
+	}
+}
+
+func TestBranchVersionChanged(t *testing.T) {
+	oldVersion := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{SourceCommit: "c1"}}
+	assigned := oldVersion.DeepCopy()
+	assigned.Spec.Version = "1.0.0"
+
+	if !branchVersionChanged(event.UpdateEvent{ObjectOld: oldVersion, ObjectNew: assigned}) {
+		t.Error("branchVersionChanged() = false for an assigned branch Version, want true")
+	}
+
+	tagOld := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
+	tagNew := tagOld.DeepCopy()
+	tagNew.Spec.Yanked = true
+	if branchVersionChanged(event.UpdateEvent{ObjectOld: tagOld, ObjectNew: tagNew}) {
+		t.Error("branchVersionChanged() = true for a tag Version, want false")
+	}
+
+	if branchVersionChanged(event.UpdateEvent{ObjectOld: oldVersion, ObjectNew: oldVersion.DeepCopy()}) {
+		t.Error("branchVersionChanged() = true without a change, want false")
 	}
 }
