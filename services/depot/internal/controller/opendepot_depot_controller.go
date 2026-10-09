@@ -43,8 +43,9 @@ var listProviderVersions = registry.ListProviderVersions
 // Depot reconciles a Depot object
 type DepotReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log                   logr.Logger
+	Scheme                *runtime.Scheme
+	BranchSourcingEnabled bool
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -348,6 +349,8 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
+	var branchErr error
+	var requeueAfter time.Duration
 	var managedSkills []string
 	for _, skillConfig := range depot.Spec.SkillConfigs {
 		// Apply global configs if not set on this skill config.
@@ -361,6 +364,23 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		if skillConfig.Name == nil || strings.TrimSpace(*skillConfig.Name) == "" {
 			return ctrl.Result{}, fmt.Errorf("skill config name is required")
+		}
+
+		if skillConfig.Ref != nil {
+			if err := r.validateBranchSource(&skillConfig); err != nil {
+				r.Log.Error(err, "Skipping branch source for skill", "skill", *skillConfig.Name)
+				continue
+			}
+
+			managedSkills = append(managedSkills, *skillConfig.Name)
+			wait, err := r.reconcileBranchSkill(ctx, req.Namespace, &skillConfig)
+			if err != nil {
+				r.Log.Error(err, "Failed to reconcile branch source for skill", "skill", *skillConfig.Name)
+				branchErr = err
+			}
+
+			requeueAfter = earliestRequeue(requeueAfter, wait)
+			continue
 		}
 
 		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &skillConfig)
@@ -441,6 +461,23 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		if agentConfig.Name == nil || strings.TrimSpace(*agentConfig.Name) == "" {
 			return ctrl.Result{}, fmt.Errorf("agent config name is required")
+		}
+
+		if agentConfig.Ref != nil {
+			if err := r.validateBranchSource(&agentConfig); err != nil {
+				r.Log.Error(err, "Skipping branch source for agent", "agent", *agentConfig.Name)
+				continue
+			}
+
+			managedAgents = append(managedAgents, *agentConfig.Name)
+			wait, err := r.reconcileBranchAgent(ctx, req.Namespace, &agentConfig)
+			if err != nil {
+				r.Log.Error(err, "Failed to reconcile branch source for agent", "agent", *agentConfig.Name)
+				branchErr = err
+			}
+
+			requeueAfter = earliestRequeue(requeueAfter, wait)
+			continue
 		}
 
 		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &agentConfig)
@@ -527,10 +564,14 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	if depot.Spec.PollingIntervalMinutes != nil {
-		return ctrl.Result{RequeueAfter: time.Duration(*depot.Spec.PollingIntervalMinutes) * time.Minute}, nil
+		requeueAfter = earliestRequeue(requeueAfter, time.Duration(*depot.Spec.PollingIntervalMinutes)*time.Minute)
 	}
 
-	return ctrl.Result{}, nil
+	if branchErr != nil {
+		return ctrl.Result{}, branchErr
+	}
+
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // matchAgentSourceVersions returns the semver tags in the agent source repository that satisfy the version constraints.
