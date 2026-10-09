@@ -1,0 +1,16 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "bump_removes_capability": {"type": "noul", "noul": 0.1},
+    "bump_adds_capability": {"type": "noul", "noul": 0.7},
+    "bump_non_behavioral": {"type": "noul", "noul": 0.05},
+    "bump": {
+      "type": "score",
+      "score": 1.4,
+      "legend": {"0": "Patch", "1": "Minor", "2": "Major"},
+      "probabilities": {"0": 0.2, "1": 0.45, "2": 0.35},
+      "confidence": 0.82
+    }
+  },
+  "usage": {"input_tokens": 900, "output_tokens": 40}
+}
