@@ -203,6 +203,8 @@ This Depot will:
 
 **Polling interval:** Set `pollingIntervalMinutes` to have the Depot periodically re-query GitHub and the configured upstream provider registries for new releases. If omitted, the Depot reconciles once and does not poll.
 
+For branch sources (`ref`), polling is what picks up new commits on a schedule. When `pollingIntervalMinutes` is unset, a branch source picks up new commits only when the Depot reconciles for another reason, such as a spec change, an annotation change, or a resync. Branch sources are intended as a one-time migration, managed through GitOps afterward. See [Branch sourcing](agents.md#branch-sourcing).
+
 **Per-module storage override:** Any module can override the global storage config:
 
 ```yaml

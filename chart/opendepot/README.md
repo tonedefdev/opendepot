@@ -291,6 +291,14 @@ Provider binary and source scanning (`scanning.providerScanning`) requires an ad
 | `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Image for the DB updater CronJob |
 | `scanning.dbUpdater.image.tag` | `0.70.0` | Tag for the DB updater image |
 
+### Branch Sourcing
+
+Skill and Agent sources can follow a Git branch by setting `ref` on the source. Branch sourcing is off by default. This value sets `--branch-sourcing-enabled` on both the depot and the version controllers. Enable it on both at once, since the flag gates the depot and the version controller together.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `branchSourcing.enabled` | `false` | Pass `--branch-sourcing-enabled` to the depot and version controllers. While `false`, the depot skips branch sources and the version controller rejects branch Versions |
+
 ### Assembly Line
 
 Assembly Line derives a machine-readable input/output contract for every module version and a reduced provider schema for every provider version. Contracts are stored in a ConfigMap owned by the Version and surfaced by the server on `/opendepot/ui/v1/resources/{namespace}/module/{name}/contract`. Provider schemas are stored in the configured object storage backend — never in a ConfigMap, since a full provider schema routinely exceeds the etcd object size limit.

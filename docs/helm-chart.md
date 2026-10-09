@@ -171,6 +171,16 @@ also runs a `token-refresh-helper` sidecar that refreshes the projected
 ServiceAccount token used by the controller. The main controller does not use a
 directly mounted Kubernetes ServiceAccount token.
 
+## Branch Sourcing
+
+Branch sourcing lets Skill and Agent sources follow a Git branch with `ref`. It is off by default. The chart value below controls it for both the depot and version controllers:
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `branchSourcing.enabled` | `bool` | Sets `--branch-sourcing-enabled` on the depot and version controllers. Default `false`. Both controllers read the same value. |
+
+Polling for new branch commits uses the existing `pollingIntervalMinutes` on the Depot. There is no separate poll-interval value. For the behavior, see [Branch sourcing](guides/agents.md#branch-sourcing).
+
 ## Assembly Line
 
 Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. Default images do not include OpenTofu, so enabling Assembly Line requires `server.image.tag` and `version.image.tag` set to a `-assembly` tag. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.

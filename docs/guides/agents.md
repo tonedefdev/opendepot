@@ -47,7 +47,9 @@ Each entry accepts the same source fields as other OpenDepot sources:
 | `path` | The directory inside the repository that holds the skill or agent. |
 | `platform` | The agent platform whose frontmatter keys are enforced. One of `agentskills`, `claude`, `copilot`, `codex`, `opencode`, or `pi`. Optional. See [Frontmatter validation](#frontmatter-validation). |
 | `tagPrefix` | A prefix that Git tags must have to be considered versions. The prefix may contain `/`, for example `skills/`. |
-| `versionConstraints` | A version constraint applied to the discovered Git tags. |
+| `versionConstraints` | A version constraint applied to the discovered Git tags. Tag mode only. Mutually exclusive with `ref`. |
+| `ref` | A Git branch to follow instead of tags. Enables [branch sourcing](#branch-sourcing). Mutually exclusive with `versionConstraints` and `tagPrefix`. |
+| `branchPolicy` | Branch-mode thresholds and the minimum interval between Versions. Requires `ref`. See [Version bump classification](#version-bump-classification). |
 | `versionHistoryLimit` | How many synced versions are kept. |
 | `immutable` | Prevents a published version from being changed. |
 | `storageConfig` | Where the packaged archive, checksums, and signature are stored. |
@@ -59,6 +61,37 @@ GitHub inputs are validated before any API request is made. `repoOwner` and the 
 The `version` controller packages each matching Git tag into an archive, signs the `SHA256SUMS` file with the configured GPG key, and runs the deterministic checks before a Version is marked synced. The `server` exposes the results through the agents.v1 protocol. For the endpoints, see [agents.v1 protocol](#agentsv1-protocol). For install steps, see the [CLI reference](../reference/cli.md).
 
 The signing key is configured through the `version.gpg.secretName` Secret, which must hold `OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64` with an unprotected (no passphrase) armored private key. The `server` reads the same variable from the `server.gpg` Secret and derives the fingerprint from it. The `version.gpg` and `server.gpg` Secrets must hold the same key. If the derived fingerprint does not match the one recorded on the Version, the `server` returns HTTP 500 and refuses to serve signing material.
+
+## Branch sourcing
+
+Set `ref` on a skill or agent source to follow a Git branch instead of publishing from tags. Branch sourcing is off by default. It is enabled only when the chart is installed with `branchSourcing.enabled: true`, which sets `--branch-sourcing-enabled` on the depot and version controllers.
+
+```yaml
+skillConfigs:
+  - name: release-notes
+    repoOwner: my-org
+    repoUrl: https://github.com/my-org/release-notes-skill
+    path: skills/release-notes
+    ref: main
+    branchPolicy:
+      minVersionInterval: 10m
+    storageConfig:
+      s3:
+        bucket: opendepot-artifacts
+        region: us-east-1
+```
+
+`ref` and `versionConstraints` are mutually exclusive, and so are `ref` and `tagPrefix`. `branchPolicy` applies only to branch sources and requires `ref`.
+
+Tags are usually more immutable than branches, so tag mode is the recommended default for stable content. A branch head moves with every push. Each Version is still pinned to its exact `sourceCommit`, so consumers always receive the content of a specific commit.
+
+- **Pushing publishes.** A push to the branch publishes a new Version once all checks pass. Protect the branch with required reviews and status checks, because anyone who can push to it can publish.
+- **Each new commit is a new Version.** A Version is named `<prefix>-<configName>-<40-char SHA>` and is labeled `opendepot.defdev.io/commit`. It stays Pending until the version controller assigns it a semver after signing. A source has at most one Pending entry at a time.
+- **Polling is opt-in.** A branch source picks up new commits on a schedule only when `pollingIntervalMinutes` is set on the Depot. When it is unset, a branch source picks up new commits only when the Depot reconciles for another reason, such as a spec change, an annotation change, or a resync. See [Polling interval](depot.md#options).
+- **`immutable` works on branch sources.** Each Version is pinned to its `sourceCommit`, and a re-download must match its recorded `status.checksum`. A moving branch creates new Versions and does not change existing ones. The checksum is stable only while the archive format is stable, so a packaging change can alter it for the same SHA, the same as with tags.
+- **Recreating a source resets numbering.** Deleting and recreating a source starts semver numbering again. Consumer lock hashes recorded against the old numbering then fail closed.
+
+Branch sources are intended as a one-time migration. After the migration, manage the source definitions through GitOps.
 
 ## Deterministic checks
 
@@ -193,6 +226,26 @@ The gate follows three rules:
 - **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. If no thresholds are set, the failure is recorded in `status.jevAssessment.error` and the Version can still sync.
 
 Assessments are cached in `status.jevAssessment`. Set `forceSync: true` on the Skill or Agent to run a new assessment.
+
+## Version bump classification
+
+In branch mode, the version controller chooses the semver bump for each new commit. The deterministic checks and Trivy scans run first. Jev runs only after they pass.
+
+- **A flagged entry file means MAJOR.** When the entry file is flagged, the bump is MAJOR with source `Withheld`, and Jev is not called. A flagged file that is not the entry file is shown as `<path> (content withheld)`.
+- **Thresholds set the bump.** The Jev probabilities are compared against `branchPolicy`:
+    - MAJOR when the major-change probability is at least `majorThreshold`.
+    - MINOR when the major-change probability plus the minor-change probability is at least `minorThreshold`.
+    - PATCH otherwise.
+- **Low confidence means review.** A Version whose confidence is below `minConfidence` is marked `needsReview`. This is informational only and never blocks a Version.
+
+When Jev is not used for a bump, the result is PATCH with source `Default`:
+
+- No `jevSecretRef` is set on the source.
+- `scanning.jev.enabled` is `false`, which sets `--jev-enabled=false`.
+
+When Jev is enabled and a call fails, the Version is Held and is not silently published as PATCH. The version controller retries with a capped backoff of 1, 2, 4, 8, and then 15 minutes.
+
+Set the `opendepot.defdev.io/bump-override` annotation on a Version to `major`, `minor`, or `patch` to override the bump size. The override is recorded with source `Manual`. It is honored only while the Version is Pending or Held. It sets the bump size only and does not decide whether the Version is published.
 
 ## Data handling
 

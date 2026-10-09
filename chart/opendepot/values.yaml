@@ -323,6 +323,10 @@ scanning:
       tag: "0.70.0"
   tolerations: []
 
+## Branch sourcing (Skills and Agents that follow a Git branch)
+branchSourcing:
+  enabled: false
+
 ## Assembly Line (module contract derivation and provider schema extraction)
 assembly:
   # Enable Assembly Line. When true the version-controller derives a machine-readable

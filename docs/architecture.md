@@ -126,6 +126,10 @@ UUID7 filenames prevent clients from guessing storage object names. When module
 immutability is enabled, reconciliation verifies that the stored checksum still
 matches the published version.
 
+### Branch sourcing
+
+When branch sourcing is enabled, the Depot follows the branch head of a Skill or Agent source. Each new commit becomes a Version named for its commit and labeled with `opendepot.defdev.io/commit`. The version controller packages and signs it, then assigns a semver. The parent Skill or Agent records the commit, the discovery time, the state, and the Version name in `versionRefs`. Branch sources poll only when `pollingIntervalMinutes` is set on the Depot. For the full behavior, see [Branch sourcing](guides/agents.md#branch-sourcing).
+
 ### Server
 
 The Server is the read-only registry API. It:
