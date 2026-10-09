@@ -56,6 +56,39 @@ spec:
               agentSourceRef:
                 description: The reference to the Skill or Agent resource's config.
                 properties:
+                  branchPolicy:
+                    description: |-
+                      The policy that governs how branch commits are classified into versions. Only valid with ref.
+                      The policy classifies changes and never blocks a Version.
+                    properties:
+                      majorThreshold:
+                        default: 0.5
+                        description: The probability of a MAJOR change at or above
+                          which the bump is MAJOR.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                      minConfidence:
+                        default: 0.5
+                        description: The minimum classification confidence. A bump
+                          below this confidence is flagged for review.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                      minVersionInterval:
+                        default: 10m
+                        description: |-
+                          The minimum time between two branch versions created from the same source. Commits pushed within
+                          this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+                        type: string
+                      minorThreshold:
+                        default: 0.5
+                        description: The combined probability of MAJOR and MINOR changes
+                          at or above which the bump is at least MINOR.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                    type: object
                   githubClientConfig:
                     description: The Github client configuration settings.
                     properties:
@@ -168,6 +201,15 @@ spec:
                     - opencode
                     - pi
                     type: string
+                  ref:
+                    description: |-
+                      The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+                      commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+                      is rejected.
+                    maxLength: 255
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9._+/-]+$
+                    type: string
                   repoOwner:
                     description: Owner of the Github repository.
                     type: string
@@ -267,13 +309,21 @@ spec:
                   versionConstraints:
                     description: |-
                       A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
-                      This field is only respected by the Depot controller.
+                      This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
                     type: string
                   versionHistoryLimit:
                     description: The number of versions to keep stored in the registry
                       at any given time.
                     type: integer
                 type: object
+                x-kubernetes-validations:
+                - message: ref and versionConstraints are mutually exclusive
+                  rule: '!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints)
+                    == 0'
+                - message: tagPrefix is not used with ref
+                  rule: '!has(self.ref) || !has(self.tagPrefix)'
+                - message: branchPolicy requires ref
+                  rule: '!has(self.branchPolicy) || has(self.ref)'
               architecture:
                 description: The system architecture this Version of the Provider
                   supports.
@@ -587,12 +637,23 @@ spec:
                     description: The version history limit for the provider.
                     type: integer
                 type: object
+              sourceCommit:
+                description: |-
+                  The full commit SHA of the branch that this Skill or Agent Version was created from. Set only for
+                  branch Versions. It can't change after it is set.
+                pattern: ^[0-9a-f]{40}$
+                type: string
+                x-kubernetes-validations:
+                - message: sourceCommit is immutable
+                  rule: self == oldSelf
               type:
                 description: The type of resource. One of 'Module', 'Provider', 'Skill',
                   or 'Agent'
                 type: string
               version:
-                description: The version of the Module, Provider, Skill, or Agent.
+                description: |-
+                  The version of the Module, Provider, Skill, or Agent. For a branch Version of a Skill or Agent this
+                  is empty until the Version controller assigns a semantic version, and it can be set only once.
                 type: string
               yanked:
                 description: |-
@@ -603,6 +664,14 @@ spec:
             - type
             - version
             type: object
+            x-kubernetes-validations:
+            - message: version is required unless sourceCommit is set
+              rule: size(self.version) > 0 || has(self.sourceCommit)
+            - message: sourceCommit requires agentSourceRef.ref
+              rule: '!has(self.sourceCommit) || (has(self.agentSourceRef) && has(self.agentSourceRef.ref))'
+            - message: version is write-once for branch Versions
+              rule: '!has(oldSelf.sourceCommit) || size(oldSelf.version) == 0 || self.version
+                == oldSelf.version'
           status:
             description: VersionStatus defines the current status of the resource.
             properties:
@@ -688,6 +757,82 @@ spec:
                     type: string
                 required:
                 - scannedAt
+                type: object
+              branchPhase:
+                description: BranchPhase is the lifecycle phase of a branch Version.
+                  Only set for branch Versions.
+                enum:
+                - Pending
+                - Held
+                - Assigned
+                - Rejected
+                type: string
+              bumpAssessment:
+                description: BumpAssessment records how the Version controller chose
+                  the semantic version bump for a branch Version.
+                properties:
+                  attempts:
+                    description: The number of classification attempts made while
+                      the Version was held.
+                    type: integer
+                  category:
+                    description: The bump size applied to the previous version.
+                    enum:
+                    - Major
+                    - Minor
+                    - Patch
+                    type: string
+                  commit:
+                    description: The full commit SHA that was assessed.
+                    type: string
+                  confidence:
+                    description: The confidence of the classification.
+                    type: number
+                  error:
+                    description: A redacted description of the last classification
+                      error.
+                    type: string
+                  evaluatedAt:
+                    description: The RFC3339 time of the evaluation.
+                    type: string
+                  majorProbability:
+                    description: The probability of a MAJOR change.
+                    type: number
+                  minorProbability:
+                    description: The probability of a MINOR change.
+                    type: number
+                  model:
+                    description: The Jev model that produced the classification.
+                    type: string
+                  needsReview:
+                    description: Whether the bump should be reviewed by a person.
+                    type: boolean
+                  patchProbability:
+                    description: The probability of a PATCH change.
+                    type: number
+                  previousCommit:
+                    description: The full commit SHA of the previous branch Version.
+                      Empty for the first Version.
+                    type: string
+                  previousVersion:
+                    description: The semantic version of the previous Version. Empty
+                      for the first Version.
+                    type: string
+                  reason:
+                    description: A short reason for the bump decision.
+                    type: string
+                  source:
+                    description: |-
+                      Where the bump came from. Initial is the first version, Default is a PATCH without Jev, Jev is a
+                      Jev classification, Withheld is a MAJOR chosen because a flagged file was found, and Manual is an
+                      operator override.
+                    enum:
+                    - Initial
+                    - Default
+                    - Jev
+                    - Withheld
+                    - Manual
+                    type: string
                 type: object
               checksum:
                 description: The SHA256 checksum of the module as a base64 encoded
@@ -882,6 +1027,11 @@ spec:
               signingKeyFingerprint:
                 description: SigningKeyFingerprint is the fingerprint of the key that
                   produced ShaSumsSignature.
+                type: string
+              sourceCommit:
+                description: SourceCommit is the full commit SHA that was downloaded
+                  for this branch Version.
+                pattern: ^[0-9a-f]{40}$
                 type: string
               sourceScan:
                 description: |-

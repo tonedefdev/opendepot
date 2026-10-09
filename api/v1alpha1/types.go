@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -361,6 +362,9 @@ type ProviderVersion struct {
 // AgentSourceConfig is the configuration settings for a Skill or Agent and for each Version created
 // by the agent controller. The source is a directory within a Github repository so that several skills
 // or agents can be published from one monorepo.
+// +kubebuilder:validation:XValidation:rule="!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints) == 0",message="ref and versionConstraints are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.ref) || !has(self.tagPrefix)",message="tagPrefix is not used with ref"
+// +kubebuilder:validation:XValidation:rule="!has(self.branchPolicy) || has(self.ref)",message="branchPolicy requires ref"
 type AgentSourceConfig struct {
 	// The name of the skill or agent. If omitted, the name of the Skill or Agent resource
 	// is used in its place.
@@ -383,7 +387,7 @@ type AgentSourceConfig struct {
 	// and in any destination storage config.
 	Immutable *bool `json:"immutable,omitempty"`
 	// A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
-	// This field is only respected by the Depot controller.
+	// This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
 	VersionConstraints string `json:"versionConstraints,omitempty"`
 	// The number of versions to keep stored in the registry at any given time.
 	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
@@ -398,6 +402,91 @@ type AgentSourceConfig struct {
 	// The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
 	// is unset, Jev results are informational only.
 	JevPolicy *JevPolicy `json:"jevPolicy,omitempty"`
+	// The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+	// commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+	// is rejected.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._+/-]+$`
+	Ref *string `json:"ref,omitempty"`
+	// The policy that governs how branch commits are classified into versions. Only valid with ref.
+	// The policy classifies changes and never blocks a Version.
+	// +optional
+	BranchPolicy *BranchPolicy `json:"branchPolicy,omitempty"`
+}
+
+// BranchPolicy holds the settings that control branch-mode versioning. Thresholds decide the bump size
+// from the Jev bump classification. The policy never blocks a Version.
+type BranchPolicy struct {
+	// The minimum time between two branch versions created from the same source. Commits pushed within
+	// this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+	// +kubebuilder:default="10m"
+	// +optional
+	MinVersionInterval *metav1.Duration `json:"minVersionInterval,omitempty"`
+	// The probability of a MAJOR change at or above which the bump is MAJOR.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MajorThreshold *float64 `json:"majorThreshold,omitempty"`
+	// The combined probability of MAJOR and MINOR changes at or above which the bump is at least MINOR.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MinorThreshold *float64 `json:"minorThreshold,omitempty"`
+	// The minimum classification confidence. A bump below this confidence is flagged for review.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MinConfidence *float64 `json:"minConfidence,omitempty"`
+}
+
+const (
+	// DefaultMinVersionInterval is the minimum time between two branch versions when a source omits minVersionInterval.
+	DefaultMinVersionInterval = 10 * time.Minute
+	// DefaultBranchThreshold is the bump threshold used when a source omits a branch threshold.
+	DefaultBranchThreshold = 0.5
+	// DefaultBranchMinConfidence is the confidence below which a branch bump is flagged for review.
+	DefaultBranchMinConfidence = 0.5
+)
+
+// EffectiveMinVersionInterval returns the effective minimum interval between branch versions.
+func (p *BranchPolicy) EffectiveMinVersionInterval() time.Duration {
+	if p == nil || p.MinVersionInterval == nil {
+		return DefaultMinVersionInterval
+	}
+
+	return p.MinVersionInterval.Duration
+}
+
+// EffectiveMajorThreshold returns the effective MAJOR probability threshold.
+func (p *BranchPolicy) EffectiveMajorThreshold() float64 {
+	if p == nil || p.MajorThreshold == nil {
+		return DefaultBranchThreshold
+	}
+
+	return *p.MajorThreshold
+}
+
+// EffectiveMinorThreshold returns the effective combined MAJOR and MINOR probability threshold.
+func (p *BranchPolicy) EffectiveMinorThreshold() float64 {
+	if p == nil || p.MinorThreshold == nil {
+		return DefaultBranchThreshold
+	}
+
+	return *p.MinorThreshold
+}
+
+// EffectiveMinConfidence returns the effective minimum classification confidence.
+func (p *BranchPolicy) EffectiveMinConfidence() float64 {
+	if p == nil || p.MinConfidence == nil {
+		return DefaultBranchMinConfidence
+	}
+
+	return *p.MinConfidence
 }
 
 // JevPolicy holds the optional thresholds that gate a Version on its Jev assessment. Each threshold
@@ -447,7 +536,8 @@ type SkillSpec struct {
 	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
 	// The version of the skill. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
 	// The version controller will automatically trim any leading 'v' character to make them compatible
-	// with the registry protocol
+	// with the registry protocol. Entries for a branch source (ref) hold a commit and a state, and their
+	// version stays empty until the Version controller assigns one.
 	Versions []SkillVersion `json:"versions"`
 }
 
@@ -476,12 +566,23 @@ type SkillList struct {
 type SkillVersion struct {
 	// The randomly generated filename with its file extension.
 	FileName *string `json:"fileName,omitempty"`
-	// The name of the skill.
+	// The name of the Version resource that holds this entry. Set only for branch entries.
 	Name string `json:"name,omitempty"`
 	// Whether the Version for the Skill has synced or not.
 	Synced bool `json:"synced,omitempty"`
-	// The version of the skill.
+	// The version of the skill. Branch entries have an empty version until the Version controller assigns one.
 	Version string `json:"version,omitempty"`
+	// The full commit SHA of a branch entry. Set only when the source uses ref.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The time the controller first saw the commit. This is the ordering key for branch entries.
+	// +optional
+	DiscoveredAt *metav1.Time `json:"discoveredAt,omitempty"`
+	// The lifecycle state of a branch entry, set by the Agent controller. Only Pending, Assigned, and Rejected are valid.
+	// +kubebuilder:validation:Enum=Pending;Assigned;Rejected
+	// +optional
+	State string `json:"state,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -507,7 +608,8 @@ type AgentSpec struct {
 	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
 	// The version of the agent. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
 	// The version controller will automatically trim any leading 'v' character to make them compatible
-	// with the registry protocol
+	// with the registry protocol. Entries for a branch source (ref) hold a commit and a state, and their
+	// version stays empty until the Version controller assigns one.
 	Versions []AgentVersion `json:"versions"`
 }
 
@@ -536,12 +638,23 @@ type AgentList struct {
 type AgentVersion struct {
 	// The randomly generated filename with its file extension.
 	FileName *string `json:"fileName,omitempty"`
-	// The name of the agent.
+	// The name of the Version resource that holds this entry. Set only for branch entries.
 	Name string `json:"name,omitempty"`
 	// Whether the Version for the Agent has synced or not.
 	Synced bool `json:"synced,omitempty"`
-	// The version of the agent.
+	// The version of the agent. Branch entries have an empty version until the Version controller assigns one.
 	Version string `json:"version,omitempty"`
+	// The full commit SHA of a branch entry. Set only when the source uses ref.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The time the controller first saw the commit. This is the ordering key for branch entries.
+	// +optional
+	DiscoveredAt *metav1.Time `json:"discoveredAt,omitempty"`
+	// The lifecycle state of a branch entry, set by the Agent controller. Only Pending, Assigned, and Rejected are valid.
+	// +kubebuilder:validation:Enum=Pending;Assigned;Rejected
+	// +optional
+	State string `json:"state,omitempty"`
 }
 
 // AgentMetadata holds the frontmatter fields parsed from a skill or agent definition.
@@ -741,6 +854,9 @@ type Version struct {
 }
 
 // VersionSpec defines a specific version of a OpenDepot Module, Provider, Skill, or Agent.
+// +kubebuilder:validation:XValidation:rule="size(self.version) > 0 || has(self.sourceCommit)",message="version is required unless sourceCommit is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.sourceCommit) || (has(self.agentSourceRef) && has(self.agentSourceRef.ref))",message="sourceCommit requires agentSourceRef.ref"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.sourceCommit) || size(oldSelf.version) == 0 || self.version == oldSelf.version",message="version is write-once for branch Versions"
 type VersionSpec struct {
 	// The system architecture this Version of the Provider supports.
 	Architecture string `json:"architecture,omitempty"`
@@ -762,11 +878,18 @@ type VersionSpec struct {
 	OperatingSystem string `json:"operatingSystem,omitempty"`
 	// The type of resource. One of 'Module', 'Provider', 'Skill', or 'Agent'
 	Type string `json:"type"`
-	// The version of the Module, Provider, Skill, or Agent.
+	// The version of the Module, Provider, Skill, or Agent. For a branch Version of a Skill or Agent this
+	// is empty until the Version controller assigns a semantic version, and it can be set only once.
 	Version string `json:"version"`
 	// Whether the Version has been yanked. A yanked Version stays listed but is skipped
 	// when resolving version constraints.
 	Yanked bool `json:"yanked,omitempty"`
+	// The full commit SHA of the branch that this Skill or Agent Version was created from. Set only for
+	// branch Versions. It can't change after it is set.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="sourceCommit is immutable"
+	// +optional
+	SourceCommit string `json:"sourceCommit,omitempty"`
 }
 
 // VersionStatus defines the current status of the resource.
@@ -825,6 +948,71 @@ type VersionStatus struct {
 	// is enabled and the source opts in with jevSecretRef.
 	// +optional
 	JevAssessment *JevAssessment `json:"jevAssessment,omitempty"`
+	// SourceCommit is the full commit SHA that was downloaded for this branch Version.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	SourceCommit string `json:"sourceCommit,omitempty"`
+	// BumpAssessment records how the Version controller chose the semantic version bump for a branch Version.
+	// +optional
+	BumpAssessment *BumpAssessment `json:"bumpAssessment,omitempty"`
+	// BranchPhase is the lifecycle phase of a branch Version. Only set for branch Versions.
+	// +kubebuilder:validation:Enum=Pending;Held;Assigned;Rejected
+	// +optional
+	BranchPhase string `json:"branchPhase,omitempty"`
+}
+
+// BumpAssessment records how the semantic version bump of a branch Version was chosen. It never
+// holds the Jev token or any prompt content.
+type BumpAssessment struct {
+	// The full commit SHA that was assessed.
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The full commit SHA of the previous branch Version. Empty for the first Version.
+	// +optional
+	PreviousCommit string `json:"previousCommit,omitempty"`
+	// The semantic version of the previous Version. Empty for the first Version.
+	// +optional
+	PreviousVersion string `json:"previousVersion,omitempty"`
+	// The bump size applied to the previous version.
+	// +kubebuilder:validation:Enum=Major;Minor;Patch
+	// +optional
+	Category string `json:"category,omitempty"`
+	// Where the bump came from. Initial is the first version, Default is a PATCH without Jev, Jev is a
+	// Jev classification, Withheld is a MAJOR chosen because a flagged file was found, and Manual is an
+	// operator override.
+	// +kubebuilder:validation:Enum=Initial;Default;Jev;Withheld;Manual
+	// +optional
+	Source string `json:"source,omitempty"`
+	// A short reason for the bump decision.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// The Jev model that produced the classification.
+	// +optional
+	Model string `json:"model,omitempty"`
+	// The RFC3339 time of the evaluation.
+	// +optional
+	EvaluatedAt string `json:"evaluatedAt,omitempty"`
+	// The probability of a MAJOR change.
+	// +optional
+	MajorProbability *float64 `json:"majorProbability,omitempty"`
+	// The probability of a MINOR change.
+	// +optional
+	MinorProbability *float64 `json:"minorProbability,omitempty"`
+	// The probability of a PATCH change.
+	// +optional
+	PatchProbability *float64 `json:"patchProbability,omitempty"`
+	// The confidence of the classification.
+	// +optional
+	Confidence *float64 `json:"confidence,omitempty"`
+	// Whether the bump should be reviewed by a person.
+	// +optional
+	NeedsReview bool `json:"needsReview,omitempty"`
+	// The number of classification attempts made while the Version was held.
+	// +optional
+	Attempts int `json:"attempts,omitempty"`
+	// A redacted description of the last classification error.
+	// +optional
+	Error string `json:"error,omitempty"`
 }
 
 // ReadmeConfigMapRef references the ConfigMap and data key holding a module Version's
