@@ -95,6 +95,7 @@ spec:
                         - binary
                         - source
                         - module
+                        - agent
                         type: string
                       type: array
                     severities:
@@ -188,22 +189,24 @@ spec:
                 - NONE
                 type: string
               targetRefs:
-                description: An explicit list of Module or Provider resources this
-                  policy applies to.
+                description: An explicit list of Module, Provider, Skill, or Agent
+                  resources this policy applies to.
                 items:
-                  description: ScanPolicyTargetRef identifies the Module or Provider
-                    resources a ScanPolicy applies to.
+                  description: ScanPolicyTargetRef identifies the Module, Provider,
+                    Skill, or Agent resources a ScanPolicy applies to.
                   properties:
                     kind:
-                      description: The kind of resource this reference targets. Either
-                        'Module' or 'Provider'.
+                      description: The kind of resource this reference targets. One
+                        of 'Module', 'Provider', 'Skill', or 'Agent'.
                       enum:
                       - Module
                       - Provider
+                      - Skill
+                      - Agent
                       type: string
                     name:
                       description: |-
-                        The name of the Module or Provider resource. Matching is exact; the single
+                        The name of the Module, Provider, Skill, or Agent resource. Matching is exact; the single
                         literal '*' matches every resource of the given kind in the namespace.
                       minLength: 1
                       type: string

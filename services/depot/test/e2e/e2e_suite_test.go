@@ -67,17 +67,29 @@ var _ = BeforeSuite(func() {
 	repoRoot, err := utils.GetRepoRoot()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to determine repo root")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", projectImage).Output(); inspectErr != nil {
-		By("building the depot controller image")
-		buildCmd := exec.Command("docker", "build",
-			"-t", projectImage,
-			"-f", "services/depot/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(buildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the depot controller image")
-	} else {
-		By("depot controller image already present, skipping build")
+	if os.Getenv("SKIP_IMAGE_BUILD") != "true" {
+		depotHash, hashErr := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/depot",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, hashErr).NotTo(HaveOccurred(), "Failed to compute depot controller build hash")
+
+		if utils.NeedsRebuild(projectImage, depotHash) {
+			By("building the depot controller image (context changed or image absent)")
+			buildCmd := exec.Command("docker", "build",
+				"-t", projectImage,
+				"--label", "opendepot.build.hash="+depotHash,
+				"-f", "services/depot/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(buildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the depot controller image")
+		} else {
+			By("depot controller image up-to-date, skipping build")
+		}
 	}
 
 	By("loading the depot controller image on Kind")

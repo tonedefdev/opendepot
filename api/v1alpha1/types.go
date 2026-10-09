@@ -3,6 +3,7 @@ package v1alpha1
 import (
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -22,6 +23,8 @@ const (
 	OpenDepotGithubSecretName                = "opendepot-github-application-secret"
 	OpenDepotModule                          = "Module"
 	OpenDepotProvider                        = "Provider"
+	OpenDepotSkill                           = "Skill"
+	OpenDepotAgent                           = "Agent"
 	OpenTofuRegistryHost                     = "registry.opentofu.org"
 	TerraformRegistryHost                    = "registry.terraform.io"
 )
@@ -35,6 +38,10 @@ type DepotSpec struct {
 	ModuleConfigs []ModuleConfig `json:"moduleConfigs,omitempty"`
 	// The provider configuration and version details for each provider that should be managed by the Depot controller.
 	ProviderConfigs []ProviderConfig `json:"providerConfigs,omitempty"`
+	// The skill configuration and version details for each skill that should be managed by the Depot controller.
+	SkillConfigs []AgentSourceConfig `json:"skillConfigs,omitempty"`
+	// The agent configuration and version details for each agent that should be managed by the Depot controller.
+	AgentConfigs []AgentSourceConfig `json:"agentConfigs,omitempty"`
 	// The polling interval in minutes for how often the Depot controller should check for new versions of the modules it manages.
 	// If not specified, the default is 0.
 	PollingIntervalMinutes *int `json:"pollingIntervalMinutes,omitempty"`
@@ -53,6 +60,10 @@ type DepotStatus struct {
 	Modules []string `json:"modules,omitempty"`
 	// The list of Provider resource names created and managed by this Depot.
 	Providers []string `json:"providers,omitempty"`
+	// The list of Skill resource names created and managed by this Depot.
+	Skills []string `json:"skills,omitempty"`
+	// The list of Agent resource names created and managed by this Depot.
+	Agents []string `json:"agents,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -347,12 +358,260 @@ type ProviderVersion struct {
 	Version string `json:"version,omitempty"`
 }
 
-// ScanPolicyTargetRef identifies the Module or Provider resources a ScanPolicy applies to.
+// AgentSourceConfig is the configuration settings for a Skill or Agent and for each Version created
+// by the agent controller. The source is a directory within a Github repository so that several skills
+// or agents can be published from one monorepo.
+type AgentSourceConfig struct {
+	// The name of the skill or agent. If omitted, the name of the Skill or Agent resource
+	// is used in its place.
+	Name *string `json:"name,omitempty"`
+	// Owner of the Github repository.
+	RepoOwner string `json:"repoOwner,omitempty"`
+	// The full URL of the Github repository.
+	RepoUrl *string `json:"repoUrl,omitempty"`
+	// The path within the repository to the directory that contains the skill or agent.
+	// If omitted, the repository root is used.
+	Path string `json:"path,omitempty"`
+	// The prefix of the Git tags that version this source, such as 'my-skill/'. The prefix is
+	// stripped from each tag to produce the version. If omitted, tags are used as-is.
+	TagPrefix *string `json:"tagPrefix,omitempty"`
+	// The Github client configuration settings.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// The external storage configuration settings.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// When true, enforces that the ChecksumSHA256 of the archive always matches the value stored in this field
+	// and in any destination storage config.
+	Immutable *bool `json:"immutable,omitempty"`
+	// A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
+	// This field is only respected by the Depot controller.
+	VersionConstraints string `json:"versionConstraints,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+	// The agent platform that the skill or agent targets. The frontmatter keys are validated against
+	// that platform's known keys. When omitted, the keys of every supported platform are accepted.
+	// +kubebuilder:validation:Enum=agentskills;claude;copilot;codex;opencode;pi
+	Platform *string `json:"platform,omitempty"`
+	// A reference to the key in a Secret in the same namespace that holds the TypeSafe Jev token.
+	// The key defaults to 'jevToken' when omitted. Jev only runs when the version controller has
+	// Jev enabled and this reference is set.
+	JevSecretRef *corev1.SecretKeySelector `json:"jevSecretRef,omitempty"`
+	// The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
+	// is unset, Jev results are informational only.
+	JevPolicy *JevPolicy `json:"jevPolicy,omitempty"`
+}
+
+// JevPolicy holds the optional thresholds that gate a Version on its Jev assessment. Each threshold
+// is evaluated separately. A threshold that is not set is informational only.
+type JevPolicy struct {
+	// The minimum safe probability. A Version is blocked when its safe probability is below this value.
+	MinSafeProbability *float64 `json:"minSafeProbability,omitempty"`
+	// The maximum prompt injection probability. A Version is blocked when its probability is above this value.
+	MaxInjectionProbability *float64 `json:"maxInjectionProbability,omitempty"`
+	// The maximum data exfiltration probability. A Version is blocked when its probability is above this value.
+	MaxExfiltrationProbability *float64 `json:"maxExfiltrationProbability,omitempty"`
+	// The maximum destructive action probability. A Version is blocked when its probability is above this value.
+	MaxDestructiveProbability *float64 `json:"maxDestructiveProbability,omitempty"`
+	// The maximum hidden instructions probability. A Version is blocked when its probability is above this value.
+	MaxHiddenInstructionsProbability *float64 `json:"maxHiddenInstructionsProbability,omitempty"`
+	// The maximum scope mismatch probability. A Version is blocked when its probability is above this value.
+	MaxScopeMismatchProbability *float64 `json:"maxScopeMismatchProbability,omitempty"`
+	// The maximum remote execution probability. A Version is blocked when its probability is above this value.
+	MaxRemoteExecutionProbability *float64 `json:"maxRemoteExecutionProbability,omitempty"`
+	// The maximum risk score. A Version is blocked when its risk score is above this value.
+	MaxRiskScore *float64 `json:"maxRiskScore,omitempty"`
+	// The minimum risk confidence. A Version whose risk confidence is below this value is flagged
+	// for review but is never blocked.
+	MinConfidence *float64 `json:"minConfidence,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="LatestVersion",type="string",JSONPath=".status.latestVersion",description="The latest version of the skill"
+// +kubebuilder:printcolumn:name="Source",type="string",JSONPath=".spec.agentSourceConfig.repoUrl",description="The source repository URL of the skill"
+// +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.synced",description="Whether the Skill has synced successfully"
+
+// Skill is the Schema for the Skills API.
+type Skill struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   SkillSpec   `json:"spec,omitempty"`
+	Status SkillStatus `json:"status,omitempty"`
+}
+
+// SkillSpec defines the desired state of a OpenDepot Skill.
+type SkillSpec struct {
+	// A flag to force a skill to synchronize
+	ForceSync bool `json:"forceSync,omitempty"`
+	// The configuration details for the skill that will be used to create each SkillVersion
+	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
+	// The version of the skill. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
+	// The version controller will automatically trim any leading 'v' character to make them compatible
+	// with the registry protocol
+	Versions []SkillVersion `json:"versions"`
+}
+
+// SkillStatus defines the observed state of a skill.
+type SkillStatus struct {
+	// The latest available version of the skill
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	// A flag to determine if the skill has successfully synced to its desired state
+	Synced bool `json:"synced"`
+	// A field for declaring current status information about how the resource is being reconciled
+	SyncStatus string `json:"syncStatus"`
+	// A slice of the SkillVersionRefs that have been successfully created by the controller
+	VersionRefs map[string]*SkillVersion `json:"versionRefs,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// SkillList contains a list of Skill.
+type SkillList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Skill `json:"items"`
+}
+
+// SkillVersion holds details about the Version resource under management.
+type SkillVersion struct {
+	// The randomly generated filename with its file extension.
+	FileName *string `json:"fileName,omitempty"`
+	// The name of the skill.
+	Name string `json:"name,omitempty"`
+	// Whether the Version for the Skill has synced or not.
+	Synced bool `json:"synced,omitempty"`
+	// The version of the skill.
+	Version string `json:"version,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="LatestVersion",type="string",JSONPath=".status.latestVersion",description="The latest version of the agent"
+// +kubebuilder:printcolumn:name="Source",type="string",JSONPath=".spec.agentSourceConfig.repoUrl",description="The source repository URL of the agent"
+// +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.synced",description="Whether the Agent has synced successfully"
+
+// Agent is the Schema for the Agents API.
+type Agent struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   AgentSpec   `json:"spec,omitempty"`
+	Status AgentStatus `json:"status,omitempty"`
+}
+
+// AgentSpec defines the desired state of a OpenDepot Agent.
+type AgentSpec struct {
+	// A flag to force an agent to synchronize
+	ForceSync bool `json:"forceSync,omitempty"`
+	// The configuration details for the agent that will be used to create each AgentVersion
+	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
+	// The version of the agent. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
+	// The version controller will automatically trim any leading 'v' character to make them compatible
+	// with the registry protocol
+	Versions []AgentVersion `json:"versions"`
+}
+
+// AgentStatus defines the observed state of an agent.
+type AgentStatus struct {
+	// The latest available version of the agent
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	// A flag to determine if the agent has successfully synced to its desired state
+	Synced bool `json:"synced"`
+	// A field for declaring current status information about how the resource is being reconciled
+	SyncStatus string `json:"syncStatus"`
+	// A slice of the AgentVersionRefs that have been successfully created by the controller
+	VersionRefs map[string]*AgentVersion `json:"versionRefs,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// AgentList contains a list of Agent.
+type AgentList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Agent `json:"items"`
+}
+
+// AgentVersion holds details about the Version resource under management.
+type AgentVersion struct {
+	// The randomly generated filename with its file extension.
+	FileName *string `json:"fileName,omitempty"`
+	// The name of the agent.
+	Name string `json:"name,omitempty"`
+	// Whether the Version for the Agent has synced or not.
+	Synced bool `json:"synced,omitempty"`
+	// The version of the agent.
+	Version string `json:"version,omitempty"`
+}
+
+// AgentMetadata holds the frontmatter fields parsed from a skill or agent definition.
+type AgentMetadata struct {
+	// The name declared in the definition's frontmatter.
+	Name string `json:"name,omitempty"`
+	// The description declared in the definition's frontmatter.
+	Description string `json:"description,omitempty"`
+	// The tools declared in the definition's frontmatter.
+	Tools []string `json:"tools,omitempty"`
+	// The model declared in the definition's frontmatter.
+	Model string `json:"model,omitempty"`
+}
+
+// JevAssessment holds the result of a TypeSafe Jev assessment of a Version. Every value is a model
+// probability or score, not a certification. The Jev token and the prompt content are never stored.
+type JevAssessment struct {
+	// The RFC3339 timestamp at which the assessment was evaluated.
+	EvaluatedAt string `json:"evaluatedAt"`
+	// The Jev model that produced the assessment, as returned by the API.
+	Model string `json:"model,omitempty"`
+	// The probability that the Version is safe to use.
+	// +optional
+	SafeProbability *float64 `json:"safeProbability,omitempty"`
+	// The probability that the Version is susceptible to prompt injection.
+	// +optional
+	InjectionProbability *float64 `json:"injectionProbability,omitempty"`
+	// The probability that the Version directs data, files, or credentials to an external destination.
+	// +optional
+	ExfiltrationProbability *float64 `json:"exfiltrationProbability,omitempty"`
+	// The probability that the Version directs destructive or irreversible actions.
+	// +optional
+	DestructiveProbability *float64 `json:"destructiveProbability,omitempty"`
+	// The probability that the Version contains hidden or obfuscated instructions.
+	// +optional
+	HiddenInstructionsProbability *float64 `json:"hiddenInstructionsProbability,omitempty"`
+	// The probability that the Version asks the agent to do things beyond its description.
+	// +optional
+	ScopeMismatchProbability *float64 `json:"scopeMismatchProbability,omitempty"`
+	// The probability that the Version directs the agent to download and run remote code.
+	// +optional
+	RemoteExecutionProbability *float64 `json:"remoteExecutionProbability,omitempty"`
+	// The risk score assigned to the Version.
+	// +optional
+	RiskScore *float64 `json:"riskScore,omitempty"`
+	// The risk level assigned to the Version.
+	// +kubebuilder:validation:Enum=Minimal;Low;Moderate;High;Critical
+	// +optional
+	RiskLevel string `json:"riskLevel,omitempty"`
+	// The confidence of the risk assessment. This describes answer concentration, not correctness.
+	// +optional
+	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
+	// Whether the assessment requires a manual review.
+	NeedsReview bool `json:"needsReview"`
+	// Whether a configured JevPolicy threshold blocks the Version.
+	Blocked bool `json:"blocked"`
+	// The JevPolicy thresholds that were crossed when the Version is blocked.
+	// +optional
+	BlockReasons []string `json:"blockReasons,omitempty"`
+	// A redacted description of the error that prevented the assessment from completing.
+	// +optional
+	Error string `json:"error,omitempty"`
+}
+
+// ScanPolicyTargetRef identifies the Module, Provider, Skill, or Agent resources a ScanPolicy applies to.
 type ScanPolicyTargetRef struct {
-	// The kind of resource this reference targets. Either 'Module' or 'Provider'.
-	// +kubebuilder:validation:Enum=Module;Provider
+	// The kind of resource this reference targets. One of 'Module', 'Provider', 'Skill', or 'Agent'.
+	// +kubebuilder:validation:Enum=Module;Provider;Skill;Agent
 	Kind string `json:"kind"`
-	// The name of the Module or Provider resource. Matching is exact; the single
+	// The name of the Module, Provider, Skill, or Agent resource. Matching is exact; the single
 	// literal '*' matches every resource of the given kind in the namespace.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -377,7 +636,7 @@ type ScanExemption struct {
 	// +optional
 	PkgNames []string `json:"pkgNames,omitempty"`
 	// The scan types this exemption applies to. When omitted every scan type is covered.
-	// +kubebuilder:validation:items:Enum=binary;source;module
+	// +kubebuilder:validation:items:Enum=binary;source;module;agent
 	// +optional
 	ScanTypes []string `json:"scanTypes,omitempty"`
 	// The severities this exemption covers. Matching is exact and case insensitive; the
@@ -409,7 +668,7 @@ type ScanPolicySpec struct {
 	// applies to every Version in its namespace.
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
-	// An explicit list of Module or Provider resources this policy applies to.
+	// An explicit list of Module, Provider, Skill, or Agent resources this policy applies to.
 	// +optional
 	TargetRefs []ScanPolicyTargetRef `json:"targetRefs,omitempty"`
 	// The minimum severity that blocks reconciliation for the matched Versions. This
@@ -481,7 +740,7 @@ type Version struct {
 	Status VersionStatus `json:"status,omitempty"`
 }
 
-// VersionSpec defines a specific version of a OpenDepot Module or Provider.
+// VersionSpec defines a specific version of a OpenDepot Module, Provider, Skill, or Agent.
 type VersionSpec struct {
 	// The system architecture this Version of the Provider supports.
 	Architecture string `json:"architecture,omitempty"`
@@ -489,19 +748,25 @@ type VersionSpec struct {
 	// For a Module the file extension must be one of .zip or .tar.gz
 	// since OpenTofu currently only supports these two
 	// extension types.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._-]*$`
 	FileName *string `json:"fileName,omitempty"`
 	// A flag to force a module version to synchronize.
 	ForceSync bool `json:"forceSync,omitempty"`
+	// The reference to the Skill or Agent resource's config.
+	AgentSourceRef *AgentSourceConfig `json:"agentSourceRef,omitempty"`
 	// The reference to the Module resource's config.
 	ModuleConfigRef *ModuleConfig `json:"moduleConfigRef,omitempty"`
 	// The reference to the Provider resource's config.
 	ProviderConfigRef *ProviderConfig `json:"providerConfigRef,omitempty"`
 	// The operating system this Version of the Provider supports.
 	OperatingSystem string `json:"operatingSystem,omitempty"`
-	// The type of resource. Either 'Module' or 'Provider'
+	// The type of resource. One of 'Module', 'Provider', 'Skill', or 'Agent'
 	Type string `json:"type"`
-	// The version of the Module or Provider.
+	// The version of the Module, Provider, Skill, or Agent.
 	Version string `json:"version"`
+	// Whether the Version has been yanked. A yanked Version stays listed but is skipped
+	// when resolving version constraints.
+	Yanked bool `json:"yanked,omitempty"`
 }
 
 // VersionStatus defines the current status of the resource.
@@ -543,6 +808,23 @@ type VersionStatus struct {
 	// provider Version resources whose OS/arch matches the controller's own platform.
 	// +optional
 	ProviderSchemaStatus *ProviderSchemaStatus `json:"providerSchemaStatus,omitempty"`
+	// AgentMetadata holds the frontmatter fields parsed from a skill or agent Version.
+	// +optional
+	AgentMetadata *AgentMetadata `json:"agentMetadata,omitempty"`
+	// ShaSums is the SHA256SUMS file for this Version, produced and signed once at sync.
+	// +optional
+	ShaSums string `json:"shaSums,omitempty"`
+	// ShaSumsSignature is the detached signature over ShaSums, produced at sync with the
+	// provider GPG signing key.
+	// +optional
+	ShaSumsSignature string `json:"shaSumsSignature,omitempty"`
+	// SigningKeyFingerprint is the fingerprint of the key that produced ShaSumsSignature.
+	// +optional
+	SigningKeyFingerprint string `json:"signingKeyFingerprint,omitempty"`
+	// JevAssessment holds the TypeSafe Jev assessment of this Version. Only populated when Jev
+	// is enabled and the source opts in with jevSecretRef.
+	// +optional
+	JevAssessment *JevAssessment `json:"jevAssessment,omitempty"`
 }
 
 // ReadmeConfigMapRef references the ConfigMap and data key holding a module Version's
@@ -690,6 +972,18 @@ type GroupBindingSpec struct {
 	// +optional
 	ProviderResources []string `json:"providerResources,omitempty"`
 
+	// SkillResources is the list of glob patterns for Skill resource names this binding grants access to.
+	// The * wildcard is supported (e.g. "code-review-*").
+	// Empty or omitted means no skills are accessible.
+	// +optional
+	SkillResources []string `json:"skillResources,omitempty"`
+
+	// AgentResources is the list of glob patterns for Agent resource names this binding grants access to.
+	// The * wildcard is supported (e.g. "release-*").
+	// Empty or omitted means no agents are accessible.
+	// +optional
+	AgentResources []string `json:"agentResources,omitempty"`
+
 	// ScanPolicyManagement grants permission to create, update, and delete
 	// ScanPolicy resources through the server policy-management API.
 	// This is disabled when omitted.
@@ -736,6 +1030,8 @@ type SecurityGroupBindingSpec struct {
 	Namespaces                    []string `json:"namespaces,omitempty"`
 	ModuleResources               []string `json:"moduleResources,omitempty"`
 	ProviderResources             []string `json:"providerResources,omitempty"`
+	SkillResources                []string `json:"skillResources,omitempty"`
+	AgentResources                []string `json:"agentResources,omitempty"`
 	NamespaceWidePolicyManagement bool     `json:"namespaceWidePolicyManagement,omitempty"`
 }
 
@@ -762,11 +1058,13 @@ type SecurityGroupBindingList struct {
 }
 
 func init() {
+	SchemeBuilder.Register(&Agent{}, &AgentList{})
 	SchemeBuilder.Register(&Depot{}, &DepotList{})
 	SchemeBuilder.Register(&GroupBinding{}, &GroupBindingList{})
 	SchemeBuilder.Register(&Module{}, &ModuleList{})
 	SchemeBuilder.Register(&Provider{}, &ProviderList{})
 	SchemeBuilder.Register(&ScanPolicy{}, &ScanPolicyList{})
 	SchemeBuilder.Register(&SecurityGroupBinding{}, &SecurityGroupBindingList{})
+	SchemeBuilder.Register(&Skill{}, &SkillList{})
 	SchemeBuilder.Register(&Version{}, &VersionList{})
 }

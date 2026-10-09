@@ -88,6 +88,7 @@ nav:
     - Users:
       - Consuming Modules: guides/modules.md
       - Consuming Providers: guides/providers.md
+      - Consuming Agents and Skills: guides/agents.md
       - OpenDepot Workshop:
         - OpenDepot Workshop: guides/registry-explorer/index.md
         - Registry Explorer: guides/registry-explorer/registry.md
@@ -112,6 +113,7 @@ nav:
     - reference/index.md
     - API: reference/api.md
     - Version Constraints: reference/version-constraints.md
+    - CLI: reference/cli.md
     - Helm Chart: helm-chart.md
     - Kubernetes RBAC:
       - reference/rbac/index.md

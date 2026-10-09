@@ -322,3 +322,22 @@ func Test_collectBinaryFindingsForVersion_noVersionsWithFindings(t *testing.T) {
 		t.Errorf("expected nil result when no versions have findings, got %v", result)
 	}
 }
+
+func Test_agentLatestVersion(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		{Spec: opendepotv1alpha1.VersionSpec{Version: "v1.0.0"}},
+		{Spec: opendepotv1alpha1.VersionSpec{Version: "1.1.0"}},
+	}
+
+	if got := agentLatestVersion(versions, "1.1.0"); got == nil || got.Spec.Version != "1.1.0" {
+		t.Errorf("agentLatestVersion(1.1.0) = %v, want the 1.1.0 Version", got)
+	}
+
+	if got := agentLatestVersion(versions, "2.0.0"); got != nil {
+		t.Errorf("agentLatestVersion(2.0.0) = %v, want nil", got)
+	}
+
+	if got := agentLatestVersion(versions, ""); got != nil {
+		t.Errorf("agentLatestVersion(\"\") = %v, want nil", got)
+	}
+}

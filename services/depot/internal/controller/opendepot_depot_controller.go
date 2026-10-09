@@ -52,6 +52,8 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=skills,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
@@ -147,6 +149,10 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			var matchedVersions []string
 			for {
+				if err := opendepotGithub.ValidateRepoName(moduleConfig.RepoOwner, *moduleConfig.Name); err != nil {
+					return ctrl.Result{}, err
+				}
+
 				releases, resp, err := githubClient.Repositories.ListReleases(ctx, moduleConfig.RepoOwner, *moduleConfig.Name, opt)
 				if err != nil {
 					return ctrl.Result{}, err
@@ -342,6 +348,166 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
+	var managedSkills []string
+	for _, skillConfig := range depot.Spec.SkillConfigs {
+		// Apply global configs if not set on this skill config.
+		if skillConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			skillConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if skillConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			skillConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		if skillConfig.Name == nil || strings.TrimSpace(*skillConfig.Name) == "" {
+			return ctrl.Result{}, fmt.Errorf("skill config name is required")
+		}
+
+		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &skillConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Log.Info("Matched versions for skill", "skill", *skillConfig.Name, "versions", matchedVersions)
+
+		var skillVersions []opendepotv1alpha1.SkillVersion
+		for _, v := range matchedVersions {
+			skillVersions = append(skillVersions, opendepotv1alpha1.SkillVersion{
+				Version: v,
+			})
+		}
+
+		skill := opendepotv1alpha1.Skill{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      *skillConfig.Name,
+				Namespace: req.Namespace,
+			},
+			Spec: opendepotv1alpha1.SkillSpec{
+				AgentSourceConfig: skillConfig,
+				Versions:          skillVersions,
+			},
+		}
+
+		skillObject := client.ObjectKey{
+			Name:      skill.ObjectMeta.Name,
+			Namespace: skill.ObjectMeta.Namespace,
+		}
+
+		var currentSkill opendepotv1alpha1.Skill
+		err = r.Get(ctx, skillObject, &currentSkill)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Create(ctx, &skill); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Get(ctx, skillObject, &currentSkill); err != nil {
+					return err
+				}
+
+				currentSkill.Spec.AgentSourceConfig = skillConfig
+				currentSkill.Spec.Versions = skill.Spec.Versions
+				if err := r.Update(ctx, &currentSkill); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		managedSkills = append(managedSkills, *skillConfig.Name)
+	}
+
+	var managedAgents []string
+	for _, agentConfig := range depot.Spec.AgentConfigs {
+		// Apply global configs if not set on this agent config.
+		if agentConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			agentConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if agentConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			agentConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		if agentConfig.Name == nil || strings.TrimSpace(*agentConfig.Name) == "" {
+			return ctrl.Result{}, fmt.Errorf("agent config name is required")
+		}
+
+		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &agentConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Log.Info("Matched versions for agent", "agent", *agentConfig.Name, "versions", matchedVersions)
+
+		var agentVersions []opendepotv1alpha1.AgentVersion
+		for _, v := range matchedVersions {
+			agentVersions = append(agentVersions, opendepotv1alpha1.AgentVersion{
+				Version: v,
+			})
+		}
+
+		agent := opendepotv1alpha1.Agent{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      *agentConfig.Name,
+				Namespace: req.Namespace,
+			},
+			Spec: opendepotv1alpha1.AgentSpec{
+				AgentSourceConfig: agentConfig,
+				Versions:          agentVersions,
+			},
+		}
+
+		agentObject := client.ObjectKey{
+			Name:      agent.ObjectMeta.Name,
+			Namespace: agent.ObjectMeta.Namespace,
+		}
+
+		var currentAgent opendepotv1alpha1.Agent
+		err = r.Get(ctx, agentObject, &currentAgent)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Create(ctx, &agent); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Get(ctx, agentObject, &currentAgent); err != nil {
+					return err
+				}
+
+				currentAgent.Spec.AgentSourceConfig = agentConfig
+				currentAgent.Spec.Versions = agent.Spec.Versions
+				if err := r.Update(ctx, &currentAgent); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		managedAgents = append(managedAgents, *agentConfig.Name)
+	}
+
 	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if err := r.Get(ctx, req.NamespacedName, &depot); err != nil {
 			return err
@@ -349,6 +515,8 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		depot.Status.Modules = managedModules
 		depot.Status.Providers = managedProviders
+		depot.Status.Skills = managedSkills
+		depot.Status.Agents = managedAgents
 		if err := r.Status().Update(ctx, &depot); err != nil {
 			return err
 		}
@@ -363,6 +531,36 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// matchAgentSourceVersions returns the semver tags in the agent source repository that satisfy the version constraints.
+// The GitHub client is authenticated with the GitHub App secret when the source config requests it.
+func (r *DepotReconciler) matchAgentSourceVersions(ctx context.Context, namespace string, sourceConfig *opendepotv1alpha1.AgentSourceConfig) ([]string, error) {
+	useAuthClient := false
+	if sourceConfig.GithubClientConfig != nil {
+		useAuthClient = sourceConfig.GithubClientConfig.UseAuthenticatedClient
+	}
+
+	var githubConfig *opendepotGithub.GithubClientConfig
+	if useAuthClient {
+		var err error
+		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, namespace)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	githubClient, err := opendepotGithub.CreateGithubClient(ctx, useAuthClient, githubConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	tagPrefix := ""
+	if sourceConfig.TagPrefix != nil {
+		tagPrefix = *sourceConfig.TagPrefix
+	}
+
+	return opendepotGithub.ListMatchingTags(ctx, githubClient, sourceConfig.RepoOwner, opendepotGithub.AgentSourceRepoName(sourceConfig), tagPrefix, sourceConfig.VersionConstraints)
 }
 
 // SetupWithManager sets up the controller with the Manager.

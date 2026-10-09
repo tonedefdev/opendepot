@@ -121,6 +121,48 @@ export interface BrowseDepotRef {
   name: string;
 }
 
+export interface AgentMetadata {
+  name?: string;
+  description?: string;
+  tools?: string[];
+  model?: string;
+}
+
+export type JevRiskLevel = "Minimal" | "Low" | "Moderate" | "High" | "Critical";
+
+export interface JevAssessment {
+  evaluatedAt: string;
+  model?: string;
+  safeProbability?: number;
+  injectionProbability?: number;
+  exfiltrationProbability?: number;
+  destructiveProbability?: number;
+  hiddenInstructionsProbability?: number;
+  scopeMismatchProbability?: number;
+  remoteExecutionProbability?: number;
+  riskScore?: number;
+  riskLevel?: JevRiskLevel;
+  riskConfidence?: number;
+  needsReview: boolean;
+  blocked: boolean;
+  blockReasons?: string[];
+  error?: string;
+}
+
+// Thresholds from the governing ScanPolicy's jevPolicy. Each field is only
+// present when the operator configured it, so the UI shows configured limits only.
+export interface JevThresholds {
+  minSafeProbability?: number;
+  maxInjectionProbability?: number;
+  maxExfiltrationProbability?: number;
+  maxDestructiveProbability?: number;
+  maxHiddenInstructionsProbability?: number;
+  maxScopeMismatchProbability?: number;
+  maxRemoteExecutionProbability?: number;
+  maxRiskScore?: number;
+  minConfidence?: number;
+}
+
 export interface BrowseResourceDetail extends BrowseResource {
   versions: BrowseVersionSummary[];
   sourceScanFindings: SecurityFinding[];
@@ -133,6 +175,9 @@ export interface BrowseResourceDetail extends BrowseResource {
   versionConstraints?: string;
   sourceRepository?: string;
   readmeContent?: string;
+  agentMetadata?: AgentMetadata;
+  jevAssessment?: JevAssessment;
+  jevThresholds?: JevThresholds;
 }
 
 export interface BrowseDepot {
@@ -204,8 +249,8 @@ async function apiFetch<T>(
 // ── Security policy contract ──────────────────────────────────────────────
 
 export type ScanSeverityThreshold = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE";
-export type ScanType = "binary" | "source" | "module";
-export type ScanPolicyTargetKind = "Module" | "Provider";
+export type ScanType = "binary" | "source" | "module" | "agent";
+export type ScanPolicyTargetKind = "Module" | "Provider" | "Skill" | "Agent";
 
 export interface ScanPolicyMetadata {
   name: string;
@@ -299,6 +344,8 @@ export interface ScanPolicyCatalogItem {
   canManageNamespaceWidePolicies: boolean;
   modules: ScanPolicyCatalogResource[];
   providers: ScanPolicyCatalogResource[];
+  skills: ScanPolicyCatalogResource[];
+  agents: ScanPolicyCatalogResource[];
 }
 
 export interface ScanPolicyCatalog {

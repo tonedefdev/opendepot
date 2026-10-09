@@ -236,6 +236,6 @@ spec:
       fallbackToProxy: true
 ```
 
-When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required; any failure returns `502 Bad Gateway`.
+When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}/{os}/{arch}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required; any failure returns `502 Bad Gateway`.
 
 Pre-signed URLs are supported on S3, GCS, and Azure Blob Storage. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for per-backend IAM requirements and field reference.

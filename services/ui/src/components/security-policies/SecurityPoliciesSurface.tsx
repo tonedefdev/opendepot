@@ -80,7 +80,7 @@ yamlGrammar.key.alias = "property";
 ymlGrammar.key.alias = "property";
 
 const thresholds: ScanSeverityThreshold[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"];
-const scanTypes: ScanType[] = ["binary", "source", "module"];
+const scanTypes: ScanType[] = ["binary", "source", "module", "agent"];
 const exemptionSeverities = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"];
 const emptySpec: ScanPolicySpec = { priority: 0, severityThreshold: "HIGH", exemptions: [] };
 const thresholdColors: Record<ScanSeverityThreshold, "error" | "warning" | "info" | "success" | "default"> = {
@@ -515,14 +515,27 @@ function PolicyListSkeleton() {
 }
 
 function PolicyTargets({ value, onChange, errors, catalogItem }: { value: ScanPolicyTargetRef[]; onChange: (value: ScanPolicyTargetRef[]) => void; errors: Record<string, string>; catalogItem?: ScanPolicyCatalogItem }) {
-  const resourcesFor = (kind: ScanPolicyTargetRef["kind"]) => kind === "Module" ? catalogItem?.modules ?? [] : catalogItem?.providers ?? [];
+  const resourcesFor = (kind: ScanPolicyTargetRef["kind"]) => {
+    switch (kind) {
+      case "Module": return catalogItem?.modules ?? [];
+      case "Skill": return catalogItem?.skills ?? [];
+      case "Agent": return catalogItem?.agents ?? [];
+      default: return catalogItem?.providers ?? [];
+    }
+  };
   const firstTarget = (): ScanPolicyTargetRef | null => {
-    const kind = (catalogItem?.modules.length ?? 0) > 0 ? "Module" : "Provider";
-    const resource = resourcesFor(kind)[0];
-    return resource ? { kind, name: resource.name } : null;
+    const kinds: ScanPolicyTargetRef["kind"][] = ["Module", "Provider", "Skill", "Agent"];
+    for (const kind of kinds) {
+      const resource = resourcesFor(kind)[0];
+      if (resource) {
+        return { kind, name: resource.name };
+      }
+    }
+
+    return null;
   };
 
-  return <Box><Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="subtitle2" fontWeight={600}>Target resources</Typography><Typography variant="body2" color="text.secondary">Select from authorized onboarded Module and Provider resources.</Typography></Box><Button startIcon={<AddIcon />} disabled={!firstTarget()} sx={{ flexShrink: 0, whiteSpace: "nowrap" }} onClick={() => { const target = firstTarget(); if (target) onChange([...value, target]); }}>Add target</Button></Stack>{errors.targets && <Alert severity="error" sx={{ mt: 1 }}>{errors.targets}</Alert>}{value.length === 0 ? <Typography color="text.secondary" sx={{ mt: 1 }}>No explicit targets.</Typography> : <Stack divider={<Divider />} spacing={2} sx={{ mt: 1 }}>{value.map((target, index) => { const resources = resourcesFor(target.kind); return <Grid container spacing={1} key={`${index}-${target.name}`} alignItems="start"><Grid size={{ xs: 12, sm: 3 }}><Select fullWidth aria-label={`Target kind ${index + 1}`} value={target.kind} onChange={(event) => { const kind = event.target.value as ScanPolicyTargetRef["kind"]; const next = [...value]; next[index] = { ...target, kind, name: resourcesFor(kind)[0]?.name ?? "" }; onChange(next); }}><MenuItem value="Module" disabled={!catalogItem?.modules.length}>Module</MenuItem><MenuItem value="Provider" disabled={!catalogItem?.providers.length}>Provider</MenuItem></Select></Grid><Grid size={{ xs: 12, sm: 4 }}><TextField select fullWidth required label="Resource name" value={target.name} error={Boolean(errors[`target-${index}`])} helperText={errors[`target-${index}`]} onChange={(event) => { const next = [...value]; next[index] = { ...target, name: event.target.value }; onChange(next); }}>{resources.map((resource) => <MenuItem key={resource.name} value={resource.name}>{resource.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 10, sm: 4 }}><TextField fullWidth label="Version constraint" placeholder=">= 1.0.0, < 2.0.0" value={target.versions ?? ""} onChange={(event) => { const next = [...value]; next[index] = { ...target, versions: event.target.value || undefined }; onChange(next); }} /></Grid><Grid size={{ xs: 2, sm: 1 }}><IconButton aria-label={`Remove target ${index + 1}`} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><DeleteOutlineIcon /></IconButton></Grid></Grid>; })}</Stack>}</Box>;
+  return <Box><Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="subtitle2" fontWeight={600}>Target resources</Typography><Typography variant="body2" color="text.secondary">Select from authorized onboarded Module, Provider, Skill, and Agent resources.</Typography></Box><Button startIcon={<AddIcon />} disabled={!firstTarget()} sx={{ flexShrink: 0, whiteSpace: "nowrap" }} onClick={() => { const target = firstTarget(); if (target) onChange([...value, target]); }}>Add target</Button></Stack>{errors.targets && <Alert severity="error" sx={{ mt: 1 }}>{errors.targets}</Alert>}{value.length === 0 ? <Typography color="text.secondary" sx={{ mt: 1 }}>No explicit targets.</Typography> : <Stack divider={<Divider />} spacing={2} sx={{ mt: 1 }}>{value.map((target, index) => { const resources = resourcesFor(target.kind); return <Grid container spacing={1} key={`${index}-${target.name}`} alignItems="start"><Grid size={{ xs: 12, sm: 3 }}><Select fullWidth aria-label={`Target kind ${index + 1}`} value={target.kind} onChange={(event) => { const kind = event.target.value as ScanPolicyTargetRef["kind"]; const next = [...value]; next[index] = { ...target, kind, name: resourcesFor(kind)[0]?.name ?? "" }; onChange(next); }}><MenuItem value="Module" disabled={!catalogItem?.modules.length}>Module</MenuItem><MenuItem value="Provider" disabled={!catalogItem?.providers.length}>Provider</MenuItem><MenuItem value="Skill" disabled={!catalogItem?.skills.length}>Skill</MenuItem><MenuItem value="Agent" disabled={!catalogItem?.agents.length}>Agent</MenuItem></Select></Grid><Grid size={{ xs: 12, sm: 4 }}><TextField select fullWidth required label="Resource name" value={target.name} error={Boolean(errors[`target-${index}`])} helperText={errors[`target-${index}`]} onChange={(event) => { const next = [...value]; next[index] = { ...target, name: event.target.value }; onChange(next); }}>{resources.map((resource) => <MenuItem key={resource.name} value={resource.name}>{resource.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 10, sm: 4 }}><TextField fullWidth label="Version constraint" placeholder=">= 1.0.0, < 2.0.0" value={target.versions ?? ""} onChange={(event) => { const next = [...value]; next[index] = { ...target, versions: event.target.value || undefined }; onChange(next); }} /></Grid><Grid size={{ xs: 2, sm: 1 }}><IconButton aria-label={`Remove target ${index + 1}`} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><DeleteOutlineIcon /></IconButton></Grid></Grid>; })}</Stack>}</Box>;
 }
 
 function ExemptionEditor({ value, onChange, errors }: { value: ScanPolicyExemption[]; onChange: (value: ScanPolicyExemption[]) => void; errors: Record<string, string> }) {

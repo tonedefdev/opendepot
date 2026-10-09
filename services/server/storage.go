@@ -29,6 +29,10 @@ func buildDownloadPathFromVersion(versionResource *opendepotv1alpha1.Version) (s
 	} else if versionResource.Spec.ProviderConfigRef != nil && versionResource.Spec.ProviderConfigRef.StorageConfig != nil {
 		storageConfig = versionResource.Spec.ProviderConfigRef.StorageConfig
 		name = versionResource.Spec.ProviderConfigRef.Name
+	} else if versionResource.Spec.AgentSourceRef != nil && versionResource.Spec.AgentSourceRef.StorageConfig != nil && versionResource.Spec.AgentSourceRef.Name != nil {
+		storageConfig = versionResource.Spec.AgentSourceRef.StorageConfig
+		agentName := strings.ToLower(versionResource.Spec.Type) + "-" + *versionResource.Spec.AgentSourceRef.Name
+		name = &agentName
 	}
 
 	if storageConfig == nil || name == nil || versionResource.Spec.FileName == nil {

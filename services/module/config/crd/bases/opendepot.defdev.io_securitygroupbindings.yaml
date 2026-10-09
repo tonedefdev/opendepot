@@ -41,6 +41,10 @@ spec:
             type: object
           spec:
             properties:
+              agentResources:
+                items:
+                  type: string
+                type: array
               expression:
                 minLength: 1
                 type: string
@@ -55,6 +59,10 @@ spec:
                   type: string
                 type: array
               providerResources:
+                items:
+                  type: string
+                type: array
+              skillResources:
                 items:
                   type: string
                 type: array

@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/archive"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
 	"github.com/tonedefdev/opendepot/pkg/registry"
 	"github.com/tonedefdev/opendepot/services/version/internal/policy"
@@ -99,6 +100,14 @@ type trivyResult struct {
 	Type              string                  `json:"Type"`
 	Vulnerabilities   []trivyVulnerability    `json:"Vulnerabilities"`
 	Misconfigurations []trivyMisconfiguration `json:"Misconfigurations"`
+	Secrets           []trivySecret           `json:"Secrets"`
+}
+
+// trivySecret is a secret detection from the Trivy secret scanner.
+type trivySecret struct {
+	RuleID   string `json:"RuleID"`
+	Severity string `json:"Severity"`
+	Title    string `json:"Title"`
 }
 
 // trivyReport is the top-level structure of `trivy --format json` output.
@@ -108,7 +117,7 @@ type trivyReport struct {
 
 // runTrivy executes the trivy binary with the supplied arguments and returns raw stdout.
 // Trivy exit code 1 means "vulnerabilities found" — this is not treated as an error here.
-func runTrivy(ctx context.Context, args ...string) ([]byte, error) {
+var runTrivy = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "trivy", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -174,6 +183,32 @@ func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1
 	}
 
 	return findings, nil
+}
+
+// parseTrivySecrets converts the secret detections in raw Trivy JSON output into findings. It also
+// returns the set of result targets that contain a secret so that callers can keep them out of
+// any content they forward elsewhere.
+func parseTrivySecrets(data []byte) ([]opendepotv1alpha1.SecurityFinding, map[string]struct{}, error) {
+	var report trivyReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	}
+
+	findings := make([]opendepotv1alpha1.SecurityFinding, 0)
+	flagged := make(map[string]struct{})
+	for _, result := range report.Results {
+		for _, s := range result.Secrets {
+			flagged[result.Target] = struct{}{}
+			findings = append(findings, opendepotv1alpha1.SecurityFinding{
+				VulnerabilityID: s.RuleID,
+				PkgName:         result.Target,
+				Severity:        s.Severity,
+				Title:           s.Title,
+			})
+		}
+	}
+
+	return findings, flagged, nil
 }
 
 // resolveProviderSourceRepository returns the VCS source URL for a provider.
@@ -482,107 +517,6 @@ func (r *VersionReconciler) runProviderScan(
 	return repoURL, binaryScan, sourceScan, nil
 }
 
-// extractArchiveToDir extracts the contents of a module archive (zip or gzip tarball) into destDir.
-// It defends against path traversal attacks by rejecting any entry whose cleaned path escapes destDir.
-func extractArchiveToDir(archiveBytes []byte, destDir string) error {
-	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
-		for _, f := range zr.File {
-			if err := extractZipEntry(f, destDir); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
-	if err != nil {
-		return fmt.Errorf("archive is neither a valid zip nor a gzip tarball: %w", err)
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return fmt.Errorf("failed to read tar entry: %w", err)
-		}
-
-		if err := extractTarEntry(tr, hdr, destDir); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// extractZipEntry writes a single zip file entry into destDir, guarding against path traversal.
-func extractZipEntry(f *zip.File, destDir string) error {
-	dest := filepath.Join(destDir, f.Name)
-	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
-		return fmt.Errorf("zip entry %q escapes destination directory (path traversal)", f.Name)
-	}
-
-	if f.FileInfo().IsDir() {
-		return os.MkdirAll(dest, 0700)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-		return fmt.Errorf("failed to create directory for %s: %w", f.Name, err)
-	}
-
-	rc, err := f.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
-	}
-	defer rc.Close()
-
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", dest, err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // size bounded by Trivy scan input
-		return fmt.Errorf("failed to write zip entry %s: %w", f.Name, err)
-	}
-
-	return nil
-}
-
-// extractTarEntry writes a single tar entry into destDir, guarding against path traversal.
-func extractTarEntry(tr *tar.Reader, hdr *tar.Header, destDir string) error {
-	dest := filepath.Join(destDir, hdr.Name)
-	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
-		return fmt.Errorf("tar entry %q escapes destination directory (path traversal)", hdr.Name)
-	}
-
-	switch hdr.Typeflag {
-	case tar.TypeDir:
-		return os.MkdirAll(dest, 0700)
-	case tar.TypeReg:
-		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", hdr.Name, err)
-		}
-
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", dest, err)
-		}
-		defer out.Close()
-
-		if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // size bounded by Trivy scan input
-			return fmt.Errorf("failed to write tar entry %s: %w", hdr.Name, err)
-		}
-	}
-
-	return nil
-}
-
 // extractReadmeFromArchive scans a module archive (zip or gzip tarball) in-memory for a README
 // file and returns its raw content. It matches case-insensitively against "readme" with any
 // extension (or none), at the archive root or one path segment deep (GitHub tarballs nest all
@@ -667,7 +601,7 @@ func extractArchiveToTempDir(archiveBytes []byte, prefix string) (string, func()
 
 	cleanup := func() { os.RemoveAll(tmpDir) }
 
-	if err := extractArchiveToDir(archiveBytes, tmpDir); err != nil {
+	if err := archive.ExtractToDir(archiveBytes, tmpDir); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("failed to extract module archive: %w", err)
 	}
@@ -702,8 +636,10 @@ func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes 
 		return nil, fmt.Errorf("module source scan failed: %w", err)
 	}
 
-	if len(output) == 0 {
-		return nil, nil
+	// Trivy exits 1 on fatal errors as well as on findings, so a usable report
+	// must be present. Anything else is a failed scan, not a clean one.
+	if !json.Valid(output) {
+		return nil, fmt.Errorf("module source scan produced no valid report")
 	}
 
 	return parseTrivyReport(output, func(res trivyResult) bool {
@@ -724,9 +660,8 @@ func (r *VersionReconciler) runModuleScan(
 ) (*opendepotv1alpha1.SourceScan, error) {
 	findings, err := r.scanModuleArchive(ctx, archiveBytes, cacheDir, offline)
 	if err != nil {
-		r.Log.Error(err, "Module source scan failed — continuing without scan results",
-			"version", version.Name)
-		return nil, nil
+		r.Log.Error(err, "Module source scan failed", "version", version.Name)
+		return nil, fmt.Errorf("module source scan failed: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)

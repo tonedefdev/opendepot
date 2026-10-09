@@ -41,6 +41,22 @@ func providerVersion(name string, version string) *opendepotv1alpha1.Version {
 	}
 }
 
+func agentVersion(kind string, name string, version string) *opendepotv1alpha1.Version {
+	return &opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + "-" + version,
+			Namespace: "opendepot",
+			Labels: map[string]string{
+				"opendepot.defdev.io/" + kind: name,
+			},
+		},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:    map[string]string{"skill": opendepotv1alpha1.OpenDepotSkill, "agent": opendepotv1alpha1.OpenDepotAgent}[kind],
+			Version: version,
+		},
+	}
+}
+
 func policyNamed(name string, priority int) opendepotv1alpha1.ScanPolicy {
 	return opendepotv1alpha1.ScanPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -211,6 +227,30 @@ func TestMatchesTargetRefs(t *testing.T) {
 			version: providerVersion("aws", "5.4.0"),
 			want:    false,
 		},
+		{
+			name:    "skill kind and name match",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "pdf-tools"},
+			version: agentVersion("skill", "pdf-tools", "1.0.0"),
+			want:    true,
+		},
+		{
+			name:    "skill kind does not match an agent",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "reviewer"},
+			version: agentVersion("agent", "reviewer", "1.0.0"),
+			want:    false,
+		},
+		{
+			name:    "agent kind and wildcard name match",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Agent", Name: "*", Versions: ">= 1.0.0"},
+			version: agentVersion("agent", "reviewer", "1.2.0"),
+			want:    true,
+		},
+		{
+			name:    "agent version constraint not satisfied",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Agent", Name: "reviewer", Versions: ">= 2.0.0"},
+			version: agentVersion("agent", "reviewer", "1.2.0"),
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -227,6 +267,69 @@ func TestMatchesTargetRefs(t *testing.T) {
 				t.Errorf("Matches = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMatchesTargetRefFallsBackToSourceRef(t *testing.T) {
+	name := "pdf-tools"
+	version := agentVersion("skill", "pdf-tools", "1.0.0")
+	version.Labels = nil
+	version.Spec.AgentSourceRef = &opendepotv1alpha1.AgentSourceConfig{Name: &name}
+
+	policy := policyNamed("by-ref", 0)
+	policy.Spec.TargetRefs = []opendepotv1alpha1.ScanPolicyTargetRef{{Kind: "Skill", Name: "pdf-tools"}}
+
+	if got, _ := Matches(&policy, version); !got {
+		t.Error("target reference should fall back to the agent source reference when labels are absent")
+	}
+}
+
+func TestResourceNameForAgents(t *testing.T) {
+	name := "reviewer"
+	tests := []struct {
+		name    string
+		version *opendepotv1alpha1.Version
+		want    string
+	}{
+		{name: "skill label", version: agentVersion("skill", "pdf-tools", "1.0.0"), want: "pdf-tools"},
+		{name: "agent label", version: agentVersion("agent", "reviewer", "1.0.0"), want: "reviewer"},
+		{
+			name: "agent source ref fallback",
+			version: &opendepotv1alpha1.Version{
+				Spec: opendepotv1alpha1.VersionSpec{
+					Type:           opendepotv1alpha1.OpenDepotAgent,
+					AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{Name: &name},
+				},
+			},
+			want: "reviewer",
+		},
+		{
+			name:    "no label or source ref",
+			version: &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotSkill}},
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resourceName(tt.version); got != tt.want {
+				t.Errorf("resourceName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyAgentScanType(t *testing.T) {
+	resolved := Resolve(nil, true, false, time.Now())
+	findings := []opendepotv1alpha1.SecurityFinding{{VulnerabilityID: "R-1", Severity: "CRITICAL"}}
+
+	annotated, blocking := Apply(resolved, findings, ScanTypeAgent)
+	if blocking == nil || blocking.VulnerabilityID != "R-1" {
+		t.Fatalf("expected agent-scan CRITICAL finding to block, got %v", blocking)
+	}
+
+	if annotated[0].Exempted {
+		t.Error("finding should not be exempted without an exemption")
 	}
 }
 

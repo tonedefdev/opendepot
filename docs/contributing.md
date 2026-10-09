@@ -21,6 +21,10 @@ OpenDepot bundles Trivy v0.74.0 in the version-controller image built with `INCL
 !!! note
     `.trivyignore` suppressions are scoped to the repository and apply only to findings in the embedded Trivy binary. CVEs in the controller's own dependencies must be resolved, not suppressed.
 
+## Generating API Types
+
+`make manifests` in `api/v1alpha1` runs `controller-gen` with `crd:allowDangerousTypes=true`. The flag is required because `types.go` has `float64` fields, such as the Jev policy thresholds and assessment scores. Without it, `controller-gen` fails on those fields. Do not remove the flag. After changing `types.go`, run `make manifests` to regenerate the CRDs and `make generate` to regenerate `zz_generated.deepcopy.go`.
+
 ## Local OIDC E2E Testing
 
 The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.

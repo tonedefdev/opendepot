@@ -17,6 +17,10 @@ version:
   # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
+  gpg:
+    # Name of a Kubernetes Secret containing the GPG env vars used to sign Skill and Agent versions
+    # (SHA256SUMS). It must have OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64. Unsigned agents are not published.
+    secretName: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/version-controller
     tag: ""
@@ -45,6 +49,27 @@ module:
       cpu: 100m
       memory: 128Mi
     limits:
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## Agent Service (Skills and Agents registry; disabled by default)
+agent:
+  enabled: false
+  replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/agent-controller
+    tag: ""  # Overrides global.image.tag when set
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
       memory: 512Mi
   nodeSelector: {}
   tolerations: []
@@ -266,6 +291,17 @@ scanning:
   blockOnCritical: false
   # Block reconciliation when HIGH vulnerabilities are found (modules or providers).
   blockOnHigh: false
+  # Scan and sync Skill and Agent versions. Trivy scanning of agents is always on and fails closed.
+  # Requires providerScanning to mount the offline Trivy vulnerability DB cache. agentScanning does not enable the cache.
+  agentScanning: true
+  # Comma-separated domains a Skill or Agent may reference. Empty disables the allowed-domain rule.
+  agentAllowedDomains: ""
+  jev:
+    # Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy and a secret.
+    # The assessment is labeled as a TypeSafe assessment and is advisory unless thresholds are configured.
+    enabled: false
+    # Override the TypeSafe Jev API endpoint.
+    endpoint: "https://api.typesafe.ai/v1/systemone"
   # PersistentVolumeClaim for the shared Trivy vulnerability database.
   # Only created when providerScanning is true.
   cache:

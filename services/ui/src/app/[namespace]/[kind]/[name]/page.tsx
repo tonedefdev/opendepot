@@ -19,8 +19,10 @@ import GitHubIcon from "@mui/icons-material/GitHub";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import DescriptionIcon from "@mui/icons-material/Description";
 import Link from "next/link";
+import BuildIcon from "@mui/icons-material/Build";
 import CodeIcon from "@mui/icons-material/Code";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import SecurityIcon from "@mui/icons-material/Security";
 import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
@@ -29,6 +31,8 @@ import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
 import ResourceReadme from "@/components/ResourceReadme";
 import ContractTable from "@/components/ContractTable";
+import JevPanel from "@/components/JevPanel";
+import { AgentBody, AgentConfigSnippet, AgentMetadataChips } from "@/components/AgentDetail";
 import { getContract, getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -177,8 +181,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
     (v) => !v.synced || /failed|error/i.test(v.syncStatus ?? ""),
   );
   const isProviderKind = kind === "provider";
+  const isAgentKind = kind === "skill" || kind === "agent";
 
-  const contract = isProviderKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
+  const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
   const rawBase = process.env.NEXT_PUBLIC_BASE_URL ?? "";
   const registryHost = rawBase ? new URL(rawBase).host : "your-opendepot-host";
@@ -337,8 +342,39 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         </Box>
       </SectionCard>
 
+      {/* Agent definition, metadata, Jev assessment, and config snippet */}
+      {isAgentKind && detail.readmeContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title={kind === "skill" ? "SKILL.md" : "Agent Definition"}>
+          <AgentBody content={detail.readmeContent} />
+        </SectionCard>
+      )}
+
+      {isAgentKind && (detail.agentMetadata?.model || detail.agentMetadata?.tools?.length) && (
+        <SectionCard icon={<BuildIcon fontSize="small" />} title="Tools and Model">
+          <AgentMetadataChips metadata={detail.agentMetadata} />
+        </SectionCard>
+      )}
+
+      {isAgentKind && detail.jevAssessment && (
+        <SectionCard icon={<SecurityIcon fontSize="small" />} title="Jev Assessment">
+          <JevPanel assessment={detail.jevAssessment} thresholds={detail.jevThresholds} />
+        </SectionCard>
+      )}
+
+      {isAgentKind && (
+        <SectionCard icon={<CodeIcon fontSize="small" />} title="opendepot.hcl">
+          <AgentConfigSnippet
+            kind={kind}
+            namespace={detail.namespace}
+            name={detail.name}
+            registryHost={registryHost}
+            latestVersion={detail.latestVersion}
+          />
+        </SectionCard>
+      )}
+
       {/* README */}
-      {detail.readmeContent && (
+      {!isAgentKind && detail.readmeContent && (
         <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
           <ResourceReadme
             content={detail.readmeContent}
@@ -354,6 +390,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       )}
 
       {/* Usage */}
+      {!isAgentKind && (
       <SectionCard icon={<CodeIcon fontSize="small" />} title="Usage">
         <UsageSnippet
           kind={isProviderKind ? "provider" : "module"}
@@ -368,6 +405,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           upstreamRegistry={detail.upstreamRegistry}
         />
       </SectionCard>
+      )}
 
       {/* Assembly Line contract */}
       {contract && (

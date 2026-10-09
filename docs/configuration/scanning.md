@@ -42,6 +42,9 @@ For each module version, the Version controller runs an IaC scan on the extracte
 
 Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `aws-0057`) rather than a CVE identifier.
 
+!!! warning "Fail closed"
+    The module source scan blocks the Version when it cannot produce a valid result. A Version is not marked `Synced` if the Trivy scan errors, prints no output, or prints output that is not a valid JSON report. Empty output is not treated as a clean scan.
+
 !!! tip
     Current Trivy releases emit rule IDs in lowercase-provider form (`aws-0057`, `azu-0012`, `gcp-0003`), not the deprecated Aqua/AVD format (`AVD-AWS-0057`). If you plan to reference a rule ID in a `ScanPolicy` exemption (see [Policy Enforcement](#policy-enforcement)), always copy it verbatim from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version` rather than typing it from memory — matching is exact, so a wrong format silently never matches.
 

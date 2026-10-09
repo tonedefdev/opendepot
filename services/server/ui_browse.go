@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -562,6 +563,181 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 	return items, nil
 }
 
+// agentCardStatus holds the status fields a browse card reads from a Skill or Agent.
+type agentCardStatus struct {
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	Synced        bool    `json:"synced"`
+	SyncStatus    string  `json:"syncStatus"`
+}
+
+// agentCardObject is a Skill or Agent as returned by the Kubernetes API.
+type agentCardObject struct {
+	Metadata metav1.ObjectMeta `json:"metadata"`
+	Spec     agentCardSpec     `json:"spec"`
+	Status   agentCardStatus   `json:"status"`
+}
+
+// agentCardSpec is the subset of a Skill or Agent spec used by the browse endpoint.
+type agentCardSpec struct {
+	AgentSourceConfig opendepotv1alpha1.AgentSourceConfig `json:"agentSourceConfig"`
+}
+
+// browseCollectAgentResources fetches and filters Skill or Agent resources for the browse endpoint.
+func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, kind string) ([]BrowseResource, error) {
+	resource := browseAgentResource(kind)
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource(resource).
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", resource, err)
+	}
+
+	var list struct {
+		Items []agentCardObject `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s list: %w", resource, err)
+	}
+
+	dlStats, err := batchResourceDownloadStats(r.Context(), func() []string {
+		keys := make([]string, 0, len(list.Items))
+		for _, a := range list.Items {
+			keys = append(keys, a.Metadata.Namespace+"/"+kind+"/"+a.Metadata.Name)
+		}
+
+		return keys
+	}())
+	if err != nil {
+		// Download counts are supplementary: serve the cards without them rather than
+		// failing the whole listing when the stats backend is unavailable.
+		logger.Error("browse: failed to load "+kind+" download stats", "error", err)
+	}
+
+	var items []BrowseResource
+	for _, a := range list.Items {
+		ns := a.Metadata.Namespace
+		if len(nsFilter) > 0 && !nsFilter[ns] {
+			continue
+		}
+
+		pub := nsPublic[ns] && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, publicOnly, allAccess, binding, kind, a.Metadata.Name) {
+			continue
+		}
+
+		card := agentToCard(kind, a, pub)
+		enrichResourceWithDownloads(&card, dlStats)
+		items = append(items, card)
+	}
+	return items, nil
+}
+
+// browseAgentResource returns the plural Kubernetes resource name for a Skill or Agent browse kind.
+func browseAgentResource(kind string) string {
+	if kind == "agent" {
+		return "agents"
+	}
+
+	return "skills"
+}
+
+// browseListAgentVersions returns the Version resources belonging to the named Skill or Agent.
+func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string) ([]opendepotv1alpha1.Version, error) {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list versions in %s: %w", namespace, err)
+	}
+
+	var list opendepotv1alpha1.VersionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal version list: %w", err)
+	}
+
+	var result []opendepotv1alpha1.Version
+	for _, v := range list.Items {
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil {
+			continue
+		}
+
+		if *v.Spec.AgentSourceRef.Name != name || strings.ToLower(v.Spec.Type) != kind {
+			continue
+		}
+
+		result = append(result, v)
+	}
+
+	return result, nil
+}
+
+// agentToCard converts a Skill or Agent to a BrowseResource card.
+func agentToCard(kind string, a agentCardObject, public bool) BrowseResource {
+	return BrowseResource{
+		Kind:          kind,
+		Namespace:     a.Metadata.Namespace,
+		Name:          a.Metadata.Name,
+		Synced:        a.Status.Synced,
+		SyncStatus:    a.Status.SyncStatus,
+		Public:        public,
+		LatestVersion: derefString(a.Status.LatestVersion),
+	}
+}
+
+// agentLatestVersion returns the Version whose sanitized spec.version matches latestVersionStr, or nil.
+func agentLatestVersion(versions []opendepotv1alpha1.Version, latestVersionStr string) *opendepotv1alpha1.Version {
+	if latestVersionStr == "" {
+		return nil
+	}
+
+	for i := range versions {
+		if opendepotUtils.SanitizeVersion(versions[i].Spec.Version) == latestVersionStr {
+			return &versions[i]
+		}
+	}
+
+	return nil
+}
+
+// browseAgentKind maps the browse kind segment to the agentKind used by the registry.
+func browseAgentKind(kind string) agentKind {
+	if kind == "agent" {
+		return agentKind{resource: "agents", prefix: "agent", versionType: opendepotv1alpha1.OpenDepotAgent}
+	}
+
+	return agentKind{resource: "skills", prefix: "skill", versionType: opendepotv1alpha1.OpenDepotSkill}
+}
+
+// agentVersionSummaries converts Skill or Agent Version resources to BrowseVersionSummary.
+// Versions the registry would not serve keep their row, so the browse view can show
+// status and scan results, but their download metadata is omitted.
+func agentVersionSummaries(kind agentKind, name string, versions []opendepotv1alpha1.Version) []BrowseVersionSummary {
+	summaries := make([]BrowseVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		s := BrowseVersionSummary{
+			Name:       v.Name,
+			Version:    v.Spec.Version,
+			Synced:     v.Status.Synced,
+			SyncStatus: v.Status.SyncStatus,
+		}
+
+		if agentVersionServable(&v, kind, name) {
+			s.FileName = v.Spec.FileName
+			s.Checksum = v.Status.Checksum
+			s.ArchiveSizeBytes = v.Status.ArchiveSizeBytes
+		}
+
+		summaries = append(summaries, s)
+	}
+
+	return summaries
+}
+
 // handleBrowseNamespaces returns the list of namespaces that carry the
 // opendepot.defdev.io/public=true label. The label filter is enforced at the
 // Kubernetes API level in browseListNamespaces, so system namespaces
@@ -605,7 +781,7 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 // Query parameters:
 //
 //	namespace   - repeat for multi-namespace filter (default: all visible namespaces)
-//	kind        - "module" or "provider" (default: both)
+//	kind        - "module", "provider", "skill", or "agent" (default: module and provider)
 //	q           - search text matched against name, namespace, provider, repoUrl
 //	synced      - "true"/"false" filter by sync status
 //	os          - filter providers by supported OS
@@ -703,6 +879,17 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 		}
 
 		items = append(items, providers...)
+	}
+
+	if filterKind == "skill" || filterKind == "agent" {
+		agents, err := browseCollectAgentResources(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, filterKind)
+		if err != nil {
+			logger.Error("browse: failed to collect "+filterKind+"s", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		items = append(items, agents...)
 	}
 
 	items = applyBrowseFilters(items, searchText, filterSynced, filterSeverity)
@@ -886,8 +1073,65 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.DepotRef = browseDepotForProvider(cs, r, namespace, name)
 		json.NewEncoder(w).Encode(detail)
 
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		card := agentToCard(kind, a, pub)
+
+		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		detail := BrowseResourceDetail{BrowseResource: card}
+		detail.Versions = agentVersionSummaries(browseAgentKind(kind), name, versions)
+		detail.JevThresholds = a.Spec.AgentSourceConfig.JevPolicy
+		detail.StorageConfig = storageConfigToBrowse(a.Spec.AgentSourceConfig.StorageConfig)
+
+		latestVersionStr := resolveLatestModuleVersion(&card, versions)
+		detail.ReadmeContent = browseModuleReadme(cs, r, namespace, versions, latestVersionStr)
+		if latest := agentLatestVersion(versions, latestVersionStr); latest != nil {
+			detail.AgentMetadata = latest.Status.AgentMetadata
+			detail.JevAssessment = latest.Status.JevAssessment
+			if latest.Status.SourceScan != nil {
+				detail.SourceScanFindings = latest.Status.SourceScan.Findings
+			}
+		}
+
+		json.NewEncoder(w).Encode(detail)
+
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
 }
 
@@ -1813,8 +2057,56 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
 		json.NewEncoder(w).Encode(result)
 
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		summaries := agentVersionSummaries(browseAgentKind(kind), name, versions)
+		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, kind, name)
+		sort.SliceStable(summaries, func(i, j int) bool {
+			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
+		})
+
+		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
+		json.NewEncoder(w).Encode(result)
+
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
 }
 
@@ -1902,6 +2194,82 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// Select findings for the requested version, falling back to latest.
+		var result BrowseScanFindings
+		var selectedVersion *opendepotv1alpha1.Version
+		normalizedRequest := opendepotUtils.SanitizeVersion(requestedVersion)
+		for i := range versions {
+			v := &versions[i]
+			if v.Status.SourceScan == nil {
+				continue
+			}
+
+			if normalizedRequest != "" && opendepotUtils.SanitizeVersion(v.Spec.Version) == normalizedRequest {
+				selectedVersion = v
+				break
+			}
+
+			if selectedVersion == nil || compareVersionDesc(opendepotUtils.SanitizeVersion(v.Spec.Version), opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)) {
+				selectedVersion = v
+			}
+		}
+		if selectedVersion != nil {
+			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
+			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
+		}
+
+		result.ScannedVersions = scannedVersions
+		json.NewEncoder(w).Encode(result)
+
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var scannedVersions []string
+		for _, v := range versions {
+			if v.Status.SourceScan != nil {
+				scannedVersions = append(scannedVersions, opendepotUtils.SanitizeVersion(v.Spec.Version))
+			}
+		}
+
+		sort.Slice(scannedVersions, func(i, j int) bool {
+			return compareVersionDesc(scannedVersions[i], scannedVersions[j])
+		})
+
 		var result BrowseScanFindings
 		var selectedVersion *opendepotv1alpha1.Version
 		normalizedRequest := opendepotUtils.SanitizeVersion(requestedVersion)
@@ -2033,7 +2401,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(result)
 
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
 }
 
