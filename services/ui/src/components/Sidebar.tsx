@@ -32,6 +32,8 @@ import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturi
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
 import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
+import ExtensionOutlinedIcon from "@mui/icons-material/ExtensionOutlined";
+import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
@@ -469,6 +471,46 @@ export default function Sidebar({
           </ListItem>
         </List>
 
+        {/* Agents */}
+        <Box sx={{ px: 2, pt: 2, pb: 1 }}>
+          <Typography
+            variant="caption"
+            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+          >
+            Agents
+          </Typography>
+        </Box>
+        <List dense disablePadding>
+          {[
+            { label: "Skills", kind: "skill", icon: <ExtensionOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} /> },
+            { label: "Agents", kind: "agent", icon: <SmartToyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} /> },
+          ].map((item) => {
+            const selected = isOnHome && currentKind === item.kind;
+            return (
+              <ListItem key={item.kind} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href={`/?kind=${item.kind}`}
+                  selected={selected}
+                  sx={{
+                    mx: 1,
+                    borderRadius: "6px",
+                    py: 0.5,
+                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                    "&.Mui-selected:hover": { background: selectedHoverBg },
+                  }}
+                >
+                  {item.icon}
+                  <ListItemText
+                    primary={item.label}
+                    primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: selected ? 600 : 400 }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
+        </List>
+
         {isOnHome && (
           <>
             <Divider sx={{ mx: 2, my: 1 }} />
@@ -487,6 +529,8 @@ export default function Sidebar({
                 { label: "All", value: "" },
                 { label: "Module", value: "module" },
                 { label: "Provider", value: "provider" },
+                { label: "Skill", value: "skill" },
+                { label: "Agent", value: "agent" },
               ].map((opt) => (
                 <Chip
                   key={opt.value || "all"}

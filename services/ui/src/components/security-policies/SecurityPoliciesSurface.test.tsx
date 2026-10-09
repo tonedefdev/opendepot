@@ -33,6 +33,8 @@ const catalog = {
     canManageNamespaceWidePolicies: true,
     modules: [{ name: "terraform-aws-vpc" }],
     providers: [{ name: "aws" }],
+    skills: [],
+    agents: [],
   }],
 };
 
@@ -171,7 +173,7 @@ describe("SecurityPoliciesSurface", () => {
 
     render(<SecurityPoliciesSurface mode="create" namespace="platform" catalog={{
       ...catalog,
-      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false, modules: [{ name: "terraform-aws-vpc" }], providers: [] }],
+      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false, modules: [{ name: "terraform-aws-vpc" }], providers: [], skills: [], agents: [] }],
     }} />);
 
     await waitFor(() => expect(screen.getByText(/only policies targeted/)).not.toBeNull());

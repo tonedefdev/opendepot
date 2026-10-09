@@ -1,0 +1,67 @@
+{{- if and .Values.agent.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
+metadata:
+  name: agent-controller-role
+  {{- if .Values.rbac.scopeToNamespace }}
+  namespace: {{ .Values.global.namespace }}
+  {{- end }}
+rules:
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills
+  - agents
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills/finalizers
+  - agents/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills/status
+  - agents/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - versions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.scopeToNamespace }}RoleBinding{{ else }}ClusterRoleBinding{{ end }}
+metadata:
+  name: agent-controller-role-binding
+  {{- if .Values.rbac.scopeToNamespace }}
+  namespace: {{ .Values.global.namespace }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
+  name: agent-controller-role
+subjects:
+- kind: ServiceAccount
+  name: agent-controller
+  namespace: {{ .Values.global.namespace }}
+{{- end }}

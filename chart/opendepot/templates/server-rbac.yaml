@@ -47,6 +47,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills
+  - agents
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps

@@ -45,6 +45,238 @@ spec:
           spec:
             description: DepotSpec defines the desired state of Depot.
             properties:
+              agentConfigs:
+                description: The agent configuration and version details for each
+                  agent that should be managed by the Depot controller.
+                items:
+                  description: |-
+                    AgentSourceConfig is the configuration settings for a Skill or Agent and for each Version created
+                    by the agent controller. The source is a directory within a Github repository so that several skills
+                    or agents can be published from one monorepo.
+                  properties:
+                    githubClientConfig:
+                      description: The Github client configuration settings.
+                      properties:
+                        useAuthenticatedClient:
+                          description: |-
+                            This flag determines whether the GitHub client used to download modules
+                            will be authenticated with a Github App. It's highly recommended
+                            to enable this flag to avoid GitHub API rate limiting. When enabled, the namespace where the Module resource exists
+                            must contain a Secret named 'opendepot-github-application-secret'. The secret must contain a githubAppID,
+                            githubInstallID, and githubPrivateKey field. The private key must also be base64 encoded before being added
+                            as data to the secret. When accessed, the controller will base64 decode the key to build an in-memory client
+                            to authenticate with the Github API.
+                          type: boolean
+                      type: object
+                    immutable:
+                      description: |-
+                        When true, enforces that the ChecksumSHA256 of the archive always matches the value stored in this field
+                        and in any destination storage config.
+                      type: boolean
+                    jevPolicy:
+                      description: |-
+                        The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
+                        is unset, Jev results are informational only.
+                      properties:
+                        maxDestructiveProbability:
+                          description: The maximum destructive action probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxExfiltrationProbability:
+                          description: The maximum data exfiltration probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxHiddenInstructionsProbability:
+                          description: The maximum hidden instructions probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxInjectionProbability:
+                          description: The maximum prompt injection probability. A
+                            Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxRemoteExecutionProbability:
+                          description: The maximum remote execution probability. A
+                            Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxRiskScore:
+                          description: The maximum risk score. A Version is blocked
+                            when its risk score is above this value.
+                          type: number
+                        maxScopeMismatchProbability:
+                          description: The maximum scope mismatch probability. A Version
+                            is blocked when its probability is above this value.
+                          type: number
+                        minConfidence:
+                          description: |-
+                            The minimum risk confidence. A Version whose risk confidence is below this value is flagged
+                            for review but is never blocked.
+                          type: number
+                        minSafeProbability:
+                          description: The minimum safe probability. A Version is
+                            blocked when its safe probability is below this value.
+                          type: number
+                      type: object
+                    jevSecretRef:
+                      description: |-
+                        A reference to the key in a Secret in the same namespace that holds the TypeSafe Jev token.
+                        The key defaults to 'jevToken' when omitted. Jev only runs when the version controller has
+                        Jev enabled and this reference is set.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      description: |-
+                        The name of the skill or agent. If omitted, the name of the Skill or Agent resource
+                        is used in its place.
+                      type: string
+                    path:
+                      description: |-
+                        The path within the repository to the directory that contains the skill or agent.
+                        If omitted, the repository root is used.
+                      type: string
+                    platform:
+                      description: |-
+                        The agent platform that the skill or agent targets. The frontmatter keys are validated against
+                        that platform's known keys. When omitted, the keys of every supported platform are accepted.
+                      enum:
+                      - agentskills
+                      - claude
+                      - copilot
+                      - codex
+                      - opencode
+                      - pi
+                      type: string
+                    repoOwner:
+                      description: Owner of the Github repository.
+                      type: string
+                    repoUrl:
+                      description: The full URL of the Github repository.
+                      type: string
+                    storageConfig:
+                      description: The external storage configuration settings.
+                      properties:
+                        azureStorage:
+                          properties:
+                            accountName:
+                              description: The Azure Storage Account name.
+                              type: string
+                            accountUrl:
+                              description: The Azure Storage Account URL.
+                              type: string
+                            resourceGroup:
+                              description: The Azure Resource Group where the Azure
+                                Storage Account is located.
+                              type: string
+                            subscriptionID:
+                              description: The Azure subscription ID where the Azure
+                                Storage Account is located.
+                              type: string
+                          required:
+                          - accountName
+                          - accountUrl
+                          - resourceGroup
+                          - subscriptionID
+                          type: object
+                        fileSystem:
+                          description: The configuration settings for storing Versions
+                            on a local filesystem.
+                          properties:
+                            directoryPath:
+                              description: The directory path on the file system where
+                                the Version will be stored.
+                              type: string
+                          type: object
+                        gcs:
+                          description: The configuration settings for storing Versions
+                            in a Google Cloud Storage bucket.
+                          properties:
+                            bucket:
+                              description: The GCS bucket name.
+                              type: string
+                          required:
+                          - bucket
+                          type: object
+                        presign:
+                          description: Presign is the optional configuration for pre-signed
+                            URL generation.
+                          properties:
+                            enabled:
+                              description: When true, download requests are redirected
+                                to the storage backend via a pre-signed URL.
+                              type: boolean
+                            fallbackToProxy:
+                              default: true
+                              description: |-
+                                When true, if pre-sign generation fails the server falls back to proxying the download.
+                                Defaults to true.
+                              type: boolean
+                            ttl:
+                              default: 15m
+                              description: |-
+                                TTL controls how long the pre-signed URL remains valid (e.g. "15m", "1h").
+                                If omitted, defaults to 15 minutes.
+                              type: string
+                          type: object
+                        s3:
+                          description: The configuration settings for storing Versions
+                            in an Amazon S3 bucket.
+                          properties:
+                            bucket:
+                              description: The S3 bucket name.
+                              type: string
+                            key:
+                              description: |-
+                                The S3 bucket key, ie: 'my/bucket/prefix'
+                                The file name will be automatically generated by the opendepot-module-controller.
+                              type: string
+                            region:
+                              description: The AWS region for the bucket.
+                              type: string
+                          required:
+                          - bucket
+                          - region
+                          type: object
+                      type: object
+                    tagPrefix:
+                      description: |-
+                        The prefix of the Git tags that version this source, such as 'my-skill/'. The prefix is
+                        stripped from each tag to produce the version. If omitted, tags are used as-is.
+                      type: string
+                    versionConstraints:
+                      description: |-
+                        A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
+                        This field is only respected by the Depot controller.
+                      type: string
+                    versionHistoryLimit:
+                      description: The number of versions to keep stored in the registry
+                        at any given time.
+                      type: integer
+                  type: object
+                type: array
               global:
                 description: |-
                   The configuration that should be applied to all modules that are part
@@ -604,10 +836,248 @@ spec:
                       type: integer
                   type: object
                 type: array
+              skillConfigs:
+                description: The skill configuration and version details for each
+                  skill that should be managed by the Depot controller.
+                items:
+                  description: |-
+                    AgentSourceConfig is the configuration settings for a Skill or Agent and for each Version created
+                    by the agent controller. The source is a directory within a Github repository so that several skills
+                    or agents can be published from one monorepo.
+                  properties:
+                    githubClientConfig:
+                      description: The Github client configuration settings.
+                      properties:
+                        useAuthenticatedClient:
+                          description: |-
+                            This flag determines whether the GitHub client used to download modules
+                            will be authenticated with a Github App. It's highly recommended
+                            to enable this flag to avoid GitHub API rate limiting. When enabled, the namespace where the Module resource exists
+                            must contain a Secret named 'opendepot-github-application-secret'. The secret must contain a githubAppID,
+                            githubInstallID, and githubPrivateKey field. The private key must also be base64 encoded before being added
+                            as data to the secret. When accessed, the controller will base64 decode the key to build an in-memory client
+                            to authenticate with the Github API.
+                          type: boolean
+                      type: object
+                    immutable:
+                      description: |-
+                        When true, enforces that the ChecksumSHA256 of the archive always matches the value stored in this field
+                        and in any destination storage config.
+                      type: boolean
+                    jevPolicy:
+                      description: |-
+                        The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
+                        is unset, Jev results are informational only.
+                      properties:
+                        maxDestructiveProbability:
+                          description: The maximum destructive action probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxExfiltrationProbability:
+                          description: The maximum data exfiltration probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxHiddenInstructionsProbability:
+                          description: The maximum hidden instructions probability.
+                            A Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxInjectionProbability:
+                          description: The maximum prompt injection probability. A
+                            Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxRemoteExecutionProbability:
+                          description: The maximum remote execution probability. A
+                            Version is blocked when its probability is above this
+                            value.
+                          type: number
+                        maxRiskScore:
+                          description: The maximum risk score. A Version is blocked
+                            when its risk score is above this value.
+                          type: number
+                        maxScopeMismatchProbability:
+                          description: The maximum scope mismatch probability. A Version
+                            is blocked when its probability is above this value.
+                          type: number
+                        minConfidence:
+                          description: |-
+                            The minimum risk confidence. A Version whose risk confidence is below this value is flagged
+                            for review but is never blocked.
+                          type: number
+                        minSafeProbability:
+                          description: The minimum safe probability. A Version is
+                            blocked when its safe probability is below this value.
+                          type: number
+                      type: object
+                    jevSecretRef:
+                      description: |-
+                        A reference to the key in a Secret in the same namespace that holds the TypeSafe Jev token.
+                        The key defaults to 'jevToken' when omitted. Jev only runs when the version controller has
+                        Jev enabled and this reference is set.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      description: |-
+                        The name of the skill or agent. If omitted, the name of the Skill or Agent resource
+                        is used in its place.
+                      type: string
+                    path:
+                      description: |-
+                        The path within the repository to the directory that contains the skill or agent.
+                        If omitted, the repository root is used.
+                      type: string
+                    platform:
+                      description: |-
+                        The agent platform that the skill or agent targets. The frontmatter keys are validated against
+                        that platform's known keys. When omitted, the keys of every supported platform are accepted.
+                      enum:
+                      - agentskills
+                      - claude
+                      - copilot
+                      - codex
+                      - opencode
+                      - pi
+                      type: string
+                    repoOwner:
+                      description: Owner of the Github repository.
+                      type: string
+                    repoUrl:
+                      description: The full URL of the Github repository.
+                      type: string
+                    storageConfig:
+                      description: The external storage configuration settings.
+                      properties:
+                        azureStorage:
+                          properties:
+                            accountName:
+                              description: The Azure Storage Account name.
+                              type: string
+                            accountUrl:
+                              description: The Azure Storage Account URL.
+                              type: string
+                            resourceGroup:
+                              description: The Azure Resource Group where the Azure
+                                Storage Account is located.
+                              type: string
+                            subscriptionID:
+                              description: The Azure subscription ID where the Azure
+                                Storage Account is located.
+                              type: string
+                          required:
+                          - accountName
+                          - accountUrl
+                          - resourceGroup
+                          - subscriptionID
+                          type: object
+                        fileSystem:
+                          description: The configuration settings for storing Versions
+                            on a local filesystem.
+                          properties:
+                            directoryPath:
+                              description: The directory path on the file system where
+                                the Version will be stored.
+                              type: string
+                          type: object
+                        gcs:
+                          description: The configuration settings for storing Versions
+                            in a Google Cloud Storage bucket.
+                          properties:
+                            bucket:
+                              description: The GCS bucket name.
+                              type: string
+                          required:
+                          - bucket
+                          type: object
+                        presign:
+                          description: Presign is the optional configuration for pre-signed
+                            URL generation.
+                          properties:
+                            enabled:
+                              description: When true, download requests are redirected
+                                to the storage backend via a pre-signed URL.
+                              type: boolean
+                            fallbackToProxy:
+                              default: true
+                              description: |-
+                                When true, if pre-sign generation fails the server falls back to proxying the download.
+                                Defaults to true.
+                              type: boolean
+                            ttl:
+                              default: 15m
+                              description: |-
+                                TTL controls how long the pre-signed URL remains valid (e.g. "15m", "1h").
+                                If omitted, defaults to 15 minutes.
+                              type: string
+                          type: object
+                        s3:
+                          description: The configuration settings for storing Versions
+                            in an Amazon S3 bucket.
+                          properties:
+                            bucket:
+                              description: The S3 bucket name.
+                              type: string
+                            key:
+                              description: |-
+                                The S3 bucket key, ie: 'my/bucket/prefix'
+                                The file name will be automatically generated by the opendepot-module-controller.
+                              type: string
+                            region:
+                              description: The AWS region for the bucket.
+                              type: string
+                          required:
+                          - bucket
+                          - region
+                          type: object
+                      type: object
+                    tagPrefix:
+                      description: |-
+                        The prefix of the Git tags that version this source, such as 'my-skill/'. The prefix is
+                        stripped from each tag to produce the version. If omitted, tags are used as-is.
+                      type: string
+                    versionConstraints:
+                      description: |-
+                        A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
+                        This field is only respected by the Depot controller.
+                      type: string
+                    versionHistoryLimit:
+                      description: The number of versions to keep stored in the registry
+                        at any given time.
+                      type: integer
+                  type: object
+                type: array
             type: object
           status:
             description: DepotStatus defines the observed state of Depot.
             properties:
+              agents:
+                description: The list of Agent resource names created and managed
+                  by this Depot.
+                items:
+                  type: string
+                type: array
               modules:
                 description: The list of Module resource names created and managed
                   by this Depot.
@@ -616,6 +1086,12 @@ spec:
                 type: array
               providers:
                 description: The list of Provider resource names created and managed
+                  by this Depot.
+                items:
+                  type: string
+                type: array
+              skills:
+                description: The list of Skill resource names created and managed
                   by this Depot.
                 items:
                   type: string

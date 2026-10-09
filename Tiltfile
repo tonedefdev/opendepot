@@ -27,7 +27,7 @@ docker_build_with_restart(
     '.',
     dockerfile='tilt/Dockerfile.go',
     target='server-runtime',
-    only=['tilt/Dockerfile.go', 'services/server', 'api/v1alpha1', 'pkg/hclschema', 'pkg/storage', 'pkg/utils'],
+    only=['tilt/Dockerfile.go', 'services/server', 'api/v1alpha1', 'pkg/hclschema', 'pkg/storage', 'pkg/utils', 'pkg/signing'],
     ignore=go_image_ignores,
     entrypoint=['/workspace/bin/server'],
     live_update=[
@@ -40,6 +40,8 @@ docker_build_with_restart(
             'pkg/storage/go.sum',
             'pkg/utils/go.mod',
             'pkg/utils/go.sum',
+            'pkg/signing/go.mod',
+            'pkg/signing/go.sum',
             'services/server/go.mod',
             'services/server/go.sum',
             'tilt/Dockerfile.go',
@@ -49,12 +51,14 @@ docker_build_with_restart(
         sync('pkg/hclschema', '/workspace/pkg/hclschema'),
         sync('pkg/storage', '/workspace/pkg/storage'),
         sync('pkg/utils', '/workspace/pkg/utils'),
+        sync('pkg/signing', '/workspace/pkg/signing'),
         run('cd /workspace/services/server && CGO_ENABLED=0 go build -o /workspace/bin/server .', trigger=[
             'services/server',
             'api/v1alpha1',
             'pkg/hclschema',
             'pkg/storage',
             'pkg/utils',
+            'pkg/signing',
         ]),
     ],
 )
@@ -121,6 +125,35 @@ docker_build_with_restart(
 )
 
 docker_build_with_restart(
+    'ghcr.io/tonedefdev/opendepot/agent-controller',
+    '.',
+    dockerfile='tilt/Dockerfile.go',
+    target='agent-runtime',
+    only=['tilt/Dockerfile.go', 'services/agent', 'api/v1alpha1', 'pkg/utils'],
+    ignore=go_image_ignores,
+    entrypoint=['/workspace/bin/agent-controller'],
+    live_update=[
+        fall_back_on([
+            'api/v1alpha1/go.mod',
+            'api/v1alpha1/go.sum',
+            'pkg/utils/go.mod',
+            'pkg/utils/go.sum',
+            'services/agent/go.mod',
+            'services/agent/go.sum',
+            'tilt/Dockerfile.go',
+        ]),
+        sync('services/agent', '/workspace/services/agent'),
+        sync('api/v1alpha1', '/workspace/api/v1alpha1'),
+        sync('pkg/utils', '/workspace/pkg/utils'),
+        run('cd /workspace/services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controller ./cmd', trigger=[
+            'services/agent',
+            'api/v1alpha1',
+            'pkg/utils',
+        ]),
+    ],
+)
+
+docker_build_with_restart(
     'ghcr.io/tonedefdev/opendepot/provider-controller',
     '.',
     dockerfile='tilt/Dockerfile.go',
@@ -154,7 +187,7 @@ docker_build_with_restart(
     '.',
     dockerfile='tilt/Dockerfile.go',
     target='version-dev',
-    only=['tilt/Dockerfile.go', 'services/version', 'api/v1alpha1', 'pkg/github', 'pkg/registry', 'pkg/storage', 'pkg/hclschema', 'pkg/utils'],
+    only=['tilt/Dockerfile.go', 'services/version', 'api/v1alpha1', 'pkg/github', 'pkg/registry', 'pkg/storage', 'pkg/hclschema', 'pkg/utils', 'pkg/agentspec', 'pkg/archive', 'pkg/jev', 'pkg/signing'],
     ignore=go_image_ignores,
     entrypoint=['/workspace/bin/version-controller'],
     live_update=[
@@ -170,6 +203,12 @@ docker_build_with_restart(
             'pkg/hclschema/go.sum',
             'pkg/utils/go.mod',
             'pkg/utils/go.sum',
+            'pkg/agentspec/go.mod',
+            'pkg/agentspec/go.sum',
+            'pkg/archive/go.mod',
+            'pkg/jev/go.mod',
+            'pkg/signing/go.mod',
+            'pkg/signing/go.sum',
             'services/version/go.mod',
             'services/version/go.sum',
             'tilt/Dockerfile.go',
@@ -181,6 +220,10 @@ docker_build_with_restart(
         sync('pkg/storage', '/workspace/pkg/storage'),
         sync('pkg/hclschema', '/workspace/pkg/hclschema'),
         sync('pkg/utils', '/workspace/pkg/utils'),
+        sync('pkg/agentspec', '/workspace/pkg/agentspec'),
+        sync('pkg/archive', '/workspace/pkg/archive'),
+        sync('pkg/jev', '/workspace/pkg/jev'),
+        sync('pkg/signing', '/workspace/pkg/signing'),
         run('cd /workspace/services/version && CGO_ENABLED=0 go build -o /workspace/bin/version-controller ./cmd', trigger=[
             'services/version',
             'api/v1alpha1',
@@ -189,6 +232,10 @@ docker_build_with_restart(
             'pkg/storage',
             'pkg/hclschema',
             'pkg/utils',
+            'pkg/agentspec',
+            'pkg/archive',
+            'pkg/jev',
+            'pkg/signing',
         ]),
     ],
 )
@@ -267,6 +314,7 @@ k8s_resource('opendepot-monitoring-operator', resource_deps=['prometheus-operato
 k8s_resource(new_name='server-rbac', objects=['server:ServiceAccount:opendepot-system', 'server-role:ClusterRole', 'server-role-binding:ClusterRoleBinding'], labels=['infrastructure'])
 k8s_resource('server', resource_deps=['opendepot-dex', 'dev-tls', 'server-rbac'], labels=['backend'])
 k8s_resource('module-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
+k8s_resource('agent-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource('depot-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource('provider-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource(new_name='trivy-cache', objects=['opendepot-trivy-cache:PersistentVolumeClaim:opendepot-system'], labels=['infrastructure'])
@@ -282,7 +330,7 @@ k8s_resource(
 local_resource(
     'seed-sample-resources',
     cmd='tilt/scripts/seed-resources.sh',
-    resource_deps=['module-controller', 'provider-controller'],
+    resource_deps=['module-controller', 'provider-controller', 'agent-controller', 'version-controller'],
     auto_init=False,
     labels=['controls'],
 )

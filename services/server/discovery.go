@@ -15,6 +15,7 @@ func serviceDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
 	response := ServiceDiscoveryResponse{
 		ModulesURL:   "/opendepot/modules/v1/",
 		ProvidersURL: "/opendepot/providers/v1/",
+		AgentsURL:    "/opendepot/agents/v1/",
 	}
 
 	if oidcProvider != nil {

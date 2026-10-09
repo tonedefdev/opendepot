@@ -8,6 +8,10 @@ WORKDIR /workspace
 # Copy go.work and all module manifests for workspace-aware builds
 COPY go.work go.work.sum ./
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
+COPY pkg/agentspec/go.mod pkg/agentspec/go.sum pkg/agentspec/
+COPY pkg/archive/go.mod pkg/archive/
+COPY pkg/jev/go.mod pkg/jev/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY pkg/utils/go.mod pkg/utils/
@@ -21,7 +25,7 @@ COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/version/go.mod services/version/go.sum services/version/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
 
 # Download dependencies in workspace mode so replace directives resolve local modules
 RUN cd services/depot && go mod download
@@ -39,7 +43,7 @@ RUN cd services/depot && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETAR
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 WORKDIR /
 COPY --from=builder /workspace/depot-controller .
 USER 65532:65532

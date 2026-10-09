@@ -43,6 +43,14 @@ spec:
           spec:
             description: GroupBindingSpec defines the desired state of GroupBinding.
             properties:
+              agentResources:
+                description: |-
+                  AgentResources is the list of glob patterns for Agent resource names this binding grants access to.
+                  The * wildcard is supported (e.g. "release-*").
+                  Empty or omitted means no agents are accessible.
+                items:
+                  type: string
+                type: array
               expression:
                 description: |-
                   Expression is an expr-lang boolean expression evaluated against the OIDC JWT groups claim.
@@ -78,6 +86,14 @@ spec:
                   ScanPolicyNamespaces is the allow-list of namespaces where this binding
                   may read or manage ScanPolicy resources. An empty list denies access.
                   The literal "*" allows every namespace reachable by the server.
+                items:
+                  type: string
+                type: array
+              skillResources:
+                description: |-
+                  SkillResources is the list of glob patterns for Skill resource names this binding grants access to.
+                  The * wildcard is supported (e.g. "code-review-*").
+                  Empty or omitted means no skills are accessible.
                 items:
                   type: string
                 type: array

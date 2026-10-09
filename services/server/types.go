@@ -8,7 +8,36 @@ import opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 type ServiceDiscoveryResponse struct {
 	ModulesURL   string       `json:"modules.v1"`
 	ProvidersURL string       `json:"providers.v1"`
+	AgentsURL    string       `json:"agents.v1"`
 	LoginV1      *LoginV1Info `json:"login.v1,omitempty"`
+}
+
+// AgentVersionsResponse is the JSON body returned by the agents.v1 versions endpoint.
+type AgentVersionsResponse struct {
+	Versions []AgentVersionSummary `json:"versions"`
+}
+
+// AgentVersionSummary describes a single synced Skill or Agent Version. Yanked Versions
+// stay listed and are skipped by version constraint resolution on the client.
+type AgentVersionSummary struct {
+	Version string `json:"version"`
+	Yanked  bool   `json:"yanked"`
+}
+
+// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.
+type AgentDownloadResponse struct {
+	Protocols           []string                         `json:"protocols"`
+	Kind                string                           `json:"kind"`
+	Name                string                           `json:"name"`
+	Version             string                           `json:"version"`
+	Yanked              bool                             `json:"yanked"`
+	Filename            string                           `json:"filename"`
+	DownloadURL         string                           `json:"download_url"`
+	Shasum              string                           `json:"shasum"`
+	ShasumsURL          string                           `json:"shasums_url"`
+	ShasumsSignatureURL string                           `json:"shasums_signature_url"`
+	SigningKeys         *ProviderSigningKeys             `json:"signing_keys"`
+	Assessment          *opendepotv1alpha1.JevAssessment `json:"assessment,omitempty"`
 }
 
 // LoginV1Info carries the OIDC authorization endpoints advertised to tofu CLI
@@ -256,6 +285,13 @@ type BrowseResourceDetail struct {
 	// ReadmeContent is the decoded (plain markdown) README.md content for the module's
 	// latest version, if one could be resolved. Only populated for module resources.
 	ReadmeContent *string `json:"readmeContent,omitempty"`
+	// AgentMetadata is the frontmatter of the latest Version. Only populated for skill and agent resources.
+	AgentMetadata *opendepotv1alpha1.AgentMetadata `json:"agentMetadata,omitempty"`
+	// JevAssessment is the TypeSafe Jev assessment of the latest Version, when Jev ran for it.
+	// Only populated for skill and agent resources.
+	JevAssessment *opendepotv1alpha1.JevAssessment `json:"jevAssessment,omitempty"`
+	// JevThresholds are the JevPolicy thresholds configured on the skill or agent, when set.
+	JevThresholds *opendepotv1alpha1.JevPolicy `json:"jevThresholds,omitempty"`
 }
 
 // BrowseScanFindings is the JSON body returned by the scan-findings endpoint.

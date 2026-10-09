@@ -15,6 +15,20 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.12.9
+
+v0.12.9 updates the chart version to `0.12.9`. The application version is `0.12.7`, which includes an application dependency bump. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.
+
+### New CRDs
+
+The release adds the `Skill` and `Agent` CRDs. Helm does not update CRDs during `helm upgrade`, so apply them before you upgrade:
+
+```bash
+helm show crds opendepot/opendepot | kubectl apply --server-side -f -
+```
+
+The agent service is disabled by default. The `GroupBinding` CRD gains the `skillResources` and `agentResources` fields. An empty list denies access to skills and agents, so add these fields to grant access. See [agents](guides/agents.md) for setup.
+
 ## v0.11.0
 
 v0.11.0 updates the chart and application version to `0.11.0`. Download

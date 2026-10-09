@@ -101,6 +101,15 @@ The launcher performs the following setup before starting Tilt:
 - Creates the `opendepot-system` namespace and local UI, OIDC, and GPG secrets, including one random OIDC client credential shared by the UI and Dex.
 - Generates the ignored `tilt/.generated/values.yaml` file containing the hashed Dex password.
 
+To enable the TypeSafe Jev assessment in the Tilt cluster, export your key before starting. The launcher creates the `opendepot-jev` Secret with key `jevToken` and enables `scanning.jev` in the generated values:
+
+```bash
+export OPENDEPOT_JEV_API_KEY='your-jev-api-key'
+tilt/scripts/up.sh
+```
+
+Jev still runs only for Skills and Agents that set `spec.jevSecretRef` and a `jevPolicy`. Leaving `OPENDEPOT_JEV_API_KEY` unset keeps Jev disabled.
+
 The scripts set the Docker API compatibility version required by ctlptl automatically. You do not need to export `DOCKER_API_VERSION` yourself.
 
 The initial build is large because the Go development images include the compiler and the version controller includes Trivy. Subsequent source updates use Tilt's build cache and live-update paths.

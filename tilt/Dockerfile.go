@@ -27,13 +27,15 @@ COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY services/server/go.mod services/server/go.sum services/server/
-RUN go work init ./api/v1alpha1 ./pkg/hclschema ./pkg/storage ./pkg/utils ./services/server \
+RUN go work init ./api/v1alpha1 ./pkg/hclschema ./pkg/storage ./pkg/utils ./pkg/signing ./services/server \
   && cd services/server && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/hclschema/ pkg/hclschema/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/utils/ pkg/utils/
+COPY pkg/signing/ pkg/signing/
 COPY services/server/ services/server/
 RUN cd services/server && CGO_ENABLED=0 go build -o /workspace/bin/server . \
   && chown -R 65532:65532 /workspace
@@ -73,6 +75,21 @@ RUN cd services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-contro
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
+FROM golang:1.26.6 AS agent-runtime
+WORKDIR /workspace
+COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
+COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
+COPY services/agent/go.mod services/agent/go.sum services/agent/
+RUN go work init ./api/v1alpha1 ./pkg/utils ./services/agent \
+  && cd services/agent && go mod download
+COPY api/v1alpha1/ api/v1alpha1/
+COPY pkg/utils/ pkg/utils/
+COPY services/agent/ services/agent/
+RUN cd services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controller ./cmd \
+  && chown -R 65532:65532 /workspace
+ENV GOCACHE=/workspace/.cache/go-build
+USER 65532:65532
+
 FROM golang:1.26.6 AS provider-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
@@ -96,8 +113,12 @@ COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
+COPY pkg/agentspec/go.mod pkg/agentspec/go.sum pkg/agentspec/
+COPY pkg/archive/go.mod pkg/archive/
+COPY pkg/jev/go.mod pkg/jev/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY services/version/go.mod services/version/go.sum services/version/
-RUN go work init ./api/v1alpha1 ./pkg/github ./pkg/registry ./pkg/storage ./pkg/hclschema ./pkg/utils ./services/version \
+RUN go work init ./api/v1alpha1 ./pkg/github ./pkg/registry ./pkg/storage ./pkg/hclschema ./pkg/utils ./pkg/agentspec ./pkg/archive ./pkg/jev ./pkg/signing ./services/version \
   && cd services/version && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/github/ pkg/github/
@@ -105,6 +126,10 @@ COPY pkg/registry/ pkg/registry/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/hclschema/ pkg/hclschema/
 COPY pkg/utils/ pkg/utils/
+COPY pkg/agentspec/ pkg/agentspec/
+COPY pkg/archive/ pkg/archive/
+COPY pkg/jev/ pkg/jev/
+COPY pkg/signing/ pkg/signing/
 COPY services/version/ services/version/
 RUN cd services/version && CGO_ENABLED=0 go build -o /workspace/bin/version-controller ./cmd \
   && chown -R 65532:65532 /workspace

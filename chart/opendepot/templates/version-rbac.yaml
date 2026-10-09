@@ -11,6 +11,8 @@ rules:
   - opendepot.defdev.io
   resources:
   - modules
+  - skills
+  - agents
   verbs:
   - get
   - list

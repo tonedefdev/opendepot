@@ -235,6 +235,10 @@ func TestValidateScanPolicyTargets(t *testing.T) {
 			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"onboarded-module"}}]}`))
 		case "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/providers":
 			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"onboarded-provider"}}]}`))
+		case "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/skills":
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"onboarded-skill"}}]}`))
+		case "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/agents":
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"onboarded-agent"}}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -252,6 +256,9 @@ func TestValidateScanPolicyTargets(t *testing.T) {
 		{name: "nonexistent module", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Module", Name: "missing-module"}},
 		{name: "wildcard module", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Module", Name: "*"}},
 		{name: "future provider", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Provider", Name: "future-provider"}},
+		{name: "onboarded skill", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "onboarded-skill"}, valid: true},
+		{name: "onboarded agent", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Agent", Name: "onboarded-agent"}, valid: true},
+		{name: "future skill", target: opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "future-skill"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			policy := &opendepotv1alpha1.ScanPolicy{Spec: opendepotv1alpha1.ScanPolicySpec{TargetRefs: []opendepotv1alpha1.ScanPolicyTargetRef{test.target}}}

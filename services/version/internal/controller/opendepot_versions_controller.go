@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -28,7 +29,9 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,6 +53,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/agentspec"
+	"github.com/tonedefdev/opendepot/pkg/archive"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
 	"github.com/tonedefdev/opendepot/pkg/hclschema"
 	"github.com/tonedefdev/opendepot/pkg/registry"
@@ -75,6 +80,14 @@ type VersionReconciler struct {
 	ScanOffline     bool
 	BlockOnCritical bool
 	BlockOnHigh     bool
+	// ScanAgents controls whether Skill and Agent Versions are synced. Agent scanning is always on and fails closed.
+	ScanAgents bool
+	// AgentAllowedDomains lists the domains an agent may reference. An empty list disables the domain rule.
+	AgentAllowedDomains []string
+	// JevEnabled turns on the TypeSafe Jev assessment of Skill and Agent Versions.
+	JevEnabled bool
+	// JevEndpoint overrides the default TypeSafe Jev API endpoint.
+	JevEndpoint string
 	// AssemblyEnabled turns on Assembly Line contract derivation for module Versions
 	// and reduced provider schema extraction for provider Versions.
 	AssemblyEnabled bool
@@ -99,6 +112,8 @@ type VersionReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=skills,verbs=get
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=agents,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=scanpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=scanpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
@@ -162,6 +177,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		prepareResult, prepareErr = r.prepareModuleVersion(ctx, req, version)
 	case opendepotv1alpha1.OpenDepotProvider:
 		prepareResult, prepareErr = r.prepareProviderVersion(version)
+	case opendepotv1alpha1.OpenDepotSkill, opendepotv1alpha1.OpenDepotAgent:
+		prepareResult, prepareErr = r.prepareAgentVersion(version)
 	default:
 		return ctrl.Result{}, fmt.Errorf("no usable type provided on Version '%s'", version.Name)
 	}
@@ -174,13 +191,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return prepareResult, nil
 	}
 
-	if version.Spec.ModuleConfigRef != nil && version.Spec.ProviderConfigRef != nil {
-		r.Log.V(5).Info("dual-config guard: both moduleConfigRef and providerConfigRef are set; writing terminal status",
+	if conflict := configConflictMessage(version); conflict != "" {
+		r.Log.V(5).Info("dual-config guard: conflicting source references are set; writing terminal status",
 			"version", version.Name,
 		)
 
 		version.Status.Synced = false
-		version.Status.SyncStatus = "Only one of 'ModuleConfigRef' or 'ProviderConfigRef' can be provided: both are defined"
+		version.Status.SyncStatus = conflict
 		if err := r.Status().Update(ctx, version); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -192,20 +209,35 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	var fileBytes []byte
+	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
 	var archiveChecksum *string
 	var providerTmpPath string
 	var readmeConfigMapRef *opendepotv1alpha1.ReadmeConfigMapRef
+	var agentMetadata *opendepotv1alpha1.AgentMetadata
+	var agentReadme []byte
 	var contractConfigMapRef *opendepotv1alpha1.ContractConfigMapRef
 	var providerSchemaRef *opendepotv1alpha1.ProviderSchemaRef
 	var providerSchemaStatus *opendepotv1alpha1.ProviderSchemaStatus
 
 	switch version.Spec.Type {
-	case opendepotv1alpha1.OpenDepotModule:
+	case opendepotv1alpha1.OpenDepotModule, opendepotv1alpha1.OpenDepotSkill, opendepotv1alpha1.OpenDepotAgent:
 		// Fast path: if the Version has already been synced and the artifact exists in
 		// storage with a matching checksum, skip the GitHub download and any re-scan.
 		// Without this, the controller re-downloads the archive from GitHub and re-runs
 		// Trivy on every reconcile (e.g. after every controller restart), which hammers
 		// the GitHub API and wastes scan CPU even when nothing has changed.
+		if isAgent && !r.ScanAgents {
+			if version.Status.Synced {
+				return ctrl.Result{}, nil
+			}
+
+			if err := r.persistAgentBlock(ctx, req, nil, nil, "Agent scanning is disabled on the version controller (--scan-agents=false)"); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, nil
+		}
+
 		if version.Status.Checksum != nil && version.Status.Synced && version.Spec.FileName != nil {
 			existingFilePath, pathErr := getVersionFilePath(version)
 			if pathErr == nil {
@@ -220,7 +252,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
 					bypassFastPath := version.Spec.ForceSync ||
-						(r.AssemblyEnabled && r.contractNeedsDerivation(ctx, version))
+						(version.Spec.Type == opendepotv1alpha1.OpenDepotModule && r.AssemblyEnabled && r.contractNeedsDerivation(ctx, version)) ||
+						(isAgent && version.Status.ShaSumsSignature == "")
 
 					if !bypassFastPath {
 						r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
@@ -240,20 +273,27 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		r.Log.V(5).Info("fetching module archive", "version", version.Name, "versionStr", version.Spec.Version)
-		moduleBytes, checksum, err := r.fetchModuleArchive(ctx, version)
-		if err != nil {
-			version.Status.SyncStatus = fmt.Sprintf("Failed to retrieve module archive: %v", err)
-			_ = r.Status().Update(ctx, version)
-			return ctrl.Result{}, err
+		r.Log.V(5).Info("fetching archive", "version", version.Name, "type", version.Spec.Type, "versionStr", version.Spec.Version)
+		var moduleBytes []byte
+		var checksum *string
+		var fetchErr error
+		if version.Spec.Type == opendepotv1alpha1.OpenDepotModule {
+			moduleBytes, checksum, fetchErr = r.fetchModuleArchive(ctx, version)
+		} else {
+			moduleBytes, checksum, agentMetadata, agentReadme, fetchErr = r.fetchAgentArchive(ctx, version)
 		}
 
-		r.Log.V(5).Info("module archive fetched", "version", version.Name, "bytes", len(moduleBytes))
+		if fetchErr != nil {
+			version.Status.SyncStatus = fmt.Sprintf("Failed to retrieve %s archive: %v", strings.ToLower(version.Spec.Type), fetchErr)
+			_ = r.Status().Update(ctx, version)
+			return ctrl.Result{}, fetchErr
+		}
+
+		r.Log.V(5).Info("archive fetched", "version", version.Name, "bytes", len(moduleBytes))
 		fileBytes = moduleBytes
 		archiveChecksum = checksum
 
-		if version.Spec.ModuleConfigRef.Immutable != nil &&
-			*version.Spec.ModuleConfigRef.Immutable &&
+		if versionImmutable(version) &&
 			version.Status.Checksum != nil &&
 			archiveChecksum != nil &&
 			*version.Status.Checksum != *archiveChecksum {
@@ -270,7 +310,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// resolved. Any failure to resolve or store a README is non-fatal: the Version can
 		// still sync successfully without one.
 		if version.Status.ReadmeConfigMapRef == nil || version.Spec.ForceSync {
-			readmeBytes, readmeErr := r.fetchModuleReadme(ctx, version, fileBytes)
+			var readmeBytes []byte
+			var readmeErr error
+			if version.Spec.Type == opendepotv1alpha1.OpenDepotModule {
+				readmeBytes, readmeErr = r.fetchModuleReadme(ctx, version, fileBytes)
+			} else {
+				readmeBytes = agentReadme
+			}
 			if readmeErr != nil {
 				r.Log.V(5).Info("failed to resolve module readme; skipping", "version", version.Name, "error", readmeErr.Error())
 			} else if len(readmeBytes) > 0 {
@@ -287,7 +333,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// set, or when newly onboarded provider schemas can improve a degraded contract.
 		// Contract derivation is entirely non-fatal: a module that cannot be parsed still
 		// syncs, it just records an "unsupported" contract.
-		if r.AssemblyEnabled && (version.Spec.ForceSync || r.contractNeedsDerivation(ctx, version)) {
+		if version.Spec.Type == opendepotv1alpha1.OpenDepotModule && r.AssemblyEnabled && (version.Spec.ForceSync || r.contractNeedsDerivation(ctx, version)) {
 			ref, contractErr := r.deriveModuleContract(ctx, version, fileBytes)
 			if contractErr != nil {
 				r.Log.V(5).Info("failed to derive module contract; skipping", "version", version.Name, "error", contractErr.Error())
@@ -522,8 +568,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var sourceScan *opendepotv1alpha1.SourceScan
 	var resolvedRepo string
 	var resolvedPolicy policy.Resolved
+	var agentSigned *signedAgentArchive
+	var agentJevAssessment *opendepotv1alpha1.JevAssessment
 
-	if r.ScanningEnabled {
+	if r.ScanningEnabled || isAgent {
 		resolvedPolicy = r.resolveScanPolicy(ctx, version)
 	}
 
@@ -555,6 +603,63 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			return ctrl.Result{}, scanErr
 		}
+	}
+
+	// Skill and Agent Versions pass the gates in order: Trivy, agentspec and Expr, Jev, and then signing.
+	// Signing is the last gate, so a Version is never published without a signature.
+	if isAgent {
+		agentSourceScan, content, blocking, scanErr := r.runAgentScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, resolvedPolicy)
+		if scanErr != nil {
+			if err := r.persistAgentBlock(ctx, req, nil, nil, fmt.Sprintf("Agent scan failed: %v", scanErr)); err != nil {
+				r.Log.Error(err, "Failed to persist agent scan failure", "version", version.Name)
+			}
+
+			return ctrl.Result{}, scanErr
+		}
+
+		sourceScan = agentSourceScan
+		if blocking != nil {
+			blockErr := fmt.Errorf("blocking: %s finding %s in %s: %s", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.Title)
+			if err := r.persistScanViolation(ctx, req, nil, sourceScan, blockErr); err != nil {
+				r.Log.Error(err, "Failed to persist scan findings for blocked version", "version", version.Name)
+			}
+
+			return ctrl.Result{}, blockErr
+		}
+
+		jevAssessment, jevErr := r.runAgentJev(ctx, version, content)
+		if jevErr != nil {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("JevUnavailable: %v", jevErr)); err != nil {
+				r.Log.Error(err, "Failed to persist jev unavailable status", "version", version.Name)
+			}
+
+			return ctrl.Result{}, jevErr
+		}
+
+		if jevAssessment != nil && jevAssessment.Blocked {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, "JevBlocked: "+strings.Join(jevAssessment.BlockReasons, "; ")); err != nil {
+				r.Log.Error(err, "Failed to persist jev block", "version", version.Name)
+			}
+
+			return ctrl.Result{}, nil
+		}
+
+		storedPath, err := getVersionFilePath(version)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		signed, signErr := signAgentArchive(fileBytes, filepath.Base(*storedPath))
+		if signErr != nil {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("SigningUnavailable: %v", signErr)); err != nil {
+				r.Log.Error(err, "Failed to persist signing unavailable status", "version", version.Name)
+			}
+
+			return ctrl.Result{}, signErr
+		}
+
+		agentSigned = signed
+		agentJevAssessment = jevAssessment
 	}
 
 	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -593,6 +698,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			currentVersion.Status.ReadmeConfigMapRef = readmeConfigMapRef
 		}
 
+		if agentMetadata != nil {
+			currentVersion.Status.AgentMetadata = agentMetadata
+		}
+
 		if contractConfigMapRef != nil {
 			currentVersion.Status.ContractConfigMapRef = contractConfigMapRef
 		}
@@ -603,6 +712,16 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if providerSchemaStatus != nil {
 			currentVersion.Status.ProviderSchemaStatus = providerSchemaStatus
+		}
+
+		if agentSigned != nil {
+			currentVersion.Status.ShaSums = agentSigned.sums
+			currentVersion.Status.ShaSumsSignature = agentSigned.signature
+			currentVersion.Status.SigningKeyFingerprint = agentSigned.fingerprint
+		}
+
+		if agentJevAssessment != nil {
+			currentVersion.Status.JevAssessment = agentJevAssessment
 		}
 
 		if err := r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
@@ -685,6 +804,37 @@ func (r *VersionReconciler) persistScanViolation(
 	})
 }
 
+// persistAgentBlock records a Skill or Agent Version that did not pass a gate. The Version stays unsynced,
+// and any scan or Jev result gathered so far is kept for review.
+func (r *VersionReconciler) persistAgentBlock(
+	ctx context.Context,
+	req ctrl.Request,
+	sourceScan *opendepotv1alpha1.SourceScan,
+	jevAssessment *opendepotv1alpha1.JevAssessment,
+	syncStatus string,
+) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		currentVersion := &opendepotv1alpha1.Version{}
+		if err := r.Get(ctx, req.NamespacedName, currentVersion); err != nil {
+			return err
+		}
+
+		currentVersion.Status.Synced = false
+		currentVersion.Status.SyncStatus = syncStatus
+		if sourceScan != nil {
+			currentVersion.Status.SourceScan = sourceScan
+		}
+
+		if jevAssessment != nil {
+			currentVersion.Status.JevAssessment = jevAssessment
+		}
+
+		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		})
+	})
+}
+
 // reconcileStoredScanPolicy re-evaluates findings already recorded on a synced Version.
 // ScanPolicy events intentionally use the normal Version reconcile queue, but the storage
 // fast path would otherwise return before the scanner can observe a newly written policy.
@@ -693,7 +843,8 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 	req ctrl.Request,
 	version *opendepotv1alpha1.Version,
 ) (ctrl.Result, error) {
-	if !r.ScanningEnabled || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil) {
+	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
+	if (!r.ScanningEnabled && !isAgent) || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil) {
 		return ctrl.Result{}, nil
 	}
 
@@ -725,8 +876,11 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 
 		if current.Status.SourceScan != nil {
 			scanType := policy.ScanTypeSource
-			if current.Spec.Type == opendepotv1alpha1.OpenDepotModule {
+			switch current.Spec.Type {
+			case opendepotv1alpha1.OpenDepotModule:
 				scanType = policy.ScanTypeModule
+			case opendepotv1alpha1.OpenDepotSkill, opendepotv1alpha1.OpenDepotAgent:
+				scanType = policy.ScanTypeAgent
 			}
 
 			annotated, finding := policy.Apply(resolved, current.Status.SourceScan.Findings, scanType)
@@ -950,6 +1104,184 @@ func (r *VersionReconciler) prepareProviderVersion(version *opendepotv1alpha1.Ve
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// configConflictMessage returns a terminal status message when more than one of moduleConfigRef,
+// providerConfigRef, or agentSourceRef is set, or an empty string when the references are compatible.
+func configConflictMessage(version *opendepotv1alpha1.Version) string {
+	if version.Spec.ModuleConfigRef != nil && version.Spec.ProviderConfigRef != nil {
+		return "Only one of 'ModuleConfigRef' or 'ProviderConfigRef' can be provided: both are defined"
+	}
+
+	if version.Spec.AgentSourceRef != nil && (version.Spec.ModuleConfigRef != nil || version.Spec.ProviderConfigRef != nil) {
+		return "Only one of 'AgentSourceRef', 'ModuleConfigRef', or 'ProviderConfigRef' can be provided: multiple are defined"
+	}
+
+	return ""
+}
+
+// versionImmutable reports whether the Version's source config requires its archive checksum to remain unchanged.
+func versionImmutable(version *opendepotv1alpha1.Version) bool {
+	if version.Spec.ModuleConfigRef != nil && version.Spec.ModuleConfigRef.Immutable != nil {
+		return *version.Spec.ModuleConfigRef.Immutable
+	}
+
+	if version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.Immutable != nil {
+		return *version.Spec.AgentSourceRef.Immutable
+	}
+
+	return false
+}
+
+// prepareAgentVersion validates the agentSourceRef of a Skill or Agent Version and ensures its required fields are present.
+func (r *VersionReconciler) prepareAgentVersion(version *opendepotv1alpha1.Version) (ctrl.Result, error) {
+	if version.Spec.AgentSourceRef == nil {
+		return ctrl.Result{}, fmt.Errorf("agentSourceRef is required for %s version '%s'", strings.ToLower(version.Spec.Type), version.Name)
+	}
+
+	if version.Spec.AgentSourceRef.Name == nil {
+		agentName := version.Labels["opendepot.defdev.io/"+strings.ToLower(version.Spec.Type)]
+		if agentName == "" {
+			return ctrl.Result{}, fmt.Errorf("agentSourceRef.name is required for %s version '%s'", strings.ToLower(version.Spec.Type), version.Name)
+		}
+		version.Spec.AgentSourceRef.Name = &agentName
+	}
+
+	if version.Spec.FileName == nil {
+		uuidFileName, err := generateModuleFileName(nil)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to generate UUID filename for %s archive: %w", strings.ToLower(version.Spec.Type), err)
+		}
+		version.Spec.FileName = uuidFileName
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// fetchAgentArchive downloads the Skill or Agent source directory from GitHub, validates its definition file,
+// and returns a deterministic tar.gz of only that directory along with its checksum, parsed metadata, and README body.
+func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, error) {
+	sourceRef := version.Spec.AgentSourceRef
+
+	useAuthClient := false
+	if sourceRef.GithubClientConfig != nil {
+		useAuthClient = sourceRef.GithubClientConfig.UseAuthenticatedClient
+	}
+
+	var githubClientConfig *opendepotGithub.GithubClientConfig
+	var err error
+	if useAuthClient {
+		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+
+	githubClient, err := opendepotGithub.CreateGithubClient(ctx, useAuthClient, githubClientConfig)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	tagPrefix := ""
+	if sourceRef.TagPrefix != nil {
+		tagPrefix = *sourceRef.TagPrefix
+	}
+
+	repoName := opendepotGithub.AgentSourceRepoName(sourceRef)
+	var tarball []byte
+	var lastErr error
+	for _, tag := range opendepotGithub.TagCandidates(tagPrefix, version.Spec.Version) {
+		resp, reqErr := opendepotGithub.GetArchiveRequest(ctx, githubClient, sourceRef.RepoOwner, repoName, github.Tarball, tag)
+		if reqErr != nil {
+			lastErr = reqErr
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("failed to get archive for tag '%s': status code %d", tag, resp.StatusCode)
+			continue
+		}
+
+		tarball, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to read archive data: %w", err)
+		}
+
+		lastErr = nil
+		break
+	}
+
+	if lastErr != nil {
+		return nil, nil, nil, nil, lastErr
+	}
+
+	tmpDir, err := os.MkdirTemp("", "agent-archive-")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err = archive.ExtractToDir(tarball, tmpDir); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to extract archive: %w", err)
+	}
+
+	// GitHub tarballs contain a single top-level directory named after the repository and commit.
+	rootDir := tmpDir
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	if len(entries) == 1 && entries[0].IsDir() {
+		rootDir = filepath.Join(tmpDir, entries[0].Name())
+	}
+
+	// Cleaning the path relative to a rooted path prevents traversal outside of the repository.
+	agentDir := filepath.Join(rootDir, filepath.Clean("/"+sourceRef.Path))
+	info, err := os.Stat(agentDir)
+	if err != nil || !info.IsDir() {
+		return nil, nil, nil, nil, fmt.Errorf("path '%s' is not a directory in repository '%s'", sourceRef.Path, repoName)
+	}
+
+	entryPath := filepath.Join(agentDir, "SKILL.md")
+	if version.Spec.Type == opendepotv1alpha1.OpenDepotAgent {
+		if sourceRef.Name == nil {
+			return nil, nil, nil, nil, fmt.Errorf("agentSourceRef.name is required for agent version '%s'", version.Name)
+		}
+
+		entryPath, err = agentspec.FindAgentEntry(agentDir, *sourceRef.Name)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+
+	content, err := os.ReadFile(entryPath)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
+	}
+
+	parsed, err := agentspec.ParseAgent(entryPath, content)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to validate %s: %w", filepath.Base(entryPath), err)
+	}
+
+	var packed bytes.Buffer
+	if err = archive.WriteDeterministicTarGz(agentDir, &packed); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to package archive: %w", err)
+	}
+
+	sum := sha256.Sum256(packed.Bytes())
+	checksum := base64.StdEncoding.EncodeToString(sum[:])
+	metadata := &opendepotv1alpha1.AgentMetadata{
+		Name:        parsed.Name,
+		Description: parsed.Description,
+		Tools:       parsed.Tools,
+		Model:       parsed.Model,
+	}
+
+	return packed.Bytes(), &checksum, metadata, []byte(parsed.Body), nil
 }
 
 // fetchModuleArchive downloads module source from GitHub and returns bytes with a checksum.
@@ -1389,6 +1721,10 @@ func (r *VersionReconciler) resolveStorageInterface(ctx context.Context, soi *ty
 
 // getVersionStorageConfig resolves storage configuration from module or provider config references.
 func getVersionStorageConfig(version *opendepotv1alpha1.Version) (*opendepotv1alpha1.StorageConfig, error) {
+	if version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.StorageConfig != nil {
+		return version.Spec.AgentSourceRef.StorageConfig, nil
+	}
+
 	if version.Spec.ModuleConfigRef != nil && version.Spec.ModuleConfigRef.StorageConfig != nil {
 		return version.Spec.ModuleConfigRef.StorageConfig, nil
 	}
@@ -1402,15 +1738,45 @@ func getVersionStorageConfig(version *opendepotv1alpha1.Version) (*opendepotv1al
 
 // getVersionName resolves the logical resource name used as the storage prefix for a Version.
 func getVersionName(version *opendepotv1alpha1.Version) (*string, error) {
-	if version.Spec.ModuleConfigRef != nil && version.Spec.ModuleConfigRef.Name != nil {
-		return version.Spec.ModuleConfigRef.Name, nil
+	var storageName *string
+
+	switch {
+	case version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.Name != nil:
+		name := strings.ToLower(version.Spec.Type) + "-" + *version.Spec.AgentSourceRef.Name
+		storageName = &name
+	case version.Spec.ModuleConfigRef != nil && version.Spec.ModuleConfigRef.Name != nil:
+		storageName = version.Spec.ModuleConfigRef.Name
+	case version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Name != nil:
+		storageName = version.Spec.ProviderConfigRef.Name
+	default:
+		return nil, fmt.Errorf("unable to resolve version name from moduleConfigRef or providerConfigRef")
 	}
 
-	if version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Name != nil {
-		return version.Spec.ProviderConfigRef.Name, nil
+	if err := validatePathSegment("version name", *storageName); err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("unable to resolve version name from moduleConfigRef or providerConfigRef")
+	return storageName, nil
+}
+
+// versionPathSegmentPattern matches a single path segment made of letters, digits, '.', '_' and '-'.
+// Generated file names (a UUID7 followed by an extension such as .zip or .tar.gz) and Kubernetes
+// object names always match.
+var versionPathSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// validatePathSegment rejects a value that is not a plain path segment, so it cannot inject path
+// separators or '..' segments when it is joined into a storage key.
+func validatePathSegment(field, value string) error {
+	if !versionPathSegmentPattern.MatchString(value) || strings.Contains(value, "..") {
+		return fmt.Errorf("%s '%s' must be a plain name without path separators or '..'", field, value)
+	}
+
+	return nil
+}
+
+// validateVersionFileName rejects a fileName that is not a plain file name.
+func validateVersionFileName(fileName string) error {
+	return validatePathSegment("fileName", fileName)
 }
 
 // getVersionFilePath computes the object key for module/provider artifacts.
@@ -1427,6 +1793,10 @@ func getVersionFilePath(version *opendepotv1alpha1.Version) (*string, error) {
 
 	if version.Spec.FileName == nil {
 		return nil, fmt.Errorf("fileName is nil for version '%s'", version.Name)
+	}
+
+	if err := validateVersionFileName(*version.Spec.FileName); err != nil {
+		return nil, fmt.Errorf("invalid version '%s': %w", version.Name, err)
 	}
 
 	if storageConfig.S3 != nil && storageConfig.S3.Key != nil {

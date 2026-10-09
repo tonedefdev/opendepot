@@ -30,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -73,6 +74,51 @@ var _ = Describe("Version Controller", func() {
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no usable type provided"))
+		})
+
+		It("records a block without fetching when agent scanning is disabled", func() {
+			const resourceName = "test-agent-scan-disabled"
+			namespacedName := types.NamespacedName{Name: resourceName, Namespace: "default"}
+
+			resource := &opendepotv1alpha1.Version{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       resourceName,
+					Namespace:  "default",
+					Finalizers: []string{opendepotv1alpha1.OpenDepotFinalizer},
+				},
+				Spec: opendepotv1alpha1.VersionSpec{
+					Type:    opendepotv1alpha1.OpenDepotAgent,
+					Version: "1.0.0",
+					AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{
+						Name:      ptr.To("demo"),
+						RepoOwner: "example",
+						Path:      "agents/demo",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			DeferCleanup(func() {
+				current := &opendepotv1alpha1.Version{}
+				if err := k8sClient.Get(ctx, namespacedName, current); err == nil {
+					current.Finalizers = nil
+					_ = k8sClient.Update(ctx, current)
+					_ = k8sClient.Delete(ctx, current)
+				}
+			})
+
+			reconciler := &VersionReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Log:        logr.Discard(),
+				ScanAgents: false,
+			}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			current := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, namespacedName, current)).To(Succeed())
+			Expect(current.Status.Synced).To(BeFalse())
+			Expect(current.Status.ShaSums).To(BeEmpty())
 		})
 
 		It("should return an error when a Provider Version is missing providerConfigRef", func() {

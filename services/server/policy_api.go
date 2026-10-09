@@ -508,8 +508,8 @@ func decodeAndValidateScanPolicy(body []byte, policy *opendepotv1alpha1.ScanPoli
 	}
 
 	for i, target := range policy.Spec.TargetRefs {
-		if target.Kind != "Module" && target.Kind != "Provider" {
-			return fmt.Errorf("spec.targetRefs[%d].kind must be Module or Provider", i)
+		if target.Kind != "Module" && target.Kind != "Provider" && target.Kind != "Skill" && target.Kind != "Agent" {
+			return fmt.Errorf("spec.targetRefs[%d].kind must be Module, Provider, Skill, or Agent", i)
 		}
 		if target.Name == "" {
 			return fmt.Errorf("spec.targetRefs[%d].name is required", i)
@@ -542,7 +542,8 @@ func validateScanPolicyTargets(ctx context.Context, request rest.Interface, name
 			}
 
 			names = map[string]struct{}{}
-			if resourceType == "module" {
+			switch resourceType {
+			case "module":
 				var list opendepotv1alpha1.ModuleList
 				if err := json.Unmarshal(raw, &list); err != nil {
 					return fmt.Errorf("failed to decode Module list: %w", err)
@@ -550,7 +551,23 @@ func validateScanPolicyTargets(ctx context.Context, request rest.Interface, name
 				for _, item := range list.Items {
 					names[item.Name] = struct{}{}
 				}
-			} else {
+			case "skill":
+				var list opendepotv1alpha1.SkillList
+				if err := json.Unmarshal(raw, &list); err != nil {
+					return fmt.Errorf("failed to decode Skill list: %w", err)
+				}
+				for _, item := range list.Items {
+					names[item.Name] = struct{}{}
+				}
+			case "agent":
+				var list opendepotv1alpha1.AgentList
+				if err := json.Unmarshal(raw, &list); err != nil {
+					return fmt.Errorf("failed to decode Agent list: %w", err)
+				}
+				for _, item := range list.Items {
+					names[item.Name] = struct{}{}
+				}
+			default:
 				var list opendepotv1alpha1.ProviderList
 				if err := json.Unmarshal(raw, &list); err != nil {
 					return fmt.Errorf("failed to decode Provider list: %w", err)

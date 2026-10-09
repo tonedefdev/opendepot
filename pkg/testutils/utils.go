@@ -273,11 +273,12 @@ func NeedsRebuild(image, wantHash string) bool {
 }
 
 // ComputeBuildContextHash computes a SHA-256 hash over the contents of all
-// git-tracked files under the given paths (relative to repoRoot). This
-// produces a deterministic fingerprint of the Docker build context without
-// requiring a build.
+// git-tracked and untracked (not ignored) files under the given paths (relative
+// to repoRoot). Untracked files are included so new packages still invalidate
+// the hash before they are committed. This produces a deterministic fingerprint
+// of the Docker build context without requiring a build.
 func ComputeBuildContextHash(repoRoot string, paths []string) (string, error) {
-	args := append([]string{"-C", repoRoot, "ls-files", "--"}, paths...)
+	args := append([]string{"-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard", "--"}, paths...)
 	out, err := exec.Command("git", args...).Output()
 	if err != nil {
 		return "", fmt.Errorf("git ls-files: %w", err)

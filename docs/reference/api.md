@@ -201,7 +201,7 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
   "os": "linux",
   "arch": "amd64",
   "filename": "terraform-provider-aws_5.80.0_linux_amd64.zip",
-  "download_url": "https://.../opendepot/providers/v1/download/opendepot-system/aws/5.80.0",
+  "download_url": "https://.../opendepot/providers/v1/download/opendepot-system/aws/5.80.0/linux/amd64",
   "shasum": "<hex-sha256>",
   "shasums_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS/linux/amd64",
   "shasums_signature_url": "https://.../opendepot/providers/v1/opendepot-system/aws/5.80.0/SHA256SUMS.sig/linux/amd64",
@@ -219,7 +219,7 @@ Returns the download URL, SHA256 checksum, and GPG signing key for a specific pr
 ## Provider Binary Download
 
 ```
-GET /opendepot/providers/v1/download/{namespace}/{type}/{version}
+GET /opendepot/providers/v1/download/{namespace}/{type}/{version}/{os}/{arch}
 ```
 
 Streams the provider binary archive (`.zip`) directly from storage. Does **not** require client authentication — the server uses its own ServiceAccount per the Terraform Provider Registry Protocol, which both OpenTofu and Terraform implement.
@@ -851,7 +851,7 @@ References the ConfigMap and data key holding a module `Version`'s base64 encode
 
 ### GroupBinding
 
-`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules and providers. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.
+`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules, providers, skills, and agents. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.
 
 See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
 
@@ -862,6 +862,8 @@ See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
 | `expression` | `string` | Yes | An [expr-lang](https://expr-lang.org/) boolean expression evaluated against the user's groups. The evaluation environment exposes `groups []string`. Must return `true` or `false`. Example: `'"platform-team" in groups'` |
 | `moduleResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for module names the group may access. Empty list denies access to all modules. Example: `["aws-*", "gcp-networking"]` |
 | `providerResources` | `[]string` | No | Exact provider type names the group may access, or `["*"]` to allow all providers. Empty list denies access to all providers. Example: `["aws", "google"]` |
+| `skillResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for skill names the group may access. Empty list denies access to all skills. Example: `["code-review-*"]` |
+| `agentResources` | `[]string` | No | Glob patterns (`path.Match` semantics) for agent names the group may access. Empty list denies access to all agents. Example: `["release-*"]` |
 
 **Example manifest:**
 

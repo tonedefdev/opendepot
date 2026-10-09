@@ -1,0 +1,29 @@
+rules:
+  - id: opendepot-expr-wildcard-tools
+    severity: HIGH
+    title: Agent grants every tool with a wildcard
+    expression: '"*" in Tools'
+  - id: opendepot-expr-unscoped-shell
+    severity: HIGH
+    title: Agent grants an unscoped shell or terminal tool
+    expression: 'any(Tools, {# in ["Bash", "bash", "Shell", "shell", "Terminal", "terminal"]})'
+  - id: opendepot-expr-remote-exec
+    severity: HIGH
+    title: Agent pipes remote content into a shell
+    expression: 'Body matches "(curl|wget)[^|\\n]*\\|\\s*(sudo\\s+)?(sh|bash|zsh)\\b" || Scripts matches "(curl|wget)[^|\\n]*\\|\\s*(sudo\\s+)?(sh|bash|zsh)\\b"'
+  - id: opendepot-expr-fetch-write
+    severity: MEDIUM
+    title: Agent combines network fetch with file write tools
+    expression: '("WebFetch" in Tools || "fetch" in Tools) && ("Write" in Tools || "Edit" in Tools)'
+  - id: opendepot-expr-missing-description
+    severity: LOW
+    title: Agent has no description
+    expression: 'trim(Description) == ""'
+  - id: opendepot-expr-domain-allowlist
+    severity: MEDIUM
+    title: Agent references a domain outside the allowlist
+    expression: 'len(AllowedDomains) > 0 && any(Domains, {# not in AllowedDomains})'
+  - id: opendepot-expr-unpinned-install
+    severity: MEDIUM
+    title: Agent installs an unpinned package
+    expression: 'Body matches "(npx|uvx|pipx run|npm install|pip install|pip3 install) +((-[-\\w]+ +)*)@?[A-Za-z][\\w./-]*(\\s|$)" || Scripts matches "(npx|uvx|pipx run|npm install|pip install|pip3 install) +((-[-\\w]+ +)*)@?[A-Za-z][\\w./-]*(\\s|$)"'

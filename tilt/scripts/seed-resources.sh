@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+jev_block=""
+if [ -n "${OPENDEPOT_JEV_API_KEY:-}" ]; then
+  jev_block='    jevSecretRef:
+      name: opendepot-jev
+      key: jevToken
+    jevPolicy: {}'
+fi
+
 kubectl apply -f - <<'EOF'
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
@@ -82,4 +90,50 @@ spec:
     - '*'
   providerResources:
     - '*'
+  skillResources:
+    - '*'
+  agentResources:
+    - '*'
+EOF
+
+kubectl apply -f - <<EOF
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Skill
+metadata:
+  name: gh-actions-debug
+  namespace: opendepot-system
+spec:
+  agentSourceConfig:
+    name: gh-actions-debug
+    repoOwner: tonedefdev
+    repoUrl: https://github.com/tonedefdev/opendepot
+    path: .github/skills/gh-actions-debug
+    platform: copilot
+    versionConstraints: "~> 0.9.0"
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+${jev_block}
+  versions:
+    - version: "0.9.0"
+---
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Agent
+metadata:
+  name: code-review
+  namespace: opendepot-system
+spec:
+  agentSourceConfig:
+    name: code-review
+    repoOwner: tonedefdev
+    repoUrl: https://github.com/tonedefdev/opendepot
+    path: .github/agents
+    platform: copilot
+    versionConstraints: "~> 0.9.0"
+    storageConfig:
+      fileSystem:
+        directoryPath: /data/modules
+${jev_block}
+  versions:
+    - version: "0.9.0"
 EOF

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,11 +18,17 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v81/github"
+	"github.com/hashicorp/go-version"
 	"golang.org/x/oauth2"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+)
+
+var (
+	repoSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
+	refSegmentPattern  = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,200}$`)
 )
 
 // jwtTransport is a custom HTTP transport that adds the JWT to the Authorization header.
@@ -66,7 +73,7 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 	}
 
 	var moduleReq *http.Response
-	moduleReq, err = GetArchiveRequest(ctx, githubClient, version, format, ref)
+	moduleReq, err = GetArchiveRequest(ctx, githubClient, version.Spec.ModuleConfigRef.RepoOwner, *version.Spec.ModuleConfigRef.Name, format, ref)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -81,7 +88,7 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 			var moduleReq *http.Response
 
 			refNoV := strings.TrimPrefix(ref, "v")
-			moduleReq, err = GetArchiveRequest(ctx, githubClient, version, format, refNoV)
+			moduleReq, err = GetArchiveRequest(ctx, githubClient, version.Spec.ModuleConfigRef.RepoOwner, *version.Spec.ModuleConfigRef.Name, format, refNoV)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -119,9 +126,59 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 	return
 }
 
+// validRepoSegment reports whether s is a safe GitHub owner or repository name. Names may contain only
+// letters, digits, hyphens, underscores, and dots, and must not be the dot segments "." or "..".
+func validRepoSegment(s string) bool {
+	if s == "." || s == ".." {
+		return false
+	}
+
+	return repoSegmentPattern.MatchString(s)
+}
+
+// ValidateRepoName returns an error when owner or repo cannot be safely placed into a GitHub API path.
+func ValidateRepoName(owner, repo string) error {
+	if !validRepoSegment(owner) || !validRepoSegment(repo) {
+		return fmt.Errorf("invalid GitHub owner or repository name %q/%q", owner, repo)
+	}
+
+	return nil
+}
+
+// validRefName reports whether ref is a safe git ref for a GitHub API path. Each slash-separated segment must
+// match refSegmentPattern and must not be a dot segment, so the ref cannot climb to another repository's path.
+func validRefName(ref string) bool {
+	for segment := range strings.SplitSeq(ref, "/") {
+		if segment == "." || segment == ".." || !refSegmentPattern.MatchString(segment) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateRefs returns an error when any of the refs is not a safe git ref.
+func validateRefs(refs []string) error {
+	for _, ref := range refs {
+		if !validRefName(ref) {
+			return fmt.Errorf("invalid git ref %q", ref)
+		}
+	}
+
+	return nil
+}
+
 // GetArchiveRequest retrieves the archive link for a given repository and reference (branch, tag, or commit SHA).
-func GetArchiveRequest(ctx context.Context, githubClient *github.Client, version *opendepotv1alpha1.Version, format github.ArchiveFormat, ref string) (*http.Response, error) {
-	al, alResp, err := githubClient.Repositories.GetArchiveLink(ctx, version.Spec.ModuleConfigRef.RepoOwner, *version.Spec.ModuleConfigRef.Name, format, &github.RepositoryContentGetOptions{
+func GetArchiveRequest(ctx context.Context, githubClient *github.Client, owner, repo string, format github.ArchiveFormat, ref string) (*http.Response, error) {
+	if err := ValidateRepoName(owner, repo); err != nil {
+		return nil, err
+	}
+
+	if err := validateRefs([]string{ref}); err != nil {
+		return nil, err
+	}
+
+	al, alResp, err := githubClient.Repositories.GetArchiveLink(ctx, owner, repo, format, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	}, 10)
 
@@ -153,6 +210,90 @@ func GetArchiveRequest(ctx context.Context, githubClient *github.Client, version
 	}
 
 	return archiveResp, nil
+}
+
+// TagCandidates returns the tag names to try for a version in preference order: the 'v' prefixed tag first,
+// then the bare version, mirroring the fallback used by GetModuleArchiveFromRef.
+func TagCandidates(tagPrefix, versionString string) []string {
+	bare := strings.TrimPrefix(versionString, "v")
+	return []string{tagPrefix + "v" + bare, tagPrefix + bare}
+}
+
+// AgentSourceRepoName returns the repository name that holds an agent source. The name is the last path
+// segment of RepoUrl, falling back to the source Name when RepoUrl is not set.
+func AgentSourceRepoName(sourceConfig *opendepotv1alpha1.AgentSourceConfig) string {
+	if sourceConfig.RepoUrl != nil && strings.TrimSpace(*sourceConfig.RepoUrl) != "" {
+		segments := strings.Split(strings.TrimSuffix(strings.TrimSpace(*sourceConfig.RepoUrl), "/"), "/")
+		return segments[len(segments)-1]
+	}
+
+	if sourceConfig.Name != nil {
+		return *sourceConfig.Name
+	}
+
+	return ""
+}
+
+// ListMatchingTags lists every tag in the repository that begins with tagPrefix, strips the prefix, and returns
+// the remaining versions that parse as semver and satisfy versionConstraints. An empty versionConstraints matches all semver tags.
+func ListMatchingTags(ctx context.Context, githubClient *github.Client, owner, repo, tagPrefix, versionConstraints string) ([]string, error) {
+	if err := ValidateRepoName(owner, repo); err != nil {
+		return nil, err
+	}
+
+	var constraints version.Constraints
+	if strings.TrimSpace(versionConstraints) != "" {
+		var err error
+		constraints, err = version.NewConstraint(versionConstraints)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	opt := &github.ListOptions{
+		Page:    1,
+		PerPage: 100,
+	}
+
+	var matched []string
+	for {
+		tags, resp, err := githubClient.Repositories.ListTags(ctx, owner, repo, opt)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp == nil {
+			return nil, fmt.Errorf("tags response was nil")
+		}
+
+		for _, tag := range tags {
+			if !strings.HasPrefix(tag.GetName(), tagPrefix) {
+				continue
+			}
+
+			candidate := strings.TrimPrefix(tag.GetName(), tagPrefix)
+			tagVersion, err := version.NewVersion(candidate)
+			if err != nil {
+				continue
+			}
+
+			// Constraints returned from version.NewConstraint use AND semantics,
+			// so a tag must satisfy the full expression (e.g. >=1.0.0, <2.0.0).
+			if constraints != nil && !constraints.Check(tagVersion) {
+				continue
+			}
+
+			matched = append(matched, candidate)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+
+		opt.Page = resp.NextPage
+	}
+
+	return matched, nil
 }
 
 // GenerateGithubClient creates a GitHub client using a GitHub Application for authentication.
@@ -246,6 +387,13 @@ func GetGithubApplicationSecret(ctx context.Context, k8sClient client.Client, se
 func GetProviderGoMod(ctx context.Context, githubClient *github.Client, owner, repo, version string) ([]byte, error) {
 	bare := strings.TrimPrefix(version, "v")
 	refs := []string{"v" + bare, bare}
+	if err := ValidateRepoName(owner, repo); err != nil {
+		return nil, err
+	}
+
+	if err := validateRefs(refs); err != nil {
+		return nil, err
+	}
 
 	// Try raw.githubusercontent.com first — not subject to GitHub API rate limits.
 	for _, ref := range refs {
@@ -295,6 +443,13 @@ func GetProviderGoMod(ctx context.Context, githubClient *github.Client, owner, r
 func GetModuleReadme(ctx context.Context, githubClient *github.Client, owner, repo, version string) ([]byte, error) {
 	bare := strings.TrimPrefix(version, "v")
 	refs := []string{"v" + bare, bare}
+	if err := ValidateRepoName(owner, repo); err != nil {
+		return nil, err
+	}
+
+	if err := validateRefs(refs); err != nil {
+		return nil, err
+	}
 
 	var lastErr error
 	for _, ref := range refs {

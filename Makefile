@@ -8,12 +8,13 @@ ifndef TAG
 TAG := $(shell date +%s)
 endif
 
-SERVICES := server depot-controller module-controller provider-controller version-controller ui
+SERVICES := server depot-controller module-controller provider-controller version-controller agent-controller ui
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
 module-controller_PATH := services/module
+agent-controller_PATH := services/agent
 provider-controller_PATH := services/provider
 version-controller_PATH := services/version
 ui_PATH := services/ui
@@ -22,6 +23,7 @@ ui_PATH := services/ui
 server_CONTEXT := .
 depot-controller_CONTEXT := .
 module-controller_CONTEXT := .
+agent-controller_CONTEXT := .
 provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui

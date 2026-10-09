@@ -3,3 +3,5 @@ set -eu
 
 kubectl delete module terraform-aws-key-pair --namespace opendepot-system --ignore-not-found
 kubectl delete groupbinding local-test-access --namespace opendepot-system --ignore-not-found
+kubectl delete skill gh-actions-debug --namespace opendepot-system --ignore-not-found
+kubectl delete agent code-review --namespace opendepot-system --ignore-not-found

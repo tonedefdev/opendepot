@@ -23,6 +23,8 @@ type scanPolicyCatalogNamespace struct {
 	CanManageNamespaceWidePolicies bool                        `json:"canManageNamespaceWidePolicies"`
 	Modules                        []scanPolicyCatalogResource `json:"modules"`
 	Providers                      []scanPolicyCatalogResource `json:"providers"`
+	Skills                         []scanPolicyCatalogResource `json:"skills"`
+	Agents                         []scanPolicyCatalogResource `json:"agents"`
 }
 
 type scanPolicyCatalogResource struct {
@@ -57,7 +59,7 @@ func handleScanPolicyCatalog(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if len(item.Modules) == 0 && len(item.Providers) == 0 && !item.CanManageNamespaceWidePolicies {
+		if len(item.Modules) == 0 && len(item.Providers) == 0 && len(item.Skills) == 0 && len(item.Agents) == 0 && !item.CanManageNamespaceWidePolicies {
 			continue
 		}
 
@@ -111,6 +113,8 @@ func catalogNamespace(r *http.Request, request rest.Interface, binding *opendepo
 		CanManageNamespaceWidePolicies: binding == nil || binding.Spec.NamespaceWidePolicyManagement,
 		Modules:                        []scanPolicyCatalogResource{},
 		Providers:                      []scanPolicyCatalogResource{},
+		Skills:                         []scanPolicyCatalogResource{},
+		Agents:                         []scanPolicyCatalogResource{},
 	}
 
 	moduleRaw, err := request.Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(namespace).Resource("modules").DoRaw(r.Context())
@@ -141,7 +145,37 @@ func catalogNamespace(r *http.Request, request rest.Interface, binding *opendepo
 		}
 	}
 
+	skillRaw, err := request.Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(namespace).Resource("skills").DoRaw(r.Context())
+	if err != nil {
+		return item, err
+	}
+	var skills opendepotv1alpha1.SkillList
+	if err := json.Unmarshal(skillRaw, &skills); err != nil {
+		return item, err
+	}
+	for _, skill := range skills.Items {
+		if isSecurityResourceAllowed(binding, "skill", skill.Name) {
+			item.Skills = append(item.Skills, scanPolicyCatalogResource{Name: skill.Name})
+		}
+	}
+
+	agentRaw, err := request.Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(namespace).Resource("agents").DoRaw(r.Context())
+	if err != nil {
+		return item, err
+	}
+	var agents opendepotv1alpha1.AgentList
+	if err := json.Unmarshal(agentRaw, &agents); err != nil {
+		return item, err
+	}
+	for _, agent := range agents.Items {
+		if isSecurityResourceAllowed(binding, "agent", agent.Name) {
+			item.Agents = append(item.Agents, scanPolicyCatalogResource{Name: agent.Name})
+		}
+	}
+
 	sort.Slice(item.Modules, func(i, j int) bool { return item.Modules[i].Name < item.Modules[j].Name })
 	sort.Slice(item.Providers, func(i, j int) bool { return item.Providers[i].Name < item.Providers[j].Name })
+	sort.Slice(item.Skills, func(i, j int) bool { return item.Skills[i].Name < item.Skills[j].Name })
+	sort.Slice(item.Agents, func(i, j int) bool { return item.Agents[i].Name < item.Agents[j].Name })
 	return item, nil
 }

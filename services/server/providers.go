@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -14,11 +13,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/crypto/openpgp"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	opendepotSigning "github.com/tonedefdev/opendepot/pkg/signing"
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 	opendepotUtils "github.com/tonedefdev/opendepot/pkg/utils"
 )
@@ -298,9 +297,10 @@ func serveProviderMirrorArchive(w http.ResponseWriter, r *http.Request) {
 
 // getProviderVersionResource scans all Version resources in the given namespace and
 // returns the first one whose ProviderConfigRef matches providerType and whose
-// normalized version matches requestedVersion. Returns nil, nil when no match is found.
+// normalized version matches requestedVersion and, when osName is non-empty, the
+// operating system and architecture match. Returns nil, nil when no match is found.
 // ctxName is included in error messages for caller-specific context.
-func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, providerType, requestedVersion string, ctxName string, ctxReq *http.Request) (*opendepotv1alpha1.Version, error) {
+func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, providerType, requestedVersion, osName, arch string, ctxName string, ctxReq *http.Request) (*opendepotv1alpha1.Version, error) {
 	result, err := clientset.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -327,6 +327,10 @@ func getProviderVersionResource(clientset *kubernetes.Clientset, namespace, prov
 		}
 
 		if opendepotUtils.SanitizeVersion(item.Spec.Version) != normalizedRequestedVersion {
+			continue
+		}
+
+		if osName != "" && (item.Spec.OperatingSystem != osName || item.Spec.Architecture != arch) {
 			continue
 		}
 
@@ -491,7 +495,7 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", "provider", "resource_name", providerType, "namespace", namespace)
 	}
 
-	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider package metadata", r)
+	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, osName, arch, "provider package metadata", r)
 	if err != nil {
 		logger.Error("unable to locate provider version", "error", err, "namespace", namespace, "type", providerType, "version", requestedVersion)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -530,7 +534,7 @@ func getProviderPackageMetadata(w http.ResponseWriter, r *http.Request) {
 		OS:                  osName,
 		Arch:                arch,
 		Filename:            *versionResource.Spec.FileName,
-		DownloadURL:         fmt.Sprintf("%s/opendepot/providers/v1/download/%s/%s/%s", baseURL, namespace, providerType, versionString),
+		DownloadURL:         fmt.Sprintf("%s/opendepot/providers/v1/download/%s/%s/%s/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
 		SHASumsURL:          fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
 		SHASumsSignatureURL: fmt.Sprintf("%s/opendepot/providers/v1/%s/%s/%s/SHA256SUMS.sig/%s/%s", baseURL, namespace, providerType, versionString, osName, arch),
 		SHASum:              checksumHex,
@@ -560,8 +564,10 @@ func serveProviderPackageDownload(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	providerType := chi.URLParam(r, "type")
 	requestedVersion := chi.URLParam(r, "version")
+	osName := chi.URLParam(r, "os")
+	arch := chi.URLParam(r, "arch")
 
-	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider package download", r)
+	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, osName, arch, "provider package download", r)
 	if err != nil {
 		logger.Error("unable to locate provider version for download", "error", err, "namespace", namespace, "type", providerType, "version", requestedVersion)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -689,8 +695,10 @@ func getProviderPackageSHA256SUMS(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	providerType := chi.URLParam(r, "type")
 	requestedVersion := chi.URLParam(r, "version")
+	osName := chi.URLParam(r, "os")
+	arch := chi.URLParam(r, "arch")
 
-	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider shasums", r)
+	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, osName, arch, "provider shasums", r)
 	if err != nil {
 		logger.Error("unable to locate provider version for shasums", "error", err, "namespace", namespace, "type", providerType, "version", requestedVersion)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -731,8 +739,10 @@ func getProviderPackageSHA256SUMSSignature(w http.ResponseWriter, r *http.Reques
 	namespace := chi.URLParam(r, "namespace")
 	providerType := chi.URLParam(r, "type")
 	requestedVersion := chi.URLParam(r, "version")
+	osName := chi.URLParam(r, "os")
+	arch := chi.URLParam(r, "arch")
 
-	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, "provider shasums signature", r)
+	versionResource, err := getProviderVersionResource(clientset, namespace, providerType, requestedVersion, osName, arch, "provider shasums signature", r)
 	if err != nil {
 		logger.Error("unable to locate provider version for shasums signature", "error", err, "namespace", namespace, "type", providerType, "version", requestedVersion)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -766,25 +776,19 @@ func getProviderPackageSHA256SUMSSignature(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	entityList, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(privateKeyArmor))
+	signer, err := opendepotSigning.ParsePrivateKey(privateKeyArmor, "")
 	if err != nil {
 		logger.Error("unable to parse gpg private key", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if len(entityList) == 0 {
-		logger.Error("no gpg entities found in private key")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	var sigBuf bytes.Buffer
-	if err = openpgp.DetachSign(&sigBuf, entityList[0], strings.NewReader(shasumsContent), nil); err != nil {
+	sig, _, err := signer.SignSHA256SUMS([]byte(shasumsContent))
+	if err != nil {
 		logger.Error("unable to sign provider shasums", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	_, _ = w.Write(sigBuf.Bytes())
+	_, _ = w.Write(sig)
 }

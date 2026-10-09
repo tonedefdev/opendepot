@@ -37,6 +37,7 @@ const (
 	ScanTypeBinary = "binary"
 	ScanTypeSource = "source"
 	ScanTypeModule = "module"
+	ScanTypeAgent  = "agent"
 )
 
 // wildcard is the only pattern supported in exemption and target reference lists.
@@ -128,9 +129,9 @@ func matchList(values []string, candidate string) bool {
 	return false
 }
 
-// resourceName returns the Module or Provider name a Version belongs to, preferring the
-// labels applied by the module and provider controllers and falling back to the inherited
-// config reference for Versions created before those labels existed.
+// resourceName returns the Module, Provider, Skill, or Agent name a Version belongs to, preferring
+// the labels applied by the owning controllers and falling back to the inherited config or source
+// reference for Versions created before those labels existed.
 func resourceName(version *opendepotv1alpha1.Version) string {
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
@@ -148,6 +149,14 @@ func resourceName(version *opendepotv1alpha1.Version) string {
 
 		if version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Name != nil {
 			return *version.Spec.ProviderConfigRef.Name
+		}
+	case opendepotv1alpha1.OpenDepotSkill, opendepotv1alpha1.OpenDepotAgent:
+		if name := version.Labels["opendepot.defdev.io/"+strings.ToLower(version.Spec.Type)]; name != "" {
+			return name
+		}
+
+		if version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.Name != nil {
+			return *version.Spec.AgentSourceRef.Name
 		}
 	}
 

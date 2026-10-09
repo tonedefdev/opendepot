@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,18 +32,32 @@ import (
 
 var _ = Describe("Depot", Ordered, func() {
 	const (
-		depotNamespace    = "opendepot-system"
-		depotCRName       = "e2e-depot"
-		moduleCRName      = "terraform-aws-key-pair"
-		moduleVersion     = "2.0.0"
-		moduleProvider    = "aws"
-		providerCRName    = "random"
-		providerVersion   = "3.6.0"
-		moduleStoragePath = "/data/modules"
+		depotNamespace     = "opendepot-system"
+		depotCRName        = "e2e-depot"
+		moduleCRName       = "terraform-aws-key-pair"
+		moduleVersion      = "2.0.0"
+		moduleProvider     = "aws"
+		providerCRName     = "random"
+		providerVersion    = "3.6.0"
+		skillCRName        = "gh-actions-debug"
+		skillVersion       = "0.9.0"
+		skillVersionCRName = "skill-gh-actions-debug-0-9-0"
+		skillRepoOwner     = "tonedefdev"
+		skillRepoURL       = "https://github.com/tonedefdev/opendepot"
+		skillRepoPath      = ".github/skills/gh-actions-debug"
+		skillTagPrefix     = "opendepot-"
+		agentCRName        = "code-review"
+		agentVersion       = "0.9.0"
+		agentVersionCRName = "agent-code-review-0-9-0"
+		agentRepoOwner     = "tonedefdev"
+		agentRepoURL       = "https://github.com/tonedefdev/opendepot"
+		agentRepoPath      = ".github/agents"
+		agentTagPrefix     = "opendepot-"
+		moduleStoragePath  = "/data/modules"
 	)
 
 	BeforeAll(func() {
-		By("cleaning up any pre-existing Depot, Module, and Provider CRs from previous runs")
+		By("cleaning up any pre-existing Depot, Module, Provider, Skill, Agent, and Version CRs from previous runs")
 		func() {
 			cmd := exec.Command("kubectl", "delete", "depot", depotCRName,
 				"-n", depotNamespace, "--ignore-not-found")
@@ -51,6 +66,15 @@ var _ = Describe("Depot", Ordered, func() {
 				"-n", depotNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 			cmd = exec.Command("kubectl", "delete", "provider", providerCRName,
+				"-n", depotNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "skill", skillCRName,
+				"-n", depotNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "agent", agentCRName,
+				"-n", depotNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "version", skillVersionCRName, agentVersionCRName,
 				"-n", depotNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 		}()
@@ -82,9 +106,31 @@ spec:
       storageConfig:
         fileSystem:
           directoryPath: %s
+  skillConfigs:
+    - name: %s
+      repoOwner: %s
+      repoUrl: %s
+      path: %s
+      tagPrefix: %s
+      versionConstraints: "= %s"
+      storageConfig:
+        fileSystem:
+          directoryPath: %s
+  agentConfigs:
+    - name: %s
+      repoOwner: %s
+      repoUrl: %s
+      path: %s
+      tagPrefix: %s
+      versionConstraints: "= %s"
+      storageConfig:
+        fileSystem:
+          directoryPath: %s
 `, depotCRName, depotNamespace,
 			moduleCRName, moduleProvider, moduleVersion, moduleStoragePath,
-			providerCRName, providerVersion, moduleStoragePath)
+			providerCRName, providerVersion, moduleStoragePath,
+			skillCRName, skillRepoOwner, skillRepoURL, skillRepoPath, skillTagPrefix, skillVersion, moduleStoragePath,
+			agentCRName, agentRepoOwner, agentRepoURL, agentRepoPath, agentTagPrefix, agentVersion, moduleStoragePath)
 
 		depotFile := filepath.Join(GinkgoT().TempDir(), "test-depot.yaml")
 		Expect(os.WriteFile(depotFile, []byte(depotYAML), 0600)).To(Succeed())
@@ -101,6 +147,15 @@ spec:
 			"-n", depotNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "provider", providerCRName,
+			"-n", depotNamespace, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "skill", skillCRName,
+			"-n", depotNamespace, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "agent", agentCRName,
+			"-n", depotNamespace, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "version", skillVersionCRName, agentVersionCRName,
 			"-n", depotNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 	})
@@ -177,6 +232,32 @@ spec:
 		output, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output).To(Equal("linux"))
+	})
+
+	It("should create a Skill CR with the matched version from the depot skillConfigs", func() {
+		By("waiting for the Skill CR to list the matched monorepo path and version")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "skill", skillCRName,
+				"-n", depotNamespace,
+				"-o", "jsonpath={.spec.agentSourceConfig.path} {.spec.versions[*].version}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.Fields(output)).To(Equal([]string{skillRepoPath, skillVersion}), "unexpected Skill CR spec")
+		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+	})
+
+	It("should create an Agent CR with the matched version from the depot agentConfigs", func() {
+		By("waiting for the Agent CR to list the matched monorepo path and version")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "agent", agentCRName,
+				"-n", depotNamespace,
+				"-o", "jsonpath={.spec.agentSourceConfig.path} {.spec.versions[*].version}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.Fields(output)).To(Equal([]string{agentRepoPath, agentVersion}), "unexpected Agent CR spec")
+		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	It("should update the Depot status with managed module and provider names", func() {
