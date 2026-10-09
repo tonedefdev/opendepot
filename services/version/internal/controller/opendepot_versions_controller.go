@@ -220,6 +220,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	var fileBytes []byte
+	var agentTree *agentContent
 	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
 	var archiveChecksum *string
 	var providerTmpPath string
@@ -629,6 +630,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		sourceScan = agentSourceScan
+		agentTree = content
 		if blocking != nil {
 			blockErr := fmt.Errorf("blocking: %s finding %s in %s: %s", blocking.Severity, blocking.VulnerabilityID, blocking.PkgName, blocking.Title)
 			if err := r.persistScanViolation(ctx, req, nil, sourceScan, blockErr); err != nil {
@@ -678,8 +680,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	var branchAssessment *opendepotv1alpha1.BumpAssessment
-	if version.Spec.SourceCommit != "" && version.Spec.Version == "" {
-		assessment, requeueAfter, assignErr := r.assignBranchVersion(ctx, req, version)
+	if branchAssignmentPending(version) {
+		assessment, requeueAfter, assignErr := r.assignBranchVersion(ctx, req, version, agentTree, fileBytes)
 		if assignErr != nil {
 			if err := r.setBranchStatus(ctx, req, branchPhaseHeld, fmt.Sprintf("Failed to assign version: %v", assignErr)); err != nil {
 				r.Log.Error(err, "Failed to persist branch assignment failure", "version", version.Name)
