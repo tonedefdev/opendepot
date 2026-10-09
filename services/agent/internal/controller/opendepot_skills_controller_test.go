@@ -33,6 +33,7 @@ import (
 var _ = Describe("Skill Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-skill"
+		const branchCommit = "0123456789abcdef0123456789abcdef01234567"
 
 		ctx := context.Background()
 
@@ -153,6 +154,62 @@ var _ = Describe("Skill Controller", func() {
 
 			Expect(k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{}))).To(BeTrue())
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-2-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{})).To(Succeed())
+		})
+
+		It("should create a branch Version named after the commit and copy back its assigned version", func() {
+			ref := "main"
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Commit: branchCommit, State: "Pending"}}, nil)
+			skill.Spec.AgentSourceConfig.Ref = &ref
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-" + branchCommit, Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Version).To(BeEmpty())
+			Expect(version.Spec.SourceCommit).To(Equal(branchCommit))
+			Expect(*version.Spec.AgentSourceRef.Ref).To(Equal("main"))
+			Expect(version.Labels).To(HaveKeyWithValue("opendepot.defdev.io/commit", branchCommit))
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Status.VersionRefs).To(BeEmpty())
+			Expect(skill.Status.LatestVersion).To(BeNil())
+
+			version.Spec.Version = "1.0.0"
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Spec.Versions[0].Version).To(Equal("1.0.0"))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Assigned"))
+			Expect(skill.Status.VersionRefs["1.0.0"].Name).To(Equal(versionKey.Name))
+			Expect(skill.Status.VersionRefs["1.0.0"].Commit).To(Equal(branchCommit))
+			Expect(*skill.Status.LatestVersion).To(Equal("v1.0.0"))
+		})
+
+		It("should copy a rejected branch Version back to its entry without a semantic version", func() {
+			ref := "main"
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Commit: branchCommit, State: "Pending"}}, nil)
+			skill.Spec.AgentSourceConfig.Ref = &ref
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-" + branchCommit, Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			version.Status.BranchPhase = "Rejected"
+			Expect(k8sClient.Status().Update(ctx, version)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Spec.Versions).To(HaveLen(1))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Rejected"))
+			Expect(skill.Spec.Versions[0].Version).To(BeEmpty())
+			Expect(skill.Status.VersionRefs).To(BeEmpty())
+			Expect(k8sClient.Get(ctx, versionKey, &opendepotv1alpha1.Version{})).To(Succeed())
 		})
 	})
 })
