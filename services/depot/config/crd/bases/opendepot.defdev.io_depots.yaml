@@ -54,6 +54,39 @@ spec:
                     by the agent controller. The source is a directory within a Github repository so that several skills
                     or agents can be published from one monorepo.
                   properties:
+                    branchPolicy:
+                      description: |-
+                        The policy that governs how branch commits are classified into versions. Only valid with ref.
+                        The policy classifies changes and never blocks a Version.
+                      properties:
+                        majorThreshold:
+                          default: 0.5
+                          description: The probability of a MAJOR change at or above
+                            which the bump is MAJOR.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                        minConfidence:
+                          default: 0.5
+                          description: The minimum classification confidence. A bump
+                            below this confidence is flagged for review.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                        minVersionInterval:
+                          default: 10m
+                          description: |-
+                            The minimum time between two branch versions created from the same source. Commits pushed within
+                            this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+                          type: string
+                        minorThreshold:
+                          default: 0.5
+                          description: The combined probability of MAJOR and MINOR
+                            changes at or above which the bump is at least MINOR.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                      type: object
                     githubClientConfig:
                       description: The Github client configuration settings.
                       properties:
@@ -170,6 +203,15 @@ spec:
                       - opencode
                       - pi
                       type: string
+                    ref:
+                      description: |-
+                        The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+                        commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+                        is rejected.
+                      maxLength: 255
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9._+/-]+$
+                      type: string
                     repoOwner:
                       description: Owner of the Github repository.
                       type: string
@@ -269,13 +311,21 @@ spec:
                     versionConstraints:
                       description: |-
                         A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
-                        This field is only respected by the Depot controller.
+                        This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
                       type: string
                     versionHistoryLimit:
                       description: The number of versions to keep stored in the registry
                         at any given time.
                       type: integer
                   type: object
+                  x-kubernetes-validations:
+                  - message: ref and versionConstraints are mutually exclusive
+                    rule: '!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints)
+                      == 0'
+                  - message: tagPrefix is not used with ref
+                    rule: '!has(self.ref) || !has(self.tagPrefix)'
+                  - message: branchPolicy requires ref
+                    rule: '!has(self.branchPolicy) || has(self.ref)'
                 type: array
               global:
                 description: |-
@@ -845,6 +895,39 @@ spec:
                     by the agent controller. The source is a directory within a Github repository so that several skills
                     or agents can be published from one monorepo.
                   properties:
+                    branchPolicy:
+                      description: |-
+                        The policy that governs how branch commits are classified into versions. Only valid with ref.
+                        The policy classifies changes and never blocks a Version.
+                      properties:
+                        majorThreshold:
+                          default: 0.5
+                          description: The probability of a MAJOR change at or above
+                            which the bump is MAJOR.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                        minConfidence:
+                          default: 0.5
+                          description: The minimum classification confidence. A bump
+                            below this confidence is flagged for review.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                        minVersionInterval:
+                          default: 10m
+                          description: |-
+                            The minimum time between two branch versions created from the same source. Commits pushed within
+                            this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+                          type: string
+                        minorThreshold:
+                          default: 0.5
+                          description: The combined probability of MAJOR and MINOR
+                            changes at or above which the bump is at least MINOR.
+                          maximum: 1
+                          minimum: 0
+                          type: number
+                      type: object
                     githubClientConfig:
                       description: The Github client configuration settings.
                       properties:
@@ -961,6 +1044,15 @@ spec:
                       - opencode
                       - pi
                       type: string
+                    ref:
+                      description: |-
+                        The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+                        commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+                        is rejected.
+                      maxLength: 255
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9._+/-]+$
+                      type: string
                     repoOwner:
                       description: Owner of the Github repository.
                       type: string
@@ -1060,13 +1152,21 @@ spec:
                     versionConstraints:
                       description: |-
                         A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
-                        This field is only respected by the Depot controller.
+                        This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
                       type: string
                     versionHistoryLimit:
                       description: The number of versions to keep stored in the registry
                         at any given time.
                       type: integer
                   type: object
+                  x-kubernetes-validations:
+                  - message: ref and versionConstraints are mutually exclusive
+                    rule: '!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints)
+                      == 0'
+                  - message: tagPrefix is not used with ref
+                    rule: '!has(self.ref) || !has(self.tagPrefix)'
+                  - message: branchPolicy requires ref
+                    rule: '!has(self.branchPolicy) || has(self.ref)'
                 type: array
             type: object
           status:
