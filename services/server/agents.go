@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -36,7 +38,9 @@ type agentKind struct {
 type agentParent struct {
 	Status struct {
 		VersionRefs map[string]struct {
+			Name    string `json:"name"`
 			Version string `json:"version"`
+			Commit  string `json:"commit"`
 			Synced  bool   `json:"synced"`
 		} `json:"versionRefs"`
 	} `json:"status"`
@@ -113,7 +117,8 @@ func buildAgentVersionsResponse(kind agentKind, name string, entries []struct {
 		}
 
 		version, ok := versions[agentVersionResourceName(kind.prefix, name, entry.Version)]
-		if !ok || !agentVersionServable(&version, kind, name) {
+
+		if !ok || !agentVersionServable(&version, kind, name) || trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(entry.Version) {
 			continue
 		}
 
@@ -201,19 +206,20 @@ func listAgentVersionsByName(clientset *kubernetes.Clientset, r *http.Request, n
 }
 
 // getAgentVersionForRequest fetches the Version for the Skill or Agent in the request URL.
-// Blocked Versions are reported as not found. It writes the error response and returns false on failure.
+// A branch Version is not named from its semver, so on NotFound the Version is resolved through
+// the parent's status.versionRefs entry. Blocked Versions are reported as not found. It writes the
+// error response and returns false on failure.
 func getAgentVersionForRequest(w http.ResponseWriter, r *http.Request, clientset *kubernetes.Clientset, kind agentKind) (*opendepotv1alpha1.Version, bool) {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 	requestedVersion := chi.URLParam(r, "version")
 
-	result, err := clientset.RESTClient().
-		Get().
-		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
-		Namespace(namespace).
-		Resource("versions").
-		Name(agentVersionResourceName(kind.prefix, name, requestedVersion)).
-		DoRaw(r.Context())
+	version, err := getAgentVersionByName(r.Context(), clientset, namespace, agentVersionResourceName(kind.prefix, name, requestedVersion))
+
+	if k8sApiErrors.IsNotFound(err) {
+		version, err = getAgentVersionFromParentRef(r.Context(), clientset, namespace, kind, name, requestedVersion)
+	}
+
 	if err != nil {
 		switch {
 		case k8sApiErrors.IsNotFound(err):
@@ -228,20 +234,86 @@ func getAgentVersionForRequest(w http.ResponseWriter, r *http.Request, clientset
 		return nil, false
 	}
 
+	if !agentVersionServable(version, kind, name) {
+		http.Error(w, "version not found", http.StatusNotFound)
+
+		return nil, false
+	}
+
+	return version, true
+}
+
+// getAgentVersionByName gets the Version resource with the given resource name.
+func getAgentVersionByName(ctx context.Context, clientset *kubernetes.Clientset, namespace, resourceName string) (*opendepotv1alpha1.Version, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("versions").
+		Name(resourceName).
+		DoRaw(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
 	var version opendepotv1alpha1.Version
 	if err = json.Unmarshal(result, &version); err != nil {
-		logger.Error("unable to unmarshal agent version", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-
-		return nil, false
+		return nil, fmt.Errorf("unable to unmarshal agent version %s: %w", resourceName, err)
 	}
 
-	if !agentVersionServable(&version, kind, name) {
-		http.Error(w, "version not found", http.StatusNotFound)
-		return nil, false
+	return &version, nil
+}
+
+// getAgentVersionFromParentRef gets the Version named by the parent's status.versionRefs entry for the
+// requested version. The Version must record the requested version in spec.version and must carry the
+// kind label for the named parent, so a ref cannot reach another Skill's or Agent's Version. A missing
+// or mismatched ref is reported as not found.
+func getAgentVersionFromParentRef(ctx context.Context, clientset *kubernetes.Clientset, namespace string, kind agentKind, name, requestedVersion string) (*opendepotv1alpha1.Version, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource(kind.resource).
+		Name(name).
+		DoRaw(ctx)
+
+	if err != nil {
+		return nil, err
 	}
 
-	return &version, true
+	var parent agentParent
+
+	if err = json.Unmarshal(result, &parent); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal agent resource %s: %w", name, err)
+	}
+
+	notFound := k8sApiErrors.NewNotFound(schema.GroupResource{Group: "opendepot.defdev.io", Resource: "versions"}, requestedVersion)
+
+	for _, ref := range parent.Status.VersionRefs {
+		if ref.Name == "" || trimVersionPrefix(ref.Version) != trimVersionPrefix(requestedVersion) {
+			continue
+		}
+
+		version, err := getAgentVersionByName(ctx, clientset, namespace, ref.Name)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(requestedVersion) || version.Labels["opendepot.defdev.io/"+kind.prefix] != name {
+			return nil, notFound
+		}
+
+		return version, nil
+	}
+
+	return nil, notFound
+}
+
+// trimVersionPrefix removes a leading "v" so that "v1.2.0" and "1.2.0" compare equal.
+func trimVersionPrefix(version string) string {
+	return strings.TrimPrefix(version, "v")
 }
 
 // getAgentVersions returns the synced, unblocked versions of a Skill or Agent. Yanked
@@ -319,6 +391,18 @@ func getAgentVersions(w http.ResponseWriter, r *http.Request) {
 		logger.Error("unable to list agent versions", "error", err, "namespace", namespace)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	for _, ref := range parent.Status.VersionRefs {
+		derivedName := agentVersionResourceName(kind.prefix, name, ref.Version)
+
+		if _, ok := versions[derivedName]; ok || ref.Name == "" {
+			continue
+		}
+
+		if version, ok := versions[ref.Name]; ok {
+			versions[derivedName] = version
+		}
 	}
 
 	json.NewEncoder(w).Encode(buildAgentVersionsResponse(kind, name, parent.versionEntries(), versions))
