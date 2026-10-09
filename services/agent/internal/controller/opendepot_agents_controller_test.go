@@ -33,6 +33,7 @@ import (
 var _ = Describe("Agent Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-agent"
+		const branchCommit = "0123456789abcdef0123456789abcdef01234567"
 
 		ctx := context.Background()
 
@@ -153,6 +154,39 @@ var _ = Describe("Agent Controller", func() {
 
 			Expect(k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "agent-test-agent-1-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{}))).To(BeTrue())
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "agent-test-agent-2-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{})).To(Succeed())
+		})
+
+		It("should create a branch Version named after the commit and copy back its assigned version", func() {
+			ref := "main"
+			agent := newAgent([]opendepotv1alpha1.AgentVersion{{Commit: branchCommit, State: "Pending"}}, nil)
+			agent.Spec.AgentSourceConfig.Ref = &ref
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+
+			reconcileAgent()
+
+			versionKey := client.ObjectKey{Name: "agent-test-agent-" + branchCommit, Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Version).To(BeEmpty())
+			Expect(version.Spec.SourceCommit).To(Equal(branchCommit))
+			Expect(*version.Spec.AgentSourceRef.Ref).To(Equal("main"))
+			Expect(version.Labels).To(HaveKeyWithValue("opendepot.defdev.io/commit", branchCommit))
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, agent)).To(Succeed())
+			Expect(agent.Status.VersionRefs).To(BeEmpty())
+			Expect(agent.Status.LatestVersion).To(BeNil())
+
+			version.Spec.Version = "1.0.0"
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			reconcileAgent()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, agent)).To(Succeed())
+			Expect(agent.Spec.Versions[0].Version).To(Equal("1.0.0"))
+			Expect(agent.Spec.Versions[0].State).To(Equal("Assigned"))
+			Expect(agent.Status.VersionRefs["1.0.0"].Name).To(Equal(versionKey.Name))
+			Expect(agent.Status.VersionRefs["1.0.0"].Commit).To(Equal(branchCommit))
+			Expect(*agent.Status.LatestVersion).To(Equal("v1.0.0"))
 		})
 	})
 })
