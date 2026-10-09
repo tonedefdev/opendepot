@@ -539,7 +539,7 @@ func TestRunAgentScanRunsTrivyWithJevEnabledAndDisabled(t *testing.T) {
 	originalTrivy := runTrivy
 	runTrivy = func(_ context.Context, _ ...string) ([]byte, error) {
 		trivyCalls.Add(1)
-		return []byte(`{"Results":[]}`), nil
+		return []byte(`{"SchemaVersion":2,"Results":[]}`), nil
 	}
 	t.Cleanup(func() { runTrivy = originalTrivy })
 
