@@ -1,0 +1,12 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "bump": {
+      "type": "score",
+      "score": 0,
+      "legend": {"0": "Patch", "1": "Major"},
+      "probabilities": {"0": 0.9, "1": 0.1},
+      "confidence": 0.8
+    }
+  }
+}
