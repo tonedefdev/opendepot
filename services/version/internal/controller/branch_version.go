@@ -105,6 +105,12 @@ func versionCreatedBefore(a, b *opendepotv1alpha1.Version) bool {
 	return a.Name < b.Name
 }
 
+// branchAssignmentPending reports whether a branch Version still needs its semver assigned. A Version with a
+// semver is never assessed again, so a forceSync re-run does not reclassify it.
+func branchAssignmentPending(version *opendepotv1alpha1.Version) bool {
+	return version.Spec.SourceCommit != "" && version.Spec.Version == ""
+}
+
 // setBranchStatus writes the branch phase and sync status of a Version. It does nothing when both are unchanged.
 func (r *VersionReconciler) setBranchStatus(ctx context.Context, req ctrl.Request, phase, syncStatus string) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -250,7 +256,13 @@ func manualBumpCategory(version *opendepotv1alpha1.Version) (string, error) {
 
 // assignBranchVersion picks the semantic version of a branch Version whose checks have passed, writes spec.version
 // once, and returns the bump assessment. A requeue duration is returned when the chosen version is already taken.
-func (r *VersionReconciler) assignBranchVersion(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (*opendepotv1alpha1.BumpAssessment, time.Duration, error) {
+func (r *VersionReconciler) assignBranchVersion(
+	ctx context.Context,
+	req ctrl.Request,
+	version *opendepotv1alpha1.Version,
+	tree *agentContent,
+	archive []byte,
+) (*opendepotv1alpha1.BumpAssessment, time.Duration, error) {
 	siblings, err := r.branchSiblings(ctx, version)
 	if err != nil {
 		return nil, 0, err
@@ -280,10 +292,19 @@ func (r *VersionReconciler) assignBranchVersion(ctx context.Context, req ctrl.Re
 
 		assessment.PreviousCommit = previous.Spec.SourceCommit
 		assessment.PreviousVersion = previous.Spec.Version
-		if category != "" {
+		switch {
+		case category != "":
 			assessment.Source = "Manual"
 			assessment.Reason = fmt.Sprintf("Operator set %s to %s", bumpOverrideAnnotation, strings.ToLower(category))
-		} else {
+		case r.branchJevEnabled(version):
+			classified, classifyErr := r.classifyBranchBump(ctx, version, previous, tree, archive, assessment)
+			if classifyErr != nil {
+				requeueAfter, holdErr := r.holdBranchBump(ctx, req, version, assessment, classifyErr)
+				return nil, requeueAfter, holdErr
+			}
+
+			category = classified
+		default:
 			category = "Patch"
 			assessment.Source = "Default"
 			assessment.Reason = "No Jev classifier is configured; PATCH applied"

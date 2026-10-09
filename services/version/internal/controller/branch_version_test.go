@@ -280,7 +280,7 @@ var _ = Describe("Branch Version sourcing", func() {
 		firstKey := types.NamespacedName{Name: first.Name, Namespace: "default"}
 		firstCurrent := &opendepotv1alpha1.Version{}
 		Expect(k8sClient.Get(ctx, firstKey, firstCurrent)).To(Succeed())
-		assessment, requeue, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: firstKey}, firstCurrent)
+		assessment, requeue, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: firstKey}, firstCurrent, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(requeue).To(BeZero())
 		Expect(assessment.Source).To(Equal("Initial"))
@@ -289,7 +289,7 @@ var _ = Describe("Branch Version sourcing", func() {
 		secondKey := types.NamespacedName{Name: second.Name, Namespace: "default"}
 		secondCurrent := &opendepotv1alpha1.Version{}
 		Expect(k8sClient.Get(ctx, secondKey, secondCurrent)).To(Succeed())
-		assessment, _, err = reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: secondKey}, secondCurrent)
+		assessment, _, err = reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: secondKey}, secondCurrent, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(assessment.Source).To(Equal("Default"))
 		Expect(assessment.Category).To(Equal("Patch"))
@@ -302,7 +302,7 @@ var _ = Describe("Branch Version sourcing", func() {
 		thirdCurrent.Annotations = map[string]string{bumpOverrideAnnotation: "minor"}
 		Expect(k8sClient.Update(ctx, thirdCurrent)).To(Succeed())
 		Expect(k8sClient.Get(ctx, thirdKey, thirdCurrent)).To(Succeed())
-		assessment, _, err = reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: thirdKey}, thirdCurrent)
+		assessment, _, err = reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: thirdKey}, thirdCurrent, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(assessment.Source).To(Equal("Manual"))
 		Expect(assessment.Category).To(Equal("Minor"))
