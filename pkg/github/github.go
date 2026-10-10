@@ -65,6 +65,9 @@ func CreateGithubClient(ctx context.Context, useAuthenticatedClient bool, github
 	return github.NewClient(nil), nil
 }
 
+// maxGoModBytes bounds the go.mod file fetched from a raw GitHub URL.
+const maxGoModBytes int64 = 1 << 20
+
 // maxArchiveBytes bounds the compressed archive read from GitHub before any extraction.
 const maxArchiveBytes int64 = 256 << 20
 
@@ -434,10 +437,15 @@ func GetProviderGoMod(ctx context.Context, githubClient *github.Client, owner, r
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			data, err := io.ReadAll(resp.Body)
+			data, err := io.ReadAll(io.LimitReader(resp.Body, maxGoModBytes+1))
 			if err != nil {
 				return nil, fmt.Errorf("failed to read go.mod from %s: %w", rawURL, err)
 			}
+
+			if int64(len(data)) > maxGoModBytes {
+				return nil, fmt.Errorf("go.mod from %s exceeds %d bytes", rawURL, maxGoModBytes)
+			}
+
 			return data, nil
 		}
 	}

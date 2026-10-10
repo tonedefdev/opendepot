@@ -184,6 +184,11 @@ func (r *VersionReconciler) reconcileBranchPreflight(ctx context.Context, req ct
 		return true, ctrl.Result{}, r.setBranchStatus(ctx, req, branchPhaseRejected, supersededStatus)
 	}
 
+	if branchAssignmentPending(version) && r.branchJevRefMissing(version) {
+		requeueAfter, err := r.holdBranchBump(ctx, req, version, &opendepotv1alpha1.BumpAssessment{Commit: version.Spec.SourceCommit}, errors.New(jevRefRequiredError))
+		return true, ctrl.Result{RequeueAfter: requeueAfter}, err
+	}
+
 	return false, ctrl.Result{}, nil
 }
 

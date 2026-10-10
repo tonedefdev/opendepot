@@ -637,3 +637,41 @@ func TestAssignBranchVersionPatchesWithoutJevRefWhenJevDisabled(t *testing.T) {
 		t.Fatalf("Spec.Version = %q; want 1.0.1", stored.Spec.Version)
 	}
 }
+
+func TestReconcileHoldsBranchVersionWithoutJevRef(t *testing.T) {
+	reconciler, version := newAssignFixture(t, true)
+	reconciler.BranchSourcingEnabled = true
+	ctx := context.Background()
+	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("Reconcile adding finalizer returned error: %v", err)
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	if result.RequeueAfter != bumpBaseBackoff {
+		t.Fatalf("RequeueAfter = %v; want %v", result.RequeueAfter, bumpBaseBackoff)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if stored.Spec.Version != "" || stored.Status.Synced {
+		t.Fatalf("Spec.Version = %q, Synced = %t; want unassigned and unsynced", stored.Spec.Version, stored.Status.Synced)
+	}
+
+	if stored.Status.BranchPhase != branchPhaseHeld {
+		t.Fatalf("BranchPhase = %q; want %q", stored.Status.BranchPhase, branchPhaseHeld)
+	}
+
+	held := stored.Status.BumpAssessment
+	if held == nil || held.Error != jevRefRequiredError || held.Category != "" || held.Source != "" {
+		t.Fatalf("BumpAssessment = %+v; want held with error %q and no category", held, jevRefRequiredError)
+	}
+}
