@@ -211,6 +211,7 @@ func main() {
 		Scheme:                mgr.GetScheme(),
 		Log:                   logger,
 		BranchSourcingEnabled: branchSourcingEnabled,
+		APIReader:             mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Depot")
 		os.Exit(1)

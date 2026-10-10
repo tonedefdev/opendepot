@@ -24,7 +24,7 @@ type branchEntry struct {
 }
 
 // newBranchGithubClient returns the GitHub client used for branch head detection. Tests replace it to reach a fake GitHub.
-var newBranchGithubClient = func(ctx context.Context, k8sClient client.Client, namespace string, sourceConfig *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
+var newBranchGithubClient = func(ctx context.Context, k8sReader client.Reader, namespace string, sourceConfig *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
 	useAuthClient := false
 	if sourceConfig.GithubClientConfig != nil {
 		useAuthClient = sourceConfig.GithubClientConfig.UseAuthenticatedClient
@@ -33,7 +33,7 @@ var newBranchGithubClient = func(ctx context.Context, k8sClient client.Client, n
 	var githubConfig *opendepotGithub.GithubClientConfig
 	if useAuthClient {
 		var err error
-		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, k8sClient, namespace)
+		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, k8sReader, namespace)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (r *DepotReconciler) validateBranchSource(sourceConfig *opendepotv1alpha1.A
 
 // branchHead returns the SHA of the newest commit on the source branch that touched the source path.
 func (r *DepotReconciler) branchHead(ctx context.Context, namespace string, sourceConfig *opendepotv1alpha1.AgentSourceConfig) (string, error) {
-	githubClient, err := newBranchGithubClient(ctx, r.Client, namespace, sourceConfig)
+	githubClient, err := newBranchGithubClient(ctx, r.APIReader, namespace, sourceConfig)
 	if err != nil {
 		return "", err
 	}
