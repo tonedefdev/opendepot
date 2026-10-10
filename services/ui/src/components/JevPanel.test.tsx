@@ -65,6 +65,27 @@ describe("JevPanel", () => {
     expect(screen.queryByText("(max 1.0%)")).toBeNull();
   });
 
+  it("colors each bar by severity and lets a breached threshold force red", () => {
+    const bars = () => screen.getAllByRole("progressbar");
+    const colored = { ...assessment, safeProbability: 0.4, injectionProbability: 0.3, exfiltrationProbability: 0.6 };
+
+    renderPanel({ assessment: colored, thresholds: { maxInjectionProbability: 0.2 } });
+
+    const classes = bars().map((bar) => bar.className);
+    expect(classes[0]).toContain("MuiLinearProgress-colorError");
+    expect(classes[1]).toContain("MuiLinearProgress-colorError");
+    expect(classes[2]).toContain("MuiLinearProgress-colorError");
+    expect(classes[3]).toContain("MuiLinearProgress-colorSuccess");
+  });
+
+  it("colors low-band bars green and mid-band bars yellow", () => {
+    renderPanel({ assessment: { ...assessment, safeProbability: 0.9, injectionProbability: 0.3 } });
+
+    const classes = screen.getAllByRole("progressbar").map((bar) => bar.className);
+    expect(classes[0]).toContain("MuiLinearProgress-colorSuccess");
+    expect(classes[1]).toContain("MuiLinearProgress-colorWarning");
+  });
+
   it("renders a blocked banner with its reasons", () => {
     renderPanel({ assessment: { ...assessment, blocked: true, blockReasons: ["injection above limit"] } });
 

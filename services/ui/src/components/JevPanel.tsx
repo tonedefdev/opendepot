@@ -8,6 +8,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { JevAssessment, JevThresholds } from "@/lib/api";
+import { probabilitySeverity } from "@/lib/jevSeverity";
 
 interface JevPanelProps {
   assessment: JevAssessment;
@@ -25,7 +26,7 @@ interface ProbabilityRow {
 
 const RISK_COLORS: Record<string, "success" | "info" | "warning" | "error"> = {
   Minimal: "success",
-  Low: "info",
+  Low: "success",
   Moderate: "warning",
   High: "error",
   Critical: "error",
@@ -213,7 +214,7 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
               <LinearProgress
                 variant="determinate"
                 value={Math.min(100, Math.max(0, row.value * 100))}
-                color={breached ? "error" : "primary"}
+                color={breached ? "error" : probabilitySeverity(row.value, row.direction === "min")}
                 sx={{ height: 6, borderRadius: 3 }}
               />
             </Box>
