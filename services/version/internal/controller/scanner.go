@@ -142,7 +142,9 @@ func decodeTrivyReport(data []byte) (trivyReport, error) {
 }
 
 // runTrivy executes the trivy binary with the supplied arguments and returns raw stdout.
-// Trivy exit code 1 means "vulnerabilities found" — this is not treated as an error here.
+// Exit code 1 is only accepted when a report was written to stdout. Trivy also exits 1 on
+// fatal errors (for example a failed vulnerability DB download) and writes nothing to stdout,
+// which must not be mistaken for a clean scan.
 var runTrivy = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "trivy", args...)
 	var stdout, stderr bytes.Buffer
@@ -150,8 +152,7 @@ var runTrivy = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Exit code 1 = vulnerabilities found — not a fatal error.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 && stdout.Len() > 0 {
 			return stdout.Bytes(), nil
 		}
 

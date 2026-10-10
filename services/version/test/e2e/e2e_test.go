@@ -796,6 +796,9 @@ spec:
 			_, err = utils.Run(cmd)
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release to enable scanning")
 
+			By("seeding the Trivy vulnerability DB so the provider source scan does not depend on a first-run download")
+			Expect(utils.SeedTrivyDB(namespace)).To(Succeed())
+
 			By("applying the null Provider CR with two versions")
 			providerYAML := fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
 kind: Provider
