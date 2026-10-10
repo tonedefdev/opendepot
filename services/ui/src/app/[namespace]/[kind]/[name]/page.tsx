@@ -32,17 +32,12 @@ import UsageSnippet from "@/components/UsageSnippet";
 import ResourceReadme from "@/components/ResourceReadme";
 import ContractTable from "@/components/ContractTable";
 import JevPanel from "@/components/JevPanel";
-import { AgentBody, AgentConfigSnippet, AgentMetadataChips } from "@/components/AgentDetail";
+import { AgentConfigSnippet, AgentDefinition, AgentMetadataChips } from "@/components/AgentDetail";
+import SourceRefChip from "@/components/SourceRefChip";
+import { kindColor } from "@/lib/kindColors";
 import { getContract, getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
-
-// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
-// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
-// secondary palette between light and dark mode, otherwise "provider" and
-// "module" chips would trade colors depending on the active scheme.
-const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#047df1";
 
 interface PageProps {
   params: Promise<{
@@ -182,6 +177,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   );
   const isProviderKind = kind === "provider";
   const isAgentKind = kind === "skill" || kind === "agent";
+  const accentColor = kindColor(kind);
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -214,10 +210,16 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           mb: 4,
           p: 3,
           borderRadius: 2,
-          border: isProviderKind ? "1px solid rgba(4,125,241,0.25)" : "1px solid rgba(4,207,208,0.2)",
+          border: isProviderKind
+            ? "1px solid rgba(4,125,241,0.25)"
+            : isAgentKind
+              ? `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`
+              : "1px solid rgba(4,207,208,0.2)",
           background: isProviderKind
             ? "linear-gradient(135deg, rgba(4,125,241,0.08) 0%, rgba(4,125,241,0.03) 100%)"
-            : "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
+            : isAgentKind
+              ? `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 8%, transparent) 0%, color-mix(in srgb, ${accentColor} 3%, transparent) 100%)`
+              : "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
         }}
       >
         {isProviderKind
@@ -238,11 +240,11 @@ export default async function ResourceDetailPage({ params }: PageProps) {
               size="small"
               variant="outlined"
               sx={{
-                color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
-                borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                color: accentColor,
+                borderColor: accentColor,
                 '[data-mui-color-scheme="light"] &': {
                   color: "#fff",
-                  bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  bgcolor: accentColor,
                 },
               }}
             />
@@ -265,11 +267,11 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 variant="outlined"
                 sx={{
                   fontFamily: "monospace",
-                  color: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
-                  borderColor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                  color: accentColor,
+                  borderColor: accentColor,
                   '[data-mui-color-scheme="light"] &': {
                     color: "#fff",
-                    bgcolor: isProviderKind ? PROVIDER_COLOR : MODULE_COLOR,
+                    bgcolor: accentColor,
                   },
                 }}
               />
@@ -291,6 +293,17 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           {detail.scanCounts && (
             <Box display="flex" flexWrap="wrap" gap={0.5} mt={1.5}>
               <SeverityBadge counts={detail.scanCounts} />
+            </Box>
+          )}
+
+          {detail.sourceRef && (
+            <Box mt={1.5}>
+              <SourceRefChip
+                sourceRef={detail.sourceRef}
+                sourceCommit={detail.sourceCommit}
+                sourcePath={detail.sourcePath}
+                repoUrl={detail.repoUrl}
+              />
             </Box>
           )}
         </Box>
@@ -332,6 +345,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           )}
           <LabelValue label="Latest Version" value={detail.latestVersion ? displayVersion(detail.latestVersion) : undefined} />
           {detail.repoOwner && <LabelValue label="Repo Owner" value={detail.repoOwner} />}
+          {isAgentKind && detail.sourcePath && <LabelValue label="Source Path" value={detail.sourcePath} />}
           {detail.versionHistoryLimit !== undefined && detail.versionHistoryLimit > 0 && (
             <LabelValue label="Version History Limit" value={String(detail.versionHistoryLimit)} />
           )}
@@ -343,9 +357,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       </SectionCard>
 
       {/* Agent definition, metadata, Jev assessment, and config snippet */}
-      {isAgentKind && detail.readmeContent && (
-        <SectionCard icon={<DescriptionIcon fontSize="small" />} title={kind === "skill" ? "SKILL.md" : "Agent Definition"}>
-          <AgentBody content={detail.readmeContent} />
+      {isAgentKind && detail.definitionContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title={kind === "skill" ? "SKILL.md" : "AGENT.md"}>
+          {detail.definitionFileName && (
+            <Typography variant="caption" sx={{ display: "block", mb: 1.5, fontFamily: "monospace", color: "text.secondary" }}>
+              {detail.definitionFileName}
+            </Typography>
+          )}
+          <AgentDefinition content={detail.definitionContent} fileName={detail.definitionFileName ?? ""} />
         </SectionCard>
       )}
 
