@@ -760,6 +760,45 @@ func TestAssignBranchVersionHoldsPreAssignedWithoutJevRef(t *testing.T) {
 	}
 }
 
+func TestAssignBranchVersionHoldsFirstCommitPreAssignedWithoutJevRef(t *testing.T) {
+	reconciler, version := newAssignFixture(t, true)
+	ctx := context.Background()
+	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
+
+	sibling := &opendepotv1alpha1.Version{ObjectMeta: metav1.ObjectMeta{Name: "bump-1-0-0", Namespace: "default"}}
+	if err := reconciler.Delete(ctx, sibling); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	version.Spec.Version = "1.1.0"
+	if err := reconciler.Update(ctx, version); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: key}, version, nil, nil)
+	if err != nil {
+		t.Fatalf("assignBranchVersion returned error: %v", err)
+	}
+
+	if assessment != nil || requeueAfter <= 0 {
+		t.Fatalf("assessment = %+v, requeueAfter = %v; want nil and a held requeue", assessment, requeueAfter)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if stored.Spec.Version != "1.1.0" || stored.Status.BranchPhase != branchPhaseHeld {
+		t.Fatalf("Spec.Version = %q, BranchPhase = %q; want unchanged and %q", stored.Spec.Version, stored.Status.BranchPhase, branchPhaseHeld)
+	}
+
+	held := stored.Status.BumpAssessment
+	if held == nil || held.Error != jevRefRequiredError {
+		t.Fatalf("BumpAssessment = %+v; want held with error %q", held, jevRefRequiredError)
+	}
+}
+
 func TestAssignBranchVersionRejectsInvalidOverrideOnFirstCommit(t *testing.T) {
 	reconciler, version := newAssignFixture(t, false)
 	ctx := context.Background()

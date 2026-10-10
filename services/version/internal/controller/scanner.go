@@ -436,9 +436,8 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 		return nil, fmt.Errorf("source scan failed: %w", err)
 	}
 
-	// Trivy ran but produced no output (e.g. DB not yet initialized on first
-	// offline run). Return a non-nil empty slice so the caller writes a
-	// tombstone — dedup then prevents an infinite retry loop.
+	// Exit 1 with no report is returned as an error by runTrivy, so this path only
+	// sees exit 0 with empty output, a clean scan. Return an empty slice for it.
 	if len(output) == 0 {
 		return make([]opendepotv1alpha1.SecurityFinding, 0), nil
 	}
