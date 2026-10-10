@@ -169,3 +169,5 @@ dex:
           - http://localhost:10008/login
           - http://localhost:10009/login
           - http://localhost:10010/login
+branchSourcing:
+  enabled: true
