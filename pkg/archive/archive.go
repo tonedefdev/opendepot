@@ -45,6 +45,13 @@ const (
 	maxExtractedEntries       = 10000
 )
 
+// maxArchiveHeaderBytes allows for tar block headers, PAX and GNU meta headers, and padding on top of
+// maxExtractedBytes. tar.Reader consumes meta header bodies inside Next(), so they are bounded by the
+// stream cap rather than the entry budget.
+const maxArchiveHeaderBytes int64 = 64 << 20
+
+const maxArchiveStreamBytes = maxExtractedBytes + maxArchiveHeaderBytes
+
 // extractBudget caps the total decompressed bytes and entry count written by a single ExtractToDir call.
 type extractBudget struct {
 	bytesLeft   int64
@@ -165,7 +172,36 @@ func extractArchive(archiveBytes []byte, destDir string, keep func(name string) 
 	}
 	defer gr.Close()
 
-	tr := tar.NewReader(gr)
+	return extractTarStream(gr, destDir, keep, budget, maxArchiveStreamBytes)
+}
+
+// limitedStreamReader fails reads once the decompressed tar stream exceeds limit. Unlike io.LimitReader
+// it returns an error instead of silently truncating, so oversized PAX and GNU meta headers are rejected.
+type limitedStreamReader struct {
+	r     io.Reader
+	limit int64
+	read  int64
+}
+
+func (l *limitedStreamReader) Read(p []byte) (int, error) {
+	if remaining := l.limit - l.read; int64(len(p)) > remaining+1 {
+		p = p[:remaining+1]
+	}
+
+	n, err := l.r.Read(p)
+	l.read += int64(n)
+
+	if l.read > l.limit {
+		return 0, fmt.Errorf("archive exceeds %d decompressed bytes including tar headers", l.limit)
+	}
+
+	return n, err
+}
+
+// extractTarStream extracts the tar entries read from r into destDir, charging entries against budget.
+// The stream is capped at streamLimit bytes so that header-only archives cannot exceed the extraction limits.
+func extractTarStream(r io.Reader, destDir string, keep func(name string) bool, budget *extractBudget, streamLimit int64) error {
+	tr := tar.NewReader(&limitedStreamReader{r: r, limit: streamLimit})
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
