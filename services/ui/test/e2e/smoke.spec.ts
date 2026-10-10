@@ -34,6 +34,31 @@ test.describe("landing page", () => {
   });
 });
 
+test.describe("registry sidebar", () => {
+  test("server-rendered sidebar has a Registry link and kind child links", async ({ page }) => {
+    await page.route("**/*", (route) => {
+      if (
+        ["script", "stylesheet", "image", "font", "media"].includes(
+          route.request().resourceType(),
+        )
+      ) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("link", { name: "Registry", exact: true }).first()).toBeAttached();
+
+    const kinds = ["agent", "skill", "module", "provider"];
+    for (const kind of kinds) {
+      await expect(page.locator(`a[href="/?kind=${kind}"]`).first()).toBeAttached();
+    }
+  });
+});
+
 test.describe("unauthorized-to-public fallback", () => {
   test("unauthenticated request to root returns 200 (public fallback)", async ({
     page,

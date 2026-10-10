@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
-import { buildAgentConfigSnippet } from "./AgentDetail";
+import { cleanup, render, screen } from "@testing-library/react";
+import * as React from "react";
+import { afterEach, describe, expect, it } from "vitest";
+import { AgentDefinition, buildAgentConfigSnippet, splitFrontmatter } from "./AgentDetail";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("buildAgentConfigSnippet", () => {
   it("renders normal values exactly as before", () => {
@@ -65,5 +71,38 @@ agent_skill "ui-demo" {
     });
 
     expect(snippet).toContain('source = "registry.example.com\\\\/acme/reviewer"');
+  });
+});
+
+describe("splitFrontmatter", () => {
+  it("splits the frontmatter from the body", () => {
+    const { frontmatter, body } = splitFrontmatter("---\nname: review\n---\n# Title\n");
+
+    expect(frontmatter).toBe("name: review");
+    expect(body).toBe("# Title\n");
+  });
+
+  it("returns the whole content as the body when there is no frontmatter", () => {
+    const { frontmatter, body } = splitFrontmatter("# Title\n\nText");
+
+    expect(frontmatter).toBeNull();
+    expect(body).toBe("# Title\n\nText");
+  });
+});
+
+describe("AgentDefinition", () => {
+  it("shows the frontmatter in a code block and the body as markdown", () => {
+    render(<AgentDefinition content={"---\nname: review\n---\n# Heading\n\nSome **bold** text"} fileName="code-review.agent.md" />);
+
+    expect(screen.getByLabelText("code-review.agent.md frontmatter").textContent).toBe("name: review");
+    expect(screen.getByRole("heading", { name: "Heading" })).toBeTruthy();
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+  });
+
+  it("renders content with no frontmatter as markdown only", () => {
+    render(<AgentDefinition content={"# Only body"} fileName="SKILL.md" />);
+
+    expect(screen.queryByLabelText("SKILL.md frontmatter")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Only body" })).toBeTruthy();
   });
 });

@@ -159,8 +159,12 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
   const totalCount = data?.totalCount ?? 0;
   const items = data?.items ?? [];
 
+  // Skill and Agent rows can carry the source commit and branch phase. The commit column is only shown when a row has one.
+  const isAgentKind = kind === "skill" || kind === "agent";
+  const showCommit = isAgentKind && items.some((v) => Boolean(v.commit));
+
   // Table column count for skeleton/empty colspans.
-  const colCount = isProvider ? 10 : 7;
+  const colCount = (isProvider ? 10 : 7) + (showCommit ? 1 : 0);
 
   return (
     <Box mb={4}>
@@ -287,6 +291,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>Arch</TableCell>}
               {isProvider && <TableCell sx={{ whiteSpace: "nowrap" }}>Schema</TableCell>}
               <TableCell sx={{ whiteSpace: "nowrap" }}>File Name</TableCell>
+              {showCommit && <TableCell sx={{ whiteSpace: "nowrap" }}>Commit</TableCell>}
               <TableCell sx={{ whiteSpace: "nowrap" }}>Checksum</TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Last Scanned</TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>Findings</TableCell>
@@ -313,7 +318,10 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
               items.map((v, idx) => (
                 <TableRow key={`${v.version}-${v.os ?? ""}-${v.arch ?? ""}-${idx}`} hover>
                   <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
-                    {displayVersion(v.version)}
+                    {v.version ? displayVersion(v.version) : "—"}
+                    {v.branchPhase && (
+                      <Chip size="small" variant="outlined" label={v.branchPhase} sx={{ ml: 1, fontFamily: "inherit" }} />
+                    )}
                   </TableCell>
                   <TableCell sx={{ verticalAlign: "top" }}>
                     <Box display="flex" alignItems="center" gap={0.5}>
@@ -373,6 +381,16 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                       </Box>
                     ) : "—"}
                   </TableCell>
+                  {showCommit && (
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top", whiteSpace: "nowrap" }}>
+                      {v.commit ? (
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          <Typography variant="caption" sx={{ fontFamily: "monospace" }}>{v.commit.slice(0, 7)}</Typography>
+                          <CopyButton value={v.commit} />
+                        </Box>
+                      ) : "—"}
+                    </TableCell>
+                  )}
                   <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
                     {v.checksum ? (
                       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
