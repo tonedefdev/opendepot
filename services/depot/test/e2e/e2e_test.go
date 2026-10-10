@@ -54,6 +54,11 @@ var _ = Describe("Depot", Ordered, func() {
 		agentRepoPath      = ".github/agents"
 		agentTagPrefix     = "opendepot-"
 		moduleStoragePath  = "/data/modules"
+		branchDepotCRName  = "e2e-branch-depot"
+		branchSkillCRName  = "branch-skill-e2e"
+		branchInvalidCR    = "e2e-branch-invalid"
+		branchRepoURL      = "https://github.com/" + utils.BranchFixtureRepo
+		branchTriggerKey   = "opendepot.defdev.io/e2e-trigger"
 	)
 
 	BeforeAll(func() {
@@ -75,6 +80,12 @@ var _ = Describe("Depot", Ordered, func() {
 				"-n", depotNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 			cmd = exec.Command("kubectl", "delete", "version", skillVersionCRName, agentVersionCRName,
+				"-n", depotNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "depot", branchDepotCRName,
+				"-n", depotNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "skill", branchSkillCRName,
 				"-n", depotNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 		}()
@@ -156,6 +167,12 @@ spec:
 			"-n", depotNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "version", skillVersionCRName, agentVersionCRName,
+			"-n", depotNamespace, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "depot", branchDepotCRName,
+			"-n", depotNamespace, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "skill", branchSkillCRName,
 			"-n", depotNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 	})
@@ -308,5 +325,173 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal(moduleVersion))
 		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+	})
+
+	It("should reject a skill source that sets both ref and versionConstraints at admission", func() {
+		Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(Succeed())
+
+		By("applying a Depot whose skill source sets ref and versionConstraints")
+		depotYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Depot
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  skillConfigs:
+    - name: %s
+      repoOwner: github
+      repoUrl: %s
+      path: %s
+      ref: %s
+      versionConstraints: "= 1.0.0"
+      storageConfig:
+        fileSystem:
+          directoryPath: %s
+`, branchInvalidCR, depotNamespace, branchInvalidCR, branchRepoURL,
+			utils.SkillFixturePath, utils.BranchFixtureRef, moduleStoragePath)
+
+		depotFile := filepath.Join(GinkgoT().TempDir(), "test-branch-invalid-depot.yaml")
+		Expect(os.WriteFile(depotFile, []byte(depotYAML), 0600)).To(Succeed())
+		cmd := exec.Command("kubectl", "apply", "-f", depotFile)
+		_, err := utils.Run(cmd)
+		Expect(err).To(HaveOccurred(), "expected admission to reject ref with versionConstraints")
+		Expect(err.Error()).To(ContainSubstring("ref and versionConstraints are mutually exclusive"))
+
+		By("verifying the rejected Depot was not created")
+		cmd = exec.Command("kubectl", "get", "depot", branchInvalidCR,
+			"-n", depotNamespace,
+			"--ignore-not-found",
+			"-o", "name",
+		)
+		output, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(BeEmpty(), "expected no Depot CR for the rejected spec")
+	})
+
+	It("should not create a Skill from a ref source when branch sourcing is disabled", func() {
+		Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(Succeed())
+
+		By("applying a Depot with a branch skill source while branch sourcing is disabled")
+		depotYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Depot
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  skillConfigs:
+    - name: %s
+      repoOwner: github
+      repoUrl: %s
+      path: %s
+      ref: %s
+      branchPolicy:
+        minVersionInterval: 0s
+      storageConfig:
+        fileSystem:
+          directoryPath: %s
+`, branchDepotCRName, depotNamespace, branchSkillCRName, branchRepoURL,
+			utils.SkillFixturePath, utils.BranchFixtureRef, moduleStoragePath)
+
+		depotFile := filepath.Join(GinkgoT().TempDir(), "test-branch-depot.yaml")
+		Expect(os.WriteFile(depotFile, []byte(depotYAML), 0600)).To(Succeed())
+		cmd := exec.Command("kubectl", "apply", "-f", depotFile)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply branch Depot CR")
+
+		By("triggering a Depot reconcile with an annotation change")
+		cmd = exec.Command("kubectl", "annotate", "depot", branchDepotCRName,
+			"-n", depotNamespace,
+			fmt.Sprintf("%s=%d", branchTriggerKey, time.Now().UnixNano()),
+			"--overwrite",
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to annotate branch Depot CR")
+
+		By("verifying no Skill CR is created for the branch source")
+		Consistently(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "skill", branchSkillCRName,
+				"-n", depotNamespace,
+				"--ignore-not-found",
+				"-o", "name",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(BeEmpty(), "expected no Skill CR while branch sourcing is disabled")
+		}, 30*time.Second, 5*time.Second).Should(Succeed())
+	})
+
+	Context("with branch sourcing enabled", Ordered, func() {
+		// listBranchEntries returns one "commit|state|version" line per entry in the branch Skill spec.
+		listBranchEntries := func(g Gomega) []string {
+			cmd := exec.Command("kubectl", "get", "skill", branchSkillCRName,
+				"-n", depotNamespace,
+				"-o", `jsonpath={range .spec.versions[*]}{.commit}{"|"}{.state}{"|"}{.version}{"\n"}{end}`,
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			return strings.Fields(output)
+		}
+
+		BeforeAll(func() {
+			By("enabling branch sourcing on the Helm release")
+			chartPath, err := utils.GetChartPath()
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--namespace", depotNamespace,
+				"--reuse-values",
+				"--set", "branchSourcing.enabled=true",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to enable branch sourcing")
+		})
+
+		It("should add one pending entry with a commit and no version on the first sighting", func() {
+			Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(Succeed())
+
+			By("triggering a Depot reconcile with an annotation change")
+			cmd := exec.Command("kubectl", "annotate", "depot", branchDepotCRName,
+				"-n", depotNamespace,
+				fmt.Sprintf("%s=%d", branchTriggerKey, time.Now().UnixNano()),
+				"--overwrite",
+			)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to annotate branch Depot CR")
+
+			By("waiting for the Skill CR to list exactly one pending entry")
+			Eventually(func(g Gomega) {
+				entries := listBranchEntries(g)
+				g.Expect(entries).To(HaveLen(1), "expected exactly one branch entry")
+
+				fields := strings.Split(entries[0], "|")
+				g.Expect(fields).To(HaveLen(3))
+				g.Expect(fields[0]).To(MatchRegexp(`^[0-9a-f]{40}$`), "expected a 40-hex commit SHA")
+				g.Expect(fields[1]).To(Equal("Pending"))
+				g.Expect(fields[2]).To(BeEmpty(), "the Depot must not assign a version")
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("should not add an entry while the newest entry is pending", func() {
+			Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(Succeed())
+
+			By("triggering another Depot reconcile while the entry is pending")
+			cmd := exec.Command("kubectl", "annotate", "depot", branchDepotCRName,
+				"-n", depotNamespace,
+				fmt.Sprintf("%s=%d", branchTriggerKey, time.Now().UnixNano()),
+				"--overwrite",
+			)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to annotate branch Depot CR")
+
+			By("verifying the Skill CR still lists exactly one entry")
+			Consistently(func(g Gomega) {
+				g.Expect(listBranchEntries(g)).To(HaveLen(1), "expected no new entry while the newest entry is pending")
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
 	})
 })

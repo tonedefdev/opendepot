@@ -11,11 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tonedefdev/opendepot/pkg/archive"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
-	"golang.org/x/crypto/openpgp/packet"
 	"time"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	"github.com/tonedefdev/opendepot/pkg/archive"
 )
 
 const testNamespace = "acme"
@@ -52,7 +53,8 @@ type fakeVersion struct {
 
 func newTestKey(t *testing.T, name string) *openpgp.Entity {
 	t.Helper()
-	e, err := openpgp.NewEntity(name, "", name+"@example.invalid", nil)
+	config := &packet.Config{Time: func() time.Time { return time.Now().Add(-2 * time.Hour) }}
+	e, err := openpgp.NewEntity(name, "", name+"@example.invalid", config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +119,7 @@ func (f *fakeRegistry) publish(t *testing.T, kind entryKind, name string, releas
 
 func (f *fakeRegistry) resign(t *testing.T) {
 	t.Helper()
-	f.signFiles(t, time.Now(), false)
+	f.signFiles(t, time.Now().Add(-time.Hour), false)
 }
 
 // resignAt re-signs every release with the signature creation time set to when.

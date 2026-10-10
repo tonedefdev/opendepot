@@ -96,32 +96,55 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the depot controller image into Kind")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", versionImage).Output(); inspectErr != nil {
-		By("building the version controller image")
-		versionBuildCmd := exec.Command("docker", "build",
-			"--build-arg", "INCLUDE_TOFU=true",
-			"-t", versionImage,
-			"-f", "services/version/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(versionBuildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
-	} else {
-		By("version controller image already present, skipping build")
-	}
+	if os.Getenv("SKIP_IMAGE_BUILD") != "true" {
+		versionHash, hashErr := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/version",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, hashErr).NotTo(HaveOccurred(), "Failed to compute version controller build hash")
 
-	if _, inspectErr := exec.Command("docker", "image", "inspect", serverImage).Output(); inspectErr != nil {
-		By("building the server image")
-		serverBuildCmd := exec.Command("docker", "build",
-			"--build-arg", "INCLUDE_TOFU=true",
-			"-t", serverImage,
-			"-f", "services/server/Dockerfile",
-			".",
-		)
-		_, err = utils.RunAt(serverBuildCmd, repoRoot)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
-	} else {
-		By("server image already present, skipping build")
+		if utils.NeedsRebuild(versionImage, versionHash) {
+			By("building the version controller image (context changed or image absent)")
+			versionBuildCmd := exec.Command("docker", "build",
+				"--build-arg", "INCLUDE_TOFU=true",
+				"--build-arg", "INCLUDE_TRIVY=true",
+				"-t", versionImage,
+				"--label", "opendepot.build.hash="+versionHash,
+				"-f", "services/version/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(versionBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the version controller image")
+		} else {
+			By("version controller image up-to-date, skipping build")
+		}
+
+		serverHash, hashErr := utils.ComputeBuildContextHash(repoRoot, []string{
+			"services/server",
+			"api",
+			"pkg",
+			"go.work",
+			"go.work.sum",
+		})
+		ExpectWithOffset(1, hashErr).NotTo(HaveOccurred(), "Failed to compute server build hash")
+
+		if utils.NeedsRebuild(serverImage, serverHash) {
+			By("building the server image (context changed or image absent)")
+			serverBuildCmd := exec.Command("docker", "build",
+				"--build-arg", "INCLUDE_TOFU=true",
+				"-t", serverImage,
+				"--label", "opendepot.build.hash="+serverHash,
+				"-f", "services/server/Dockerfile",
+				".",
+			)
+			_, err = utils.RunAt(serverBuildCmd, repoRoot)
+			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the server image")
+		} else {
+			By("server image up-to-date, skipping build")
+		}
 	}
 
 	By("loading the version controller image on Kind")

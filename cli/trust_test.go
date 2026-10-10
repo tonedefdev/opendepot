@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"golang.org/x/crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
 func TestSignatureHashIgnoresArmor(t *testing.T) {

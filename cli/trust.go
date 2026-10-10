@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
 // verifySHA256SUMS checks the detached signature over SHA256SUMS against the advertised keys and
@@ -34,7 +34,7 @@ func verifySHA256SUMS(sums, sig []byte, armoredKeys []string) (string, error) {
 		return "", err
 	}
 
-	signer, err := openpgp.CheckDetachedSignature(ring, bytes.NewReader(sums), bytes.NewReader(binary))
+	signer, err := openpgp.CheckDetachedSignature(ring, bytes.NewReader(sums), bytes.NewReader(binary), nil)
 	if err != nil {
 		return "", fmt.Errorf("SHA256SUMS signature does not verify: %w", err)
 	}

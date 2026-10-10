@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,8 +50,6 @@ const (
 
 	// helmReleaseName is the Helm release that owns the agent, version, and server components.
 	helmReleaseName = "opendepot"
-	// trivyDBSeedJobName is the one-off Job that populates the Trivy vulnerability DB cache.
-	trivyDBSeedJobName = "trivy-db-seed"
 
 	// jevSecretName is the Secret that holds the Jev token referenced by Skill and Agent resources.
 	jevSecretName = "opendepot-jev"
@@ -180,22 +177,8 @@ var _ = BeforeSuite(func() {
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
 	By("generating an ephemeral GPG signing key and storing it in a Secret read from stdin")
-	signingKey, err := generateSigningKeyBase64()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to generate the GPG signing key")
-
-	cmd = exec.Command("kubectl", "create", "secret", "generic", signingSecretName,
-		"--namespace", namespace,
-		"--from-file", signingSecretKey+"=/dev/stdin",
-		"--dry-run=client", "-o", "yaml",
-	)
-	cmd.Stdin = strings.NewReader(signingKey)
-	signingManifest, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to render the signing key Secret")
-
-	cmd = exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(signingManifest)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply the signing key Secret")
+	err = utils.EnsureGPGSigningSecret(namespace, signingSecretName, signingSecretKey)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GPG signing key Secret")
 
 	if jevAPIKey != "" {
 		By("storing the Jev token in a Secret read from stdin")
@@ -255,26 +238,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release")
 
 	By("seeding the Trivy vulnerability DB that agent scans read in offline mode")
-	cmd = exec.Command("kubectl", "delete", "job", trivyDBSeedJobName,
-		"--namespace", namespace,
-		"--ignore-not-found",
-	)
-	_, _ = utils.Run(cmd)
-
-	cmd = exec.Command("kubectl", "create", "job", trivyDBSeedJobName,
-		"--from=cronjob/trivy-db-updater",
-		"--namespace", namespace,
-	)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Trivy DB seed job")
-
-	cmd = exec.Command("kubectl", "wait", "--for=condition=complete",
-		"job/"+trivyDBSeedJobName,
-		"--namespace", namespace,
-		"--timeout=20m",
-	)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Trivy DB seed job did not complete")
+	ExpectWithOffset(1, utils.SeedTrivyDB(namespace)).To(Succeed())
 })
 
 var _ = AfterSuite(func() {
@@ -289,29 +253,3 @@ var _ = AfterSuite(func() {
 	)
 	_, _ = utils.Run(cmd)
 })
-
-// generateSigningKeyBase64 creates an unprotected GPG key in a private keyring and returns the
-// base64 encoding of its armored private key, the format the version controller expects.
-func generateSigningKeyBase64() (string, error) {
-	gnupgHome, err := os.MkdirTemp("", "opendepot-gpg-")
-	if err != nil {
-		return "", fmt.Errorf("create GNUPGHOME: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(gnupgHome) }()
-
-	const uid = "OpenDepot E2E <e2e@opendepot.invalid>"
-	gen := exec.Command("gpg", "--batch", "--homedir", gnupgHome, "--pinentry-mode", "loopback",
-		"--passphrase", "", "--quick-gen-key", uid, "rsa3072", "default", "never")
-	if out, err := gen.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("generate gpg key: %w: %s", err, out)
-	}
-
-	export := exec.Command("gpg", "--batch", "--homedir", gnupgHome, "--pinentry-mode", "loopback",
-		"--passphrase", "", "--armor", "--export-secret-keys", uid)
-	armor, err := export.Output()
-	if err != nil {
-		return "", fmt.Errorf("export gpg private key: %w", err)
-	}
-
-	return base64.StdEncoding.EncodeToString(armor), nil
-}

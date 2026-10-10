@@ -238,7 +238,7 @@ func TestResignedLockedVersionFailsSignatureHash(t *testing.T) {
 	}
 
 	before := readFile(t, filepath.Join(dir, lockFileName))
-	reg.resignAt(t, time.Now().Add(time.Hour))
+	reg.resignAt(t, time.Now())
 	err := a.applyProject(ctx, applyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "signature_hash") {
 		t.Fatalf("expected re-signed locked version to fail the signature_hash check, got %v", err)
