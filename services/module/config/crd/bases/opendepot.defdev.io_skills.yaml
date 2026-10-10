@@ -56,6 +56,39 @@ spec:
                 description: The configuration details for the skill that will be
                   used to create each SkillVersion
                 properties:
+                  branchPolicy:
+                    description: |-
+                      The policy that governs how branch commits are classified into versions. Only valid with ref.
+                      The policy classifies changes and never blocks a Version.
+                    properties:
+                      majorThreshold:
+                        default: 0.5
+                        description: The probability of a MAJOR change at or above
+                          which the bump is MAJOR.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                      minConfidence:
+                        default: 0.5
+                        description: The minimum classification confidence. A bump
+                          below this confidence is flagged for review.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                      minVersionInterval:
+                        default: 10m
+                        description: |-
+                          The minimum time between two branch versions created from the same source. Commits pushed within
+                          this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+                        type: string
+                      minorThreshold:
+                        default: 0.5
+                        description: The combined probability of MAJOR and MINOR changes
+                          at or above which the bump is at least MINOR.
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                    type: object
                   githubClientConfig:
                     description: The Github client configuration settings.
                     properties:
@@ -168,6 +201,15 @@ spec:
                     - opencode
                     - pi
                     type: string
+                  ref:
+                    description: |-
+                      The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+                      commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+                      is rejected.
+                    maxLength: 255
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9._+/-]+$
+                    type: string
                   repoOwner:
                     description: Owner of the Github repository.
                     type: string
@@ -267,13 +309,21 @@ spec:
                   versionConstraints:
                     description: |-
                       A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
-                      This field is only respected by the Depot controller.
+                      This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
                     type: string
                   versionHistoryLimit:
                     description: The number of versions to keep stored in the registry
                       at any given time.
                     type: integer
                 type: object
+                x-kubernetes-validations:
+                - message: ref and versionConstraints are mutually exclusive
+                  rule: '!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints)
+                    == 0'
+                - message: tagPrefix is not used with ref
+                  rule: '!has(self.ref) || !has(self.tagPrefix)'
+                - message: branchPolicy requires ref
+                  rule: '!has(self.branchPolicy) || has(self.ref)'
               forceSync:
                 description: A flag to force a skill to synchronize
                 type: boolean
@@ -281,23 +331,45 @@ spec:
                 description: |-
                   The version of the skill. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
                   The version controller will automatically trim any leading 'v' character to make them compatible
-                  with the registry protocol
+                  with the registry protocol. Entries for a branch source (ref) hold a commit and a state, and their
+                  version stays empty until the Version controller assigns one.
                 items:
                   description: SkillVersion holds details about the Version resource
                     under management.
                   properties:
+                    commit:
+                      description: The full commit SHA of a branch entry. Set only
+                        when the source uses ref.
+                      pattern: ^[0-9a-f]{40}$
+                      type: string
+                    discoveredAt:
+                      description: The time the controller first saw the commit. This
+                        is the ordering key for branch entries.
+                      format: date-time
+                      type: string
                     fileName:
                       description: The randomly generated filename with its file extension.
                       type: string
                     name:
-                      description: The name of the skill.
+                      description: The name of the Version resource that holds this
+                        entry. Set only for branch entries.
+                      type: string
+                    state:
+                      description: The lifecycle state of a branch entry, set by the
+                        Agent controller. Only Pending, Assigned, and Rejected are
+                        valid.
+                      enum:
+                      - Pending
+                      - Assigned
+                      - Rejected
                       type: string
                     synced:
                       description: Whether the Version for the Skill has synced or
                         not.
                       type: boolean
                     version:
-                      description: The version of the skill.
+                      description: The version of the skill. Branch entries have an
+                        empty version until the Version controller assigns one.
                       type: string
                   type: object
                 type: array
@@ -324,18 +396,39 @@ spec:
                   description: SkillVersion holds details about the Version resource
                     under management.
                   properties:
+                    commit:
+                      description: The full commit SHA of a branch entry. Set only
+                        when the source uses ref.
+                      pattern: ^[0-9a-f]{40}$
+                      type: string
+                    discoveredAt:
+                      description: The time the controller first saw the commit. This
+                        is the ordering key for branch entries.
+                      format: date-time
+                      type: string
                     fileName:
                       description: The randomly generated filename with its file extension.
                       type: string
                     name:
-                      description: The name of the skill.
+                      description: The name of the Version resource that holds this
+                        entry. Set only for branch entries.
+                      type: string
+                    state:
+                      description: The lifecycle state of a branch entry, set by the
+                        Agent controller. Only Pending, Assigned, and Rejected are
+                        valid.
+                      enum:
+                      - Pending
+                      - Assigned
+                      - Rejected
                       type: string
                     synced:
                       description: Whether the Version for the Skill has synced or
                         not.
                       type: boolean
                     version:
-                      description: The version of the skill.
+                      description: The version of the skill. Branch entries have an
+                        empty version until the Version controller assigns one.
                       type: string
                   type: object
                 description: A slice of the SkillVersionRefs that have been successfully
