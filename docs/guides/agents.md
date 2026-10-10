@@ -227,6 +227,18 @@ The gate follows three rules:
 
 Assessments are cached in `status.jevAssessment`. Set `forceSync: true` on the Skill or Agent to run a new assessment.
 
+### Score colors
+
+The Jev panel colors each probability bar by risk, using the same bands as the CLI output (`cli/output.go`). For the Safe row, risk is `1 − safe probability`. Every other row uses its probability as the risk.
+
+| Band | Risk |
+|------|------|
+| Red | 0.50 or higher |
+| Yellow | 0.25 to below 0.50 |
+| Green | Below 0.25 |
+
+For the Safe row, a value above 0.75 is green, and a value of 0.50 or lower is red. A bar is always red when its threshold is breached, regardless of its band. The risk level uses the same colors: `Minimal` and `Low` are green, `Moderate` is yellow, and `High` and `Critical` are red.
+
 ## Version bump classification
 
 In branch mode, the version controller chooses the semver bump for each new commit. The deterministic checks and Trivy scans run first. Jev runs only after they pass.
@@ -247,6 +259,18 @@ When Jev is enabled and a call used to classify a bump for a later commit fails,
 
 Set the `opendepot.defdev.io/bump-override` annotation on a Version to `major`, `minor`, or `patch` to override the bump size. The override is recorded with source `Manual`. It is honored only while the Version is Pending or Held. It sets the bump size only and does not decide whether the Version is published. It does not release a hold caused by a missing `jevSecretRef`; set `jevSecretRef` on the source to publish.
 
+## Definition storage
+
+Each Skill and Agent Version stores its definition file in a ConfigMap of its own. The ConfigMap is referenced by `status.definitionConfigMapRef` and is owned by the Version, so it is deleted with the Version. The UI renders the file as `SKILL.md` for skills and `AGENT.md` for agents. Module READMEs use a separate reference, `readmeConfigMapRef`, which applies only to modules. Skill and Agent Versions never fill README content.
+
+The definition is stored base64 encoded. The encoded data must be at most 1,000,000 bytes, which keeps it under the 1 MiB ConfigMap limit. A larger definition is not synced. The Version gets `synced: false` and a `syncStatus` message that gives the file name, its size, the encoded size, and the limit, for example:
+
+```text
+definition exceeds the ConfigMap size limit: definition file SKILL.md is 800000 bytes, which encodes to 1066668 bytes against a 1000000 byte limit
+```
+
+The Version stays unsynced until the definition changes.
+
 ## Data handling
 
 When Jev is enabled and a source sets a `jevPolicy` with a `jevSecretRef`, the controller sends a single request to the Jev endpoint with this content:
@@ -261,6 +285,8 @@ Before you use Jev on private repositories, get the TypeSafe retention and train
 ## Browse view
 
 The UI browse view shows the sync status of each Version. It also shows blocked and unsynced Versions, and the scan and Jev findings for them. Anyone who can see the parent Agent or Skill can see this data. Browse is filtered per Agent through the caller's GroupBinding. This is intentional, so operators can see why a Version was blocked.
+
+For a Skill or Agent that follows a branch, the detail header shows the source repository, the tracked branch, and the source path. It also shows the latest commit as a 7-character SHA. The Versions table lists every Version, including branch Versions in the `Pending` and `Held` phases. Each row shows its commit with a copy button and a branch phase chip. The commit column appears when at least one row has a commit. A Version without a semver shows `—`.
 
 ## Yanked and blocked Versions
 
@@ -284,7 +310,7 @@ When OIDC is enabled, GroupBinding authorization gates the artifact handlers. Th
 
 The archive endpoint returns a `302` redirect to the checksum-keyed public route `/opendepot/modules/v1/download/...`. This is the same design that modules and providers use. The redirect URL is a checksum-bound capability. Revoking GroupBinding access does not invalidate a redirect URL that was already issued. This is an accepted, shared design limitation. The `302` response is sent with `Cache-Control: private, no-store`, so shared caches must not store it.
 
-Archive extraction enforces a decompressed-size budget of 2 GiB and a cap of 10,000 entries. An archive that exceeds either limit fails. The CLI verifies the `SHA256SUMS` signature against the pinned signing key before it installs anything.
+Archive extraction enforces a decompressed-size budget of 2 GiB and a cap of 10,000 entries. An archive that exceeds either limit fails. Symbolic links and hard links are refused. The total decompressed stream, including tar headers, is capped at the 2 GiB budget plus a 64 MiB allowance for headers. The CLI verifies the `SHA256SUMS` signature against the pinned signing key before it installs anything.
 
 ## Agent service
 

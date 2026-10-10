@@ -356,14 +356,14 @@ kubectl label namespace <ns> opendepot.defdev.io/public=true
 GET /opendepot/ui/v1/resources
 ```
 
-Returns a paginated, filtered list of visible `Module` and `Provider` resources.
+Returns a paginated, filtered list of visible `Module`, `Provider`, `Skill`, and `Agent` resources.
 
 **Query Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `namespace` | string (repeatable) | Filter by one or more namespaces |
-| `kind` | string | `module` or `provider` |
+| `kind` | string | `module`, `provider`, `skill`, or `agent`. Omit to return all four kinds. |
 | `q` | string | Search string matched against resource name |
 | `synced` | bool | Filter to synced (`true`) or unsynced (`false`) resources |
 | `os` | string | Filter providers by operating system |
@@ -418,7 +418,7 @@ Returns full detail for a single resource including all versions and scan findin
 | Parameter | Description |
 |-----------|-------------|
 | `namespace` | Kubernetes namespace of the resource |
-| `kind` | `module` or `provider` |
+| `kind` | `module`, `provider`, `skill`, or `agent` |
 | `name` | Resource name |
 
 **Response:**
@@ -454,6 +454,13 @@ Returns full detail for a single resource including all versions and scan findin
 
 `readmeContent` is the decoded (plain markdown) README for the module's latest version. It is only present for `module` resources, and only when a README could be resolved — see [`VersionStatus.readmeConfigMapRef`](#versionstatus-fields). The field is omitted for providers and for modules with no resolvable README.
 
+`skill` and `agent` resources do not return `readmeContent`. They return the definition file of the latest version instead:
+
+- `definitionContent` is the decoded definition file (`SKILL.md` or the agent file). It is read from [`VersionStatus.definitionConfigMapRef`](#versionstatus-fields).
+- `definitionFileName` is the source file name, such as `SKILL.md` or `code-reviewer.agent.md`.
+- `agentMetadata` is the frontmatter of the latest version. `jevAssessment` is the Jev result for the latest version, when one exists. `jevThresholds` is the source's `jevPolicy`.
+- `sourceRef`, `sourceCommit`, and `sourcePath` describe the source. `sourceRef` is set only for branch sources, and `sourceCommit` is set only when `sourceRef` is set. `sourceCommit` is the commit of the latest version.
+
 ### List Resource Versions
 
 ```
@@ -467,7 +474,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 | Parameter | Description |
 |-----------|-------------|
 | `namespace` | Kubernetes namespace of the resource |
-| `kind` | `module` or `provider` |
+| `kind` | `module`, `provider`, `skill`, or `agent` |
 | `name` | Resource name |
 
 **Query Parameters:**
@@ -506,6 +513,15 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 `availableOS` and `availableArch` are populated from the full (pre-filter) version set so filter dropdowns remain populated while a filter is active. Both fields are omitted for modules; they are only present for providers. Versions are sorted newest-first.
 
 `downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded. `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
+
+For `skill` and `agent` resources, the list includes every Version, including branch Versions in the `Pending` and `Held` phases. Each item has these additional fields:
+
+| Field | Description |
+|-------|-------------|
+| `commit` | The commit SHA of the Version. Uses `VersionStatus.sourceCommit` and falls back to `VersionSpec.sourceCommit`. Omitted when neither is set. |
+| `branchPhase` | `VersionStatus.branchPhase`: `Pending`, `Held`, `Assigned`, or `Rejected`. Omitted for tag-sourced Versions. |
+
+`fileName`, `checksum`, and `archiveSizeBytes` are omitted for a Skill or Agent Version that is not servable, such as one that is unsynced or blocked.
 
 ### Resource Scan Findings
 
@@ -829,10 +845,24 @@ The server's preview route accepts the same complete object as create/update and
 
 References the ConfigMap and data key holding a module `Version`'s base64 encoded README content. Stored in `Version.status.readmeConfigMapRef`. The ConfigMap is owned by the `Version` resource (via `ownerReferences`), so it is garbage collected automatically when the `Version` is deleted.
 
+This reference applies to module `Version` resources only. Skill and Agent definitions do not fill README content. A Skill or Agent `Version` does not use `readmeConfigMapRef`, and the version controller clears any existing reference on it. Their definition files are stored in [`DefinitionConfigMapRef`](#definitionconfigmapref) instead.
+
 | Field | Type | Description |
 |---|---|---|
 | `name` | `string` | Name of the ConfigMap holding the README content. |
 | `key` | `string` | Key within the ConfigMap's `data` holding the base64 encoded README content. |
+
+### DefinitionConfigMapRef
+
+References the ConfigMap and data key holding a Skill or Agent `Version`'s base64 encoded definition file. Stored in `Version.status.definitionConfigMapRef`. The ConfigMap is owned by the `Version` resource (via `ownerReferences`), so it is garbage collected automatically when the `Version` is deleted. The OpenDepot UI shows the file as `SKILL.md` for skills and `AGENT.md` for agents.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Name of the ConfigMap holding the definition file. |
+| `key` | `string` | Key within the ConfigMap's `data` holding the base64 encoded definition file. |
+| `fileName` | `string` | Name of the source entry file, such as `SKILL.md`, `code-reviewer.agent.md`, or `code-reviewer.md`. Maximum 255 characters. |
+
+The base64 encoded definition must be at most 1,000,000 bytes. This keeps the ConfigMap below the 1 MiB Kubernetes object limit. A larger definition is not synced. The Version gets `synced: false`, and `syncStatus` records the file name, its size, the encoded size, and the limit. The Version stays unsynced until the definition changes.
 
 ### VersionStatus fields
 
@@ -842,6 +872,7 @@ References the ConfigMap and data key holding a module `Version`'s base64 encode
 | `sourceScan` | `SourceScan` | Scan result for this version. Contains IaC misconfigurations for module `Version` resources and `go.mod` dependency vulnerabilities for provider `Version` resources. Populated when scanning is enabled. |
 | `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
 | `readmeConfigMapRef` | `ReadmeConfigMapRef` | Reference to the ConfigMap holding this version's base64 encoded README content. Only populated for module `Version` resources when a README could be resolved from GitHub or the module archive. See [Module READMEs](../guides/operations.md#module-readmes). |
+| `definitionConfigMapRef` | `DefinitionConfigMapRef` | Reference to the ConfigMap holding this version's base64 encoded definition file. Only populated for Skill and Agent `Version` resources. See [`DefinitionConfigMapRef`](#definitionconfigmapref). |
 
 ### ProviderStatus fields
 
