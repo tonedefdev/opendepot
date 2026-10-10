@@ -530,7 +530,7 @@ type bumpTestError string
 
 func (e bumpTestError) Error() string { return string(e) }
 
-func newAssignFixture(t *testing.T, jevEnabled bool, ref *corev1.SecretKeySelector) (*VersionReconciler, *opendepotv1alpha1.Version) {
+func newAssignFixture(t *testing.T, jevEnabled bool) (*VersionReconciler, *opendepotv1alpha1.Version) {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
@@ -556,7 +556,7 @@ func newAssignFixture(t *testing.T, jevEnabled bool, ref *corev1.SecretKeySelect
 			SourceCommit: "2222222222222222222222222222222222222222",
 			AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{
 				Name:         &name,
-				JevSecretRef: ref,
+				JevSecretRef: nil,
 			},
 		},
 	}
@@ -574,7 +574,7 @@ func newAssignFixture(t *testing.T, jevEnabled bool, ref *corev1.SecretKeySelect
 }
 
 func TestAssignBranchVersionHoldsWithoutJevRefWhenJevEnabled(t *testing.T) {
-	reconciler, version := newAssignFixture(t, true, nil)
+	reconciler, version := newAssignFixture(t, true)
 	ctx := context.Background()
 	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
 
@@ -611,7 +611,7 @@ func TestAssignBranchVersionHoldsWithoutJevRefWhenJevEnabled(t *testing.T) {
 }
 
 func TestAssignBranchVersionPatchesWithoutJevRefWhenJevDisabled(t *testing.T) {
-	reconciler, version := newAssignFixture(t, false, nil)
+	reconciler, version := newAssignFixture(t, false)
 	ctx := context.Background()
 	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
 

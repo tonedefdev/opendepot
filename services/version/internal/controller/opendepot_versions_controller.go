@@ -1493,12 +1493,23 @@ func (r *VersionReconciler) fetchProviderArchive(ctx context.Context, version *o
 	return tmpPath, cleanupFn, &checksumB64, &fn, nil
 }
 
+// maxProviderArchiveBytes bounds the provider archive streamed from a registry-supplied URL. It is larger than
+// the GitHub archive limit because provider binaries can be large.
+const maxProviderArchiveBytes int64 = 1 << 30
+
+// ErrProviderArchiveTooLarge is returned when a provider archive download reaches the size limit.
+var ErrProviderArchiveTooLarge = errors.New("provider archive exceeds maximum size")
+
 // httpStreamToFile streams an HTTP GET response body to a temporary file on disk
 // while computing its SHA-256 checksum via an io.TeeReader. It returns the temp
 // file path, the hex-encoded checksum, a cleanup function that removes the file,
 // and any error. This avoids buffering large provider binaries (~700 MB) in the
 // Go heap, which is critical when multiple reconcilers run concurrently.
 func httpStreamToFile(ctx context.Context, requestURL string) (filePath string, checksumHex string, cleanup func(), err error) {
+	return httpStreamToFileLimited(ctx, requestURL, maxProviderArchiveBytes)
+}
+
+func httpStreamToFileLimited(ctx context.Context, requestURL string, limit int64) (filePath string, checksumHex string, cleanup func(), err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return "", "", func() {}, fmt.Errorf("invalid provider download URL '%s'", redactedURL(requestURL))
@@ -1526,9 +1537,15 @@ func httpStreamToFile(ctx context.Context, requestURL string) (filePath string, 
 	}
 
 	h := sha256.New()
-	if _, err = io.Copy(f, io.TeeReader(resp.Body, h)); err != nil {
+	written, err := io.Copy(f, io.TeeReader(io.LimitReader(resp.Body, limit+1), h))
+	if err != nil {
 		cleanupFn()
 		return "", "", func() {}, fmt.Errorf("failed to stream provider archive from '%s': %w", redactedURL(requestURL), err)
+	}
+
+	if written > limit {
+		cleanupFn()
+		return "", "", func() {}, fmt.Errorf("%d bytes from '%s': %w", limit, redactedURL(requestURL), ErrProviderArchiveTooLarge)
 	}
 
 	if err = f.Sync(); err != nil {

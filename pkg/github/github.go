@@ -84,7 +84,7 @@ func readArchiveLimited(body io.Reader, limit int64) ([]byte, error) {
 	}
 
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("archive exceeds %d bytes: %w", limit, ErrArchiveTooLarge)
+		return nil, fmt.Errorf("%d bytes: %w", limit, ErrArchiveTooLarge)
 	}
 
 	return data, nil
@@ -131,7 +131,6 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 			sha256Sum := sha256.Sum256(moduleBytes)
 			checksumSha256 := base64.StdEncoding.EncodeToString(sha256Sum[:])
 			checksum = &checksumSha256
-
 			return
 		}
 
