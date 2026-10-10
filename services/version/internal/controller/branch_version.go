@@ -285,6 +285,11 @@ func (r *VersionReconciler) assignBranchVersion(
 		EvaluatedAt: now,
 	}
 
+	if r.branchJevRefMissing(version) {
+		requeueAfter, holdErr := r.holdBranchBump(ctx, req, version, assessment, errors.New(jevRefRequiredError))
+		return nil, requeueAfter, holdErr
+	}
+
 	var next string
 	if previous == nil {
 		if _, overrideErr := manualBumpCategory(version); overrideErr != nil {
