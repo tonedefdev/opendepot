@@ -355,7 +355,7 @@ spec:
     repoOwner: %q
     repoUrl: %q
     githubClientConfig:
-      useAuthenticatedClient: false
+      useAuthenticatedClient: true
     storageConfig:
       fileSystem:
         directoryPath: %s
@@ -473,7 +473,7 @@ spec:
     repoOwner: %q
     repoUrl: %q
     githubClientConfig:
-      useAuthenticatedClient: false
+      useAuthenticatedClient: true
     storageConfig:
       fileSystem:
         directoryPath: %s
@@ -567,7 +567,7 @@ spec:
     repoOwner: %q
     repoUrl: %q
     githubClientConfig:
-      useAuthenticatedClient: false
+      useAuthenticatedClient: true
     storageConfig:
       fileSystem:
         directoryPath: %s
@@ -804,6 +804,8 @@ metadata:
   namespace: %s
 spec:
   providerConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     sourceRepository: "%s"
     operatingSystems:
@@ -838,6 +840,8 @@ spec:
   operatingSystem: linux
   architecture: amd64
   providerConfigRef:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     sourceRepository: "%s"
     storageConfig:
@@ -865,6 +869,8 @@ spec:
   operatingSystem: linux
   architecture: amd64
   providerConfigRef:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     sourceRepository: "%s"
     storageConfig:
@@ -974,7 +980,7 @@ spec:
     repoOwner: %q
     repoUrl: %q
     githubClientConfig:
-      useAuthenticatedClient: false
+      useAuthenticatedClient: true
     storageConfig:
       fileSystem:
         directoryPath: %s
@@ -1168,7 +1174,7 @@ spec:
     repoOwner: %q
     repoUrl: %q
     githubClientConfig:
-      useAuthenticatedClient: false
+      useAuthenticatedClient: true
     storageConfig:
       fileSystem:
         directoryPath: %s
@@ -1331,6 +1337,8 @@ metadata:
   namespace: %s
 spec:
   providerConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     sourceRepository: "%s"
     operatingSystems:
@@ -1366,6 +1374,8 @@ spec:
   operatingSystem: linux
   architecture: %s
   providerConfigRef:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     namespace: hashicorp
     sourceRepository: "%s"
@@ -1426,6 +1436,8 @@ spec:
   operatingSystem: linux
   architecture: %s
   providerConfigRef:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: "null"
     namespace: hashicorp
     sourceRepository: "%s"
@@ -1564,9 +1576,13 @@ metadata:
   namespace: %s
 spec:
   agentSourceConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: %s
     repoOwner: github
     repoUrl: https://github.com/github/awesome-copilot
+    githubClientConfig:
+      useAuthenticatedClient: true
     path: %s
     ref: %s
     branchPolicy:
@@ -1584,6 +1600,8 @@ spec:
   - name: %s
     repoOwner: github
     repoUrl: https://github.com/github/awesome-copilot
+    githubClientConfig:
+      useAuthenticatedClient: true
     path: %s
     ref: %s
     branchPolicy:

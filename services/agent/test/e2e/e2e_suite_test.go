@@ -180,6 +180,10 @@ var _ = BeforeSuite(func() {
 	err = utils.EnsureGPGSigningSecret(namespace, signingSecretName, signingSecretKey)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GPG signing key Secret")
 
+	By("storing the GitHub App credentials in the GitHub application Secret")
+	err = utils.EnsureGitHubAppSecret(namespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GitHub App Secret")
+
 	if jevAPIKey != "" {
 		By("storing the Jev token in a Secret read from stdin")
 		cmd = exec.Command("kubectl", "create", "secret", "generic", jevSecretName,

@@ -82,6 +82,8 @@ metadata:
   namespace: %s
 spec:
   agentSourceConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: %s
     repoOwner: tonedefdev
     repoUrl: https://github.com/tonedefdev/opendepot
@@ -288,6 +290,8 @@ metadata:
   namespace: %s
 spec:
   agentSourceConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: %s
     repoOwner: tonedefdev
     repoUrl: https://github.com/tonedefdev/opendepot
@@ -493,6 +497,8 @@ metadata:
   namespace: %s
 spec:
   agentSourceConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
     name: %s
     repoOwner: github
     repoUrl: https://github.com/%s

@@ -147,6 +147,10 @@ var _ = BeforeSuite(func() {
 	err = utils.EnsureGPGSigningSecret(namespace, signingSecretName, signingSecretKey)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GPG signing key Secret")
 
+	By("storing the GitHub App credentials in the GitHub application Secret")
+	err = utils.EnsureGitHubAppSecret(namespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GitHub App Secret")
+
 	By("upgrading Helm release to configure version controller with local images")
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
