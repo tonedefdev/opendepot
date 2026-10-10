@@ -17,7 +17,12 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -158,6 +163,101 @@ func TestAgentStorageNaming(t *testing.T) {
 
 			if gotConfig != storageConfig {
 				t.Errorf("getVersionStorageConfig() did not return the agentSourceRef storage config")
+			}
+		})
+	}
+}
+
+func TestNeedsDefinitionBackfill(t *testing.T) {
+	ref := &opendepotv1alpha1.DefinitionConfigMapRef{Name: "example-definition", Key: "definition", FileName: "SKILL.md"}
+
+	tests := []struct {
+		name    string
+		version opendepotv1alpha1.Version
+		want    bool
+	}{
+		{
+			name:    "skill without a definition reference needs backfill",
+			version: opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotSkill}},
+			want:    true,
+		},
+		{
+			name:    "agent without a definition reference needs backfill",
+			version: opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotAgent}},
+			want:    true,
+		},
+		{
+			name: "agent with a definition reference does not need backfill",
+			version: opendepotv1alpha1.Version{
+				Spec:   opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotAgent},
+				Status: opendepotv1alpha1.VersionStatus{DefinitionConfigMapRef: ref},
+			},
+			want: false,
+		},
+		{
+			name:    "module without a definition reference does not need backfill",
+			version: opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotModule}},
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := needsDefinitionBackfill(&tt.version); got != tt.want {
+				t.Errorf("needsDefinitionBackfill() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBlockedAndFailedWritesKeepDefinitionRef(t *testing.T) {
+	ctx := context.Background()
+	ref := &opendepotv1alpha1.DefinitionConfigMapRef{Name: "code-review-abc1234-definition", Key: "definition", FileName: "SKILL.md"}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "code-review-abc1234", Namespace: "default"}}
+
+	tests := []struct {
+		name  string
+		write func(r *VersionReconciler) error
+	}{
+		{
+			name: "held branch block keeps the definition reference",
+			write: func(r *VersionReconciler) error {
+				return r.persistAgentBlock(ctx, req, nil, nil, "Agent scan failed: boom")
+			},
+		},
+		{
+			name: "sync status write keeps the definition reference",
+			write: func(r *VersionReconciler) error {
+				return r.persistSyncStatus(ctx, req, false, "version is marked immutable")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, _ := newDefinitionFixture(t, interceptor.Funcs{})
+
+			current := &opendepotv1alpha1.Version{}
+			if err := r.Get(ctx, req.NamespacedName, current); err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+
+			current.Status.DefinitionConfigMapRef = ref
+			if err := r.Status().Update(ctx, current); err != nil {
+				t.Fatalf("seed status: %v", err)
+			}
+
+			if err := tt.write(r); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			got := &opendepotv1alpha1.Version{}
+			if err := r.Get(ctx, req.NamespacedName, got); err != nil {
+				t.Fatalf("Get after write: %v", err)
+			}
+
+			if got.Status.DefinitionConfigMapRef == nil || got.Status.DefinitionConfigMapRef.Name != ref.Name {
+				t.Errorf("DefinitionConfigMapRef = %+v, want %+v", got.Status.DefinitionConfigMapRef, ref)
 			}
 		})
 	}

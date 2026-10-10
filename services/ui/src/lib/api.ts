@@ -37,6 +37,9 @@ export interface BrowseResource {
   lastScanned: string;
   totalDownloads?: number;
   lastDownloadedAt?: string;
+  sourceRef?: string;
+  sourceCommit?: string;
+  sourcePath?: string;
 }
 
 export interface BrowseResourceList {
@@ -71,6 +74,8 @@ export interface BrowseVersionSummary {
   archiveSizeBytes?: number;
   schemaState?: string;
   schemaMessage?: string;
+  commit?: string;
+  branchPhase?: string;
 }
 
 export interface SecurityFinding {
@@ -174,7 +179,10 @@ export interface BrowseResourceDetail extends BrowseResource {
   versionHistoryLimit?: number;
   versionConstraints?: string;
   sourceRepository?: string;
+  // readmeContent is the module or provider README only. Skill and Agent resources never populate it.
   readmeContent?: string;
+  definitionContent?: string;
+  definitionFileName?: string;
   agentMetadata?: AgentMetadata;
   jevAssessment?: JevAssessment;
   jevThresholds?: JevThresholds;

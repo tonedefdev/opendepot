@@ -70,7 +70,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       <PageHeader
         icon={<GridViewIcon color="primary" fontSize="small" />}
         title="Registry Explorer"
-        description="Browse modules and providers from your OpenDepot registry."
+        description="Browse agents, skills, modules, and providers from your OpenDepot registry."
         actions={<RefreshIconButton ariaLabel="refresh registry" />}
         mobileOnly
       />
@@ -83,7 +83,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           <RefreshIconButton ariaLabel="refresh registry" />
         </Box>
         <Typography variant="body1" color="text.secondary" mt={1}>
-          Browse modules and providers from your OpenDepot registry.
+          Browse agents, skills, modules, and providers from your OpenDepot registry.
         </Typography>
       </Box>
       {authError && (

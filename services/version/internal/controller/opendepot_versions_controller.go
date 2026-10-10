@@ -227,7 +227,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var providerTmpPath string
 	var readmeConfigMapRef *opendepotv1alpha1.ReadmeConfigMapRef
 	var agentMetadata *opendepotv1alpha1.AgentMetadata
-	var agentReadme []byte
+	var agentDefinition []byte
+	var agentDefinitionFileName string
 	var contractConfigMapRef *opendepotv1alpha1.ContractConfigMapRef
 	var providerSchemaRef *opendepotv1alpha1.ProviderSchemaRef
 	var providerSchemaStatus *opendepotv1alpha1.ProviderSchemaStatus
@@ -264,9 +265,16 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					earlySoi.FileExists &&
 					earlySoi.ObjectChecksum != nil &&
 					*earlySoi.ObjectChecksum == *version.Status.Checksum {
+					definitionMissing := false
+					if isAgent {
+						definitionExists, existsErr := r.definitionConfigMapExists(ctx, version)
+						definitionMissing = existsErr != nil || !definitionExists
+					}
+
 					bypassFastPath := version.Spec.ForceSync ||
 						(version.Spec.Type == opendepotv1alpha1.OpenDepotModule && r.AssemblyEnabled && r.contractNeedsDerivation(ctx, version)) ||
-						(isAgent && version.Status.ShaSumsSignature == "")
+						(isAgent && version.Status.ShaSumsSignature == "") ||
+						definitionMissing
 
 					if !bypassFastPath {
 						r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
@@ -293,12 +301,15 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if version.Spec.Type == opendepotv1alpha1.OpenDepotModule {
 			moduleBytes, checksum, fetchErr = r.fetchModuleArchive(ctx, version)
 		} else {
-			moduleBytes, checksum, agentMetadata, agentReadme, fetchErr = r.fetchAgentArchive(ctx, version)
+			moduleBytes, checksum, agentMetadata, agentDefinition, agentDefinitionFileName, fetchErr = r.fetchAgentArchiveWithDefinition(ctx, version)
 		}
 
 		if fetchErr != nil {
 			version.Status.SyncStatus = fmt.Sprintf("Failed to retrieve %s archive: %v", strings.ToLower(version.Spec.Type), fetchErr)
-			_ = r.Status().Update(ctx, version)
+			if err := r.persistSyncStatus(ctx, req, version.Status.Synced, version.Status.SyncStatus); err != nil {
+				r.Log.Error(err, "Failed to persist sync status", "version", version.Name)
+			}
+
 			return ctrl.Result{}, fetchErr
 		}
 
@@ -312,24 +323,37 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			*version.Status.Checksum != *archiveChecksum {
 
 			statusMsg := fmt.Errorf("version is marked immutable: archive checksum doesn't match existing checksum: got '%s'", *archiveChecksum)
-			version.Status.SyncStatus = statusMsg.Error()
-			version.Status.Synced = false
-			_ = r.Status().Update(ctx, version)
+			if err := r.persistSyncStatus(ctx, req, false, statusMsg.Error()); err != nil {
+				r.Log.Error(err, "Failed to persist sync status", "version", version.Name)
+			}
+
 			return ctrl.Result{}, statusMsg
 		}
 
-		// Only (re)fetch the README on the module's first sync or when ForceSync is set.
+		// Persist the Skill or Agent definition before any gate runs, so a Version that is later
+		// blocked by a scan, Jev assessment, or branch decision still keeps its definition.
+		// A failure is logged and the Version is requeued so the write is retried.
+		if isAgent {
+			definitionRef, definitionErr := r.upsertDefinitionConfigMap(ctx, version, agentDefinition, agentDefinitionFileName)
+			if definitionErr == nil {
+				definitionErr = r.persistDefinitionRef(ctx, version, definitionRef)
+			}
+
+			if definitionErr != nil {
+				r.Log.Error(definitionErr, "Failed to persist definition; requeueing", "version", version.Name)
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+
+			version.Status.DefinitionConfigMapRef = definitionRef
+		}
+
+		// Only (re)fetch the module README on the module's first sync or when ForceSync is set.
 		// This avoids hammering the GitHub API on every reconcile once a README has been
 		// resolved. Any failure to resolve or store a README is non-fatal: the Version can
-		// still sync successfully without one.
-		if version.Status.ReadmeConfigMapRef == nil || version.Spec.ForceSync {
-			var readmeBytes []byte
-			var readmeErr error
-			if version.Spec.Type == opendepotv1alpha1.OpenDepotModule {
-				readmeBytes, readmeErr = r.fetchModuleReadme(ctx, version, fileBytes)
-			} else {
-				readmeBytes = agentReadme
-			}
+		// still sync successfully without one. Skill and Agent definitions are stored in
+		// DefinitionConfigMapRef instead, so this block only runs for modules.
+		if version.Spec.Type == opendepotv1alpha1.OpenDepotModule && (version.Status.ReadmeConfigMapRef == nil || version.Spec.ForceSync) {
+			readmeBytes, readmeErr := r.fetchModuleReadme(ctx, version, fileBytes)
 			if readmeErr != nil {
 				r.Log.V(5).Info("failed to resolve module readme; skipping", "version", version.Name, "error", readmeErr.Error())
 			} else if len(readmeBytes) > 0 {
@@ -338,6 +362,9 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					r.Log.V(5).Info("failed to upsert readme configmap; skipping", "version", version.Name, "error", upsertErr.Error())
 				} else {
 					readmeConfigMapRef = ref
+					if err := r.persistReadmeRef(ctx, req, ref); err != nil {
+						r.Log.V(5).Info("failed to persist readme configmap reference; continuing", "version", version.Name, "error", err.Error())
+					}
 				}
 			}
 		}
@@ -853,6 +880,45 @@ func (r *VersionReconciler) persistScanViolation(
 	})
 }
 
+// persistSyncStatus writes only the Synced and SyncStatus fields of a Version, re-reading the latest
+// object first so that references written earlier in the same reconcile are not overwritten.
+func (r *VersionReconciler) persistSyncStatus(ctx context.Context, req ctrl.Request, synced bool, syncStatus string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		currentVersion := &opendepotv1alpha1.Version{}
+		if err := r.Get(ctx, req.NamespacedName, currentVersion); err != nil {
+			return err
+		}
+
+		currentVersion.Status.Synced = synced
+		currentVersion.Status.SyncStatus = syncStatus
+
+		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		})
+	})
+}
+
+// persistReadmeRef records a module Version's README ConfigMap reference on the status as soon as the
+// ConfigMap exists, so a later gate that blocks the Version does not lose the reference.
+func (r *VersionReconciler) persistReadmeRef(ctx context.Context, req ctrl.Request, ref *opendepotv1alpha1.ReadmeConfigMapRef) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		currentVersion := &opendepotv1alpha1.Version{}
+		if err := r.Get(ctx, req.NamespacedName, currentVersion); err != nil {
+			return err
+		}
+
+		if reflect.DeepEqual(currentVersion.Status.ReadmeConfigMapRef, ref) {
+			return nil
+		}
+
+		currentVersion.Status.ReadmeConfigMapRef = ref
+
+		return r.Status().Update(ctx, currentVersion, &client.SubResourceUpdateOptions{
+			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
+		})
+	})
+}
+
 // persistAgentBlock records a Skill or Agent Version that did not pass a gate. The Version stays unsynced,
 // and any scan or Jev result gathered so far is kept for review.
 func (r *VersionReconciler) persistAgentBlock(
@@ -1190,6 +1256,14 @@ func versionImmutable(version *opendepotv1alpha1.Version) bool {
 }
 
 // prepareAgentVersion validates the agentSourceRef of a Skill or Agent Version and ensures its required fields are present.
+// needsDefinitionBackfill reports whether a Skill or Agent Version has no definition reference yet, so a
+// synced Version from before the definition ConfigMap existed is re-synced once.
+func needsDefinitionBackfill(version *opendepotv1alpha1.Version) bool {
+	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
+
+	return isAgent && version.Status.DefinitionConfigMapRef == nil
+}
+
 func (r *VersionReconciler) prepareAgentVersion(version *opendepotv1alpha1.Version) (ctrl.Result, error) {
 	if version.Spec.AgentSourceRef == nil {
 		return ctrl.Result{}, fmt.Errorf("agentSourceRef is required for %s version '%s'", strings.ToLower(version.Spec.Type), version.Name)
@@ -1272,13 +1346,20 @@ func (r *VersionReconciler) downloadAgentArchive(ctx context.Context, version *o
 	return tarball, repoName, nil
 }
 
+// fetchAgentArchive returns the Skill or Agent archive, checksum, metadata, and raw definition bytes. Callers that
+// need the definition file name use fetchAgentArchiveWithDefinition.
 func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, error) {
+	packed, checksum, metadata, definition, _, err := r.fetchAgentArchiveWithDefinition(ctx, version)
+	return packed, checksum, metadata, definition, err
+}
+
+func (r *VersionReconciler) fetchAgentArchiveWithDefinition(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, string, error) {
 	sourceRef := version.Spec.AgentSourceRef
 
 	var refs []string
 	if version.Spec.SourceCommit != "" {
 		if err := opendepotGithub.ValidateCommitSHA(version.Spec.SourceCommit); err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, "", err
 		}
 
 		refs = []string{version.Spec.SourceCommit}
@@ -1293,26 +1374,26 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 
 	tarball, repoName, err := r.downloadAgentArchive(ctx, version, refs)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 
 	tmpDir, err := os.MkdirTemp("", "agent-archive-")
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 	defer os.RemoveAll(tmpDir)
 
 	// Only the Skill or Agent directory is extracted, so links elsewhere in the repository cannot fail the archive.
 	subtree := strings.Trim(filepath.ToSlash(filepath.Clean("/"+sourceRef.Path)), "/")
 	if err = archive.ExtractSubtreeToDir(tarball, tmpDir, subtree); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to extract archive: %w", err)
+		return nil, nil, nil, nil, "", fmt.Errorf("failed to extract archive: %w", err)
 	}
 
 	// GitHub tarballs contain a single top-level directory named after the repository and commit.
 	rootDir := tmpDir
 	entries, err := os.ReadDir(tmpDir)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 
 	if len(entries) == 1 && entries[0].IsDir() {
@@ -1323,34 +1404,34 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 	agentDir := filepath.Join(rootDir, filepath.Clean("/"+sourceRef.Path))
 	info, err := os.Stat(agentDir)
 	if err != nil || !info.IsDir() {
-		return nil, nil, nil, nil, fmt.Errorf("path '%s' is not a directory in repository '%s'", sourceRef.Path, repoName)
+		return nil, nil, nil, nil, "", fmt.Errorf("path '%s' is not a directory in repository '%s'", sourceRef.Path, repoName)
 	}
 
 	entryPath := filepath.Join(agentDir, "SKILL.md")
 	if version.Spec.Type == opendepotv1alpha1.OpenDepotAgent {
 		if sourceRef.Name == nil {
-			return nil, nil, nil, nil, fmt.Errorf("agentSourceRef.name is required for agent version '%s'", version.Name)
+			return nil, nil, nil, nil, "", fmt.Errorf("agentSourceRef.name is required for agent version '%s'", version.Name)
 		}
 
 		entryPath, err = agentspec.FindAgentEntry(agentDir, *sourceRef.Name)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, "", err
 		}
 	}
 
 	content, err := os.ReadFile(entryPath)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
+		return nil, nil, nil, nil, "", fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
 	}
 
 	parsed, err := agentspec.ParseAgent(entryPath, content)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to validate %s: %w", filepath.Base(entryPath), err)
+		return nil, nil, nil, nil, "", fmt.Errorf("failed to validate %s: %w", filepath.Base(entryPath), err)
 	}
 
 	var packed bytes.Buffer
 	if err = archive.WriteDeterministicTarGz(agentDir, &packed); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to package archive: %w", err)
+		return nil, nil, nil, nil, "", fmt.Errorf("failed to package archive: %w", err)
 	}
 
 	sum := sha256.Sum256(packed.Bytes())
@@ -1362,7 +1443,7 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 		Model:       parsed.Model,
 	}
 
-	return packed.Bytes(), &checksum, metadata, []byte(parsed.Body), nil
+	return packed.Bytes(), &checksum, metadata, content, filepath.Base(entryPath), nil
 }
 
 // fetchModuleArchive downloads module source from GitHub and returns bytes with a checksum.
@@ -1607,7 +1688,7 @@ func (r *VersionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return true
 			}
 
-			return version.Spec.ForceSync || !version.Status.Synced || version.Status.Checksum == nil
+			return version.Spec.ForceSync || !version.Status.Synced || version.Status.Checksum == nil || needsDefinitionBackfill(version)
 		},
 	}
 
