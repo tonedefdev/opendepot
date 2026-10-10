@@ -913,8 +913,13 @@ type VersionStatus struct {
 	SourceScan *SourceScan `json:"sourceScan,omitempty"`
 	// ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
 	// encoded README.md content. Only populated for module Version resources when a
-	// README could be resolved from Github or the module archive.
+	// README could be resolved from Github or the module archive. It is for the README
+	// only and is not used for Skill or Agent definitions.
 	ReadmeConfigMapRef *ReadmeConfigMapRef `json:"readmeConfigMapRef,omitempty"`
+	// DefinitionConfigMapRef references the ConfigMap holding the Skill or Agent definition file
+	// (SKILL.md or the agent .md). Only populated for Skill and Agent Versions.
+	// +optional
+	DefinitionConfigMapRef *DefinitionConfigMapRef `json:"definitionConfigMapRef,omitempty"`
 	// ContractConfigMapRef references the ConfigMap holding this module Version's
 	// Assembly Line contract JSON. Only populated for module Version resources when
 	// contract derivation is enabled.
@@ -1023,6 +1028,18 @@ type ReadmeConfigMapRef struct {
 	Name string `json:"name"`
 	// The key within the ConfigMap's data holding the base64 encoded README content.
 	Key string `json:"key"`
+}
+
+// DefinitionConfigMapRef references the ConfigMap and data key holding a Skill or Agent
+// Version's base64 encoded definition file.
+type DefinitionConfigMapRef struct {
+	// The name of the ConfigMap holding the definition file.
+	Name string `json:"name"`
+	// The key within the ConfigMap's data holding the base64 encoded definition file.
+	Key string `json:"key"`
+	// The name of the source entry file, for example SKILL.md, code-review.agent.md or code-review.md.
+	// +kubebuilder:validation:MaxLength=255
+	FileName string `json:"fileName"`
 }
 
 // ContractConfigMapRef references the ConfigMap and data key holding a module

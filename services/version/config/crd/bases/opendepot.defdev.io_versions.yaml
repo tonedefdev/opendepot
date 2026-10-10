@@ -871,6 +871,29 @@ spec:
                 - key
                 - name
                 type: object
+              definitionConfigMapRef:
+                description: |-
+                  DefinitionConfigMapRef references the ConfigMap holding the Skill or Agent definition file
+                  (SKILL.md or the agent .md). Only populated for Skill and Agent Versions.
+                properties:
+                  fileName:
+                    description: The name of the source entry file, for example SKILL.md,
+                      code-review.agent.md or code-review.md.
+                    maxLength: 255
+                    type: string
+                  key:
+                    description: The key within the ConfigMap's data holding the base64
+                      encoded definition file.
+                    type: string
+                  name:
+                    description: The name of the ConfigMap holding the definition
+                      file.
+                    type: string
+                required:
+                - fileName
+                - key
+                - name
+                type: object
               jevAssessment:
                 description: |-
                   JevAssessment holds the TypeSafe Jev assessment of this Version. Only populated when Jev
@@ -1005,7 +1028,8 @@ spec:
                 description: |-
                   ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
                   encoded README.md content. Only populated for module Version resources when a
-                  README could be resolved from Github or the module archive.
+                  README could be resolved from Github or the module archive. It is for the README
+                  only and is not used for Skill or Agent definitions.
                 properties:
                   key:
                     description: The key within the ConfigMap's data holding the base64
