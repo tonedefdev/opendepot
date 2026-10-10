@@ -34,6 +34,8 @@ import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
 import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
 import ExtensionOutlinedIcon from "@mui/icons-material/ExtensionOutlined";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
+import ViewModuleOutlinedIcon from "@mui/icons-material/ViewModuleOutlined";
+import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
@@ -48,6 +50,13 @@ const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 56;
 const SIDEBAR_COLLAPSED_COOKIE = "opendepot_sidebar_collapsed";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "opendepot.sidebar.collapsed";
+
+const REGISTRY_KIND_LINKS: { label: string; kind: string; icon: typeof GridViewIcon }[] = [
+  { label: "Agents", kind: "agent", icon: SmartToyOutlinedIcon },
+  { label: "Skills", kind: "skill", icon: ExtensionOutlinedIcon },
+  { label: "Modules", kind: "module", icon: ViewModuleOutlinedIcon },
+  { label: "Providers", kind: "provider", icon: CloudOutlinedIcon },
+];
 const SIDEBAR_PREFERENCE_MAX_AGE = 60 * 60 * 24 * 365;
 interface Namespace {
   name: string;
@@ -343,7 +352,7 @@ export default function Sidebar({
             <ListItemButton
               component={Link}
               href="/"
-              selected={isOnHome}
+              selected={isOnHome && !currentKind}
               sx={{
                 mx: 1,
                 borderRadius: "6px",
@@ -355,10 +364,37 @@ export default function Sidebar({
               <GridViewIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
               <ListItemText
                 primary="Registry"
-                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: isOnHome ? 600 : 400 }}
+                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: isOnHome && !currentKind ? 600 : 400 }}
               />
             </ListItemButton>
           </ListItem>
+          {REGISTRY_KIND_LINKS.map((item) => {
+            const Icon = item.icon;
+            const selected = isOnHome && currentKind === item.kind;
+            return (
+              <ListItem key={item.kind} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href={`/?kind=${item.kind}`}
+                  selected={selected}
+                  sx={{
+                    mx: 1,
+                    ml: 3,
+                    borderRadius: "6px",
+                    py: 0.5,
+                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                    "&.Mui-selected:hover": { background: selectedHoverBg },
+                  }}
+                >
+                  <Icon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary={item.label}
+                    primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: selected ? 600 : 400 }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -471,79 +507,8 @@ export default function Sidebar({
           </ListItem>
         </List>
 
-        {/* Agents */}
-        <Box sx={{ px: 2, pt: 2, pb: 1 }}>
-          <Typography
-            variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-          >
-            Agents
-          </Typography>
-        </Box>
-        <List dense disablePadding>
-          {[
-            { label: "Skills", kind: "skill", icon: <ExtensionOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} /> },
-            { label: "Agents", kind: "agent", icon: <SmartToyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} /> },
-          ].map((item) => {
-            const selected = isOnHome && currentKind === item.kind;
-            return (
-              <ListItem key={item.kind} disablePadding>
-                <ListItemButton
-                  component={Link}
-                  href={`/?kind=${item.kind}`}
-                  selected={selected}
-                  sx={{
-                    mx: 1,
-                    borderRadius: "6px",
-                    py: 0.5,
-                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
-                    "&.Mui-selected:hover": { background: selectedHoverBg },
-                  }}
-                >
-                  {item.icon}
-                  <ListItemText
-                    primary={item.label}
-                    primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: selected ? 600 : 400 }}
-                  />
-                </ListItemButton>
-              </ListItem>
-            );
-          })}
-        </List>
-
         {isOnHome && (
           <>
-            <Divider sx={{ mx: 2, my: 1 }} />
-
-            {/* Kind filter */}
-            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-              <Typography
-                variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-              >
-                Kind
-              </Typography>
-            </Box>
-            <Box sx={{ px: 1.5, pb: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-              {[
-                { label: "All", value: "" },
-                { label: "Module", value: "module" },
-                { label: "Provider", value: "provider" },
-                { label: "Skill", value: "skill" },
-                { label: "Agent", value: "agent" },
-              ].map((opt) => (
-                <Chip
-                  key={opt.value || "all"}
-                  label={opt.label}
-                  size="small"
-                  variant={currentKind === opt.value ? "filled" : "outlined"}
-                  color={currentKind === opt.value ? "primary" : "default"}
-                  onClick={() => navigate({ kind: opt.value })}
-                  sx={{ cursor: "pointer" }}
-                />
-              ))}
-            </Box>
-
             <Divider sx={{ mx: 2, my: 1 }} />
 
             {/* Sort */}
@@ -807,15 +772,36 @@ export default function Sidebar({
           component={Link}
           href="/"
           sx={{
-            color: isOnHome ? "primary.main" : "text.secondary",
+            color: isOnHome && !currentKind ? "primary.main" : "text.secondary",
             borderRadius: "6px",
-            bgcolor: isOnHome ? selectedBg : "transparent",
+            bgcolor: isOnHome && !currentKind ? selectedBg : "transparent",
             "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <GridViewIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Tooltip>
+      {REGISTRY_KIND_LINKS.map((item) => {
+        const Icon = item.icon;
+        const selected = isOnHome && currentKind === item.kind;
+        return (
+          <Tooltip key={item.kind} title={item.label} placement="right">
+            <IconButton
+              component={Link}
+              href={`/?kind=${item.kind}`}
+              aria-label={item.label}
+              sx={{
+                color: selected ? "primary.main" : "text.secondary",
+                borderRadius: "6px",
+                bgcolor: selected ? selectedBg : "transparent",
+                "&:hover": { bgcolor: hoverTintBg },
+              }}
+            >
+              <Icon sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Tooltip>
+        );
+      })}
       <Tooltip title="Assembly Line" placement="right">
         <IconButton
           component={Link}
