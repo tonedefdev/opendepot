@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1458,6 +1461,665 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(output)).To(BeEmpty(),
 				"expected no schema to be extracted for a platform the controller does not run on")
+		})
+	})
+
+	Context("Branch sourcing", Ordered, func() {
+		const (
+			branchSkillName     = "acquire-codebase-knowledge"
+			branchJevSkillName  = "conventional-commit"
+			branchDepotName     = "branch-e2e-depot"
+			branchStorageDir    = "/data/modules"
+			branchServerPort    = "18082"
+			branchJevSecretName = "opendepot-branch-jev"
+			branchJevSecretKey  = "jevToken"
+			branchPinnedVersion = "1.0.0"
+			branchServerBase    = "http://127.0.0.1:" + branchServerPort + "/opendepot/agents/v1/" + namespace + "/skills/" + branchSkillName
+		)
+
+		type branchEntry struct {
+			commit       string
+			discoveredAt time.Time
+		}
+
+		type branchSkillEntry struct {
+			Commit       string `json:"commit"`
+			State        string `json:"state"`
+			Version      string `json:"version"`
+			DiscoveredAt string `json:"discoveredAt"`
+		}
+
+		type branchVersionRef struct {
+			Name   string `json:"name"`
+			Synced bool   `json:"synced"`
+		}
+
+		type branchVersionsResponse struct {
+			Versions []struct {
+				Version string `json:"version"`
+			} `json:"versions"`
+		}
+
+		type branchDownloadResponse struct {
+			Version string `json:"version"`
+			Shasum  string `json:"shasum"`
+		}
+
+		var branchPFCancel context.CancelFunc
+
+		helmUpgrade := func(sets ...string) {
+			chartPath, err := utils.GetChartPath()
+			Expect(err).NotTo(HaveOccurred())
+
+			args := []string{"upgrade", helmReleaseName, chartPath, "--reuse-values", "--namespace", namespace}
+			for _, set := range sets {
+				args = append(args, "--set", set)
+			}
+
+			args = append(args, "--wait", "--timeout", "3m")
+			_, err = utils.Run(exec.Command("helm", args...))
+			Expect(err).NotTo(HaveOccurred(), "Failed to upgrade Helm release")
+		}
+
+		applyManifest := func(manifest string) {
+			manifestFile := filepath.Join(GinkgoT().TempDir(), "branch.yaml")
+			Expect(os.WriteFile(manifestFile, []byte(manifest), 0600)).To(Succeed())
+
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", manifestFile))
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply branch sourcing manifest")
+		}
+
+		jevSecretRefBlock := func(jev bool) string {
+			if !jev {
+				return ""
+			}
+
+			return fmt.Sprintf(`
+    jevSecretRef:
+      name: %s
+      key: %s
+    jevPolicy: {}`, branchJevSecretName, branchJevSecretKey)
+		}
+
+		// applyBranchSkill applies a Skill sourced from the fixture branch, seeded with the given Pending entries.
+		// The agent controller creates the branch Versions and copies their outcome back to the entries.
+		applyBranchSkill := func(name string, jev bool, entries ...branchEntry) {
+			fixturePath := utils.SkillFixturePath
+			if jev {
+				fixturePath = utils.JevSkillFixturePath
+			}
+
+			versions := ""
+			for _, entry := range entries {
+				versions += fmt.Sprintf(`
+    - commit: %s
+      discoveredAt: %s
+      state: Pending`, entry.commit, entry.discoveredAt.UTC().Format(time.RFC3339))
+			}
+
+			applyManifest(fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Skill
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  agentSourceConfig:
+    name: %s
+    repoOwner: github
+    repoUrl: https://github.com/github/awesome-copilot
+    path: %s
+    ref: %s
+    branchPolicy:
+      minVersionInterval: 0s
+    storageConfig:
+      fileSystem:
+        directoryPath: %s%s
+  versions:%s
+`, name, namespace, name, fixturePath, utils.BranchFixtureRef, branchStorageDir, jevSecretRefBlock(jev), versions))
+		}
+
+		// branchSourceBlock renders one Depot skillConfigs entry that sources the fixture branch.
+		branchSourceBlock := func(name, path string, jev bool) string {
+			return fmt.Sprintf(`
+  - name: %s
+    repoOwner: github
+    repoUrl: https://github.com/github/awesome-copilot
+    path: %s
+    ref: %s
+    branchPolicy:
+      minVersionInterval: 0s
+    storageConfig:
+      fileSystem:
+        directoryPath: %s%s`, name, path, utils.BranchFixtureRef, branchStorageDir, jevSecretRefBlock(jev))
+		}
+
+		// applyBranchDepot applies the Depot that sources the fixture branch. The Jev Skill is managed only when jev is set.
+		applyBranchDepot := func(jev bool) {
+			skillConfigs := branchSourceBlock(branchSkillName, utils.SkillFixturePath, false)
+			if jev {
+				skillConfigs += branchSourceBlock(branchJevSkillName, utils.JevSkillFixturePath, true)
+			}
+
+			applyManifest(fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Depot
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  skillConfigs:%s
+`, branchDepotName, namespace, skillConfigs))
+		}
+
+		// triggerDepot changes an annotation on the Depot so that it reconciles its branch sources.
+		triggerDepot := func() {
+			_, err := utils.Run(exec.Command("kubectl", "annotate", "depot", branchDepotName,
+				"-n", namespace,
+				fmt.Sprintf("opendepot.defdev.io/e2e-trigger=%d", time.Now().UnixNano()),
+				"--overwrite",
+			))
+			Expect(err).NotTo(HaveOccurred(), "Failed to annotate the Depot to trigger a reconcile")
+		}
+
+		versionField := func(name, jsonpath string) (string, error) {
+			output, err := utils.Run(exec.Command("kubectl", "get", "version", name,
+				"-n", namespace,
+				"-o", "jsonpath="+jsonpath,
+			))
+
+			return strings.TrimSpace(output), err
+		}
+
+		mustVersionField := func(name, jsonpath string) string {
+			value, err := versionField(name, jsonpath)
+			Expect(err).NotTo(HaveOccurred())
+
+			return value
+		}
+
+		// skillEntries returns the Skill spec entries, which the Depot and agent controller maintain.
+		skillEntries := func(skillName string) ([]branchSkillEntry, error) {
+			output, err := utils.Run(exec.Command("kubectl", "get", "skill", skillName,
+				"-n", namespace,
+				"-o", "jsonpath={.spec.versions}",
+			))
+			if err != nil {
+				return nil, err
+			}
+
+			var entries []branchSkillEntry
+			if strings.TrimSpace(output) == "" {
+				return entries, nil
+			}
+
+			return entries, json.Unmarshal([]byte(output), &entries)
+		}
+
+		// skillVersionRefs returns the Skill status references that the agent controller writes for synced Versions.
+		skillVersionRefs := func(skillName string) (map[string]branchVersionRef, error) {
+			output, err := utils.Run(exec.Command("kubectl", "get", "skill", skillName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.versionRefs}",
+			))
+			if err != nil {
+				return nil, err
+			}
+
+			refs := map[string]branchVersionRef{}
+			if strings.TrimSpace(output) == "" {
+				return refs, nil
+			}
+
+			return refs, json.Unmarshal([]byte(output), &refs)
+		}
+
+		// headCommitOf returns the entry commit that the Depot added for the branch head, which is any commit other than the pinned SHA.
+		headCommitOf := func(entries []branchSkillEntry, pinned string) string {
+			for _, entry := range entries {
+				if entry.Commit != pinned {
+					return entry.Commit
+				}
+			}
+
+			return ""
+		}
+
+		branchVersionName := func(skillName, commit string) string {
+			return fmt.Sprintf("skill-%s-%s", skillName, commit)
+		}
+
+		branchGet := func(path string) (int, []byte, error) {
+			resp, err := http.Get(branchServerBase + path)
+			if err != nil {
+				return 0, nil, err
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			body, err := io.ReadAll(resp.Body)
+			return resp.StatusCode, body, err
+		}
+
+		// parseBranchSemver encodes a major.minor.patch version as a comparable integer.
+		parseBranchSemver := func(version string) (int, error) {
+			var major, minor, patch int
+			_, err := fmt.Sscanf(version, "%d.%d.%d", &major, &minor, &patch)
+
+			return major*1000000 + minor*1000 + patch, err
+		}
+
+		BeforeAll(func() {
+			repoRoot, err := utils.GetRepoRoot()
+			Expect(err).NotTo(HaveOccurred(), "Failed to determine repo root")
+
+			buildAndLoad := func(image, dockerfile string, paths []string) {
+				hash, err := utils.ComputeBuildContextHash(repoRoot, paths)
+				Expect(err).NotTo(HaveOccurred(), "Failed to compute build hash for "+image)
+
+				if utils.NeedsRebuild(image, hash) {
+					buildCmd := exec.Command("docker", "build",
+						"-t", image,
+						"--label", "opendepot.build.hash="+hash,
+						"-f", dockerfile,
+						".",
+					)
+					_, err = utils.RunAt(buildCmd, repoRoot)
+					Expect(err).NotTo(HaveOccurred(), "Failed to build "+image)
+				}
+
+				Expect(utils.LoadImageToKindClusterWithName(image)).To(Succeed(), "Failed to load "+image+" into Kind")
+			}
+
+			By("building and loading the depot and agent controller images so the chart runs local builds")
+			sharedPaths := []string{"api", "pkg", "go.work", "go.work.sum"}
+			buildAndLoad(branchDepotImage, "services/depot/Dockerfile", append([]string{"services/depot"}, sharedPaths...))
+			buildAndLoad(branchAgentImage, "services/agent/Dockerfile", append([]string{"services/agent"}, sharedPaths...))
+
+			By("enabling the Depot, the Agent, and branch sourcing so the real controllers run")
+			helmUpgrade(
+				"version.gpg.secretName="+signingSecretName,
+				"server.gpg.secretName="+signingSecretName,
+				"depot.enabled=true",
+				"depot.image.repository=depot-controller",
+				"depot.image.tag=e2e-test",
+				"agent.enabled=true",
+				"agent.image.repository=agent-controller",
+				"agent.image.tag=e2e-test",
+				"branchSourcing.enabled=true",
+				"scanning.enabled=true",
+				"scanning.providerScanning=true",
+				"scanning.offline=true",
+			)
+
+			By("seeding the Trivy vulnerability DB that branch Version scans read in offline mode")
+			Expect(utils.SeedTrivyDB(namespace)).To(Succeed())
+		})
+
+		AfterAll(func() {
+			if branchPFCancel != nil {
+				branchPFCancel()
+			}
+
+			By("removing branch sourcing test resources")
+			cmd := exec.Command("kubectl", "delete", "depot", branchDepotName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			cmd = exec.Command("kubectl", "delete", "skill", branchSkillName, branchJevSkillName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			cmd = exec.Command("kubectl", "delete", "version",
+				"-n", namespace,
+				"-l", "opendepot.defdev.io/skill in ("+branchSkillName+","+branchJevSkillName+")",
+				"--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			cmd = exec.Command("kubectl", "delete", "secret", branchJevSecretName,
+				"-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+
+			By("disabling the Depot, the Agent, branch sourcing, and Jev to restore baseline state")
+			chartPath, err := utils.GetChartPath()
+			if err != nil {
+				return
+			}
+
+			cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+				"--reuse-values",
+				"--namespace", namespace,
+				"--set", "depot.enabled=false",
+				"--set", "agent.enabled=false",
+				"--set", "branchSourcing.enabled=false",
+				"--set", "scanning.jev.enabled=false",
+				"--wait",
+				"--timeout", "3m",
+			)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should assign 1.0.0 with source Initial to a pending entry at the pinned SHA", func() {
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
+
+			By("creating the Skill with a pending entry at the pinned SHA")
+			applyBranchSkill(branchSkillName, false, branchEntry{
+				commit:       utils.SkillFixtureSHA,
+				discoveredAt: time.Now().Add(-time.Hour),
+			})
+
+			pinnedName := branchVersionName(branchSkillName, utils.SkillFixtureSHA)
+
+			By("waiting for the agent controller to create the branch Version and the Version controller to assign it")
+			Eventually(func(g Gomega) {
+				phase, err := versionField(pinnedName, "{.status.branchPhase}")
+				g.Expect(err).NotTo(HaveOccurred())
+
+				syncStatus, _ := versionField(pinnedName, "{.status.syncStatus}")
+				g.Expect(phase).To(Equal("Assigned"), "branchPhase held with syncStatus %q", syncStatus)
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("asserting spec.version, source, and sourceCommit")
+			Expect(mustVersionField(pinnedName, "{.spec.version}")).To(Equal(branchPinnedVersion))
+			Expect(mustVersionField(pinnedName, "{.status.bumpAssessment.source}")).To(Equal("Initial"))
+			Expect(mustVersionField(pinnedName, "{.status.sourceCommit}")).To(Equal(utils.SkillFixtureSHA))
+
+			By("waiting for the agent controller to copy the assignment to the Skill entry and status")
+			Eventually(func(g Gomega) {
+				entries, err := skillEntries(branchSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(entries).To(HaveLen(1))
+				g.Expect(entries[0].State).To(Equal("Assigned"))
+				g.Expect(entries[0].Version).To(Equal(branchPinnedVersion))
+
+				refs, err := skillVersionRefs(branchSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(refs).To(HaveKey(branchPinnedVersion))
+				g.Expect(refs[branchPinnedVersion].Name).To(Equal(pinnedName))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("should add a head entry that reaches a terminal phase", func() {
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
+
+			By("creating a Depot that sources the same branch")
+			applyBranchDepot(false)
+
+			By("triggering a Depot reconcile with an annotation change")
+			triggerDepot()
+
+			By("waiting for the Depot to add an entry for the head commit")
+			var headCommit string
+			Eventually(func(g Gomega) {
+				entries, err := skillEntries(branchSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(entries).To(HaveLen(2))
+
+				headCommit = headCommitOf(entries, utils.SkillFixtureSHA)
+				g.Expect(headCommit).To(MatchRegexp(`^[0-9a-f]{40}$`))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			headName := branchVersionName(branchSkillName, headCommit)
+
+			By("waiting for the head Version to reach a terminal phase")
+			var headPhase string
+			Eventually(func(g Gomega) {
+				phase, err := versionField(headName, "{.status.branchPhase}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(phase).To(BeElementOf("Assigned", "Rejected"))
+				headPhase = phase
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			switch headPhase {
+			case "Assigned":
+				By("asserting the default PATCH bump when Jev is not configured")
+				Expect(mustVersionField(headName, "{.spec.version}")).To(Equal("1.0.1"))
+				Expect(mustVersionField(headName, "{.status.bumpAssessment.source}")).To(Equal("Default"))
+				Expect(mustVersionField(headName, "{.status.bumpAssessment.category}")).To(Equal("Patch"))
+			case "Rejected":
+				By("asserting a rejected Version is not assigned a semantic version")
+				Expect(mustVersionField(headName, "{.spec.version}")).To(BeEmpty())
+			}
+		})
+
+		It("should keep entries unique with increasing semantic versions", func() {
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
+
+			By("triggering another Depot reconcile after the head entry is recorded")
+			triggerDepot()
+
+			By("asserting no two entries share a commit and assigned semantic versions strictly increase in discoveredAt order")
+			Consistently(func(g Gomega) {
+				entries, err := skillEntries(branchSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				sort.SliceStable(entries, func(i, j int) bool {
+					return entries[i].DiscoveredAt < entries[j].DiscoveredAt
+				})
+
+				seen := map[string]bool{}
+				previous := 0
+				for _, entry := range entries {
+					g.Expect(seen).NotTo(HaveKey(entry.Commit), "duplicate entry for commit %s", entry.Commit)
+					seen[entry.Commit] = true
+
+					if entry.Version == "" {
+						continue
+					}
+
+					current, err := parseBranchSemver(entry.Version)
+					g.Expect(err).NotTo(HaveOccurred(), "expected a semantic version, got %q", entry.Version)
+					g.Expect(current).To(BeNumerically(">", previous), "assigned versions must increase")
+					previous = current
+				}
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should serve the assigned versions through the server", func() {
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
+
+			pinnedName := branchVersionName(branchSkillName, utils.SkillFixtureSHA)
+
+			By("reading the synced pinned Version from the Skill status written by the agent controller")
+			refs, err := skillVersionRefs(branchSkillName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(refs).To(HaveKey(branchPinnedVersion))
+			Expect(refs[branchPinnedVersion].Name).To(Equal(pinnedName))
+			Expect(refs[branchPinnedVersion].Synced).To(BeTrue())
+
+			By("starting a port-forward to the server for artifact verification")
+			pfCtx, cancel := context.WithCancel(context.Background())
+			branchPFCancel = cancel
+			cmd := exec.CommandContext(pfCtx, "kubectl", "port-forward",
+				"-n", namespace, "svc/server", branchServerPort+":80",
+			)
+			cmd.Stdout = GinkgoWriter
+			cmd.Stderr = GinkgoWriter
+			Expect(cmd.Start()).To(Succeed())
+
+			By("asserting /versions lists 1.0.0")
+			Eventually(func(g Gomega) {
+				status, body, err := branchGet("/versions")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal(http.StatusOK))
+
+				var listed branchVersionsResponse
+				g.Expect(json.Unmarshal(body, &listed)).To(Succeed())
+
+				versions := []string{}
+				for _, v := range listed.Versions {
+					versions = append(versions, v.Version)
+				}
+				g.Expect(versions).To(ContainElement(branchPinnedVersion))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("asserting /1.0.0/download shasum matches the Version status checksum")
+			var download branchDownloadResponse
+			Eventually(func(g Gomega) {
+				status, body, err := branchGet("/" + branchPinnedVersion + "/download")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal(http.StatusOK))
+				g.Expect(json.Unmarshal(body, &download)).To(Succeed())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			Expect(download.Version).To(Equal(branchPinnedVersion))
+			checksum, err := base64.StdEncoding.DecodeString(mustVersionField(pinnedName, "{.status.checksum}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(download.Shasum).To(Equal(hex.EncodeToString(checksum)))
+
+			By("asserting SHA256SUMS is served in sha256sum format")
+			Eventually(func(g Gomega) {
+				status, body, err := branchGet("/" + branchPinnedVersion + "/SHA256SUMS")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal(http.StatusOK))
+				g.Expect(string(body)).To(MatchRegexp(`(?m)^[0-9a-f]{64}\s+\S+`))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("asserting SHA256SUMS.sig is served")
+			Eventually(func(g Gomega) {
+				status, body, err := branchGet("/" + branchPinnedVersion + "/SHA256SUMS.sig")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal(http.StatusOK))
+				g.Expect(body).NotTo(BeEmpty())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+		})
+
+		It("should keep the same checksum and version after forceSync on the same SHA", func() {
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
+
+			pinnedName := branchVersionName(branchSkillName, utils.SkillFixtureSHA)
+			checksum := mustVersionField(pinnedName, "{.status.checksum}")
+			Expect(checksum).NotTo(BeEmpty())
+
+			By("setting forceSync on the pinned Version")
+			_, err = utils.Run(exec.Command("kubectl", "patch", "version", pinnedName,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"forceSync":true}}`,
+			))
+			Expect(err).NotTo(HaveOccurred(), "Failed to set forceSync on the pinned Version")
+
+			By("asserting the checksum and version are unchanged")
+			Consistently(func(g Gomega) {
+				current, err := versionField(pinnedName, "{.status.checksum}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(current).To(Equal(checksum))
+
+				version, err := versionField(pinnedName, "{.spec.version}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(version).To(Equal(branchPinnedVersion))
+			}, 45*time.Second, 5*time.Second).Should(Succeed())
+
+			By("clearing forceSync")
+			_, err = utils.Run(exec.Command("kubectl", "patch", "version", pinnedName,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"forceSync":false}}`,
+			))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should classify the head bump with Jev when a Jev key is configured", func() {
+			err := utils.RequireFixtureAtMain(utils.JevSkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.JevSkillFixturePath)
+
+			jevKey, err := utils.RequireJevAPIKey()
+			Expect(err).NotTo(HaveOccurred(), "%s must be set to run the Jev variant", utils.JevAPIKeyEnvVar)
+
+			By("storing the Jev key in a Secret read from stdin")
+			cmd := exec.Command("kubectl", "create", "secret", "generic", branchJevSecretName,
+				"--namespace", namespace,
+				"--from-file", branchJevSecretKey+"=/dev/stdin",
+				"--dry-run=client", "-o", "yaml",
+			)
+			cmd.Stdin = strings.NewReader(jevKey)
+			manifest, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to render the Jev Secret")
+
+			apply := exec.Command("kubectl", "apply", "-f", "-")
+			apply.Stdin = strings.NewReader(manifest)
+			_, err = utils.Run(apply)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply the Jev Secret")
+
+			By("enabling Jev classification")
+			helmUpgrade("scanning.jev.enabled=true")
+
+			By("creating the Jev Skill with a pending entry at the pinned SHA")
+			applyBranchSkill(branchJevSkillName, true, branchEntry{
+				commit:       utils.SkillFixtureSHA,
+				discoveredAt: time.Now().Add(-time.Hour),
+			})
+
+			pinnedName := branchVersionName(branchJevSkillName, utils.SkillFixtureSHA)
+			Eventually(func(g Gomega) {
+				phase, err := versionField(pinnedName, "{.status.branchPhase}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(phase).To(Equal("Assigned"))
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("waiting for the agent controller to record the pinned Version in the Jev Skill status")
+			Eventually(func(g Gomega) {
+				refs, err := skillVersionRefs(branchJevSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(refs).To(HaveKey(branchPinnedVersion))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("adding the Jev Skill to the Depot and triggering a reconcile")
+			applyBranchDepot(true)
+			triggerDepot()
+
+			var jevHeadCommit string
+			Eventually(func(g Gomega) {
+				entries, err := skillEntries(branchJevSkillName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(entries).To(HaveLen(2))
+
+				jevHeadCommit = headCommitOf(entries, utils.SkillFixtureSHA)
+				g.Expect(jevHeadCommit).To(MatchRegexp(`^[0-9a-f]{40}$`))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			headName := branchVersionName(branchJevSkillName, jevHeadCommit)
+
+			By("waiting for the head Version to reach Assigned, Rejected, or Held")
+			var headPhase string
+			Eventually(func(g Gomega) {
+				phase, err := versionField(headName, "{.status.branchPhase}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(phase).To(BeElementOf("Assigned", "Rejected", "Held"))
+				headPhase = phase
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			if headPhase != "Assigned" {
+				return
+			}
+
+			By("asserting the source, version, and category agree")
+			source := mustVersionField(headName, "{.status.bumpAssessment.source}")
+			Expect(source).To(BeElementOf("Jev", "Withheld"))
+
+			category := mustVersionField(headName, "{.status.bumpAssessment.category}")
+			expectedVersion := map[string]string{"Patch": "1.0.1", "Minor": "1.1.0", "Major": "2.0.0"}
+			Expect(expectedVersion).To(HaveKey(category))
+			Expect(mustVersionField(headName, "{.spec.version}")).To(Equal(expectedVersion[category]))
+
+			if source != "Jev" {
+				return
+			}
+
+			By("asserting the Jev model and probabilities are recorded")
+			Expect(mustVersionField(headName, "{.status.bumpAssessment.model}")).NotTo(BeEmpty())
+
+			total := 0.0
+			for _, field := range []string{"majorProbability", "minorProbability", "patchProbability"} {
+				probability, err := strconv.ParseFloat(mustVersionField(headName, "{.status.bumpAssessment."+field+"}"), 64)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(probability).To(BeNumerically(">=", 0))
+				Expect(probability).To(BeNumerically("<=", 1))
+				total += probability
+			}
+			Expect(total).To(BeNumerically("~", 1.0, 0.01))
 		})
 	})
 })

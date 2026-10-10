@@ -461,3 +461,172 @@ spec:
 		Expect(archive).NotTo(BeEmpty(), "archive is empty")
 	})
 })
+
+var _ = Describe("Branch Skill", Ordered, func() {
+	const (
+		branchSkillName     = "acquire-codebase-knowledge"
+		branchSkillVersion  = "1.0.0"
+		branchVersionCRName = "skill-" + branchSkillName + "-" + utils.SkillFixtureSHA
+	)
+
+	BeforeAll(func() {
+		By("enabling branch sourcing on the version controller")
+		chartPath, err := utils.GetChartPath()
+		Expect(err).NotTo(HaveOccurred())
+
+		cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+			"--namespace", namespace,
+			"--reuse-values",
+			"--set", "branchSourcing.enabled=true",
+			"--wait",
+			"--timeout", "3m",
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to enable branch sourcing")
+
+		By("applying a Skill with one pending branch entry pinned to the fixture commit")
+		skillYAML := fmt.Sprintf(`
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: Skill
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  agentSourceConfig:
+    name: %s
+    repoOwner: github
+    repoUrl: https://github.com/%s
+    ref: %s
+    path: %s
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+  versions:
+    - commit: %s
+      state: Pending
+`, branchSkillName, namespace, branchSkillName, utils.BranchFixtureRepo, utils.BranchFixtureRef,
+			utils.SkillFixturePath, agentStoragePath, utils.SkillFixtureSHA)
+
+		skillFile := GinkgoT().TempDir() + "/branch-skill.yaml"
+		Expect(os.WriteFile(skillFile, []byte(skillYAML), 0o600)).To(Succeed())
+
+		cmd = exec.Command("kubectl", "apply", "-f", skillFile)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply the branch Skill CR")
+	})
+
+	AfterEach(func() {
+		if CurrentSpecReport().Failed() {
+			dumpSyncDiagnostics()
+		}
+	})
+
+	AfterAll(func() {
+		By("deleting the branch Skill CR")
+		cmd := exec.Command("kubectl", "delete", "skill", branchSkillName,
+			"-n", namespace,
+			"--ignore-not-found",
+		)
+		_, _ = utils.Run(cmd)
+
+		By("disabling branch sourcing on the version controller")
+		chartPath, err := utils.GetChartPath()
+		Expect(err).NotTo(HaveOccurred())
+
+		cmd = exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+			"--namespace", namespace,
+			"--reuse-values",
+			"--set", "branchSourcing.enabled=false",
+			"--wait",
+			"--timeout", "3m",
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to disable branch sourcing")
+	})
+
+	It("names the branch Version after its commit with an empty spec.version", func() {
+		Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(BeNil(), "fixture removed upstream")
+
+		By("waiting for the Version named after the pinned commit")
+		Eventually(func() error {
+			_, err := utils.Run(exec.Command("kubectl", "get", "version", branchVersionCRName, "-n", namespace))
+			return err
+		}, 2*time.Minute, 2*time.Second).Should(Succeed(), "branch Version was not created")
+
+		By("checking the commit label, spec.sourceCommit, and the empty spec.version")
+		cmd := exec.Command("kubectl", "get", "version", branchVersionCRName,
+			"-n", namespace,
+			"-o", "jsonpath={.metadata.labels.opendepot\\.defdev\\.io/commit} {.spec.sourceCommit} {.spec.version}",
+		)
+		out, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(out)).To(Equal(utils.SkillFixtureSHA+" "+utils.SkillFixtureSHA),
+			"branch Version must carry the commit label and sourceCommit with an empty spec.version")
+	})
+
+	It("copies the assigned version and state back to the entry and version refs", func() {
+		Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(BeNil(), "fixture removed upstream")
+
+		By("assigning 1.0.0 to the branch Version through spec.version")
+		cmd := exec.Command("kubectl", "patch", "version", branchVersionCRName,
+			"-n", namespace,
+			"--type=merge",
+			"-p", `{"spec":{"version":"`+branchSkillVersion+`"}}`,
+		)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to patch the Version spec.version")
+
+		By("marking the branch Version Assigned through its status")
+		cmd = exec.Command("kubectl", "patch", "version", branchVersionCRName,
+			"-n", namespace,
+			"--subresource=status",
+			"--type=merge",
+			"-p", `{"status":{"branchPhase":"Assigned","synced":true,"syncStatus":"Successfully synced version"}}`,
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to patch the Version status.branchPhase")
+
+		By("checking the Skill entry copies the version and the Assigned state")
+		Eventually(func() string {
+			cmd := exec.Command("kubectl", "get", "skill", branchSkillName,
+				"-n", namespace,
+				"-o", "jsonpath={.spec.versions[0].version} {.spec.versions[0].state}",
+			)
+			out, _ := utils.Run(cmd)
+			return strings.TrimSpace(out)
+		}, 2*time.Minute, 2*time.Second).Should(Equal(branchSkillVersion+" Assigned"), "entry was not copied back")
+
+		By("checking the Skill version refs point at the SHA-named Version")
+		Eventually(func() string {
+			cmd := exec.Command("kubectl", "get", "skill", branchSkillName,
+				"-n", namespace,
+				"-o", "jsonpath={.status.versionRefs.1\\.0\\.0.name}",
+			)
+			out, _ := utils.Run(cmd)
+			return strings.TrimSpace(out)
+		}, 2*time.Minute, 2*time.Second).Should(Equal(branchVersionCRName), "versionRefs was not updated")
+	})
+
+	It("rejects a second change to the branch Version spec.version", func() {
+		Expect(utils.RequireFixtureAtMain(utils.SkillFixturePath)).To(BeNil(), "fixture removed upstream")
+
+		By("patching spec.version to a different version")
+		cmd := exec.Command("kubectl", "patch", "version", branchVersionCRName,
+			"-n", namespace,
+			"--type=merge",
+			"-p", `{"spec":{"version":"1.0.1"}}`,
+		)
+		_, err := utils.Run(cmd)
+		Expect(err).To(HaveOccurred(), "second spec.version patch was accepted")
+		Expect(err.Error()).To(ContainSubstring("version is write-once for branch Versions"))
+
+		By("checking spec.version is still 1.0.0")
+		cmd = exec.Command("kubectl", "get", "version", branchVersionCRName,
+			"-n", namespace,
+			"-o", "jsonpath={.spec.version}",
+		)
+		out, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(out)).To(Equal(branchSkillVersion))
+	})
+})

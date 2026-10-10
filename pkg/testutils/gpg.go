@@ -82,3 +82,48 @@ func GenerateTestGPGKeyPair(gpgHome string) (keyID, asciiArmor, privateKeyBase64
 
 	return keyID, asciiArmor, privateKeyBase64, nil
 }
+
+// EnsureGPGSigningSecret generates an unprotected e2e GPG signing key and
+// applies it to the cluster as a Secret under secretKey. The version controller
+// reads this Secret through version.gpg.secretName to sign Skill and Agent Versions.
+func EnsureGPGSigningSecret(namespace, secretName, secretKey string) error {
+	gnupgHome, err := os.MkdirTemp("", "opendepot-gpg-")
+	if err != nil {
+		return fmt.Errorf("create GNUPGHOME: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(gnupgHome) }()
+
+	const uid = "OpenDepot E2E <e2e@opendepot.invalid>"
+	gen := exec.Command("gpg", "--batch", "--homedir", gnupgHome, "--pinentry-mode", "loopback",
+		"--passphrase", "", "--quick-gen-key", uid, "rsa3072", "default", "never")
+	if out, err := gen.CombinedOutput(); err != nil {
+		return fmt.Errorf("generate gpg key: %w: %s", err, out)
+	}
+
+	export := exec.Command("gpg", "--batch", "--homedir", gnupgHome, "--pinentry-mode", "loopback",
+		"--passphrase", "", "--armor", "--export-secret-keys", uid)
+	armor, err := export.Output()
+	if err != nil {
+		return fmt.Errorf("export gpg private key: %w", err)
+	}
+	signingKey := base64.StdEncoding.EncodeToString(armor)
+
+	createCmd := exec.Command("kubectl", "create", "secret", "generic", secretName,
+		"--namespace", namespace,
+		"--from-file", secretKey+"=/dev/stdin",
+		"--dry-run=client", "-o", "yaml",
+	)
+	createCmd.Stdin = strings.NewReader(signingKey)
+	manifest, err := Run(createCmd)
+	if err != nil {
+		return fmt.Errorf("render signing key Secret: %w", err)
+	}
+
+	applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+	applyCmd.Stdin = strings.NewReader(manifest)
+	if _, err := Run(applyCmd); err != nil {
+		return fmt.Errorf("apply signing key Secret: %w", err)
+	}
+
+	return nil
+}

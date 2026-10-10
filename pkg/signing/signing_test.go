@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/tonedefdev/opendepot/pkg/testutils"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
 )
 
 var fingerprintPattern = regexp.MustCompile(`^[0-9A-F]{40}$`)
@@ -102,11 +102,11 @@ func TestSignSHA256SUMSVerifiesWithPublicKey(t *testing.T) {
 		t.Fatalf("read derived public key: %v", err)
 	}
 
-	if _, err = openpgp.CheckDetachedSignature(keyRing, strings.NewReader(string(sums)), strings.NewReader(string(sig))); err != nil {
+	if _, err = openpgp.CheckDetachedSignature(keyRing, strings.NewReader(string(sums)), strings.NewReader(string(sig)), nil); err != nil {
 		t.Fatalf("signature does not verify with derived public key: %v", err)
 	}
 
-	if _, err = openpgp.CheckDetachedSignature(keyRing, strings.NewReader("tampered"), strings.NewReader(string(sig))); err == nil {
+	if _, err = openpgp.CheckDetachedSignature(keyRing, strings.NewReader("tampered"), strings.NewReader(string(sig)), nil); err == nil {
 		t.Fatal("signature verified for tampered SHA256SUMS content")
 	}
 }
@@ -291,12 +291,12 @@ func TestSignSHA256SUMSArmoredVerifiesWithPublicKey(t *testing.T) {
 		t.Fatalf("read derived public key: %v", err)
 	}
 
-	if _, err = openpgp.CheckArmoredDetachedSignature(keyRing, strings.NewReader(string(sums)), strings.NewReader(armored)); err != nil {
+	if _, err = openpgp.CheckArmoredDetachedSignature(keyRing, strings.NewReader(string(sums)), strings.NewReader(armored), nil); err != nil {
 		t.Fatalf("armored signature does not verify: %v", err)
 	}
 
 	tampered := []byte("ffff99  agent.tar.gz\n")
-	if _, err = openpgp.CheckArmoredDetachedSignature(keyRing, strings.NewReader(string(tampered)), strings.NewReader(armored)); err == nil {
+	if _, err = openpgp.CheckArmoredDetachedSignature(keyRing, strings.NewReader(string(tampered)), strings.NewReader(armored), nil); err == nil {
 		t.Fatal("armored signature verified for tampered SHA256SUMS content")
 	}
 }

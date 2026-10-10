@@ -9,6 +9,7 @@ replace github.com/tonedefdev/opendepot/pkg/archive => ../pkg/archive
 replace github.com/tonedefdev/opendepot/api/v1alpha1 => ../api/v1alpha1
 
 require (
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/hashicorp/go-version v1.8.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/spf13/cobra v1.10.2
@@ -16,7 +17,6 @@ require (
 	github.com/tonedefdev/opendepot/pkg/agentspec v0.0.0-00010101000000-000000000000
 	github.com/tonedefdev/opendepot/pkg/archive v0.0.0-00010101000000-000000000000
 	github.com/zclconf/go-cty v1.19.0
-	golang.org/x/crypto v0.57.0
 	golang.org/x/mod v0.41.0
 )
 
@@ -24,6 +24,7 @@ require (
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -36,8 +37,10 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
