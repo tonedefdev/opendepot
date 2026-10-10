@@ -37,6 +37,22 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root.SetOut(out)
 	root.SetErr(errOut)
 
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if c != root {
+			defaultHelp(c, args)
+			return
+		}
+
+		printBanner(c.OutOrStdout())
+
+		// The banner already shows the tagline, so hide root's Short from the default help.
+		short := root.Short
+		root.Short = ""
+		defaultHelp(c, args)
+		root.Short = short
+	})
+
 	root.AddCommand(&cobra.Command{
 		Use:   "login <host>",
 		Short: "Log in to a registry with the login.v1 flow and store the token",
