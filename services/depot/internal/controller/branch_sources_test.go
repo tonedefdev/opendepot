@@ -93,7 +93,7 @@ var _ = Describe("Branch sourcing reconcile", func() {
 		server     *httptest.Server
 		head       string
 		reconciler *DepotReconciler
-		original   func(context.Context, client.Client, string, *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error)
+		original   func(context.Context, client.Reader, string, *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error)
 	)
 
 	branchSource := func(name string) opendepotv1alpha1.AgentSourceConfig {
@@ -120,7 +120,7 @@ var _ = Describe("Branch sourcing reconcile", func() {
 
 		baseURL, err := url.Parse(server.URL + "/")
 		Expect(err).NotTo(HaveOccurred())
-		newBranchGithubClient = func(_ context.Context, _ client.Client, _ string, _ *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
+		newBranchGithubClient = func(_ context.Context, _ client.Reader, _ string, _ *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
 			githubClient := github.NewClient(nil)
 			githubClient.BaseURL = baseURL
 			return githubClient, nil
@@ -324,7 +324,7 @@ var _ = Describe("Branch sourcing reconcile", func() {
 
 		It("rejects an invalid repoUrl without calling GitHub", func() {
 			called := false
-			newBranchGithubClient = func(_ context.Context, _ client.Client, _ string, _ *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
+			newBranchGithubClient = func(_ context.Context, _ client.Reader, _ string, _ *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
 				called = true
 				return nil, errors.New("GitHub must not be called")
 			}

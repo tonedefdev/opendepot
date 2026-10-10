@@ -1228,7 +1228,7 @@ func (r *VersionReconciler) downloadAgentArchive(ctx context.Context, version *o
 	var githubClientConfig *opendepotGithub.GithubClientConfig
 	var err error
 	if useAuthClient {
-		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, version.Namespace)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1375,7 +1375,7 @@ func (r *VersionReconciler) fetchModuleArchive(ctx context.Context, version *ope
 
 	var err error
 	if useAuthClient {
-		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, version.Namespace)
 		if err != nil {
 			return nil, nil, err
 		}

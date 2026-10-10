@@ -46,6 +46,8 @@ type DepotReconciler struct {
 	Log                   logr.Logger
 	Scheme                *runtime.Scheme
 	BranchSourcingEnabled bool
+	// APIReader reads the GitHub App secret straight from the API server, bypassing the cache.
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -126,7 +128,7 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			var githubConfig *opendepotGithub.GithubClientConfig
 			if useAuthClient {
-				githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, depot.Namespace)
+				githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, depot.Namespace)
 				if err != nil {
 					return ctrl.Result{}, err
 				}
@@ -578,7 +580,7 @@ func (r *DepotReconciler) matchAgentSourceVersions(ctx context.Context, namespac
 	var githubConfig *opendepotGithub.GithubClientConfig
 	if useAuthClient {
 		var err error
-		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, namespace)
+		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, namespace)
 		if err != nil {
 			return nil, err
 		}

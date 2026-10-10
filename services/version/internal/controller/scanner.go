@@ -527,7 +527,7 @@ func (r *VersionReconciler) runProviderScan(
 	var githubCfg *opendepotGithub.GithubClientConfig
 	if useAuthClient {
 		var cfgErr error
-		githubCfg, cfgErr = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		githubCfg, cfgErr = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, version.Namespace)
 		if cfgErr != nil {
 			r.Log.Error(cfgErr, "Failed to load GitHub App secret — falling back to unauthenticated source scan",
 				"provider", providerName)

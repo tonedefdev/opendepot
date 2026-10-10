@@ -369,16 +369,16 @@ func GenerateAuthenticatedGithubClient(ctx context.Context, githubClientConfig *
 }
 
 // GetGithubApplicationSecret retrieves the opendepot-github-application-secret kubernetes secret from the cluster
-// using the client received by k8sClient. It returns a GithubClientConfig for making authenticated requests to the Github API.
-// The k8sClient parameter should be received by the controller's client.
-func GetGithubApplicationSecret(ctx context.Context, k8sClient client.Client, secretNamespace string) (*GithubClientConfig, error) {
+// using the reader received by k8sReader. It returns a GithubClientConfig for making authenticated requests to the Github API.
+// The k8sReader parameter should be the controller's uncached API reader so that no cluster-wide Secret informer is started.
+func GetGithubApplicationSecret(ctx context.Context, k8sReader client.Reader, secretNamespace string) (*GithubClientConfig, error) {
 	object := client.ObjectKey{
 		Name:      opendepotv1alpha1.OpenDepotGithubSecretName,
 		Namespace: secretNamespace,
 	}
 
 	secret := corev1.Secret{}
-	if err := k8sClient.Get(ctx, object, &secret); err != nil {
+	if err := k8sReader.Get(ctx, object, &secret); err != nil {
 		return nil, err
 	}
 
