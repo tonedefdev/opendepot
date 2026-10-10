@@ -636,3 +636,20 @@ func TestRunAgentJevHoldsAssessedVersionWithoutSecretRefWhenJevEnabled(t *testin
 		t.Fatalf("Jev was called %d times without jevSecretRef", calls.Load())
 	}
 }
+
+func TestRunAgentJevHoldsAgentWithoutSecretRefWhenJevEnabled(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.Type = opendepotv1alpha1.OpenDepotAgent
+	version.Spec.AgentSourceRef.JevSecretRef = nil
+	version.Spec.SourceCommit = "2222222222222222222222222222222222222222"
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevTestContent())
+	if err == nil || err.Error() != jevRefRequiredError || assessment != nil {
+		t.Fatalf("assessment = %+v, err = %v; want nil and %q", assessment, err, jevRefRequiredError)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev was called %d times without jevSecretRef", calls.Load())
+	}
+}
