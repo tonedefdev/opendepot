@@ -672,6 +672,9 @@ spec:
             - message: version is write-once for branch Versions
               rule: '!has(oldSelf.sourceCommit) || size(oldSelf.version) == 0 || self.version
                 == oldSelf.version'
+            - message: sourceCommit is immutable
+              rule: '!has(oldSelf.sourceCommit) || (has(self.sourceCommit) && self.sourceCommit
+                == oldSelf.sourceCommit)'
           status:
             description: VersionStatus defines the current status of the resource.
             properties:

@@ -857,6 +857,7 @@ type Version struct {
 // +kubebuilder:validation:XValidation:rule="size(self.version) > 0 || has(self.sourceCommit)",message="version is required unless sourceCommit is set"
 // +kubebuilder:validation:XValidation:rule="!has(self.sourceCommit) || (has(self.agentSourceRef) && has(self.agentSourceRef.ref))",message="sourceCommit requires agentSourceRef.ref"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.sourceCommit) || size(oldSelf.version) == 0 || self.version == oldSelf.version",message="version is write-once for branch Versions"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.sourceCommit) || (has(self.sourceCommit) && self.sourceCommit == oldSelf.sourceCommit)",message="sourceCommit is immutable"
 type VersionSpec struct {
 	// The system architecture this Version of the Provider supports.
 	Architecture string `json:"architecture,omitempty"`

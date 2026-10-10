@@ -41,12 +41,6 @@ import (
 )
 
 const (
-	// bumpMajorThreshold is the probability of a MAJOR change at or above which the bump is MAJOR.
-	bumpMajorThreshold = 0.5
-	// bumpMinorThreshold is the combined probability of a MAJOR or MINOR change at or above which the bump is MINOR.
-	bumpMinorThreshold = 0.5
-	// bumpMinConfidence is the classification confidence below which the bump is flagged for review.
-	bumpMinConfidence = 0.5
 	// bumpBaseBackoff is the delay after the first failed classification.
 	bumpBaseBackoff = time.Minute
 	// bumpMaxBackoff caps the delay between classification attempts.
@@ -68,12 +62,12 @@ func bumpBackoff(attempts int) time.Duration {
 	return bumpBaseBackoff << (attempts - 1)
 }
 
-// bumpCategory applies the thresholds to the Jev probabilities. MAJOR wins over MINOR, and PATCH is the default.
-func bumpCategory(major, minor float64) string {
+// bumpCategory applies the policy thresholds to the Jev probabilities. MAJOR wins over MINOR, and PATCH is the default.
+func bumpCategory(major, minor float64, policy *opendepotv1alpha1.BranchPolicy) string {
 	switch {
-	case major >= bumpMajorThreshold:
+	case major >= policy.EffectiveMajorThreshold():
 		return "Major"
-	case major+minor >= bumpMinorThreshold:
+	case major+minor >= policy.EffectiveMinorThreshold():
 		return "Minor"
 	default:
 		return "Patch"
@@ -235,7 +229,8 @@ func (r *VersionReconciler) classifyPreparedBump(
 		return "", fmt.Errorf("jev bump classification: %w", err)
 	}
 
-	category := bumpCategory(result.MajorProbability, result.MinorProbability)
+	policy := version.Spec.AgentSourceRef.BranchPolicy
+	category := bumpCategory(result.MajorProbability, result.MinorProbability, policy)
 	assessment.Category = category
 	assessment.Source = "Jev"
 	assessment.Model = result.Model
@@ -243,7 +238,7 @@ func (r *VersionReconciler) classifyPreparedBump(
 	assessment.MinorProbability = ptr.To(result.MinorProbability)
 	assessment.PatchProbability = ptr.To(result.PatchProbability)
 	assessment.Confidence = ptr.To(result.CategoryConfidence)
-	assessment.NeedsReview = result.CategoryConfidence < bumpMinConfidence
+	assessment.NeedsReview = result.CategoryConfidence < policy.EffectiveMinConfidence()
 	assessment.EvaluatedAt = time.Now().UTC().Format(time.RFC3339)
 	assessment.Reason = fmt.Sprintf("Jev classified the change as %s (major %.2f, minor %.2f, patch %.2f)",
 		strings.ToLower(category), result.MajorProbability, result.MinorProbability, result.PatchProbability)

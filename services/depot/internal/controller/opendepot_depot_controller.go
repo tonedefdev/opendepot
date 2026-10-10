@@ -349,7 +349,6 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	var branchErr error
 	var requeueAfter time.Duration
 	var managedSkills []string
 	for _, skillConfig := range depot.Spec.SkillConfigs {
@@ -375,8 +374,7 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			managedSkills = append(managedSkills, *skillConfig.Name)
 			wait, err := r.reconcileBranchSkill(ctx, req.Namespace, &skillConfig)
 			if err != nil {
-				r.Log.Error(err, "Failed to reconcile branch source for skill", "skill", *skillConfig.Name)
-				branchErr = err
+				r.Log.Error(err, "Failed to reconcile branch source for skill", "skill", *skillConfig.Name, "repoOwner", skillConfig.RepoOwner, "repo", opendepotGithub.AgentSourceRepoName(&skillConfig), "branch", *skillConfig.Ref)
 			}
 
 			requeueAfter = earliestRequeue(requeueAfter, wait)
@@ -472,8 +470,7 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			managedAgents = append(managedAgents, *agentConfig.Name)
 			wait, err := r.reconcileBranchAgent(ctx, req.Namespace, &agentConfig)
 			if err != nil {
-				r.Log.Error(err, "Failed to reconcile branch source for agent", "agent", *agentConfig.Name)
-				branchErr = err
+				r.Log.Error(err, "Failed to reconcile branch source for agent", "agent", *agentConfig.Name, "repoOwner", agentConfig.RepoOwner, "repo", opendepotGithub.AgentSourceRepoName(&agentConfig), "branch", *agentConfig.Ref)
 			}
 
 			requeueAfter = earliestRequeue(requeueAfter, wait)
@@ -565,10 +562,6 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if depot.Spec.PollingIntervalMinutes != nil {
 		requeueAfter = earliestRequeue(requeueAfter, time.Duration(*depot.Spec.PollingIntervalMinutes)*time.Minute)
-	}
-
-	if branchErr != nil {
-		return ctrl.Result{}, branchErr
 	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
