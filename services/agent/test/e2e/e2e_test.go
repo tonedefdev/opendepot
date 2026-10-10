@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,57 @@ func dumpSyncDiagnostics() {
 		out, _ := utils.Run(exec.Command("kubectl", args...))
 		fmt.Fprintf(GinkgoWriter, "--- kubectl %s ---\n%s\n", strings.Join(args, " "), out)
 	}
+}
+
+// assertDefinitionRef checks that a Skill or Agent Version references a definition ConfigMap whose
+// decoded entry file starts with frontmatter, and that no stale README ConfigMap exists for it.
+func assertDefinitionRef(versionCRName, wantFileName string) {
+	var ref string
+	Eventually(func() string {
+		cmd := exec.Command("kubectl", "get", "version", versionCRName,
+			"-n", namespace,
+			"-o", "jsonpath={.status.definitionConfigMapRef.name}",
+		)
+		out, _ := utils.Run(cmd)
+		ref = strings.TrimSpace(out)
+		return ref
+	}, 5*time.Minute, 5*time.Second).ShouldNot(BeEmpty(), "Version has no definitionConfigMapRef.name")
+
+	fileCmd := exec.Command("kubectl", "get", "version", versionCRName,
+		"-n", namespace,
+		"-o", "jsonpath={.status.definitionConfigMapRef.fileName}",
+	)
+	fileOut, err := utils.Run(fileCmd)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(strings.TrimSpace(fileOut)).To(Equal(wantFileName), "definitionConfigMapRef.fileName is wrong")
+
+	keyCmd := exec.Command("kubectl", "get", "version", versionCRName,
+		"-n", namespace,
+		"-o", "jsonpath={.status.definitionConfigMapRef.key}",
+	)
+	keyOut, err := utils.Run(keyCmd)
+	Expect(err).NotTo(HaveOccurred())
+	key := strings.TrimSpace(keyOut)
+	Expect(key).NotTo(BeEmpty(), "definitionConfigMapRef.key is empty")
+
+	dataCmd := exec.Command("kubectl", "get", "configmap", ref,
+		"-n", namespace,
+		"-o", fmt.Sprintf("jsonpath={.data.%s}", key),
+	)
+	dataOut, err := utils.Run(dataCmd)
+	Expect(err).NotTo(HaveOccurred(), "definition ConfigMap does not exist")
+	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(dataOut))
+	Expect(err).NotTo(HaveOccurred(), "definition ConfigMap data is not base64")
+	Expect(string(content)).To(HavePrefix("---"), "definition does not start with frontmatter")
+
+	readmeCmd := exec.Command("kubectl", "get", "configmap", versionCRName+"-readme",
+		"-n", namespace,
+		"--ignore-not-found",
+		"-o", "name",
+	)
+	readmeOut, err := utils.Run(readmeCmd)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(strings.TrimSpace(readmeOut)).To(BeEmpty(), "Version has a stale README ConfigMap")
 }
 
 var _ = Describe("Skill", Ordered, func() {
@@ -154,6 +206,10 @@ spec:
 			out, _ := utils.Run(cmd)
 			return strings.TrimSpace(out)
 		}, 5*time.Minute, 5*time.Second).Should(Equal("true"), "Skill did not sync")
+	})
+
+	It("references a definition ConfigMap and no README ConfigMap", func() {
+		assertDefinitionRef(skillVersionCRName, "SKILL.md")
 	})
 
 	It("creates a Version with a Trivy source scan", func() {
@@ -362,6 +418,10 @@ spec:
 			out, _ := utils.Run(cmd)
 			return strings.TrimSpace(out)
 		}, 5*time.Minute, 5*time.Second).Should(Equal("true"), "Agent did not sync")
+	})
+
+	It("references a definition ConfigMap and no README ConfigMap", func() {
+		assertDefinitionRef(agentVersionCRName, "code-review.agent.md")
 	})
 
 	It("creates a Version with a Trivy source scan", func() {

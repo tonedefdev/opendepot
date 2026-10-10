@@ -154,3 +154,37 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
     </Box>
   );
 }
+
+// Splits a leading YAML frontmatter block (between two --- lines) from the Markdown body.
+export function splitFrontmatter(content: string): { frontmatter: string | null; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
+  if (!match) {
+    return { frontmatter: null, body: content };
+  }
+
+  return { frontmatter: match[1], body: content.slice(match[0].length) };
+}
+
+interface AgentDefinitionProps {
+  content: string;
+  fileName: string;
+}
+
+export function AgentDefinition({ content, fileName }: AgentDefinitionProps) {
+  const { frontmatter, body } = splitFrontmatter(content);
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {frontmatter !== null && (
+        <Box
+          component="pre"
+          aria-label={`${fileName} frontmatter`}
+          sx={{ m: 0, p: 1.5, borderRadius: 1, overflowX: "auto", fontFamily: "monospace", fontSize: "0.8125rem", bgcolor: "action.hover" }}
+        >
+          <code>{frontmatter}</code>
+        </Box>
+      )}
+      <AgentBody content={body} />
+    </Box>
+  );
+}
