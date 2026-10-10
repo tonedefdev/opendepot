@@ -40,10 +40,13 @@ List each service and what changes are needed.
 Any new or modified fields in `api/v1alpha1/types.go`. Include the exact field names, types, and kubebuilder markers.
 
 ## Implementation Steps
-Numbered steps in dependency order. For each step:
-- File path(s) to change
+Numbered steps. Each step is small and self-contained, so independent steps can be split across developers. For each step:
+- **Depends on:** the step numbers that must finish first, or `none`. List every real prerequisite. Do not order steps just because they appear in sequence.
+- **Files:** every file path the step creates, edits, or deletes. Two steps with no dependency between them must not share a file.
 - What to add/modify and why
 - Any new dependencies to add to go.mod
+
+Mark steps that change shared files (`api/v1alpha1/types.go`, `go.mod`/`go.sum`, Helm chart values or RBAC, the Makefile, or code generation output such as deepcopy and CRD YAML) so they run before the steps that depend on them.
 
 ## E2E Test Changes
 Which service's `test/e2e/` needs updating and what scenarios to cover.
