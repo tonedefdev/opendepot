@@ -60,7 +60,6 @@ func (r *VersionReconciler) upsertDefinitionConfigMap(ctx context.Context, versi
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
 		labels := map[string]string{
-			"opendepot.defdev.io/version":   version.Name,
 			"opendepot.defdev.io/namespace": version.Namespace,
 			"app.kubernetes.io/managed-by":  opendepotControllerName,
 		}
