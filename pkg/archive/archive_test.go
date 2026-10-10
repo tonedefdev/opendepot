@@ -447,11 +447,201 @@ func TestExtractSubtreeToDirDoesNotMatchSiblingPrefix(t *testing.T) {
 	contents := map[string]string{"repo-abc/skills/aspire-extra/SKILL.md": "x"}
 
 	archive := buildTarGz(t, headers, contents)
-	if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err != nil {
-		t.Fatalf("ExtractSubtreeToDir() error = %v", err)
+	if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err == nil {
+		t.Fatal("ExtractSubtreeToDir() error = nil, want no-match error")
 	}
 
 	if got := readTree(t, dest); len(got) != 0 {
 		t.Fatalf("extracted tree = %v, want empty", got)
+	}
+}
+
+func TestExtractSubtreeToDirZipSkipsLinksOutsideSubtree(t *testing.T) {
+	dest := t.TempDir()
+	modes := map[string]fs.FileMode{
+		"repo-abc/skills/aspire/SKILL.md": 0644,
+		"repo-abc/plugins/agents/link.md": fs.ModeSymlink | 0777,
+		"repo-abc/other/file.md":          0644,
+	}
+	contents := map[string]string{
+		"repo-abc/skills/aspire/SKILL.md": "x",
+		"repo-abc/plugins/agents/link.md": "../../skills/aspire/SKILL.md",
+		"repo-abc/other/file.md":          "y",
+	}
+
+	archive := buildZip(t, modes, contents)
+	if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err != nil {
+		t.Fatalf("ExtractSubtreeToDir() error = %v", err)
+	}
+
+	got := readTree(t, dest)
+	want := map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("extracted tree = %v, want %v", got, want)
+	}
+}
+
+func TestExtractSubtreeToDirZipRejectsLinksInsideSubtree(t *testing.T) {
+	dest := t.TempDir()
+	modes := map[string]fs.FileMode{"repo-abc/skills/aspire/link": fs.ModeSymlink | 0777}
+	contents := map[string]string{"repo-abc/skills/aspire/link": "/etc/passwd"}
+
+	archive := buildZip(t, modes, contents)
+	if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err == nil {
+		t.Fatal("ExtractSubtreeToDir() error = nil, want symlink rejection")
+	}
+
+	if _, err := os.Lstat(filepath.Join(dest, "repo-abc/skills/aspire/link")); err == nil {
+		t.Fatal("symlink entry was created")
+	}
+}
+
+func TestExtractSubtreeToDirZipDoesNotMatchSiblingPrefix(t *testing.T) {
+	dest := t.TempDir()
+	modes := map[string]fs.FileMode{"repo-abc/skills/aspire-extra/SKILL.md": 0644}
+	contents := map[string]string{"repo-abc/skills/aspire-extra/SKILL.md": "x"}
+
+	archive := buildZip(t, modes, contents)
+	if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err == nil {
+		t.Fatal("ExtractSubtreeToDir() error = nil, want no-match error")
+	}
+
+	if got := readTree(t, dest); len(got) != 0 {
+		t.Fatalf("extracted tree = %v, want empty", got)
+	}
+}
+
+func TestExtractSubtreeToDirSkipsDotDotEntries(t *testing.T) {
+	names := []string{
+		"repo-abc/skills/aspire/../../other/escape.txt",
+		"repo-abc/skills/aspire/../../../escaped.txt",
+		"repo-abc/skills/aspire/../../../../escaped.txt",
+	}
+
+	t.Run("tar", func(t *testing.T) {
+		dest := t.TempDir()
+		headers := []*tar.Header{{Name: "repo-abc/skills/aspire/SKILL.md", Typeflag: tar.TypeReg, Mode: 0644, Size: 1}}
+		contents := map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"}
+		for _, name := range names {
+			headers = append(headers, &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0644, Size: 1})
+			contents[name] = "y"
+		}
+
+		archive := buildTarGz(t, headers, contents)
+		if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err != nil {
+			t.Fatalf("ExtractSubtreeToDir() error = %v", err)
+		}
+
+		got := readTree(t, dest)
+		want := map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"}
+		if !maps.Equal(got, want) {
+			t.Fatalf("extracted tree = %v, want %v", got, want)
+		}
+
+		assertNoEscape(t, dest)
+		assertNoEscape(t, filepath.Dir(dest))
+	})
+
+	t.Run("zip", func(t *testing.T) {
+		dest := t.TempDir()
+		modes := map[string]fs.FileMode{"repo-abc/skills/aspire/SKILL.md": 0644}
+		contents := map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"}
+		for _, name := range names {
+			modes[name] = 0644
+			contents[name] = "y"
+		}
+
+		archive := buildZip(t, modes, contents)
+		if err := ExtractSubtreeToDir(archive, dest, "skills/aspire"); err != nil {
+			t.Fatalf("ExtractSubtreeToDir() error = %v", err)
+		}
+
+		got := readTree(t, dest)
+		want := map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"}
+		if !maps.Equal(got, want) {
+			t.Fatalf("extracted tree = %v, want %v", got, want)
+		}
+
+		assertNoEscape(t, dest)
+		assertNoEscape(t, filepath.Dir(dest))
+	})
+}
+
+func TestExtractSubtreeToDirCountsSkippedEntries(t *testing.T) {
+	headers := make([]*tar.Header, 0, maxExtractedEntries+1)
+	modes := make(map[string]fs.FileMode, maxExtractedEntries+1)
+	for i := range maxExtractedEntries + 1 {
+		name := fmt.Sprintf("repo-abc/other/f%05d.txt", i)
+		headers = append(headers, &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0644})
+		modes[name] = 0644
+	}
+
+	t.Run("tar", func(t *testing.T) {
+		headers = append(headers, &tar.Header{Name: "repo-abc/skills/aspire/SKILL.md", Typeflag: tar.TypeReg, Mode: 0644, Size: 1})
+		archive := buildTarGz(t, headers, map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"})
+		if err := ExtractSubtreeToDir(archive, t.TempDir(), "skills/aspire"); err == nil {
+			t.Fatal("ExtractSubtreeToDir() error = nil, want entry budget error from skipped entries")
+		}
+	})
+
+	t.Run("zip", func(t *testing.T) {
+		modes["repo-abc/skills/aspire/SKILL.md"] = 0644
+		archive := buildZip(t, modes, map[string]string{"repo-abc/skills/aspire/SKILL.md": "x"})
+		if err := ExtractSubtreeToDir(archive, t.TempDir(), "skills/aspire"); err == nil {
+			t.Fatal("ExtractSubtreeToDir() error = nil, want entry budget error from skipped entries")
+		}
+	})
+}
+
+func TestExtractBudgetSkipEntryChargesBytes(t *testing.T) {
+	budget := &extractBudget{bytesLeft: 4, entriesLeft: 1}
+	if err := budget.skipEntry("big.bin", 5); err == nil {
+		t.Fatal("skipEntry() succeeded past the byte budget, want error")
+	}
+
+	if err := budget.skipEntry("negative.bin", -1); err == nil {
+		t.Fatal("skipEntry() accepted a negative size, want error")
+	}
+
+	if err := budget.skipEntry("exact.bin", 4); err != nil {
+		t.Fatalf("skipEntry() error = %v, want nil at exact budget", err)
+	}
+
+	if budget.bytesLeft != 0 {
+		t.Fatalf("bytesLeft = %d, want 0", budget.bytesLeft)
+	}
+}
+
+func TestExtractSubtreeToDirRootExtractsWholeArchive(t *testing.T) {
+	for _, subtree := range []string{"", "/"} {
+		t.Run("subtree "+subtree, func(t *testing.T) {
+			dest := t.TempDir()
+			headers := []*tar.Header{
+				{Name: "repo-abc/README.md", Typeflag: tar.TypeReg, Mode: 0644, Size: 1},
+				{Name: "repo-abc/skills/aspire/SKILL.md", Typeflag: tar.TypeReg, Mode: 0644, Size: 1},
+			}
+			contents := map[string]string{"repo-abc/README.md": "r", "repo-abc/skills/aspire/SKILL.md": "x"}
+
+			archive := buildTarGz(t, headers, contents)
+			if err := ExtractSubtreeToDir(archive, dest, subtree); err != nil {
+				t.Fatalf("ExtractSubtreeToDir() error = %v", err)
+			}
+
+			got := readTree(t, dest)
+			want := map[string]string{"repo-abc/README.md": "r", "repo-abc/skills/aspire/SKILL.md": "x"}
+			if !maps.Equal(got, want) {
+				t.Fatalf("extracted tree = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestExtractSubtreeToDirNoMatchReturnsClearError(t *testing.T) {
+	headers := []*tar.Header{{Name: "repo-abc/other/file.md", Typeflag: tar.TypeReg, Mode: 0644, Size: 1}}
+	archive := buildTarGz(t, headers, map[string]string{"repo-abc/other/file.md": "y"})
+
+	err := ExtractSubtreeToDir(archive, t.TempDir(), "skills/missing")
+	if err == nil || !strings.Contains(err.Error(), `no entries under subtree "skills/missing"`) {
+		t.Fatalf("ExtractSubtreeToDir() error = %v, want no-entries error naming the subtree", err)
 	}
 }

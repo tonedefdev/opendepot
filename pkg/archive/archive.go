@@ -29,6 +29,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -64,6 +65,18 @@ func (b *extractBudget) takeEntry(name string) error {
 	return nil
 }
 
+// skipEntry charges the declared size of an entry that is read past but not written against the byte
+// budget. A tar reader decompresses every skipped entry, so a skipped entry must not be free.
+func (b *extractBudget) skipEntry(name string, size int64) error {
+	if size < 0 || size > b.bytesLeft {
+		return fmt.Errorf("archive exceeds %d decompressed bytes (at %q)", maxExtractedBytes, name)
+	}
+
+	b.bytesLeft -= size
+
+	return nil
+}
+
 // copyEntry copies at most the remaining byte budget from src to dst and fails when src holds more.
 func (b *extractBudget) copyEntry(dst io.Writer, src io.Reader, name string) error {
 	n, err := io.Copy(dst, io.LimitReader(src, b.bytesLeft+1))
@@ -94,27 +107,48 @@ func ExtractSubtreeToDir(archiveBytes []byte, destDir, subtree string) error {
 	}
 
 	prefix := subtree + "/"
+	matched := false
 	keep := func(name string) bool {
-		_, rest, found := strings.Cut(name, "/")
+		for _, segment := range strings.Split(name, "/") {
+			if segment == ".." {
+				return false
+			}
+		}
 
-		return found && (rest == subtree || strings.HasPrefix(rest, prefix))
+		_, rest, found := strings.Cut(path.Clean(name), "/")
+		ok := found && (rest == subtree || strings.HasPrefix(rest, prefix))
+		matched = matched || ok
+
+		return ok
 	}
 
-	return extractArchive(archiveBytes, destDir, keep)
+	if err := extractArchive(archiveBytes, destDir, keep); err != nil {
+		return err
+	}
+
+	if !matched {
+		return fmt.Errorf("archive has no entries under subtree %q", subtree)
+	}
+
+	return nil
 }
 
 // extractArchive writes the entries of archiveBytes into destDir. When keep is non-nil, entries it
-// rejects are skipped without being written or counted against the budget.
+// rejects are skipped without being written, but they still count against the entry and byte budgets.
 func extractArchive(archiveBytes []byte, destDir string, keep func(name string) bool) error {
 	budget := newExtractBudget()
 	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
 		for _, f := range zr.File {
-			if keep != nil && !keep(f.Name) {
-				continue
-			}
-
 			if err := budget.takeEntry(f.Name); err != nil {
 				return err
+			}
+
+			if keep != nil && !keep(f.Name) {
+				if err := budget.skipEntry(f.Name, int64(f.UncompressedSize64)); err != nil {
+					return err
+				}
+
+				continue
 			}
 
 			if err := extractZipEntry(f, destDir, budget); err != nil {
@@ -142,12 +176,16 @@ func extractArchive(archiveBytes []byte, destDir string, keep func(name string) 
 			return fmt.Errorf("failed to read tar entry: %w", err)
 		}
 
-		if keep != nil && !keep(hdr.Name) {
-			continue
-		}
-
 		if err := budget.takeEntry(hdr.Name); err != nil {
 			return err
+		}
+
+		if keep != nil && !keep(hdr.Name) {
+			if err := budget.skipEntry(hdr.Name, hdr.Size); err != nil {
+				return err
+			}
+
+			continue
 		}
 
 		if err := extractTarEntry(tr, hdr, destDir, budget); err != nil {
