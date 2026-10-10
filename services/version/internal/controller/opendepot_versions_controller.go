@@ -333,10 +333,26 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Persist the Skill or Agent definition before any gate runs, so a Version that is later
 		// blocked by a scan, Jev assessment, or branch decision still keeps its definition.
 		// A failure is logged and the Version is requeued so the write is retried.
+		if err := r.clearStaleReadmeRef(ctx, req, version); err != nil {
+			r.Log.Error(err, "Failed to clear stale readme reference; requeueing", "version", version.Name)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
 		if isAgent {
 			definitionRef, definitionErr := r.upsertDefinitionConfigMap(ctx, version, agentDefinition, agentDefinitionFileName)
 			if definitionErr == nil {
 				definitionErr = r.persistDefinitionRef(ctx, version, definitionRef)
+			}
+
+			if errors.Is(definitionErr, errDefinitionTooLarge) {
+				if err := r.persistDefinitionTooLargeStatus(ctx, req, version, definitionErr); err != nil {
+					r.Log.Error(err, "Failed to persist definition size status; requeueing", "version", version.Name)
+					return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+				}
+
+				r.Log.Info("Definition is too large to store; the Version stays unsynced until the definition changes", "version", version.Name)
+
+				return ctrl.Result{}, nil
 			}
 
 			if definitionErr != nil {
@@ -917,6 +933,24 @@ func (r *VersionReconciler) persistReadmeRef(ctx context.Context, req ctrl.Reque
 			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
 		})
 	})
+}
+
+// clearStaleReadmeRef removes a README ConfigMap reference that an earlier sync left on a Skill or Agent Version.
+// Those Versions no longer read the README, so only the reference is cleared. The ConfigMap is kept because it is
+// owned by the Version and is garbage collected with it. Module Versions are never changed.
+func (r *VersionReconciler) clearStaleReadmeRef(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) error {
+	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
+	if !isAgent || version.Status.ReadmeConfigMapRef == nil {
+		return nil
+	}
+
+	if err := r.persistReadmeRef(ctx, req, nil); err != nil {
+		return fmt.Errorf("failed to clear stale readme reference on %s: %w", version.Name, err)
+	}
+
+	version.Status.ReadmeConfigMapRef = nil
+
+	return nil
 }
 
 // persistAgentBlock records a Skill or Agent Version that did not pass a gate. The Version stays unsynced,

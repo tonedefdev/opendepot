@@ -20,8 +20,10 @@ import (
 	"context"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -260,5 +262,60 @@ func TestBlockedAndFailedWritesKeepDefinitionRef(t *testing.T) {
 				t.Errorf("DefinitionConfigMapRef = %+v, want %+v", got.Status.DefinitionConfigMapRef, ref)
 			}
 		})
+	}
+}
+
+func TestClearStaleReadmeRefOnlyChangesAgentVersions(t *testing.T) {
+	reconciler, agent := newDefinitionFixture(t, interceptor.Funcs{})
+	ctx := context.Background()
+
+	module := &opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "example-module-1.0.0", Namespace: agent.Namespace},
+		Spec:       opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotModule},
+	}
+	if err := reconciler.Create(ctx, module); err != nil {
+		t.Fatalf("create module version: %v", err)
+	}
+
+	stale := &opendepotv1alpha1.ReadmeConfigMapRef{Name: "code-review-abc1234-readme", Key: "README.md"}
+	for _, version := range []*opendepotv1alpha1.Version{agent, module} {
+		current := &opendepotv1alpha1.Version{}
+		if err := reconciler.Get(ctx, client.ObjectKeyFromObject(version), current); err != nil {
+			t.Fatalf("get %s: %v", version.Name, err)
+		}
+
+		current.Status.ReadmeConfigMapRef = stale
+		if err := reconciler.Status().Update(ctx, current); err != nil {
+			t.Fatalf("set readme ref on %s: %v", version.Name, err)
+		}
+	}
+
+	for _, version := range []*opendepotv1alpha1.Version{agent, module} {
+		current := &opendepotv1alpha1.Version{}
+		if err := reconciler.Get(ctx, client.ObjectKeyFromObject(version), current); err != nil {
+			t.Fatalf("get %s: %v", version.Name, err)
+		}
+
+		req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(version)}
+		if err := reconciler.clearStaleReadmeRef(ctx, req, current); err != nil {
+			t.Fatalf("clearStaleReadmeRef(%s) error = %v", version.Name, err)
+		}
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(agent), stored); err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+
+	if stored.Status.ReadmeConfigMapRef != nil {
+		t.Fatalf("expected stale readme ref cleared on agent version, got %+v", stored.Status.ReadmeConfigMapRef)
+	}
+
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(module), stored); err != nil {
+		t.Fatalf("get module: %v", err)
+	}
+
+	if stored.Status.ReadmeConfigMapRef == nil || *stored.Status.ReadmeConfigMapRef != *stale {
+		t.Fatalf("expected module readme ref untouched, got %+v", stored.Status.ReadmeConfigMapRef)
 	}
 }
