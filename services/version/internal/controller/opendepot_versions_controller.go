@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -1504,12 +1505,17 @@ var ErrProviderArchiveTooLarge = errors.New("provider archive exceeds maximum si
 // while computing its SHA-256 checksum via an io.TeeReader. It returns the temp
 // file path, the hex-encoded checksum, a cleanup function that removes the file,
 // and any error. This avoids buffering large provider binaries (~700 MB) in the
-// Go heap, which is critical when multiple reconcilers run concurrently.
+// Go heap, which is critical when multiple reconcilers run concurrently. Archives
+// larger than the 1 GiB provider limit fail with ErrProviderArchiveTooLarge.
 func httpStreamToFile(ctx context.Context, requestURL string) (filePath string, checksumHex string, cleanup func(), err error) {
 	return httpStreamToFileLimited(ctx, requestURL, maxProviderArchiveBytes)
 }
 
 func httpStreamToFileLimited(ctx context.Context, requestURL string, limit int64) (filePath string, checksumHex string, cleanup func(), err error) {
+	if limit <= 0 || limit == math.MaxInt64 {
+		return "", "", func() {}, errors.New("invalid provider archive size limit")
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return "", "", func() {}, fmt.Errorf("invalid provider download URL '%s'", redactedURL(requestURL))
