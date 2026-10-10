@@ -1302,7 +1302,9 @@ func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *open
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err = archive.ExtractToDir(tarball, tmpDir); err != nil {
+	// Only the Skill or Agent directory is extracted, so links elsewhere in the repository cannot fail the archive.
+	subtree := strings.Trim(filepath.ToSlash(filepath.Clean("/"+sourceRef.Path)), "/")
+	if err = archive.ExtractSubtreeToDir(tarball, tmpDir, subtree); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to extract archive: %w", err)
 	}
 

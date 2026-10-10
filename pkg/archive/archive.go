@@ -80,9 +80,39 @@ func (b *extractBudget) copyEntry(dst io.Writer, src io.Reader, name string) err
 // Entries whose cleaned path escapes destDir are rejected, and symbolic and hard link entries are
 // refused outright so that no link can later redirect a write outside destDir.
 func ExtractToDir(archiveBytes []byte, destDir string) error {
+	return extractArchive(archiveBytes, destDir, nil)
+}
+
+// ExtractSubtreeToDir extracts only the entries under subtree, a slash-separated path relative to the
+// archive's single top-level directory, such as a GitHub repository tarball. Entries outside subtree
+// are skipped before any link check, so a link elsewhere in the repository cannot fail the extraction.
+// Links inside subtree are still refused. An empty subtree extracts the whole archive.
+func ExtractSubtreeToDir(archiveBytes []byte, destDir, subtree string) error {
+	subtree = strings.Trim(subtree, "/")
+	if subtree == "" {
+		return extractArchive(archiveBytes, destDir, nil)
+	}
+
+	prefix := subtree + "/"
+	keep := func(name string) bool {
+		_, rest, found := strings.Cut(name, "/")
+
+		return found && (rest == subtree || strings.HasPrefix(rest, prefix))
+	}
+
+	return extractArchive(archiveBytes, destDir, keep)
+}
+
+// extractArchive writes the entries of archiveBytes into destDir. When keep is non-nil, entries it
+// rejects are skipped without being written or counted against the budget.
+func extractArchive(archiveBytes []byte, destDir string, keep func(name string) bool) error {
 	budget := newExtractBudget()
 	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
 		for _, f := range zr.File {
+			if keep != nil && !keep(f.Name) {
+				continue
+			}
+
 			if err := budget.takeEntry(f.Name); err != nil {
 				return err
 			}
@@ -110,6 +140,10 @@ func ExtractToDir(archiveBytes []byte, destDir string) error {
 
 		if err != nil {
 			return fmt.Errorf("failed to read tar entry: %w", err)
+		}
+
+		if keep != nil && !keep(hdr.Name) {
+			continue
 		}
 
 		if err := budget.takeEntry(hdr.Name); err != nil {
