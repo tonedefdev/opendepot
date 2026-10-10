@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -125,6 +126,30 @@ func TestUpsertDefinitionConfigMapCreatesAndUpdates(t *testing.T) {
 	decoded, _ = base64.StdEncoding.DecodeString(cm.Data[definitionConfigMapKey])
 	if string(decoded) != "updated" {
 		t.Fatalf("expected update to replace the definition, got %q", decoded)
+	}
+}
+
+func TestUpsertDefinitionConfigMapLabelsAreValidForBranchVersionNames(t *testing.T) {
+	reconciler, version := newDefinitionFixture(t, interceptor.Funcs{})
+	ctx := context.Background()
+
+	// Branch Version names embed a 40 character commit SHA and exceed the 63 character label value limit.
+	version.Name = "skill-acquire-codebase-knowledge-b8f38227480c9f3fe04d6496d4fcab9a880e5a15"
+
+	ref, err := reconciler.upsertDefinitionConfigMap(ctx, version, []byte("body"), "SKILL.md")
+	if err != nil {
+		t.Fatalf("upsertDefinitionConfigMap with branch version name: %v", err)
+	}
+
+	cm := &corev1.ConfigMap{}
+	if err := reconciler.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: version.Namespace}, cm); err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+
+	for key, value := range cm.Labels {
+		if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
+			t.Fatalf("label %s has invalid value %q: %v", key, value, errs)
+		}
 	}
 }
 
