@@ -185,8 +185,10 @@ func (r *VersionReconciler) reconcileBranchPreflight(ctx context.Context, req ct
 	}
 
 	if branchAssignmentPending(version) && r.branchJevRefMissing(version) {
-		requeueAfter, err := r.holdBranchBump(ctx, req, version, &opendepotv1alpha1.BumpAssessment{Commit: version.Spec.SourceCommit}, errors.New(jevRefRequiredError))
-		return true, ctrl.Result{RequeueAfter: requeueAfter}, err
+		if category, overrideErr := manualBumpCategory(version); category == "" && overrideErr == nil {
+			requeueAfter, err := r.holdBranchBump(ctx, req, version, &opendepotv1alpha1.BumpAssessment{Commit: version.Spec.SourceCommit}, errors.New(jevRefRequiredError))
+			return true, ctrl.Result{RequeueAfter: requeueAfter}, err
+		}
 	}
 
 	return false, ctrl.Result{}, nil
@@ -302,9 +304,6 @@ func (r *VersionReconciler) assignBranchVersion(
 		case category != "":
 			assessment.Source = "Manual"
 			assessment.Reason = fmt.Sprintf("Operator set %s to %s", bumpOverrideAnnotation, strings.ToLower(category))
-		case r.branchJevRefMissing(version):
-			requeueAfter, holdErr := r.holdBranchBump(ctx, req, version, assessment, errors.New(jevRefRequiredError))
-			return nil, requeueAfter, holdErr
 		case r.branchJevEnabled(version):
 			classified, classifyErr := r.classifyBranchBump(ctx, version, previous, tree, archive, assessment)
 			if classifyErr != nil {
