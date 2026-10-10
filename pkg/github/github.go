@@ -65,6 +65,31 @@ func CreateGithubClient(ctx context.Context, useAuthenticatedClient bool, github
 	return github.NewClient(nil), nil
 }
 
+// maxArchiveBytes bounds the compressed archive read from GitHub before any extraction.
+const maxArchiveBytes int64 = 256 << 20
+
+// ErrArchiveTooLarge is returned when a downloaded archive reaches the compressed size limit.
+var ErrArchiveTooLarge = errors.New("archive exceeds maximum compressed size")
+
+// ReadArchive reads a downloaded archive body. It fails rather than returning a truncated archive when the body
+// exceeds maxArchiveBytes.
+func ReadArchive(body io.Reader) ([]byte, error) {
+	return readArchiveLimited(body, maxArchiveBytes)
+}
+
+func readArchiveLimited(body io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("archive exceeds %d bytes: %w", limit, ErrArchiveTooLarge)
+	}
+
+	return data, nil
+}
+
 // GetModuleArchiveFromRef gets a module from Github based on its ref and returns a byte slice and the file's base64 encoded SHA256 checksum.
 func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient *github.Client, version *opendepotv1alpha1.Version, format github.ArchiveFormat) (moduleBytes []byte, checksum *string, err error) {
 	ref := version.Spec.Version
@@ -96,7 +121,7 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 
 			log.V(5).Info("module req status code without 'v' prefix", "statusCode", moduleReq.StatusCode)
 
-			moduleBytes, err = io.ReadAll(moduleReq.Body)
+			moduleBytes, err = ReadArchive(moduleReq.Body)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to read module archive data: %w", err)
 			}
@@ -106,13 +131,14 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 			sha256Sum := sha256.Sum256(moduleBytes)
 			checksumSha256 := base64.StdEncoding.EncodeToString(sha256Sum[:])
 			checksum = &checksumSha256
+
 			return
 		}
 
 		return nil, nil, fmt.Errorf("failed to get module archive from Github: status code %d", moduleReq.StatusCode)
 	}
 
-	moduleBytes, err = io.ReadAll(moduleReq.Body)
+	moduleBytes, err = ReadArchive(moduleReq.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read module archive data: %w", err)
 	}

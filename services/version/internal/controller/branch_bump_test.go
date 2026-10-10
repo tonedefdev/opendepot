@@ -529,3 +529,111 @@ var errBumpTest = bumpTestError("jev unavailable")
 type bumpTestError string
 
 func (e bumpTestError) Error() string { return string(e) }
+
+func newAssignFixture(t *testing.T, jevEnabled bool, ref *corev1.SecretKeySelector) (*VersionReconciler, *opendepotv1alpha1.Version) {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	if err := opendepotv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+
+	name := "bump"
+	labels := map[string]string{"opendepot.defdev.io/skill": name}
+	previous := &opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "bump-1-0-0", Namespace: "default", Labels: labels},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:         opendepotv1alpha1.OpenDepotSkill,
+			SourceCommit: "1111111111111111111111111111111111111111",
+			Version:      "1.0.0",
+		},
+	}
+
+	version := &opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "bump-branch", Namespace: "default", Labels: labels},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:         opendepotv1alpha1.OpenDepotSkill,
+			SourceCommit: "2222222222222222222222222222222222222222",
+			AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{
+				Name:         &name,
+				JevSecretRef: ref,
+			},
+		},
+	}
+
+	reconciler := &VersionReconciler{
+		Client: fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(previous, version).
+			WithStatusSubresource(&opendepotv1alpha1.Version{}).
+			Build(),
+		JevEnabled: jevEnabled,
+	}
+
+	return reconciler, version
+}
+
+func TestAssignBranchVersionHoldsWithoutJevRefWhenJevEnabled(t *testing.T) {
+	reconciler, version := newAssignFixture(t, true, nil)
+	ctx := context.Background()
+	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
+
+	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: key}, version, nil, nil)
+	if err != nil {
+		t.Fatalf("assignBranchVersion returned error: %v", err)
+	}
+
+	if assessment != nil {
+		t.Fatalf("assessment = %+v; want nil so no PATCH bump is applied", assessment)
+	}
+
+	if requeueAfter != bumpBaseBackoff {
+		t.Fatalf("requeueAfter = %v; want %v", requeueAfter, bumpBaseBackoff)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if stored.Spec.Version != "" {
+		t.Fatalf("Spec.Version = %q; want unassigned", stored.Spec.Version)
+	}
+
+	if stored.Status.BranchPhase != branchPhaseHeld {
+		t.Fatalf("BranchPhase = %q; want %q", stored.Status.BranchPhase, branchPhaseHeld)
+	}
+
+	held := stored.Status.BumpAssessment
+	if held == nil || held.Error != jevRefRequiredError || held.Category != "" || held.Source != "" {
+		t.Fatalf("BumpAssessment = %+v; want held with error %q and no category", held, jevRefRequiredError)
+	}
+}
+
+func TestAssignBranchVersionPatchesWithoutJevRefWhenJevDisabled(t *testing.T) {
+	reconciler, version := newAssignFixture(t, false, nil)
+	ctx := context.Background()
+	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
+
+	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: key}, version, nil, nil)
+	if err != nil {
+		t.Fatalf("assignBranchVersion returned error: %v", err)
+	}
+
+	if assessment == nil || assessment.Source != "Default" || assessment.Category != "Patch" {
+		t.Fatalf("assessment = %+v; want Default Patch", assessment)
+	}
+
+	if requeueAfter != 0 {
+		t.Fatalf("requeueAfter = %v; want 0", requeueAfter)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if stored.Spec.Version != "1.0.1" {
+		t.Fatalf("Spec.Version = %q; want 1.0.1", stored.Spec.Version)
+	}
+}

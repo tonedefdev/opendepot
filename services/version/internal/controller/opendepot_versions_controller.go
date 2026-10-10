@@ -1254,7 +1254,7 @@ func (r *VersionReconciler) downloadAgentArchive(ctx context.Context, version *o
 			continue
 		}
 
-		tarball, err = io.ReadAll(resp.Body)
+		tarball, err = opendepotGithub.ReadArchive(resp.Body)
 		resp.Body.Close()
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to read archive data: %w", err)

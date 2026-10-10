@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -296,6 +297,9 @@ func (r *VersionReconciler) assignBranchVersion(
 		case category != "":
 			assessment.Source = "Manual"
 			assessment.Reason = fmt.Sprintf("Operator set %s to %s", bumpOverrideAnnotation, strings.ToLower(category))
+		case r.branchJevRefMissing(version):
+			requeueAfter, holdErr := r.holdBranchBump(ctx, req, version, assessment, errors.New(jevRefRequiredError))
+			return nil, requeueAfter, holdErr
 		case r.branchJevEnabled(version):
 			classified, classifyErr := r.classifyBranchBump(ctx, version, previous, tree, archive, assessment)
 			if classifyErr != nil {
