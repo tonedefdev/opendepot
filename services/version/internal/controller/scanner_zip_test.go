@@ -17,8 +17,11 @@ limitations under the License.
 package controller
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -53,4 +56,42 @@ func TestReadBoundedEntry(t *testing.T) {
 			t.Fatalf("readBoundedEntry() error = %v, want ErrProviderBinaryTooLarge", err)
 		}
 	})
+}
+
+func TestExtractBinaryFromZipRejectsDeclaredOversizeEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "provider.zip")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("os.Create() error = %v", err)
+	}
+
+	zw := zip.NewWriter(file)
+	header := &zip.FileHeader{
+		Name:               "terraform-provider-example",
+		Method:             zip.Store,
+		UncompressedSize64: uint64(maxProviderBinaryBytes) + 1,
+		CompressedSize64:   4,
+	}
+	header.SetMode(0755)
+	entry, err := zw.CreateRaw(header)
+	if err != nil {
+		t.Fatalf("CreateRaw() error = %v", err)
+	}
+
+	if _, err := entry.Write([]byte("abcd")); err != nil {
+		t.Fatalf("entry.Write() error = %v", err)
+	}
+
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zw.Close() error = %v", err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatalf("file.Close() error = %v", err)
+	}
+
+	_, err = extractBinaryFromZip(path)
+	if !errors.Is(err, ErrProviderBinaryTooLarge) {
+		t.Fatalf("extractBinaryFromZip() error = %v, want ErrProviderBinaryTooLarge", err)
+	}
 }

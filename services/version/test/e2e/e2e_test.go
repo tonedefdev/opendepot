@@ -1581,8 +1581,6 @@ spec:
     name: %s
     repoOwner: github
     repoUrl: https://github.com/github/awesome-copilot
-    githubClientConfig:
-      useAuthenticatedClient: true
     path: %s
     ref: %s
     branchPolicy:
