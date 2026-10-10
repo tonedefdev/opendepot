@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -29,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -185,8 +188,11 @@ func TestUpsertDefinitionConfigMapRejectsOversizedEntry(t *testing.T) {
 	reconciler, version := newDefinitionFixture(t, interceptor.Funcs{})
 	ctx := context.Background()
 
-	oversized := []byte(strings.Repeat("a", maxDefinitionBytes+1))
-	if _, err := reconciler.upsertDefinitionConfigMap(ctx, version, oversized, "SKILL.md"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	// base64 encodes every 3 raw bytes as 4 characters, so this raw size is the largest that stays within the encoded limit.
+	maxRawBytes := maxDefinitionEncodedBytes / 4 * 3
+
+	oversized := []byte(strings.Repeat("a", maxRawBytes+1))
+	if _, err := reconciler.upsertDefinitionConfigMap(ctx, version, oversized, "SKILL.md"); !errors.Is(err, errDefinitionTooLarge) {
 		t.Fatalf("expected size limit error, got %v", err)
 	}
 
@@ -196,9 +202,42 @@ func TestUpsertDefinitionConfigMapRejectsOversizedEntry(t *testing.T) {
 		t.Fatalf("expected no configmap to be created, got err=%v", err)
 	}
 
-	atLimit := []byte(strings.Repeat("a", maxDefinitionBytes))
+	atLimit := []byte(strings.Repeat("a", maxRawBytes))
 	if _, err := reconciler.upsertDefinitionConfigMap(ctx, version, atLimit, "SKILL.md"); err != nil {
-		t.Fatalf("expected a definition at the limit to be accepted: %v", err)
+		t.Fatalf("expected a definition at the encoded limit to be accepted: %v", err)
+	}
+}
+
+func TestPersistDefinitionTooLargeStatusSetsSyncStatus(t *testing.T) {
+	reconciler, version := newDefinitionFixture(t, interceptor.Funcs{})
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(version)}
+
+	cause := fmt.Errorf("%w: definition file SKILL.md is 800000 bytes", errDefinitionTooLarge)
+	if err := reconciler.persistDefinitionTooLargeStatus(ctx, req, version, cause); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(version), stored); err != nil {
+		t.Fatalf("get version: %v", err)
+	}
+
+	if stored.Status.Synced || stored.Status.SyncStatus != cause.Error() {
+		t.Fatalf("expected unsynced status with the size reason, got synced=%t syncStatus=%q", stored.Status.Synced, stored.Status.SyncStatus)
+	}
+
+	before := stored.ResourceVersion
+	if err := reconciler.persistDefinitionTooLargeStatus(ctx, req, stored, cause); err != nil {
+		t.Fatalf("persist unchanged: %v", err)
+	}
+
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(version), stored); err != nil {
+		t.Fatalf("get version after no-op: %v", err)
+	}
+
+	if stored.ResourceVersion != before {
+		t.Fatalf("expected repeated status to skip the update, resourceVersion %s -> %s", before, stored.ResourceVersion)
 	}
 }
 

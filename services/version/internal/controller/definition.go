@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -29,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
@@ -36,16 +39,19 @@ import (
 // definition file, for example SKILL.md or code-review.agent.md.
 const definitionConfigMapKey = "definition"
 
-// maxDefinitionBytes caps the raw definition file so the base64 encoded ConfigMap stays under the
-// Kubernetes 1 MiB object limit.
-const maxDefinitionBytes = 900 * 1024
+// maxDefinitionEncodedBytes caps the base64 encoded definition stored in the ConfigMap. The Kubernetes object
+// limit is 1 MiB (1,048,576 bytes) for the whole object, so this leaves room for keys, labels, and metadata.
+const maxDefinitionEncodedBytes = 1_000_000
+
+// errDefinitionTooLarge reports a definition that cannot be stored in a ConfigMap within the size limit.
+var errDefinitionTooLarge = errors.New("definition exceeds the ConfigMap size limit")
 
 // upsertDefinitionConfigMap creates or updates the ConfigMap holding a Skill or Agent Version's
 // definition file and returns a reference to it. The full file is stored, including any YAML
 // frontmatter. The ConfigMap is owned by the Version so that it is garbage collected with it.
 func (r *VersionReconciler) upsertDefinitionConfigMap(ctx context.Context, version *opendepotv1alpha1.Version, definitionBytes []byte, fileName string) (*opendepotv1alpha1.DefinitionConfigMapRef, error) {
-	if len(definitionBytes) > maxDefinitionBytes {
-		return nil, fmt.Errorf("definition file %s is %d bytes, which exceeds the %d byte limit", fileName, len(definitionBytes), maxDefinitionBytes)
+	if encodedSize := base64.StdEncoding.EncodedLen(len(definitionBytes)); encodedSize > maxDefinitionEncodedBytes {
+		return nil, fmt.Errorf("%w: definition file %s is %d bytes, which encodes to %d bytes against a %d byte limit", errDefinitionTooLarge, fileName, len(definitionBytes), encodedSize, maxDefinitionEncodedBytes)
 	}
 
 	cmName := version.Name + "-definition"
@@ -128,4 +134,14 @@ func (r *VersionReconciler) persistDefinitionRef(ctx context.Context, version *o
 			UpdateOptions: client.UpdateOptions{FieldManager: opendepotControllerName},
 		})
 	})
+}
+
+// persistDefinitionTooLargeStatus marks a Version unsynced with the reason its definition could not be stored,
+// so the cause is visible to admins. It skips the write when the status already reports the same reason.
+func (r *VersionReconciler) persistDefinitionTooLargeStatus(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version, cause error) error {
+	if !version.Status.Synced && version.Status.SyncStatus == cause.Error() {
+		return nil
+	}
+
+	return r.persistSyncStatus(ctx, req, false, cause.Error())
 }
