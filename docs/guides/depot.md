@@ -199,6 +199,17 @@ This Depot will:
 
 ---
 
+## Branch sources
+
+A skill or agent source can set `ref` to follow a Git branch instead of publishing from tags. Branch sourcing is enabled only when the chart is installed with `branchSourcing.enabled: true`.
+
+- **Polling is opt-in.** Set `pollingIntervalMinutes` to pick up new commits on a schedule. When it is unset, the Depot picks up new commits only when it reconciles for another reason, such as a spec change, an annotation change, or a resync.
+- **One pending entry at a time.** While the newest entry is pending, the Depot adds no new entry. Commits that arrive between polls collapse into one Version.
+- **Tags are the stable choice.** Tags are usually more immutable than branches. A branch head moves with every push, and each new commit becomes a new Version pinned to its `sourceCommit`.
+- **Migration only.** Branch sources are intended as a one-time migration. After that, manage the source definitions through GitOps.
+
+See [Branch sourcing](agents.md#branch-sourcing) for `branchPolicy`, the naming and status flow, and the Jev bump rules.
+
 ## Options
 
 **Polling interval:** Set `pollingIntervalMinutes` to have the Depot periodically re-query GitHub and the configured upstream provider registries for new releases. If omitted, the Depot reconciles once and does not poll.

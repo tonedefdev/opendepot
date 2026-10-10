@@ -169,7 +169,7 @@ jobs:
         uses: aquasecurity/setup-trivy@v0.3.1
         with:
           cache: true
-          version: v0.74.0
+          version: v0.75.0
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
@@ -274,4 +274,7 @@ jobs:
           IMG: ${{ matrix.image }}:e2e-test
           KIND_CLUSTER: opendepot-test-e2e
           SKIP_IMAGE_BUILD: ${{ matrix.skip_image_build }}
+          OPENDEPOT_GH_APP_ID: ${{ secrets.OPENDEPOT_GH_APP_ID }}
+          OPENDEPOT_GH_INSTALL_ID: ${{ secrets.OPENDEPOT_GH_INSTALL_ID }}
+          OPENDEPOT_GH_PRIVATE_KEY: ${{ secrets.OPENDEPOT_GH_PRIVATE_KEY }}
         run: go test ./test/e2e/ -v -ginkgo.v --ginkgo.fail-fast -count=1 -timeout ${{ matrix.test_timeout }}

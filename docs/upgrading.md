@@ -15,9 +15,9 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
-## v0.12.9
+## v0.12.0
 
-v0.12.9 updates the chart version to `0.12.9`. The application version is `0.12.7`, which includes an application dependency bump. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.
+v0.12.0 updates the chart and application version to `0.12.0`. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.
 
 ### New CRDs
 
