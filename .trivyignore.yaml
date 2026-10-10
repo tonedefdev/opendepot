@@ -1,1 +1,34 @@
-vulnerabilities: []
+# Third-party CVEs in the upstream OpenTofu and Trivy binaries bundled into the
+# version-controller and server images when INCLUDE_TOFU / INCLUDE_TRIVY is set.
+# These binaries come from pinned upstream releases (checksum-verified) and are not
+# patched or rebuilt here. Each entry is scoped to the binary path so the same CVE
+# still fails the scan if it appears in an OpenDepot binary.
+# Tracked in https://github.com/tonedefdev/opendepot/issues/98.
+vulnerabilities:
+  - id: CVE-2026-56864
+    paths:
+      - usr/local/bin/tofu
+    statement: "golang.org/x/mod sumdb integrity bypass in the upstream OpenTofu release; fix is in the upstream dependency."
+  - id: CVE-2026-56865
+    paths:
+      - usr/local/bin/tofu
+    statement: "golang.org/x/mod sumdb/tlog supply-chain issue in the upstream OpenTofu release; fix is in the upstream dependency."
+  - id: CVE-2026-78667
+    paths:
+      - usr/local/bin/tofu
+      - usr/local/bin/trivy
+    statement: "Go net/http Range header denial of service compiled into the upstream OpenTofu and Trivy release binaries."
+  - id: CVE-2026-78669
+    paths:
+      - usr/local/bin/tofu
+      - usr/local/bin/trivy
+    statement: "golang.org/x/net http2 denial of service compiled into the upstream OpenTofu and Trivy release binaries."
+  - id: CVE-2026-84445
+    paths:
+      - usr/local/bin/tofu
+    statement: "google.golang.org/grpc denial of service via malformed RPC in the upstream OpenTofu release binary."
+  - id: CVE-2026-97031
+    paths:
+      - usr/local/bin/tofu
+      - usr/local/bin/trivy
+    statement: "Go crypto/tls ECH denial of service compiled into the upstream OpenTofu and Trivy release binaries."

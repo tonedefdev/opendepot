@@ -305,8 +305,8 @@ The Stats page uses the configured lookback window, not an all-time total. For t
 The `-assembly` server and Version controller images build the pinned OpenTofu source commit
 used for initialization and schema extraction. The default images do not include OpenTofu. The version-controller image built with `INCLUDE_TRIVY=true` also builds
 Trivy from a pinned source commit, and the `-assembly` version-controller image includes both Trivy and OpenTofu. The chart release metadata is the source of
-the default image tag; release `0.11.0` uses chart and application version
-`0.11.0`.
+the default image tag; release `0.12.0` uses chart and application version
+`0.12.0`.
 
 See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 

@@ -128,7 +128,7 @@ matches the published version.
 
 ### Branch sourcing
 
-When branch sourcing is enabled, the Depot follows the branch head of a Skill or Agent source. Each new commit becomes a Version named for its commit and labeled with `opendepot.defdev.io/commit`. The version controller packages and signs it, then assigns a semver. The parent Skill or Agent records the commit, the discovery time, the state, and the Version name in `versionRefs`. Branch sources poll only when `pollingIntervalMinutes` is set on the Depot. For the full behavior, see [Branch sourcing](guides/agents.md#branch-sourcing).
+When branch sourcing is enabled, the Depot follows the branch head of a Skill or Agent source. Each new commit becomes a Version named for its commit and labeled with `opendepot.defdev.io/commit`. The version controller packages and signs it, then assigns a semver. The parent Skill or Agent records the commit, the discovery time, the state, and the Version name in `versionRefs`. The Server resolves a branch Version through the parent's `versionRefs` entry, and only when the Version's label matches the parent and its `spec.version` is set. Branch sources poll only when `pollingIntervalMinutes` is set on the Depot. For the full behavior, see [Branch sourcing](guides/agents.md#branch-sourcing).
 
 ### Server
 
