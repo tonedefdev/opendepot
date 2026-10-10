@@ -645,3 +645,90 @@ func TestExtractSubtreeToDirNoMatchReturnsClearError(t *testing.T) {
 		t.Fatalf("ExtractSubtreeToDir() error = %v, want no-entries error naming the subtree", err)
 	}
 }
+
+// gunzipped returns a reader over the decompressed bytes of a gzip archive.
+func gunzipped(t *testing.T, archive []byte) io.Reader {
+	t.Helper()
+
+	gr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatalf("gzip.NewReader() error = %v", err)
+	}
+
+	return gr
+}
+
+// metaHeaderArchive builds a gzip-compressed tar whose entries have names too long for ustar, so the writer
+// emits a PAX or GNU meta header with a near 1 MiB body for each. archive/tar caps a single meta header body
+// at 1 MiB, so a bomb repeats them. When trailer is set, a regular file ok.txt follows the meta headers.
+func metaHeaderArchive(t *testing.T, format tar.Format, count int, trailer bool) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	longName := strings.Repeat("a", 900*1024)
+	for range count {
+		if err := tw.WriteHeader(&tar.Header{Name: longName, Mode: 0644, Typeflag: tar.TypeReg, Format: format}); err != nil {
+			t.Fatalf("WriteHeader() error = %v", err)
+		}
+	}
+
+	if trailer {
+		content := []byte("ok")
+		if err := tw.WriteHeader(&tar.Header{Name: "ok.txt", Mode: 0644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("WriteHeader() error = %v", err)
+		}
+
+		if _, err := tw.Write(content); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar Close() error = %v", err)
+	}
+
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip Close() error = %v", err)
+	}
+
+	return buf.Bytes()
+}
+
+func TestExtractTarStreamRejectsPaxHeaderBomb(t *testing.T) {
+	archive := metaHeaderArchive(t, tar.FormatPAX, 8, false)
+
+	const streamLimit = 4 << 20
+	skipAll := func(string) bool { return false }
+	err := extractTarStream(gunzipped(t, archive), t.TempDir(), skipAll, newExtractBudget(), streamLimit)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("extractTarStream() error = %v, want stream cap error", err)
+	}
+}
+
+func TestExtractTarStreamRejectsGNULongNameBomb(t *testing.T) {
+	archive := metaHeaderArchive(t, tar.FormatGNU, 8, false)
+
+	const streamLimit = 4 << 20
+	skipAll := func(string) bool { return false }
+	err := extractTarStream(gunzipped(t, archive), t.TempDir(), skipAll, newExtractBudget(), streamLimit)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("extractTarStream() error = %v, want stream cap error", err)
+	}
+}
+
+func TestExtractTarStreamAcceptsMetaHeadersUnderCap(t *testing.T) {
+	archive := metaHeaderArchive(t, tar.FormatGNU, 2, true)
+
+	const streamLimit = 4 << 20
+	onlyOK := func(name string) bool { return name == "ok.txt" }
+	dest := t.TempDir()
+	if err := extractTarStream(gunzipped(t, archive), dest, onlyOK, newExtractBudget(), streamLimit); err != nil {
+		t.Fatalf("extractTarStream() error = %v, want nil under the stream cap", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dest, "ok.txt")); err != nil {
+		t.Fatalf("expected ok.txt to be extracted: %v", err)
+	}
+}
