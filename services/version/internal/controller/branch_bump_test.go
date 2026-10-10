@@ -49,10 +49,11 @@ const bumpSkillDocument = "---\nname: bump\ndescription: Summarize documents.\n-
 
 func TestBumpCategory(t *testing.T) {
 	tests := []struct {
-		name  string
-		major float64
-		minor float64
-		want  string
+		name   string
+		major  float64
+		minor  float64
+		policy *opendepotv1alpha1.BranchPolicy
+		want   string
 	}{
 		{name: "major at threshold", major: 0.5, minor: 0.0, want: "Major"},
 		{name: "major above threshold beats minor", major: 0.6, minor: 0.4, want: "Major"},
@@ -60,11 +61,39 @@ func TestBumpCategory(t *testing.T) {
 		{name: "minor from major and minor", major: 0.4, minor: 0.1, want: "Minor"},
 		{name: "patch below combined threshold", major: 0.2, minor: 0.2, want: "Patch"},
 		{name: "patch all zero", major: 0.0, minor: 0.0, want: "Patch"},
+		{
+			name:   "lower major threshold makes a major probability of 0.4 MAJOR",
+			major:  0.4,
+			minor:  0.0,
+			policy: &opendepotv1alpha1.BranchPolicy{MajorThreshold: ptr.To(0.3)},
+			want:   "Major",
+		},
+		{
+			name:   "higher major threshold keeps a major probability of 0.6 from being MAJOR",
+			major:  0.6,
+			minor:  0.1,
+			policy: &opendepotv1alpha1.BranchPolicy{MajorThreshold: ptr.To(0.9)},
+			want:   "Minor",
+		},
+		{
+			name:   "lower minor threshold makes a combined probability of 0.2 MINOR",
+			major:  0.1,
+			minor:  0.1,
+			policy: &opendepotv1alpha1.BranchPolicy{MinorThreshold: ptr.To(0.2)},
+			want:   "Minor",
+		},
+		{
+			name:   "higher minor threshold makes a combined probability of 0.6 PATCH",
+			major:  0.3,
+			minor:  0.3,
+			policy: &opendepotv1alpha1.BranchPolicy{MinorThreshold: ptr.To(0.7)},
+			want:   "Patch",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := bumpCategory(tt.major, tt.minor); got != tt.want {
+			if got := bumpCategory(tt.major, tt.minor, tt.policy); got != tt.want {
 				t.Fatalf("bumpCategory(%v, %v) = %q, want %q", tt.major, tt.minor, got, tt.want)
 			}
 		})
@@ -288,6 +317,26 @@ func TestClassifyPreparedBumpUsesJevCategory(t *testing.T) {
 
 	if calls.Load() != 1 {
 		t.Fatalf("jev calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestClassifyPreparedBumpMinConfidenceFromPolicy(t *testing.T) {
+	var calls atomic.Int32
+	var states []string
+	server := bumpJevServer(t, http.StatusOK, bumpJevResponse(0.1, 0.1, 0.8, 0.4), &states, &calls)
+	reconciler, version := newBumpReconciler(t, server.URL, false)
+	version.Spec.AgentSourceRef.BranchPolicy = &opendepotv1alpha1.BranchPolicy{MinConfidence: ptr.To(0.3)}
+
+	previous := writeBumpTree(t, map[string]string{"SKILL.md": bumpSkillDocument})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument})
+	assessment := &opendepotv1alpha1.BumpAssessment{}
+	category, err := reconciler.classifyPreparedBump(context.Background(), version, previous, loadBumpContent(t, nextDir, version), previous, assessment)
+	if err != nil {
+		t.Fatalf("classifyPreparedBump: %v", err)
+	}
+
+	if category != "Patch" || assessment.NeedsReview {
+		t.Fatalf("category = %q needsReview = %v, want Patch without needsReview at policy minConfidence 0.3", category, assessment.NeedsReview)
 	}
 }
 

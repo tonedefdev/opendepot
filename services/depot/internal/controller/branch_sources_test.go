@@ -26,9 +26,11 @@ import (
 	"github.com/google/go-github/v81/github"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
@@ -230,6 +232,132 @@ var _ = Describe("Branch sourcing reconcile", func() {
 		var skill opendepotv1alpha1.Skill
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)
 		Expect(err).To(HaveOccurred())
+	})
+
+	Describe("Depot reconcile", func() {
+		createDepot := func(name string, interval *int, skills ...opendepotv1alpha1.AgentSourceConfig) {
+			depot := &opendepotv1alpha1.Depot{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: opendepotv1alpha1.DepotSpec{
+					SkillConfigs:           skills,
+					PollingIntervalMinutes: interval,
+				},
+			}
+			Expect(k8sClient.Create(ctx, depot)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, depot)
+			})
+		}
+
+		reconcileDepot := func(name string) (reconcile.Result, error) {
+			return reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKey{Name: name, Namespace: "default"}})
+		}
+
+		createSkill := func(name string, source opendepotv1alpha1.AgentSourceConfig, versions []opendepotv1alpha1.SkillVersion) {
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, &opendepotv1alpha1.Skill{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}})
+			})
+
+			Expect(k8sClient.Create(ctx, &opendepotv1alpha1.Skill{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: opendepotv1alpha1.SkillSpec{
+					AgentSourceConfig: source,
+					Versions:          versions,
+				},
+			})).To(Succeed())
+		}
+
+		It("creates no parent Skill when the branch sourcing flag is off", func() {
+			reconciler.BranchSourcingEnabled = false
+			name := "branch-depot-flag-off"
+			source := branchSource(name)
+			createDepot("depot-"+name, nil, source)
+
+			_, err := reconcileDepot("depot-" + name)
+			Expect(err).NotTo(HaveOccurred())
+
+			var skill opendepotv1alpha1.Skill
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("is a no-op when a force-push returns to a known SHA", func() {
+			name := "branch-depot-known-sha"
+			source := branchSource(name)
+			discoveredAt := metav1.NewTime(time.Now().Add(-time.Hour))
+			createSkill(name, source, []opendepotv1alpha1.SkillVersion{
+				{Commit: branchTestSHA, DiscoveredAt: &discoveredAt, State: "Assigned", Version: "1.0.0"},
+				{Commit: "2222222222222222222222222222222222222222", DiscoveredAt: &discoveredAt, State: "Rejected"},
+			})
+			createDepot("depot-"+name, nil, source)
+
+			_, err := reconcileDepot("depot-" + name)
+			Expect(err).NotTo(HaveOccurred())
+
+			var skill opendepotv1alpha1.Skill
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)).To(Succeed())
+			Expect(skill.Spec.Versions).To(HaveLen(2))
+			Expect(skill.Spec.Versions[0].Commit).To(Equal(branchTestSHA))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Assigned"))
+			Expect(skill.Spec.Versions[1].State).To(Equal("Rejected"))
+		})
+
+		It("adds a pending entry for a new head after a rejected head", func() {
+			name := "branch-depot-rejected-head"
+			source := branchSource(name)
+			discoveredAt := metav1.NewTime(time.Now().Add(-time.Hour))
+			createSkill(name, source, []opendepotv1alpha1.SkillVersion{
+				{Commit: "1111111111111111111111111111111111111111", DiscoveredAt: &discoveredAt, State: "Rejected"},
+			})
+			createDepot("depot-"+name, nil, source)
+
+			_, err := reconcileDepot("depot-" + name)
+			Expect(err).NotTo(HaveOccurred())
+
+			var skill opendepotv1alpha1.Skill
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)).To(Succeed())
+			Expect(skill.Spec.Versions).To(HaveLen(2))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Rejected"))
+			Expect(skill.Spec.Versions[1].Commit).To(Equal(branchTestSHA))
+			Expect(skill.Spec.Versions[1].State).To(Equal("Pending"))
+		})
+
+		It("rejects an invalid repoUrl without calling GitHub", func() {
+			called := false
+			newBranchGithubClient = func(_ context.Context, _ client.Client, _ string, _ *opendepotv1alpha1.AgentSourceConfig) (*github.Client, error) {
+				called = true
+				return nil, errors.New("GitHub must not be called")
+			}
+
+			name := "branch-depot-invalid-url"
+			source := branchSource(name)
+			source.RepoUrl = ptr.To("https://github.com/someone-else/acquire-codebase-knowledge")
+			createDepot("depot-"+name, nil, source)
+
+			_, err := reconcileDepot("depot-" + name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(called).To(BeFalse())
+
+			var skill opendepotv1alpha1.Skill
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("logs a missing branch and requeues on the polling interval instead of failing", func() {
+			head = ""
+			name := "branch-depot-missing"
+			source := branchSource(name)
+			interval := 5
+			createDepot("depot-"+name, &interval, source)
+
+			result, err := reconcileDepot("depot-" + name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Minute))
+
+			var skill opendepotv1alpha1.Skill
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &skill)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
 	})
 
 	Describe("validateBranchSource", func() {

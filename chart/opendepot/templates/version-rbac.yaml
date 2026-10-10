@@ -11,12 +11,17 @@ rules:
   - opendepot.defdev.io
   resources:
   - modules
-  - skills
-  - agents
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills
+  - agents
+  verbs:
+  - get
 - apiGroups:
   - opendepot.defdev.io
   resources:

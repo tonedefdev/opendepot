@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/google/go-github/v81/github"
@@ -46,19 +46,19 @@ var newBranchGithubClient = func(ctx context.Context, k8sClient client.Client, n
 // the mutually exclusive fields, and every input used in a GitHub API path, before any GitHub call is made.
 func (r *DepotReconciler) validateBranchSource(sourceConfig *opendepotv1alpha1.AgentSourceConfig) error {
 	if !r.BranchSourcingEnabled {
-		return fmt.Errorf("branch sourcing is disabled, start the depot controller with --branch-sourcing-enabled")
+		return errors.New("branch sourcing is disabled, start the depot controller with --branch-sourcing-enabled")
 	}
 
 	if sourceConfig.VersionConstraints != "" {
-		return fmt.Errorf("ref and versionConstraints are mutually exclusive")
+		return errors.New("ref and versionConstraints are mutually exclusive")
 	}
 
 	if sourceConfig.TagPrefix != nil {
-		return fmt.Errorf("tagPrefix cannot be used with ref")
+		return errors.New("tagPrefix cannot be used with ref")
 	}
 
 	if policy := sourceConfig.BranchPolicy; policy != nil && policy.MinVersionInterval != nil && policy.MinVersionInterval.Duration < 0 {
-		return fmt.Errorf("branchPolicy.minVersionInterval must not be negative")
+		return errors.New("branchPolicy.minVersionInterval must not be negative")
 	}
 
 	if err := opendepotGithub.ValidateRepoName(sourceConfig.RepoOwner, opendepotGithub.AgentSourceRepoName(sourceConfig)); err != nil {

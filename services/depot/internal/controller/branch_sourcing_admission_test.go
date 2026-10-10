@@ -150,6 +150,21 @@ var _ = Describe("Branch sourcing admission", func() {
 			Expect(err.Error()).To(ContainSubstring("sourceCommit is immutable"))
 		})
 
+		It("rejects removing sourceCommit", func() {
+			version := newVersion("branch-remove-commit", "", branchTestSHA)
+			Expect(k8sClient.Create(ctx, version)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(ctx, version)).To(Succeed())
+			})
+
+			current := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(version), current)).To(Succeed())
+			current.Spec.SourceCommit = ""
+			err := k8sClient.Update(ctx, current)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("sourceCommit is immutable"))
+		})
+
 		It("rejects an empty version without a sourceCommit", func() {
 			version := newVersion("branch-no-commit", "", "")
 			version.Spec.SourceCommit = ""
