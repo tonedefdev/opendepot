@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,6 +58,8 @@ func TestHTTPStreamToFileLimitedRejectsOversizeBody(t *testing.T) {
 }
 
 func TestHTTPStreamToFileLimitedAcceptsBodyAtLimit(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
 	body := bytes.Repeat([]byte("a"), 16)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write(body)
@@ -89,5 +92,27 @@ func TestRedactedURLRemovesSensitiveComponents(t *testing.T) {
 	}
 	if got := redactedURL("https://%zz"); got != "<invalid URL>" {
 		t.Fatalf("redactedURL() = %q, want invalid URL marker", got)
+	}
+}
+
+func TestHTTPStreamToFileLimitedRejectsInvalidLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+
+	for _, limit := range []int64{0, -1, math.MaxInt64} {
+		_, _, cleanup, err := httpStreamToFileLimited(context.Background(), "http://127.0.0.1:1/provider.zip", limit)
+		t.Cleanup(cleanup)
+		if err == nil {
+			t.Fatalf("httpStreamToFileLimited(limit=%d) error = nil, want invalid limit error", limit)
+		}
+	}
+
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+
+	if len(entries) != 0 {
+		t.Fatalf("temp files left behind after invalid limit: %d", len(entries))
 	}
 }

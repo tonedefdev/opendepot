@@ -131,6 +131,7 @@ func GetModuleArchiveFromRef(ctx context.Context, log logr.Logger, githubClient 
 			sha256Sum := sha256.Sum256(moduleBytes)
 			checksumSha256 := base64.StdEncoding.EncodeToString(sha256Sum[:])
 			checksum = &checksumSha256
+
 			return
 		}
 

@@ -23,6 +23,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -261,6 +262,29 @@ func resolveProviderSourceRepository(ctx context.Context, namespace, providerNam
 		strings.TrimSpace(namespace), strings.TrimSpace(providerName))
 }
 
+// maxProviderBinaryBytes caps the decompressed size of the provider executable read from a zip entry.
+// Provider binaries are about 700 MB, so 1 GiB leaves headroom while bounding zip bomb expansion.
+const maxProviderBinaryBytes int64 = 1 << 30
+
+// ErrProviderBinaryTooLarge is returned when the provider executable exceeds maxProviderBinaryBytes.
+var ErrProviderBinaryTooLarge = errors.New("provider binary exceeds maximum size")
+
+// readBoundedEntry reads at most limit bytes from r. It reads one byte past the limit so that a
+// stream whose actual length exceeds limit is rejected even when the zip header under-reports its size.
+func readBoundedEntry(r io.Reader, limit int64) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	n, err := buf.ReadFrom(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if n > limit {
+		return nil, ErrProviderBinaryTooLarge
+	}
+
+	return buf.Bytes(), nil
+}
+
 // extractBinaryFromZip extracts the provider executable from an OpenTofu registry
 // release zip at archivePath on disk. The zip contains exactly one file: the compiled
 // provider binary. We skip any accompanying README or LICENSE files by filtering on
@@ -287,17 +311,22 @@ func extractBinaryFromZip(archivePath string) ([]byte, error) {
 			continue
 		}
 
+		if f.UncompressedSize64 > uint64(maxProviderBinaryBytes) {
+			return nil, fmt.Errorf("%s in provider zip declares %d bytes: %w", f.Name, f.UncompressedSize64, ErrProviderBinaryTooLarge)
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s in provider zip: %w", f.Name, err)
 		}
 		defer rc.Close()
 
-		buf := new(bytes.Buffer)
-		if _, err := buf.ReadFrom(rc); err != nil {
+		data, err := readBoundedEntry(rc, maxProviderBinaryBytes)
+		if err != nil {
 			return nil, fmt.Errorf("failed to read %s from provider zip: %w", f.Name, err)
 		}
-		return buf.Bytes(), nil
+
+		return data, nil
 	}
 
 	return nil, fmt.Errorf("no executable found in provider zip archive")
