@@ -604,3 +604,35 @@ func TestRunAgentJevRecordsErrorWhenNoThresholds(t *testing.T) {
 		t.Fatal("token appeared in the recorded Jev error")
 	}
 }
+
+func TestRunAgentJevHoldsBranchWithoutSecretRefWhenJevEnabled(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevSecretRef = nil
+	version.Spec.SourceCommit = "2222222222222222222222222222222222222222"
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevTestContent())
+	if err == nil || err.Error() != jevRefRequiredError || assessment != nil {
+		t.Fatalf("assessment = %+v, err = %v; want nil and %q", assessment, err, jevRefRequiredError)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev was called %d times without jevSecretRef", calls.Load())
+	}
+}
+
+func TestRunAgentJevHoldsAssessedVersionWithoutSecretRefWhenJevEnabled(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevSecretRef = nil
+	version.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{EvaluatedAt: "2026-01-01T00:00:00Z"}
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevTestContent())
+	if err == nil || err.Error() != jevRefRequiredError || assessment != nil {
+		t.Fatalf("assessment = %+v, err = %v; want nil and %q", assessment, err, jevRefRequiredError)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev was called %d times without jevSecretRef", calls.Load())
+	}
+}

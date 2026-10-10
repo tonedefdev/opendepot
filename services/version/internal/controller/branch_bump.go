@@ -52,6 +52,12 @@ func (r *VersionReconciler) branchJevEnabled(version *opendepotv1alpha1.Version)
 	return r.JevEnabled && version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.JevSecretRef != nil
 }
 
+// branchJevRefMissing reports whether Jev is enabled on the controller but the branch source omits jevSecretRef.
+// Such a bump is held instead of falling back to PATCH, so removing the ref cannot skip the Jev assessment.
+func (r *VersionReconciler) branchJevRefMissing(version *opendepotv1alpha1.Version) bool {
+	return r.JevEnabled && (version.Spec.AgentSourceRef == nil || version.Spec.AgentSourceRef.JevSecretRef == nil)
+}
+
 // bumpBackoff returns the delay before the next classification attempt: 1, 2, 4, and 8 minutes, then 15 minutes.
 func bumpBackoff(attempts int) time.Duration {
 	attempts = max(attempts, 1)

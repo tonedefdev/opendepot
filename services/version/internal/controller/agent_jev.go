@@ -37,6 +37,10 @@ const defaultJevSecretKey = "jevToken"
 // jevDisabledError is recorded on the assessment when a source sets jevSecretRef but Jev is disabled on the controller.
 const jevDisabledError = "jev is disabled on this controller"
 
+// jevRefRequiredError is returned when Jev is enabled on the controller but a branch source, or a Version already
+// assessed by Jev, no longer sets jevSecretRef.
+const jevRefRequiredError = "jevSecretRef is required for branch sources when Jev is enabled on the controller"
+
 // jevFileListHeader separates the entry file from the bundled file list in the Jev state.
 const jevFileListHeader = "\n\nBundled files:\n"
 
@@ -159,6 +163,12 @@ func jevFailure(err error, gated bool) (*opendepotv1alpha1.JevAssessment, error)
 	return assessment, nil
 }
 
+// jevRefRequired reports whether a Version without jevSecretRef must fail its Jev check. It applies while Jev is enabled
+// on the controller and the Version is a branch source or was already assessed, so removing the ref cannot skip the check.
+func (r *VersionReconciler) jevRefRequired(version *opendepotv1alpha1.Version) bool {
+	return r.JevEnabled && (version.Spec.SourceCommit != "" || version.Status.JevAssessment != nil)
+}
+
 // runAgentJev runs the TypeSafe Jev assessment for a Skill or Agent Version. It runs when the source sets a
 // JevSecretRef, and only after the deterministic gates have passed. When Jev is disabled on the controller,
 // the assessment records that and no call is made. A cached assessment is reused unless ForceSync is set,
@@ -173,6 +183,10 @@ func (r *VersionReconciler) runAgentJev(
 ) (*opendepotv1alpha1.JevAssessment, error) {
 	sourceRef := version.Spec.AgentSourceRef
 	if sourceRef == nil || sourceRef.JevSecretRef == nil {
+		if r.jevRefRequired(version) {
+			return nil, errors.New(jevRefRequiredError)
+		}
+
 		return nil, nil
 	}
 
