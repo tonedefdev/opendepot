@@ -686,7 +686,50 @@ func agentToCard(kind string, a agentCardObject, public bool) BrowseResource {
 		SyncStatus:    a.Status.SyncStatus,
 		Public:        public,
 		LatestVersion: derefString(a.Status.LatestVersion),
+		RepoURL:       agentRepoURL(a.Spec.AgentSourceConfig),
+		SourceRef:     derefString(a.Spec.AgentSourceConfig.Ref),
+		SourcePath:    a.Spec.AgentSourceConfig.Path,
 	}
+}
+
+// agentRepoURL returns the GitHub repository URL for a Skill or Agent source. RepoUrl is used when it is
+// already https://github.com/<owner>/<repo>. Otherwise the URL is built from RepoOwner and the repository name.
+func agentRepoURL(cfg opendepotv1alpha1.AgentSourceConfig) string {
+	if cfg.RepoUrl != nil {
+		trimmed := strings.TrimSuffix(strings.TrimSpace(*cfg.RepoUrl), "/")
+		if path, ok := strings.CutPrefix(trimmed, "https://github.com/"); ok {
+			segments := strings.Split(path, "/")
+			if len(segments) == 2 && segments[0] != "" && segments[1] != "" {
+				return trimmed
+			}
+		}
+	}
+
+	repoName := agentSourceRepoName(cfg)
+	if cfg.RepoOwner == "" || repoName == "" {
+		return ""
+	}
+
+	return "https://github.com/" + cfg.RepoOwner + "/" + repoName
+}
+
+// agentSourceRepoName returns the last path segment of RepoUrl, falling back to the source Name.
+func agentSourceRepoName(cfg opendepotv1alpha1.AgentSourceConfig) string {
+	if cfg.RepoUrl != nil && strings.TrimSpace(*cfg.RepoUrl) != "" {
+		segments := strings.Split(strings.TrimSuffix(strings.TrimSpace(*cfg.RepoUrl), "/"), "/")
+		return segments[len(segments)-1]
+	}
+
+	return derefString(cfg.Name)
+}
+
+// agentVersionCommit returns the commit SHA for a Skill or Agent Version, preferring the status value.
+func agentVersionCommit(v *opendepotv1alpha1.Version) string {
+	if v.Status.SourceCommit != "" {
+		return v.Status.SourceCommit
+	}
+
+	return v.Spec.SourceCommit
 }
 
 // agentLatestVersion returns the Version whose sanitized spec.version matches latestVersionStr, or nil.
@@ -720,10 +763,12 @@ func agentVersionSummaries(kind agentKind, name string, versions []opendepotv1al
 	summaries := make([]BrowseVersionSummary, 0, len(versions))
 	for _, v := range versions {
 		s := BrowseVersionSummary{
-			Name:       v.Name,
-			Version:    v.Spec.Version,
-			Synced:     v.Status.Synced,
-			SyncStatus: v.Status.SyncStatus,
+			Name:        v.Name,
+			Version:     v.Spec.Version,
+			Synced:      v.Status.Synced,
+			SyncStatus:  v.Status.SyncStatus,
+			Commit:      agentVersionCommit(&v),
+			BranchPhase: v.Status.BranchPhase,
 		}
 
 		if agentVersionServable(&v, kind, name) {
@@ -881,10 +926,14 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 		items = append(items, providers...)
 	}
 
-	if filterKind == "skill" || filterKind == "agent" {
-		agents, err := browseCollectAgentResources(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, filterKind)
+	for _, agentKindName := range []string{"skill", "agent"} {
+		if filterKind != "" && filterKind != agentKindName {
+			continue
+		}
+
+		agents, err := browseCollectAgentResources(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, agentKindName)
 		if err != nil {
-			logger.Error("browse: failed to collect "+filterKind+"s", "error", err)
+			logger.Error("browse: failed to collect "+agentKindName+"s", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -1117,14 +1166,26 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.Versions = agentVersionSummaries(browseAgentKind(kind), name, versions)
 		detail.JevThresholds = a.Spec.AgentSourceConfig.JevPolicy
 		detail.StorageConfig = storageConfigToBrowse(a.Spec.AgentSourceConfig.StorageConfig)
+		detail.RepoOwner = a.Spec.AgentSourceConfig.RepoOwner
+		detail.SourcePath = a.Spec.AgentSourceConfig.Path
+
+		if a.Spec.AgentSourceConfig.GithubClientConfig != nil {
+			detail.GithubConfig = &BrowseGithubConfig{
+				UseAuthenticatedClient: a.Spec.AgentSourceConfig.GithubClientConfig.UseAuthenticatedClient,
+			}
+		}
 
 		latestVersionStr := resolveLatestModuleVersion(&card, versions)
-		detail.ReadmeContent = browseModuleReadme(cs, r, namespace, versions, latestVersionStr)
+		detail.DefinitionContent, detail.DefinitionFileName = browseAgentDefinition(cs, r, namespace, versions, latestVersionStr)
 		if latest := agentLatestVersion(versions, latestVersionStr); latest != nil {
 			detail.AgentMetadata = latest.Status.AgentMetadata
 			detail.JevAssessment = latest.Status.JevAssessment
 			if latest.Status.SourceScan != nil {
 				detail.SourceScanFindings = latest.Status.SourceScan.Findings
+			}
+
+			if card.SourceRef != "" {
+				detail.SourceCommit = agentVersionCommit(latest)
 			}
 		}
 
@@ -1250,6 +1311,46 @@ func browseModuleReadme(cs *kubernetes.Clientset, r *http.Request, namespace str
 
 	content := string(decoded)
 	return &content
+}
+
+// browseAgentDefinition resolves the base64-decoded definition file for a Skill or Agent's latest Version,
+// along with its file name, if that Version has a DefinitionConfigMapRef set. Failures are non-fatal and
+// return empty values so the UI simply omits the definition section.
+func browseAgentDefinition(cs *kubernetes.Clientset, r *http.Request, namespace string, versions []opendepotv1alpha1.Version, latestVersionStr string) (*string, string) {
+	latest := agentLatestVersion(versions, latestVersionStr)
+	if latest == nil || latest.Status.DefinitionConfigMapRef == nil {
+		return nil, ""
+	}
+
+	ref := latest.Status.DefinitionConfigMapRef
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/api/v1").
+		Namespace(namespace).
+		Resource("configmaps").
+		Name(ref.Name).
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, ""
+	}
+
+	var cm k8sConfigMap
+	if err := json.Unmarshal(raw, &cm); err != nil {
+		return nil, ""
+	}
+
+	encoded, ok := cm.Data[ref.Key]
+	if !ok {
+		return nil, ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, ""
+	}
+
+	content := string(decoded)
+	return &content, ref.FileName
 }
 
 // enrichProviderCard sets Platforms, ScanCounts, and LastScanned on a provider card.

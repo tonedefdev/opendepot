@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,14 @@ func browseAgentTestVersion(kind, name string) opendepotv1alpha1.Version {
 func browseAgentTestServer(t *testing.T, kind, name string, nsLabels map[string]string, object any, versions []opendepotv1alpha1.Version, bindings []opendepotv1alpha1.GroupBinding) *httptest.Server {
 	t.Helper()
 
+	return browseAgentTestServerWithConfigMaps(t, kind, name, nsLabels, object, versions, bindings, nil)
+}
+
+// browseAgentTestServerWithConfigMaps is browseAgentTestServer with ConfigMaps served by name. Each value holds
+// the ConfigMap data as stored, so binary content must already be base64 encoded.
+func browseAgentTestServerWithConfigMaps(t *testing.T, kind, name string, nsLabels map[string]string, object any, versions []opendepotv1alpha1.Version, bindings []opendepotv1alpha1.GroupBinding, configMaps map[string]map[string]string) *httptest.Server {
+	t.Helper()
+
 	namespacePayload, err := json.Marshal(map[string]any{"metadata": map[string]any{"name": browseAgentTestNamespace, "labels": nsLabels}})
 	if err != nil {
 		t.Fatalf("marshal namespace: %v", err)
@@ -82,6 +91,20 @@ func browseAgentTestServer(t *testing.T, kind, name string, nsLabels map[string]
 			_, _ = w.Write(versionPayload)
 		case strings.HasSuffix(r.URL.Path, "/groupbindings"):
 			_, _ = w.Write(bindingPayload)
+		case strings.HasPrefix(r.URL.Path, "/api/v1/namespaces/"+browseAgentTestNamespace+"/configmaps/"):
+			cmName := strings.TrimPrefix(r.URL.Path, "/api/v1/namespaces/"+browseAgentTestNamespace+"/configmaps/")
+			data, ok := configMaps[cmName]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+
+			cmPayload, err := json.Marshal(map[string]any{"metadata": map[string]any{"name": cmName, "namespace": browseAgentTestNamespace}, "data": data})
+			if err != nil {
+				t.Fatalf("marshal configmap: %v", err)
+			}
+
+			_, _ = w.Write(cmPayload)
 		default:
 			http.NotFound(w, r)
 		}
@@ -384,4 +407,232 @@ func TestAgentVersionSummariesOmitDownloadMetadataForNonServableVersions(t *test
 			}
 		})
 	}
+}
+
+func TestBrowseAgentDetailDefinitionAndSourceFields(t *testing.T) {
+	const (
+		name       = "reviewer"
+		commitSHA  = "0123456789abcdef0123456789abcdef01234567"
+		definition = "# Reviewer\n"
+	)
+
+	labels := map[string]string{labelPublic: "true"}
+	for _, kind := range []string{"skill", "agent"} {
+		t.Run(kind, func(t *testing.T) {
+			fileName := "SKILL.md"
+			if kind == "agent" {
+				fileName = "AGENT.md"
+			}
+
+			source := opendepotv1alpha1.AgentSourceConfig{
+				RepoOwner: "acme",
+				RepoUrl:   &[]string{"https://github.com/acme/" + name}[0],
+				Path:      "skills/" + name,
+				Ref:       &[]string{"main"}[0],
+			}
+
+			var object any
+			if kind == "agent" {
+				object = opendepotv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: browseAgentTestNamespace, Labels: labels}, Spec: opendepotv1alpha1.AgentSpec{AgentSourceConfig: source}}
+			} else {
+				object = opendepotv1alpha1.Skill{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: browseAgentTestNamespace, Labels: labels}, Spec: opendepotv1alpha1.SkillSpec{AgentSourceConfig: source}}
+			}
+
+			version := browseAgentTestVersion(kind, name)
+			version.Status.SourceCommit = commitSHA
+			version.Status.BranchPhase = "Pending"
+			version.Status.DefinitionConfigMapRef = &opendepotv1alpha1.DefinitionConfigMapRef{Name: name + "-definition", Key: "definition", FileName: fileName}
+			configMaps := map[string]map[string]string{
+				name + "-definition": {"definition": base64.StdEncoding.EncodeToString([]byte(definition))},
+			}
+
+			api := browseAgentTestServerWithConfigMaps(t, kind, name, labels, object, []opendepotv1alpha1.Version{version}, nil, configMaps)
+			browseAgentTestSetup(t, api, false, false)
+
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/"+kind+"/"+name, nil)
+			response := httptest.NewRecorder()
+			browseAgentTestRouter().ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+			}
+
+			var detail BrowseResourceDetail
+			if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+				t.Fatalf("unmarshal detail: %v", err)
+			}
+
+			if detail.ReadmeContent != nil {
+				t.Fatalf("ReadmeContent = %q, want nil for %s", *detail.ReadmeContent, kind)
+			}
+
+			if detail.DefinitionContent == nil || *detail.DefinitionContent != definition {
+				t.Fatalf("DefinitionContent = %v, want %q", detail.DefinitionContent, definition)
+			}
+
+			if detail.DefinitionFileName != fileName {
+				t.Fatalf("DefinitionFileName = %q, want %q", detail.DefinitionFileName, fileName)
+			}
+
+			if detail.RepoURL != "https://github.com/acme/"+name || detail.RepoOwner != "acme" || detail.SourcePath != "skills/"+name {
+				t.Fatalf("repo fields = url %q owner %q path %q", detail.RepoURL, detail.RepoOwner, detail.SourcePath)
+			}
+
+			if detail.SourceRef != "main" || detail.SourceCommit != commitSHA {
+				t.Fatalf("SourceRef = %q, SourceCommit = %q; want main and %s", detail.SourceRef, detail.SourceCommit, commitSHA)
+			}
+
+			if len(detail.Versions) != 1 || detail.Versions[0].Commit != commitSHA || detail.Versions[0].BranchPhase != "Pending" {
+				t.Fatalf("Versions = %+v; want commit %s and phase %s", detail.Versions, commitSHA, "Pending")
+			}
+		})
+	}
+}
+
+func TestBrowseAgentDetailTagModeOmitsRefAndCommit(t *testing.T) {
+	const name = "reviewer"
+	labels := map[string]string{labelPublic: "true"}
+	object := opendepotv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: browseAgentTestNamespace, Labels: labels},
+		Spec:       opendepotv1alpha1.SkillSpec{AgentSourceConfig: opendepotv1alpha1.AgentSourceConfig{RepoOwner: "acme"}},
+	}
+
+	api := browseAgentTestServer(t, "skill", name, labels, object, []opendepotv1alpha1.Version{browseAgentTestVersion("skill", name)}, nil)
+	browseAgentTestSetup(t, api, false, false)
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/skill/"+name, nil)
+	response := httptest.NewRecorder()
+	browseAgentTestRouter().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var detail BrowseResourceDetail
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal detail: %v", err)
+	}
+
+	if detail.SourceRef != "" || detail.SourceCommit != "" {
+		t.Fatalf("SourceRef = %q, SourceCommit = %q; want empty for tag mode", detail.SourceRef, detail.SourceCommit)
+	}
+
+	if detail.DefinitionContent != nil || detail.DefinitionFileName != "" {
+		t.Fatalf("definition = %v / %q; want empty without a DefinitionConfigMapRef", detail.DefinitionContent, detail.DefinitionFileName)
+	}
+}
+
+func Test_agentRepoURL(t *testing.T) {
+	ptr := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		cfg  opendepotv1alpha1.AgentSourceConfig
+		want string
+	}{
+		{name: "github repo url is used as is", cfg: opendepotv1alpha1.AgentSourceConfig{RepoOwner: "other", RepoUrl: ptr("https://github.com/acme/skills/")}, want: "https://github.com/acme/skills"},
+		{name: "subpath url is rebuilt from owner and repo name", cfg: opendepotv1alpha1.AgentSourceConfig{RepoOwner: "acme", RepoUrl: ptr("https://github.com/acme/mono/tree/main")}, want: "https://github.com/acme/main"},
+		{name: "non github url is rebuilt from owner and repo name", cfg: opendepotv1alpha1.AgentSourceConfig{RepoOwner: "acme", RepoUrl: ptr("https://gitlab.com/acme/skills.git")}, want: "https://github.com/acme/skills.git"},
+		{name: "missing repo url falls back to source name", cfg: opendepotv1alpha1.AgentSourceConfig{RepoOwner: "acme", Name: ptr("reviewer")}, want: "https://github.com/acme/reviewer"},
+		{name: "missing owner yields empty url", cfg: opendepotv1alpha1.AgentSourceConfig{Name: ptr("reviewer")}, want: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := agentRepoURL(tc.cfg); got != tc.want {
+				t.Fatalf("agentRepoURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBrowseResourcesUnfilteredIncludesAllKinds(t *testing.T) {
+	publicLabels := map[string]string{labelPublic: "true"}
+	listItem := func(name string) map[string]any {
+		return map[string]any{"metadata": map[string]any{"name": name, "namespace": browseAgentTestNamespace, "labels": publicLabels}, "spec": map[string]any{}, "status": map[string]any{}}
+	}
+
+	lists := map[string][]map[string]any{
+		"/apis/opendepot.defdev.io/v1alpha1/modules":                                              {listItem("a-module")},
+		"/apis/opendepot.defdev.io/v1alpha1/providers":                                            {listItem("b-provider")},
+		"/apis/opendepot.defdev.io/v1alpha1/skills":                                               {listItem("c-skill")},
+		"/apis/opendepot.defdev.io/v1alpha1/agents":                                               {listItem("d-agent")},
+		"/apis/opendepot.defdev.io/v1alpha1/namespaces/" + browseAgentTestNamespace + "/versions": nil,
+		"/apis/opendepot.defdev.io/v1alpha1/groupbindings":                                        nil,
+	}
+
+	namespacePayload, err := json.Marshal(map[string]any{"items": []map[string]any{{"metadata": map[string]any{"name": browseAgentTestNamespace, "labels": publicLabels}}}})
+	if err != nil {
+		t.Fatalf("marshal namespaces: %v", err)
+	}
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/namespaces" {
+			_, _ = w.Write(namespacePayload)
+			return
+		}
+
+		items, ok := lists[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		payload, err := json.Marshal(map[string]any{"items": items})
+		if err != nil {
+			t.Errorf("marshal list: %v", err)
+		}
+
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(api.Close)
+	browseAgentTestSetup(t, api, false, false)
+
+	cases := []struct {
+		query     string
+		wantNames []string
+		wantTotal int
+	}{
+		{query: "", wantNames: []string{"a-module", "b-provider", "c-skill", "d-agent"}, wantTotal: 4},
+		{query: "page=2&page_size=2", wantNames: []string{"c-skill", "d-agent"}, wantTotal: 4},
+		{query: "kind=skill", wantNames: []string{"c-skill"}, wantTotal: 1},
+		{query: "kind=agent", wantNames: []string{"d-agent"}, wantTotal: 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.query, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources?"+tc.query, nil)
+			response := httptest.NewRecorder()
+			browseAgentTestListRouter().ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+			}
+
+			var list BrowseResourceList
+			if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+				t.Fatalf("unmarshal list: %v", err)
+			}
+
+			if list.TotalCount != tc.wantTotal {
+				t.Fatalf("TotalCount = %d, want %d", list.TotalCount, tc.wantTotal)
+			}
+
+			var gotNames []string
+			for _, item := range list.Items {
+				gotNames = append(gotNames, item.Name)
+			}
+
+			if strings.Join(gotNames, ",") != strings.Join(tc.wantNames, ",") {
+				t.Fatalf("names = %v, want %v", gotNames, tc.wantNames)
+			}
+		})
+	}
+}
+
+func browseAgentTestListRouter() http.Handler {
+	router := chi.NewRouter()
+	router.Get("/opendepot/ui/v1/resources", handleBrowseResources)
+
+	return router
 }

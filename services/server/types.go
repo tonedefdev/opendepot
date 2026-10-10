@@ -155,6 +155,10 @@ type BrowseResource struct {
 	// Module-specific fields.
 	Provider string `json:"provider,omitempty"`
 	RepoURL  string `json:"repoUrl,omitempty"`
+	// Skill and Agent source fields. SourceRef is only set when the source tracks a branch.
+	SourceRef    string `json:"sourceRef,omitempty"`
+	SourceCommit string `json:"sourceCommit,omitempty"`
+	SourcePath   string `json:"sourcePath,omitempty"`
 	// Provider-specific fields.
 	ProviderNamespace string             `json:"providerNamespace,omitempty"`
 	UpstreamRegistry  string             `json:"upstreamRegistry,omitempty"`
@@ -212,6 +216,10 @@ type BrowseVersionSummary struct {
 	SchemaMessage string `json:"schemaMessage,omitempty"`
 	// SchemaAttemptedAt is the RFC3339 timestamp of the most recent extraction attempt.
 	SchemaAttemptedAt string `json:"schemaAttemptedAt,omitempty"`
+	// Commit is the full commit SHA downloaded for this branch Version.
+	Commit string `json:"commit,omitempty"`
+	// BranchPhase is the lifecycle phase of this branch Version. Only set for branch Versions.
+	BranchPhase string `json:"branchPhase,omitempty"`
 }
 
 // BrowseVersionList is the paginated response for the version listing endpoint.
@@ -285,6 +293,10 @@ type BrowseResourceDetail struct {
 	// ReadmeContent is the decoded (plain markdown) README.md content for the module's
 	// latest version, if one could be resolved. Only populated for module resources.
 	ReadmeContent *string `json:"readmeContent,omitempty"`
+	// DefinitionContent is the decoded definition file of the latest Version. Only populated for skill and agent resources.
+	DefinitionContent *string `json:"definitionContent,omitempty"`
+	// DefinitionFileName is the file name of the definition, such as SKILL.md or AGENT.md.
+	DefinitionFileName string `json:"definitionFileName,omitempty"`
 	// AgentMetadata is the frontmatter of the latest Version. Only populated for skill and agent resources.
 	AgentMetadata *opendepotv1alpha1.AgentMetadata `json:"agentMetadata,omitempty"`
 	// JevAssessment is the TypeSafe Jev assessment of the latest Version, when Jev ran for it.
