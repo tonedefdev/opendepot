@@ -17,14 +17,12 @@ import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
 import ProviderLogo from "./ProviderLogo";
+import SourceRefChip from "./SourceRefChip";
 import type { BrowseResource } from "@/lib/api";
+import { kindColor } from "@/lib/kindColors";
 
-// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
-// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
-// secondary palette between light and dark mode, otherwise "provider" and
-// "module" chips would trade colors depending on the active scheme.
-const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#047df1";
+// Resource-kind hues are fixed brand colors from kindColors, so they must NOT
+// swap with the primary/secondary palette between light and dark mode.
 
 interface Props {
   resource: BrowseResource;
@@ -37,6 +35,8 @@ function displayVersion(v: string): string {
 
 export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
+  const accent = kindColor(resource.kind);
+  const isAgentKind = resource.kind === "skill" || resource.kind === "agent";
   const nameRef = React.useRef<HTMLDivElement>(null);
   const [nameTruncated, setNameTruncated] = React.useState(false);
 
@@ -60,6 +60,13 @@ export default function ResourceCard({ resource }: Props) {
                 ...theme.applyStyles("light", {
                   boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.08)",
                 }),
+              },
+            }
+          : {}),
+        ...(isAgentKind
+          ? {
+              "&:hover": {
+                borderColor: `color-mix(in srgb, ${accent} 50%, transparent)`,
               },
             }
           : {}),
@@ -109,11 +116,11 @@ export default function ResourceCard({ resource }: Props) {
               variant="outlined"
               sx={(theme) => ({
                 textTransform: "capitalize",
-                color: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
-                borderColor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                color: accent,
+                borderColor: accent,
                 ...theme.applyStyles("light", {
                   color: "#fff",
-                  bgcolor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
+                  bgcolor: accent,
                 }),
               })}
             />
@@ -153,6 +160,17 @@ export default function ResourceCard({ resource }: Props) {
           )}
         </CardContent>
       </CardActionArea>
+
+      {resource.sourceRef && (
+        <Box px={2} pb={1.5}>
+          <SourceRefChip
+            sourceRef={resource.sourceRef}
+            sourceCommit={resource.sourceCommit}
+            sourcePath={resource.sourcePath}
+            repoUrl={resource.repoUrl}
+          />
+        </Box>
+      )}
     </Card>
   );
 }
