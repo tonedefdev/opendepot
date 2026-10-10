@@ -573,43 +573,6 @@ func newAssignFixture(t *testing.T, jevEnabled bool) (*VersionReconciler, *opend
 	return reconciler, version
 }
 
-func TestAssignBranchVersionHoldsWithoutJevRefWhenJevEnabled(t *testing.T) {
-	reconciler, version := newAssignFixture(t, true)
-	ctx := context.Background()
-	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
-
-	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, ctrl.Request{NamespacedName: key}, version, nil, nil)
-	if err != nil {
-		t.Fatalf("assignBranchVersion returned error: %v", err)
-	}
-
-	if assessment != nil {
-		t.Fatalf("assessment = %+v; want nil so no PATCH bump is applied", assessment)
-	}
-
-	if requeueAfter != bumpBaseBackoff {
-		t.Fatalf("requeueAfter = %v; want %v", requeueAfter, bumpBaseBackoff)
-	}
-
-	stored := &opendepotv1alpha1.Version{}
-	if err := reconciler.Get(ctx, key, stored); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-
-	if stored.Spec.Version != "" {
-		t.Fatalf("Spec.Version = %q; want unassigned", stored.Spec.Version)
-	}
-
-	if stored.Status.BranchPhase != branchPhaseHeld {
-		t.Fatalf("BranchPhase = %q; want %q", stored.Status.BranchPhase, branchPhaseHeld)
-	}
-
-	held := stored.Status.BumpAssessment
-	if held == nil || held.Error != jevRefRequiredError || held.Category != "" || held.Source != "" {
-		t.Fatalf("BumpAssessment = %+v; want held with error %q and no category", held, jevRefRequiredError)
-	}
-}
-
 func TestAssignBranchVersionPatchesWithoutJevRefWhenJevDisabled(t *testing.T) {
 	reconciler, version := newAssignFixture(t, false)
 	ctx := context.Background()
@@ -673,5 +636,58 @@ func TestReconcileHoldsBranchVersionWithoutJevRef(t *testing.T) {
 	held := stored.Status.BumpAssessment
 	if held == nil || held.Error != jevRefRequiredError || held.Category != "" || held.Source != "" {
 		t.Fatalf("BumpAssessment = %+v; want held with error %q and no category", held, jevRefRequiredError)
+	}
+}
+
+func TestReconcileBumpOverrideReleasesJevRefHold(t *testing.T) {
+	reconciler, version := newAssignFixture(t, true)
+	reconciler.BranchSourcingEnabled = true
+	ctx := context.Background()
+	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
+	req := ctrl.Request{NamespacedName: key}
+
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile adding finalizer returned error: %v", err)
+	}
+
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	if result.RequeueAfter != bumpBaseBackoff {
+		t.Fatalf("RequeueAfter = %v; want %v", result.RequeueAfter, bumpBaseBackoff)
+	}
+
+	stored := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	if stored.Status.BranchPhase != branchPhaseHeld {
+		t.Fatalf("BranchPhase = %q; want %q without override", stored.Status.BranchPhase, branchPhaseHeld)
+	}
+
+	stored.Annotations = map[string]string{bumpOverrideAnnotation: "minor"}
+	if err := reconciler.Update(ctx, stored); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	done, _, err := reconciler.reconcileBranchPreflight(ctx, req, stored)
+	if err != nil {
+		t.Fatalf("reconcileBranchPreflight returned error: %v", err)
+	}
+
+	if done {
+		t.Fatalf("reconcileBranchPreflight done = true; want false so the override is applied")
+	}
+
+	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, req, stored, nil, nil)
+	if err != nil {
+		t.Fatalf("assignBranchVersion returned error: %v", err)
+	}
+
+	if requeueAfter != 0 || assessment == nil || assessment.Source != "Manual" || assessment.Category != "Minor" {
+		t.Fatalf("assessment = %+v, requeueAfter = %v; want Manual Minor", assessment, requeueAfter)
 	}
 }
