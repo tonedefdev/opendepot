@@ -165,6 +165,10 @@ var _ = BeforeSuite(func() {
 	cmd = exec.Command("kubectl", "create", "namespace", namespace)
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
+	By("storing the GitHub App credentials in the GitHub application Secret")
+	err = utils.EnsureGitHubAppSecret(namespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GitHub App Secret")
+
 	By("upgrading Helm release to deploy depot controller with local image")
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())

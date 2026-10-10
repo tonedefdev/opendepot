@@ -100,6 +100,8 @@ metadata:
 spec:
   moduleConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       provider: %s
       repoOwner: terraform-aws-modules
       versionConstraints: "= %s"
@@ -109,6 +111,8 @@ spec:
           directoryPath: %s
   providerConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       operatingSystems:
         - linux
       architectures:
@@ -119,6 +123,8 @@ spec:
           directoryPath: %s
   skillConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       repoOwner: %s
       repoUrl: %s
       path: %s
@@ -129,6 +135,8 @@ spec:
           directoryPath: %s
   agentConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       repoOwner: %s
       repoUrl: %s
       path: %s
@@ -340,6 +348,8 @@ metadata:
 spec:
   skillConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       repoOwner: github
       repoUrl: %s
       path: %s
@@ -382,6 +392,8 @@ metadata:
 spec:
   skillConfigs:
     - name: %s
+      githubClientConfig:
+        useAuthenticatedClient: true
       repoOwner: github
       repoUrl: %s
       path: %s
