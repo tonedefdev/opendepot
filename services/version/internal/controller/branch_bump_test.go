@@ -639,7 +639,7 @@ func TestReconcileHoldsBranchVersionWithoutJevRef(t *testing.T) {
 	}
 }
 
-func TestReconcileBumpOverrideReleasesJevRefHold(t *testing.T) {
+func TestReconcileBumpOverrideDoesNotReleaseJevRefHold(t *testing.T) {
 	reconciler, version := newAssignFixture(t, true)
 	reconciler.BranchSourcingEnabled = true
 	ctx := context.Background()
@@ -650,13 +650,8 @@ func TestReconcileBumpOverrideReleasesJevRefHold(t *testing.T) {
 		t.Fatalf("Reconcile adding finalizer returned error: %v", err)
 	}
 
-	result, err := reconciler.Reconcile(ctx, req)
-	if err != nil {
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)
-	}
-
-	if result.RequeueAfter != bumpBaseBackoff {
-		t.Fatalf("RequeueAfter = %v; want %v", result.RequeueAfter, bumpBaseBackoff)
 	}
 
 	stored := &opendepotv1alpha1.Version{}
@@ -664,30 +659,34 @@ func TestReconcileBumpOverrideReleasesJevRefHold(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 
-	if stored.Status.BranchPhase != branchPhaseHeld {
-		t.Fatalf("BranchPhase = %q; want %q without override", stored.Status.BranchPhase, branchPhaseHeld)
-	}
-
 	stored.Annotations = map[string]string{bumpOverrideAnnotation: "minor"}
 	if err := reconciler.Update(ctx, stored); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	done, _, err := reconciler.reconcileBranchPreflight(ctx, req, stored)
+	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
-		t.Fatalf("reconcileBranchPreflight returned error: %v", err)
+		t.Fatalf("Reconcile with override returned error: %v", err)
 	}
 
-	if done {
-		t.Fatalf("reconcileBranchPreflight done = true; want false so the override is applied")
+	if result.RequeueAfter <= 0 {
+		t.Fatalf("RequeueAfter = %v; want a held requeue", result.RequeueAfter)
 	}
 
-	assessment, requeueAfter, err := reconciler.assignBranchVersion(ctx, req, stored, nil, nil)
-	if err != nil {
-		t.Fatalf("assignBranchVersion returned error: %v", err)
+	if err := reconciler.Get(ctx, key, stored); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
 
-	if requeueAfter != 0 || assessment == nil || assessment.Source != "Manual" || assessment.Category != "Minor" {
-		t.Fatalf("assessment = %+v, requeueAfter = %v; want Manual Minor", assessment, requeueAfter)
+	if stored.Spec.Version != "" || stored.Status.Synced {
+		t.Fatalf("Spec.Version = %q, Synced = %t; want unassigned and unsynced", stored.Spec.Version, stored.Status.Synced)
+	}
+
+	if stored.Status.BranchPhase != branchPhaseHeld {
+		t.Fatalf("BranchPhase = %q; want %q", stored.Status.BranchPhase, branchPhaseHeld)
+	}
+
+	held := stored.Status.BumpAssessment
+	if held == nil || held.Error != jevRefRequiredError {
+		t.Fatalf("BumpAssessment = %+v; want held with error %q", held, jevRefRequiredError)
 	}
 }

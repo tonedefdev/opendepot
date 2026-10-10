@@ -245,7 +245,7 @@ When Jev is not used for a bump, the result is PATCH with source `Default`:
 
 When Jev is enabled and a call fails, the Version is Held and is not silently published as PATCH. The version controller retries with a capped backoff of 1, 2, 4, 8, and then 15 minutes.
 
-Set the `opendepot.defdev.io/bump-override` annotation on a Version to `major`, `minor`, or `patch` to override the bump size. The override is recorded with source `Manual`. It is honored only while the Version is Pending or Held. It sets the bump size only and does not decide whether the Version is published.
+Set the `opendepot.defdev.io/bump-override` annotation on a Version to `major`, `minor`, or `patch` to override the bump size. The override is recorded with source `Manual`. It is honored only while the Version is Pending or Held. It sets the bump size only and does not decide whether the Version is published. It does not release a hold caused by a missing `jevSecretRef`; set `jevSecretRef` on the source to publish.
 
 ## Data handling
 
