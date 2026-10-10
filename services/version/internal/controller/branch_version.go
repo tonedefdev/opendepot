@@ -308,9 +308,6 @@ func (r *VersionReconciler) assignBranchVersion(
 		assessment.PreviousCommit = previous.Spec.SourceCommit
 		assessment.PreviousVersion = previous.Spec.Version
 		switch {
-		case r.branchJevRefMissing(version):
-			requeueAfter, holdErr := r.holdBranchBump(ctx, req, version, assessment, errors.New(jevRefRequiredError))
-			return nil, requeueAfter, holdErr
 		case category != "":
 			assessment.Source = "Manual"
 			assessment.Reason = fmt.Sprintf("Operator set %s to %s", bumpOverrideAnnotation, strings.ToLower(category))
