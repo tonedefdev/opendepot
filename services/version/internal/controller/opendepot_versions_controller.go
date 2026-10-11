@@ -736,7 +736,12 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		signed, signErr := signAgentArchive(fileBytes, filepath.Base(*storedPath))
+		var prior *signedAgentArchive
+		if version.Status.ShaSums != "" && version.Status.ShaSumsSignature != "" {
+			prior = &signedAgentArchive{sums: version.Status.ShaSums, signature: version.Status.ShaSumsSignature, fingerprint: version.Status.SigningKeyFingerprint}
+		}
+
+		signed, signErr := signAgentArchive(fileBytes, filepath.Base(*storedPath), prior)
 		if signErr != nil {
 			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("SigningUnavailable: %v", signErr)); err != nil {
 				r.Log.Error(err, "Failed to persist signing unavailable status", "version", version.Name)
@@ -1469,8 +1474,17 @@ func (r *VersionReconciler) fetchAgentArchiveFiles(ctx context.Context, version 
 	// Cleaning the path relative to a rooted path prevents traversal outside of the repository.
 	agentDir := filepath.Join(rootDir, filepath.Clean("/"+sourceRef.Path))
 	info, err := os.Stat(agentDir)
-	if err != nil || !info.IsDir() {
+	isAgentFile := err == nil && info.Mode().IsRegular() && version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
+	if err != nil || (!info.IsDir() && !isAgentFile) {
 		return nil, nil, nil, nil, "", fmt.Errorf("path '%s' is not a directory in repository '%s'", sourceRef.Path, repoName)
+	}
+
+	// An Agent path may name a single definition file. It is moved into its own directory so that the archive,
+	// entry lookup, and Jev bundle hold only that file.
+	if isAgentFile {
+		if agentDir, err = stageAgentFile(tmpDir, agentDir); err != nil {
+			return nil, nil, nil, nil, "", err
+		}
 	}
 
 	entryPath := filepath.Join(agentDir, "SKILL.md")
@@ -1525,6 +1539,20 @@ func (r *VersionReconciler) fetchAgentArchiveFiles(ctx context.Context, version 
 	}
 
 	return packed.Bytes(), &checksum, metadata, definition, filepath.Base(entryPath), nil
+}
+
+// stageAgentFile moves a single agent definition file into its own directory under tmpDir and returns that directory.
+func stageAgentFile(tmpDir, filePath string) (string, error) {
+	stageDir := filepath.Join(tmpDir, "agent-file")
+	if err := os.Mkdir(stageDir, 0o700); err != nil {
+		return "", err
+	}
+
+	if err := os.Rename(filePath, filepath.Join(stageDir, filepath.Base(filePath))); err != nil {
+		return "", err
+	}
+
+	return stageDir, nil
 }
 
 // fetchModuleArchive downloads module source from GitHub and returns bytes with a checksum.

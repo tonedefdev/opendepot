@@ -171,7 +171,7 @@ func TestRunAgentScanFlagsScriptPastFirstMiB(t *testing.T) {
 func TestSignAgentArchiveRequiresKey(t *testing.T) {
 	t.Setenv(agentSigningKeyEnv, "")
 
-	_, err := signAgentArchive([]byte("archive"), "agent.tar.gz")
+	_, err := signAgentArchive([]byte("archive"), "agent.tar.gz", nil)
 	if err == nil {
 		t.Fatal("expected an error when the signing key is not configured")
 	}

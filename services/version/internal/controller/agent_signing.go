@@ -42,8 +42,9 @@ type signedAgentArchive struct {
 }
 
 // signAgentArchive builds SHA256SUMS for the stored archive and signs it with the configured GPG key.
-// It is the last gate before a Skill or Agent Version is published.
-func signAgentArchive(archiveBytes []byte, fileName string) (*signedAgentArchive, error) {
+// It is the last gate before a Skill or Agent Version is published. A prior signature for identical sums
+// signed by the same key is returned unchanged, so re-syncing an unchanged archive keeps its signature.
+func signAgentArchive(archiveBytes []byte, fileName string, prior *signedAgentArchive) (*signedAgentArchive, error) {
 	keyBase64 := strings.TrimSpace(os.Getenv(agentSigningKeyEnv))
 	if keyBase64 == "" {
 		return nil, errAgentSigningKeyNotConfigured
@@ -60,6 +61,10 @@ func signAgentArchive(archiveBytes []byte, fileName string) (*signedAgentArchive
 	}
 
 	sums := fmt.Sprintf("%s  %s\n", archive.SHA256Hex(archiveBytes), fileName)
+	if prior != nil && prior.sums == sums && prior.fingerprint == signer.Fingerprint() {
+		return prior, nil
+	}
+
 	signature, fingerprint, err := signer.SignSHA256SUMSArmored([]byte(sums))
 	if err != nil {
 		return nil, err
