@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -58,10 +59,33 @@ func (a *app) printAssessment(s *stagedEntry) {
 	fmt.Fprintln(a.out)
 	fmt.Fprintln(a.out, st.paint(ansiBold, fmt.Sprintf("◆ %s@%s", s.source, s.version)))
 	fmt.Fprintln(a.out, st.paint(ansiDim, "  TypeSafe Jev assessment · advisory scores, not written to the lock"))
-	fmt.Fprintf(a.out, "  %-12s %s  %s\n", "Risk", st.paint(riskLevelColor(as.RiskLevel), riskLabel), st.paint(ansiDim, "(score "+formatJevValue(as.RiskScore, "%.1f")+")"))
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Safe", probabilityLine(st, as.SafeProbability, true))
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Injection", probabilityLine(st, as.InjectionProbability, false))
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Exfiltration", probabilityLine(st, as.ExfiltrationProbability, false))
+	riskColor := riskLevelColor(as.RiskLevel)
+	if as.RiskLevel == "" {
+		riskColor = ansiDim
+	}
+
+	riskCell := metricCell{label: "Risk", value: riskLabel, color: riskColor}
+	if as.RiskScore != nil {
+		riskCell.value += " (" + formatJevValue(as.RiskScore, "%.1f") + ")"
+	}
+
+	left := []metricCell{
+		riskCell,
+		probabilityCell("Safe", as.SafeProbability, true),
+		probabilityCell("Injection", as.InjectionProbability, false),
+		probabilityCell("Exfiltration", as.ExfiltrationProbability, false),
+	}
+	right := []metricCell{
+		probabilityCell("Destructive actions", as.DestructiveProbability, false),
+		probabilityCell("Hidden instructions", as.HiddenInstructionsProbability, false),
+		probabilityCell("Scope mismatch", as.ScopeMismatchProbability, false),
+		probabilityCell("Remote execution", as.RemoteExecutionProbability, false),
+	}
+	for i := range len(left) {
+		row := fmt.Sprintf("  %s   %s", metricCellText(st, left[i]), metricCellText(st, right[i]))
+		fmt.Fprintln(a.out, strings.TrimRight(row, " "))
+	}
+
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Review", reviewLine(st, as.NeedsReview))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Blocked", blockedLine(st, as))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Tokens", tokensLine(st, as.InputTokens))
@@ -130,14 +154,32 @@ func riskLevelColor(level string) string {
 	}
 }
 
-// probabilityLine renders a probability as a bar and value. higherIsBetter flips the color so that
+// metricCell is one entry in the assessment grid. The value is kept plain so its width can be measured
+// before color codes are added.
+type metricCell struct {
+	label string
+	value string
+	color string
+}
+
+const (
+	metricLabelWidth = 19
+	metricValueWidth = 16
+)
+
+// probabilityCell renders a probability as a bar and value. higherIsBetter flips the color so that
 // a high "safe" probability is green while high injection or exfiltration probabilities are red.
-func probabilityLine(st styler, v *float64, higherIsBetter bool) string {
+func probabilityCell(label string, v *float64, higherIsBetter bool) metricCell {
 	if v == nil {
-		return st.paint(ansiDim, "n/a")
+		return metricCell{label: label, value: "n/a", color: ansiDim}
 	}
 
-	return st.paint(probabilityColor(*v, higherIsBetter), probabilityBar(*v)) + " " + fmt.Sprintf("%.2f", *v)
+	return metricCell{label: label, value: probabilityBar(*v) + " " + fmt.Sprintf("%.2f", *v), color: probabilityColor(*v, higherIsBetter)}
+}
+
+func metricCellText(st styler, c metricCell) string {
+	pad := max(metricValueWidth-utf8.RuneCountInString(c.value), 0)
+	return fmt.Sprintf("%-*s %s%s", metricLabelWidth, c.label, st.paint(c.color, c.value), strings.Repeat(" ", pad))
 }
 
 func probabilityColor(v float64, higherIsBetter bool) string {
