@@ -203,7 +203,7 @@ describe("JevPanel input cost", () => {
     fireEvent.mouseOver(screen.getByText(/^Cost:/));
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toContain("1,234,567 in total, at $0.042 per million input tokens");
-    expect(tooltip.textContent).toContain("Output tokens are not included");
+    expect(tooltip.textContent).toContain("Jev does not charge for output tokens");
   });
 });
 
