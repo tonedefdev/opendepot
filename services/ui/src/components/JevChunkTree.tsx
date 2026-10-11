@@ -33,6 +33,9 @@ type TreeView = "files" | "chunks";
 
 const TOGGLE_ICON_SX = { fontSize: "1rem", mr: 0.75, verticalAlign: "text-bottom" };
 
+// One level of nesting is a chevron (20px) plus the row gap (8px), so a child's chevron sits under its parent's name.
+const TREE_INDENT = 3.5;
+
 const SKIP_REASON_TEXT: Record<JevSkipReason, string> = {
   Withheld: "Withheld by scan",
   Binary: "Binary, not read",
@@ -143,7 +146,7 @@ function DirectoryRow({ dir, depth }: { dir: JevTreeDirectory; depth: number }) 
         aria-expanded={open}
         aria-controls={childrenId}
         onClick={() => setOpen((value) => !value)}
-        sx={{ pl: 1 + depth * 2, gap: 1, flexWrap: "wrap" }}
+        sx={{ pl: 1 + depth * TREE_INDENT, gap: 1, flexWrap: "wrap" }}
       >
         <ExpandMoreIcon
           fontSize="small"
@@ -171,7 +174,7 @@ function DirectoryRow({ dir, depth }: { dir: JevTreeDirectory; depth: number }) 
 
 function FileRow({ file, depth }: { file: JevTreeFile; depth: number }) {
   return (
-    <ListItem dense sx={{ pl: 1 + depth * 2 + 3, gap: 1, flexWrap: "wrap" }}>
+    <ListItem dense sx={{ pl: 1 + depth * TREE_INDENT, gap: 1, flexWrap: "wrap" }}>
       <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
         {file.name}
       </Typography>
