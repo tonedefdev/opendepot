@@ -1,6 +1,7 @@
 package agentspec
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,5 +114,23 @@ func TestParseSkillNamedUsesExplicitName(t *testing.T) {
 
 	if _, err := ParseSkillNamed("/tmp/opendepot-agentscan-123/SKILL.md", content, "other-skill"); err == nil {
 		t.Fatal("ParseSkillNamed() expected an error when the name does not match the explicit name")
+	}
+}
+
+func TestParseAgentForReaderMatchesParseAgentFor(t *testing.T) {
+	entry := []byte("---\nname: reviewer\ndescription: Reviews code\n---\n\nYou review code.\n")
+
+	want, err := ParseAgentFor("agents/reviewer/AGENT.md", entry, "")
+	if err != nil {
+		t.Fatalf("ParseAgentFor error: %v", err)
+	}
+
+	got, err := ParseAgentForReader("agents/reviewer/AGENT.md", bytes.NewReader(entry), "")
+	if err != nil {
+		t.Fatalf("ParseAgentForReader error: %v", err)
+	}
+
+	if got.Body != want.Body || got.Name != want.Name {
+		t.Errorf("reader parse = %+v, want %+v", got, want)
 	}
 }

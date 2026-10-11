@@ -55,6 +55,9 @@ const jevChunkListLimit = 32
 // jevChunkPathLimit is the byte limit for a path in a status field.
 const jevChunkPathLimit = 256
 
+// jevChunkErrorLimit is the byte limit for the error of a part in a status field.
+const jevChunkErrorLimit = 512
+
 // jevChunkNameLimit is the byte limit for the Jev name in a preamble.
 const jevChunkNameLimit = 256
 
