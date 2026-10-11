@@ -89,7 +89,53 @@ describe("JevPanel", () => {
   it("renders a blocked banner with its reasons", () => {
     renderPanel({ assessment: { ...assessment, blocked: true, blockReasons: ["injection above limit"] } });
 
-    expect(screen.getByText(/Blocked by Jev policy: injection above limit/)).not.toBeNull();
+    expect(screen.getByText(/Blocked by Jev: injection above limit/)).not.toBeNull();
+    expect(screen.queryByText(/Blocked by Jev policy/)).toBeNull();
+  });
+
+  it("shows the over-ceiling alert when content needed more than 16 parts and none were sent", () => {
+    renderPanel({
+      assessment: { ...assessment, blocked: true, chunkCount: 23, chunks: [], skippedFiles: [] },
+    });
+
+    expect(
+      screen.getByText("Content needs at least 23 parts; the limit is 16; no Jev calls were made"),
+    ).not.toBeNull();
+  });
+
+  it("does not show the over-ceiling alert within the limit or when parts were sent", () => {
+    renderPanel({ assessment: { ...assessment, chunkCount: 16, chunks: [] } });
+    expect(screen.queryByText(/no Jev calls were made/)).toBeNull();
+
+    cleanup();
+    renderPanel({
+      assessment: {
+        ...assessment,
+        chunkCount: 17,
+        chunks: [{ index: 1, label: "1", fileCount: 0, status: "Scored" }],
+      },
+    });
+    expect(screen.queryByText(/no Jev calls were made/)).toBeNull();
+  });
+
+  it("renders the assessed-content tree below the bars", () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        chunkCount: 1,
+        chunks: [{ index: 1, label: "1", files: ["SKILL.md"], fileCount: 1, status: "Scored", riskLevel: "Low" }],
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Files" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Chunks" })).not.toBeNull();
+  });
+
+  it("renders no tree for a legacy assessment", () => {
+    renderPanel({ assessment });
+
+    expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Chunks" })).toBeNull();
   });
 
   it("gives every probability an info button and shows what it assesses on hover", async () => {
@@ -112,6 +158,15 @@ describe("JevPanel", () => {
     fireEvent.mouseOver(screen.getByText(/^Confidence:/));
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toContain("How certain the model is about the risk level");
+    expect(tooltip.textContent).toContain("When the policy sets minConfidence, a part below it blocks the version");
+  });
+
+  it("says that low confidence blocks the version when the review flag is shown", async () => {
+    renderPanel({ assessment: { ...assessment, needsReview: true } });
+
+    fireEvent.mouseOver(screen.getByText("Needs review"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("confidence falls below the policy's minConfidence, and that low confidence also blocks the version");
   });
 });
 

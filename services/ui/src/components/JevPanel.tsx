@@ -8,12 +8,16 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { JevAssessment, JevThresholds } from "@/lib/api";
-import { probabilitySeverity } from "@/lib/jevSeverity";
+import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
+import JevChunkTree from "./JevChunkTree";
 
 interface JevPanelProps {
   assessment: JevAssessment;
   thresholds?: JevThresholds;
 }
+
+// JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
+const JEV_MAX_PARTS = 16;
 
 interface ProbabilityRow {
   label: string;
@@ -23,14 +27,6 @@ interface ProbabilityRow {
   direction: "max" | "min";
   limit?: number;
 }
-
-const RISK_COLORS: Record<string, "success" | "info" | "warning" | "error"> = {
-  Minimal: "success",
-  Low: "success",
-  Moderate: "warning",
-  High: "error",
-  Critical: "error",
-};
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -141,9 +137,15 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
 
       {assessment.error && <Alert severity="error">Assessment error: {assessment.error}</Alert>}
 
+      {assessment.chunkCount !== undefined && assessment.chunkCount > JEV_MAX_PARTS && (assessment.chunks ?? []).length === 0 && (
+        <Alert severity="error">
+          {`Content needs at least ${assessment.chunkCount} parts; the limit is ${JEV_MAX_PARTS}; no Jev calls were made`}
+        </Alert>
+      )}
+
       {assessment.blocked && (
         <Alert severity="error">
-          Blocked by Jev policy
+          Blocked by Jev
           {assessment.blockReasons && assessment.blockReasons.length > 0 && `: ${assessment.blockReasons.join("; ")}`}
         </Alert>
       )}
@@ -170,7 +172,7 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
         {assessment.riskConfidence !== undefined && (
           <InfoChip
             label={`Confidence: ${formatPercent(assessment.riskConfidence)}`}
-            description="How certain the model is about the risk level, from 0% to 100%. Lower confidence means the rating is less reliable. It turns red when it falls below the policy's minConfidence, which marks the version for review."
+            description="How certain the model is about the risk level, from 0% to 100%. Lower confidence means the rating is less reliable. When the policy sets minConfidence, a part below it blocks the version and marks it for review. It turns red when it falls below that limit."
             size="small"
             variant="outlined"
             color={confidenceLimit !== undefined && assessment.riskConfidence < confidenceLimit ? "error" : "default"}
@@ -179,7 +181,7 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
         {assessment.needsReview && (
           <InfoChip
             label="Needs review"
-            description="A person should check this version before relying on it. It is set when confidence falls below the policy's minConfidence. It does not block the version on its own."
+            description="A person should check this version before relying on it. It is set when confidence falls below the policy's minConfidence, and that low confidence also blocks the version. Without minConfidence, confidence does not block."
             size="small"
             color="warning"
           />
@@ -221,6 +223,8 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
           );
         })}
       </Box>
+
+      <JevChunkTree assessment={assessment} />
 
       {assessment.blockReasons && assessment.blockReasons.length > 0 && !assessment.blocked && (
         <Typography variant="caption" color="text.secondary">
