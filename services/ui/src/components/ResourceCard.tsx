@@ -131,6 +131,15 @@ export default function ResourceCard({ resource }: Props) {
                 sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
               />
             )}
+            {resource.sourceRef && (
+              <SourceRefChip
+                sourceRef={resource.sourceRef}
+                sourceCommit={resource.sourceCommit}
+                sourcePath={resource.sourcePath}
+                repoUrl={resource.repoUrl}
+                linked={false}
+              />
+            )}
           </Box>
 
           {/* Sync status */}
@@ -160,17 +169,6 @@ export default function ResourceCard({ resource }: Props) {
           )}
         </CardContent>
       </CardActionArea>
-
-      {resource.sourceRef && (
-        <Box px={2} pb={1.5}>
-          <SourceRefChip
-            sourceRef={resource.sourceRef}
-            sourceCommit={resource.sourceCommit}
-            sourcePath={resource.sourcePath}
-            repoUrl={resource.repoUrl}
-          />
-        </Box>
-      )}
     </Card>
   );
 }

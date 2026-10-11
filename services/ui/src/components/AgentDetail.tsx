@@ -8,10 +8,12 @@ import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
+import "prismjs/components/prism-yaml";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import CopyButton from "@/components/CopyButton";
+import { highlightedMarkdownComponents } from "@/components/HighlightedCodeBlock";
 import type { AgentMetadata } from "@/lib/api";
 
 // Lets prism-react-renderer use the full prismjs instance that has the HCL grammar registered.
@@ -29,11 +31,11 @@ export function AgentBody({ content }: AgentBodyProps) {
         overflow: "auto",
         "& h1, & h2, & h3": { fontWeight: 600, mt: 2, mb: 1 },
         "& p, & li": { fontSize: "0.9rem", lineHeight: 1.6 },
-        "& pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
+        "& pre.md-plain-pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
         "& code": { fontFamily: "monospace", fontSize: "0.8125rem" },
       }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={highlightedMarkdownComponents({ renderEmbeddedMarkdown: true })}>
         {content}
       </ReactMarkdown>
     </Box>
@@ -172,16 +174,42 @@ interface AgentDefinitionProps {
 
 export function AgentDefinition({ content, fileName }: AgentDefinitionProps) {
   const { frontmatter, body } = splitFrontmatter(content);
+  const { mode, systemMode } = useColorScheme();
+  const resolvedMode = mode === "system" ? systemMode : mode;
+  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {frontmatter !== null && (
-        <Box
-          component="pre"
-          aria-label={`${fileName} frontmatter`}
-          sx={{ m: 0, p: 1.5, borderRadius: 1, overflowX: "auto", fontFamily: "monospace", fontSize: "0.8125rem", bgcolor: "action.hover" }}
-        >
-          <code>{frontmatter}</code>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>
+            FRONTMATTER
+          </Typography>
+          <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={frontmatter} language={"yaml" as Language}>
+            {({ style, tokens, getLineProps, getTokenProps }) => (
+              <Box
+                component="pre"
+                aria-label={`${fileName} frontmatter`}
+                sx={{
+                  m: 0,
+                  p: 1.5,
+                  borderRadius: 1,
+                  overflowX: "auto",
+                  fontFamily: "monospace",
+                  fontSize: "0.8125rem",
+                  lineHeight: 1.6,
+                  ...style,
+                  ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
+                }}
+              >
+                {tokens.map((line, i) => (
+                  <div key={i} {...getLineProps({ line })}>
+                    {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
+                  </div>
+                ))}
+              </Box>
+            )}
+          </Highlight>
         </Box>
       )}
       <AgentBody content={body} />

@@ -48,4 +48,12 @@ describe("SourceRefChip", () => {
     expect(screen.getByText("0123456").tagName).toBe("SPAN");
     expect(screen.queryByRole("link")).toBeNull();
   });
+
+  it("renders plain text when linking is disabled", () => {
+    render(<SourceRefChip sourceRef="main" sourceCommit={commit} repoUrl={repoUrl} linked={false} />);
+
+    expect(screen.getByText("main").tagName).toBe("SPAN");
+    expect(screen.getByText("0123456").tagName).toBe("SPAN");
+    expect(screen.queryByRole("link")).toBeNull();
+  });
 });
