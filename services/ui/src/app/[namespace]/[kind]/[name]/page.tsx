@@ -359,11 +359,6 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       {/* Agent definition, metadata, Jev assessment, and config snippet */}
       {isAgentKind && detail.definitionContent && (
         <SectionCard icon={<DescriptionIcon fontSize="small" />} title={kind === "skill" ? "SKILL.md" : "AGENT.md"}>
-          {detail.definitionFileName && (
-            <Typography variant="caption" sx={{ display: "block", mb: 1.5, fontFamily: "monospace", color: "text.secondary" }}>
-              {detail.definitionFileName}
-            </Typography>
-          )}
           <AgentDefinition content={detail.definitionContent} fileName={detail.definitionFileName ?? ""} />
         </SectionCard>
       )}
