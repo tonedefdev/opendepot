@@ -707,6 +707,12 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			r.Log.Error(jevErr, "Jev assessment failed, retrying", "version", version.Name, "retryAfter", jevRetryRequeue)
 
+			if jevRetriesExhausted(jevAssessment, r.JevMaxRetries) {
+				r.Log.Info("Jev automatic retries exhausted, waiting for ForceSync or a spec change", "version", version.Name, "retryCount", jevAssessment.RetryCount)
+
+				return ctrl.Result{}, nil
+			}
+
 			return ctrl.Result{RequeueAfter: jevRetryRequeue}, nil
 		}
 

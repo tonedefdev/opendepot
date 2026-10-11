@@ -60,6 +60,12 @@ const jevPartDeadline = 5 * time.Minute
 // jevRetryRequeue is how long a Version waits before its failed Jev assessment is re-run (D11).
 const jevRetryRequeue = 15 * time.Second
 
+// jevRetriesExhausted reports whether a failed Jev assessment has used its automatic retries (D11).
+// A nil assessment or a 401/403 failure, which does not increment RetryCount, is never exhausted.
+func jevRetriesExhausted(assessment *opendepotv1alpha1.JevAssessment, maxRetries int) bool {
+	return assessment != nil && int(assessment.RetryCount) > maxRetries
+}
+
 // jevPartOutcome is the result of one part sent to Jev, or of one half of a part that was split after a token limit.
 type jevPartOutcome struct {
 	result  jevPartResult
