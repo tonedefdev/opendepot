@@ -152,7 +152,7 @@ The CRD enum rejects unsupported `platform` values at admission. If an unsupport
 
 ## Jev assessment
 
-Jev is the TypeSafe AI assessment. It is optional and off by default. The chart sets `scanning.jev.enabled: false`. When it is enabled, the `version` controller asks Jev a fixed set of questions about each Skill or Agent Version and records the answers in `status.jevAssessment`. Jev output is advisory. It never bypasses signature or hash checks. The CLI still verifies the `SHA256SUMS` signature and the hashes before it installs anything.
+Jev is the TypeSafe AI assessment. It is optional and off by default. The chart sets `scanning.jev.enabled: false`. When it is enabled, the `version` controller asks Jev a fixed set of questions about each Skill or Agent Version and records the answers in `status.jevAssessment`. Jev can block a Version. It never bypasses signature or hash checks. The CLI still verifies the `SHA256SUMS` signature and the hashes before it installs anything.
 
 ### Enabling Jev
 
@@ -164,6 +164,8 @@ Jev is the TypeSafe AI assessment. It is optional and off by default. The chart 
     ```
 
     The `scanning.jev.endpoint` value defaults to `https://api.typesafe.ai/v1/systemone`. Override it only if TypeSafe gives you a different endpoint. The endpoint must use `https://`. Plain `http://` is accepted only for loopback addresses (`localhost`, `127.0.0.1`, or `::1`), which is useful for local development.
+
+    The `scanning.jev.maxRetries` value sets how many times a failed assessment is retried. It defaults to `3`. See [Retries](#retries).
 
 2. Create a Secret in the Depot namespace that holds your Jev token under the `jevToken` key. Use `kubectl create secret` so the token does not appear in shell history or in a manifest:
 
@@ -203,9 +205,30 @@ Each Version is assessed with these questions. The `skill` or `agent` word is fi
 | Does it direct the agent to download and run remote code or scripts, or install unpinned dependencies? | `remoteExecutionProbability` |
 | How much harm could it cause if an AI agent follows it? | `riskScore`, `riskLevel`, and `riskConfidence` |
 
+### How content is split
+
+Jev assesses a Version in parts. Each part is one request, and a Version has at most 16 parts. Content that needs more parts is blocked before any Jev call is made.
+
+- **Order.** Part 1 holds the entry file, then the bundled file list. Other files follow in list order. When the list does not fit in part 1, it continues in a later part under `Bundled files (continued):`.
+- **File boundaries.** A part ends at a file boundary when it can. A file that does not fit in the rest of its part is split across parts. Each segment has a header such as `[part 1 of 2, bytes 0-43999 of 90000]`, and a segment that continues ends with `[continues in part 2]`.
+- **Halving.** When Jev rejects a part with `max_tokens_exceeded`, the part is halved at its midpoint and both halves are sent. The halves take a suffix, such as `3a` and `3b`. A part can be halved twice, so a half can split again into labels such as `3aa` and `3ab`. Both halves keep the index of the original part.
+- **Call budget.** A run makes at most 16 Jev requests, and each halving reserves two of them.
+- **Concurrency.** At most 16 requests are in flight at once, and at most 1,000 start per minute. These limits apply to the whole controller, and branch bump classification shares them.
+
+Scored parts are combined into the Version's `jevAssessment` fields as follows. A part whose risk level is not a known label counts as a failed part.
+
+| Field | Combined as |
+|-------|-------------|
+| `riskLevel` | The worst part. |
+| `riskScore` | The highest part. |
+| The six risk probabilities | The highest part for each probability. |
+| `safeProbability` | The lowest part. |
+| `riskConfidence` | The lowest part. |
+| `model` | The model of the worst part. |
+
 ### Thresholds
 
-The `jevPolicy` thresholds decide whether a Version is blocked. Each threshold is optional.
+The `jevPolicy` thresholds decide whether a Version is blocked. Each threshold is optional. Each threshold is checked against every part, and a breach in any part blocks the Version.
 
 | Threshold | Blocks when |
 |-----------|-------------|
@@ -217,15 +240,29 @@ The `jevPolicy` thresholds decide whether a Version is blocked. Each threshold i
 | `maxScopeMismatchProbability` | The scope mismatch probability is above the value. |
 | `maxRemoteExecutionProbability` | The remote execution probability is above the value. |
 | `maxRiskScore` | The risk score is above the value. |
-| `minConfidence` | Never blocks. A Version whose `riskConfidence` is below the value is marked `needsReview`. |
+| `minConfidence` | The `riskConfidence` of any part is below the value. Also sets `needsReview`. |
 
-The gate follows three rules:
+The gate follows these rules:
 
-- **Unset means no block.** A threshold that is not set never blocks a Version. The assessment is advisory unless a threshold is set or the `RiskLevel` is `Critical`.
-- **Confidence never blocks.** `minConfidence` only sets `needsReview`.
-- **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. A truncated state is an incomplete assessment, so with thresholds set it blocks the same way. A binary, oversized, or flagged bundled file, and a flagged entry file, count like truncation: each makes the assessment incomplete, so with thresholds set it blocks, and with no thresholds the Version publishes and the `syncStatus` message names the incomplete assessment. If no thresholds are set, a Jev failure does not block. The failure is recorded in `status.jevAssessment.error`, the Version still syncs, and the `syncStatus` message names the error. Leaving all thresholds unset is the opt-out from fail-closed behavior. A `RiskLevel` of `Critical` always blocks, regardless of thresholds.
+- **Thresholds block when breached.** A threshold that is not set never blocks a Version. A `RiskLevel` of `Critical` always blocks, whatever the thresholds are.
+- **Fail closed whenever Jev is configured.** A source that sets `jevSecretRef` blocks its Version on a Service failure, with or without thresholds. A Service failure is a part that Jev fails to score, a token Secret that cannot be read, or a read error on the extracted content. The error is recorded in `status.jevAssessment.error`. See [Retries](#retries).
+- **Content outcomes block without an error.** These block the Version with or without thresholds. They record no error, and they are not retried:
+    - The content needs more than 16 parts. No Jev call is made.
+    - The content cannot be read for splitting.
+    - A binary file, which has a NUL byte or invalid UTF-8. No Jev call is made.
+    - A file that the Trivy secret scanner flags. The file is withheld, and no Jev call is made.
+    - A part that Jev rejects for its token limit, when the part cannot be split further or no call budget is left, and no other part failed.
+- **Jev disabled blocks sources that set `jevSecretRef`.** When Jev is disabled on the controller (`scanning.jev.enabled: false`), a source that sets `jevSecretRef` is blocked. No Jev call is made, and this is not counted as a retry.
 
-Assessments are cached in `status.jevAssessment`. Set `forceSync: true` on the Skill or Agent to run a new assessment.
+Assessments are cached in `status.jevAssessment`. A completed assessment is reused. Set `forceSync: true` on the Skill or Agent to run a new assessment. A completed assessment from before this release is reused unchanged.
+
+### Retries
+
+A Service failure is retried every 15 seconds. The controller counts each failure in `status.jevAssessment.retryCount`. Retries stop once `retryCount` exceeds `jevMaxRetries`. With the default of `3`, a Version gets 4 attempts. After that, the error stays recorded until you set `forceSync: true`, which resets `retryCount` to `0` and runs a new assessment. Each attempt makes at most 16 Jev requests.
+
+A `401` or `403` from Jev is retried every 15 seconds and is not counted. These retries continue until the token is fixed.
+
+Set `scanning.jev.maxRetries` to change the limit. It maps to the `--jev-max-retries` flag on the `version` controller.
 
 ### Score colors
 
@@ -255,7 +292,7 @@ When Jev is not used for a bump, the result is PATCH with source `Default`:
 - No `jevSecretRef` is set on the source.
 - `scanning.jev.enabled` is `false`, which sets `--jev-enabled=false`.
 
-When Jev is enabled and a call used to classify a bump for a later commit fails, the Version is Held and is not published as PATCH. The version controller retries with a capped backoff of 1, 2, 4, 8, and then 15 minutes.
+When Jev is enabled and a call used to classify a bump for a later commit fails, the Version is Held and is not published as PATCH. The version controller retries with a capped backoff of 1, 2, 4, 8, and then 15 minutes. Bump calls share the limit of 16 in-flight Jev requests and the rate limit of 1,000 per minute with Jev assessments across the controller.
 
 Set the `opendepot.defdev.io/bump-override` annotation on a Version to `major`, `minor`, or `patch` to override the bump size. The override is recorded with source `Manual`. It is honored only while the Version is Pending or Held. It sets the bump size only and does not decide whether the Version is published. It does not release a hold caused by a missing `jevSecretRef`; set `jevSecretRef` on the source to publish.
 
@@ -273,11 +310,11 @@ The Version stays unsynced until the definition changes.
 
 ## Data handling
 
-When Jev is enabled and a source sets a `jevPolicy` with a `jevSecretRef`, the controller sends a single request to the Jev endpoint with this content:
+When Jev is enabled and a source sets `jevSecretRef`, the controller sends one request per part to the Jev endpoint. A Version has at most 16 parts. See [How content is split](#how-content-is-split). The content is sent as follows:
 
-- **Sent:** the entry file (`SKILL.md` or the agent `.md` file) and the list of file names bundled with the Version. The state is capped at 43 KiB (44,032 bytes). If the cap is reached, the state is cut and ends with a `[truncated: ...]` marker that says content beyond the limit was omitted. A bundled file larger than the 43 KiB cap is omitted and replaced by `[omitted: file exceeds the Jev state limit]`. The entry file has no per-file cap and is sent in full unless Trivy flags it for a secret.
-- **Not sent:** binary files (a NUL byte or invalid UTF-8), which are replaced by `[skipped: binary file]`. A skipped binary file makes the assessment incomplete. Scripts and bundled text files are sent, each under a `--- <path> ---` delimiter.
-- **Withheld:** bundled text files that the Trivy secret scanner flags are replaced by `[withheld: flagged for a secret]` and are not sent to Jev. The entry file is replaced by `[withheld: entry file flagged for a secret]` and is not sent to Jev. A withheld file, including the entry file, makes the assessment incomplete. With thresholds set, the Version blocks. Without thresholds, the Version publishes and the `syncStatus` message names the incomplete assessment.
+- **Sent:** the entry file (`SKILL.md` or the agent `.md` file), the list of file names bundled with the Version, and all text content of the bundled files. Nothing is cut for size. Scripts and bundled text files are sent, each under a `--- <path> ---` delimiter.
+- **Not sent:** binary files (a NUL byte or invalid UTF-8), which are replaced by `[skipped: binary file]`. A binary file blocks the Version, and no Jev call is made.
+- **Withheld:** bundled text files that the Trivy secret scanner flags are replaced by `[withheld: flagged for a secret]` and are not sent to Jev. The entry file is replaced by `[withheld: entry file flagged for a secret]` and is not sent to Jev. A withheld file blocks the Version, and no Jev call is made, whatever the thresholds.
 - **Never sent:** the Jev token. The token is only used as the request credential and is never logged or written to a resource.
 
 Before you use Jev on private repositories, get the TypeSafe retention and training terms in writing. Confirm how long TypeSafe keeps submitted content and whether it is used for model training. Do not enable Jev for private source until those terms are confirmed.
@@ -288,11 +325,13 @@ The UI browse view shows the sync status of each Version. It also shows blocked 
 
 For a Skill or Agent that follows a branch, the detail header shows the source repository, the tracked branch, and the source path. It also shows the latest commit as a 7-character SHA. The Versions table lists every Version, including branch Versions in the `Pending` and `Held` phases. Each row shows its commit with a copy button and a branch phase chip. The commit column appears when at least one row has a commit. A Version without a semver shows `—`.
 
+The assessed content view in the Jev panel has two views, switched with the Files and Chunks toggle. **Files** shows a directory tree. Each file shows its risk level and the parts that contain it, such as `3` and `3a`. When a part that holds a file did not score, the file shows that part's status. **Chunks** lists the parts sorted by index. Each row shows the part's status, risk level, score, and confidence. Skipped files are listed below the parts. When a part's file list was cut, the view shows how many files are not listed.
+
 ## Yanked and blocked Versions
 
 Yank a Version by setting `spec.yanked: true` on the Version resource. Yanked Versions stay listed and downloadable, and the listing includes `yanked: true`. The CLI skips yanked Versions when it resolves a version constraint unless you pass `--allow-yanked`.
 
-A Version that a Jev threshold blocks is never listed or served. A direct request for it returns `404`.
+A Version that Jev blocks is never listed or served, whatever the cause. A direct request for it returns `404`. Causes include a threshold breach, a `Critical` risk level, a Service failure, a content outcome, and Jev disabled on the controller while `jevSecretRef` is set.
 
 ## agents.v1 protocol
 
