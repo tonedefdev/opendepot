@@ -196,7 +196,7 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
         {assessment.inputTokens !== undefined && assessment.inputTokens > 0 && (
           <InfoChip
             label={`Cost: ${formatInputCost(assessment.inputTokens)}`}
-            description={`Estimated Jev input cost: the input tokens Jev reported for every part it processed, ${assessment.inputTokens.toLocaleString("en-US")} in total, at $${JEV_INPUT_USD_PER_MILLION_TOKENS} per million input tokens. Output tokens are not included.`}
+            description={`Estimated Jev input cost: the input tokens Jev reported for every part it processed, ${assessment.inputTokens.toLocaleString("en-US")} in total, at $${JEV_INPUT_USD_PER_MILLION_TOKENS} per million input tokens. Jev does not charge for output tokens.`}
             icon={<AttachMoneyOutlinedIcon />}
             size="small"
             variant="outlined"
