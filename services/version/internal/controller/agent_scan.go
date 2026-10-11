@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/agentspec"
+	"github.com/tonedefdev/opendepot/pkg/jev"
 	"github.com/tonedefdev/opendepot/services/version/checks/agents"
 	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 )
@@ -61,8 +63,23 @@ type agentContent struct {
 	scripts string
 	// files lists every bundled file as a slash-separated path relative to the archive root.
 	files []string
-	// fileBodies holds the raw content of every bundled file except the entry file, keyed by its path in files.
+	// fileBodies holds the raw content of each bundled file except the entry file, keyed by its path in files. A file
+	// is held only when it fits in the Jev state limit together with the files already held.
 	fileBodies map[string][]byte
+	// omittedFiles holds the paths of bundled files whose content was not held because it exceeds the Jev state limit.
+	omittedFiles map[string]struct{}
+}
+
+// readBundledPrefix reads at most jev.MaxStateBytes+1 bytes of a bundled file. A result longer than
+// jev.MaxStateBytes means the file cannot fit in the Jev state, and the rest of the file is never read.
+func readBundledPrefix(name string) ([]byte, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return io.ReadAll(io.LimitReader(f, jev.MaxStateBytes+1))
 }
 
 // agentEntryPath returns the path of the entry file for a Skill or Agent Version inside dir.
@@ -91,7 +108,12 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		return nil, err
 	}
 
-	content := &agentContent{entryName: filepath.Base(entryPath), fileBodies: make(map[string][]byte)}
+	content := &agentContent{
+		entryName:    filepath.Base(entryPath),
+		fileBodies:   make(map[string][]byte),
+		omittedFiles: make(map[string]struct{}),
+	}
+
 	entryBytes, err := os.ReadFile(entryPath)
 	if err != nil {
 		return nil, fmt.Errorf("read agent entry file %s: %w", content.entryName, err)
@@ -125,6 +147,7 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 
 	entryRel = filepath.ToSlash(entryRel)
 	var scripts strings.Builder
+	retainedBytes := 0
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -142,17 +165,27 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		rel = filepath.ToSlash(rel)
 		content.files = append(content.files, rel)
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
 		if rel != entryRel {
-			content.fileBodies[rel] = data
+			body, err := readBundledPrefix(path)
+			if err != nil {
+				return err
+			}
+
+			if len(body) > jev.MaxStateBytes || retainedBytes+len(body) > jev.MaxStateBytes {
+				content.omittedFiles[rel] = struct{}{}
+			} else {
+				content.fileBodies[rel] = body
+				retainedBytes += len(body)
+			}
 		}
 
 		if _, ok := scriptExtensions[strings.ToLower(filepath.Ext(rel))]; !ok {
 			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
 		}
 
 		scripts.WriteString(string(data))

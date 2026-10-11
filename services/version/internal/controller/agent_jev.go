@@ -43,8 +43,9 @@ const jevDisabledError = "jev is disabled on this controller"
 // assessed by Jev, no longer sets jevSecretRef.
 const jevRefRequiredError = "jevSecretRef is required for branch sources when Jev is enabled on the controller"
 
-// jevTruncatedError is recorded when the content exceeds the Jev state limit, so Jev did not see every bundled file.
-const jevTruncatedError = "jev state truncated: content exceeds the Jev state limit, so the assessment is incomplete"
+// jevTruncatedError is recorded when Jev did not see every bundled file, because the content exceeded the Jev state
+// limit or a bundled file was skipped as binary or omitted as oversized.
+const jevTruncatedError = "jev state incomplete: content was truncated or a bundled file was omitted, so the assessment is incomplete"
 
 // jevFileListHeader separates the entry file from the bundled file list in the Jev state.
 const jevFileListHeader = "\n\nBundled files:\n"
@@ -113,9 +114,10 @@ func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
 
 // buildJevState returns the content sent to Jev: the entry file, the bundled file list, and the bodies of the
 // bundled text files. The whole state is truncated to the Jev limit at a UTF-8 boundary, and a marker records the
-// truncation so that dropped content is never mistaken for absent content. truncated reports whether any content
-// was dropped. A flagged entry file is omitted so that a detected secret is never sent, and a bundled file flagged
-// for a secret is withheld the same way.
+// truncation so that dropped content is never mistaken for absent content. truncated reports whether the assessment
+// is incomplete: content was dropped to fit the limit, or a bundled file was skipped as binary or omitted as oversized.
+// A flagged entry file is omitted so that a detected secret is never sent, and a bundled file flagged for a secret is
+// withheld the same way.
 func buildJevState(content *agentContent) (state string, truncated bool) {
 	var b strings.Builder
 	if !content.entryFlagged {
@@ -127,11 +129,11 @@ func buildJevState(content *agentContent) (state string, truncated bool) {
 		b.WriteString("- " + file + "\n")
 	}
 
-	writeJevBundledBodies(&b, content)
+	omitted := writeJevBundledBodies(&b, content)
 
 	state = b.String()
 	if len(state) <= jev.MaxStateBytes {
-		return state, false
+		return state, omitted
 	}
 
 	marker := fmt.Sprintf("\n[truncated: content beyond the %d byte Jev state limit was omitted]\n", jev.MaxStateBytes)
@@ -155,12 +157,14 @@ func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment) string {
 }
 
 // writeJevBundledBodies appends the body of each bundled text file under a "--- <name> ---" delimiter. Binary
-// files and files flagged for a secret are replaced by a marker that says why, so Jev can tell omitted content
-// from empty content. Bodies are not capped per file; the whole-state limit in buildJevState is the only cap.
-func writeJevBundledBodies(b *strings.Builder, content *agentContent) {
+// files, files too large for the state, and files flagged for a secret are replaced by a marker that says why, so Jev
+// can tell omitted content from empty content. omitted reports whether a binary or oversized file was not sent in full.
+// A file flagged for a secret is withheld by design and does not make the assessment incomplete.
+func writeJevBundledBodies(b *strings.Builder, content *agentContent) (omitted bool) {
 	for _, file := range content.files {
 		body, ok := content.fileBodies[file]
-		if !ok {
+		_, oversized := content.omittedFiles[file]
+		if !ok && !oversized {
 			continue
 		}
 
@@ -170,14 +174,23 @@ func writeJevBundledBodies(b *strings.Builder, content *agentContent) {
 			continue
 		}
 
+		if oversized {
+			b.WriteString("[omitted: file exceeds the Jev state limit]\n")
+			omitted = true
+			continue
+		}
+
 		if bytes.IndexByte(body, 0) >= 0 || !utf8.Valid(body) {
 			b.WriteString("[skipped: binary file]\n")
+			omitted = true
 			continue
 		}
 
 		b.Write(body)
 		b.WriteString("\n")
 	}
+
+	return omitted
 }
 
 // readJevToken reads the Jev token from the Secret referenced by the source. The token is never logged
