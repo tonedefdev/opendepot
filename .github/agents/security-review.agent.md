@@ -44,6 +44,7 @@ Classify every finding by who owns the affected software before choosing a fix p
 - If no fixed version exists, follow the **GitHub Issue Policy**. The finding is FOLLOW-UP unless the diff introduced it.
 
 **3. Third-party binaries and images** (anything OpenDepot downloads or pulls and does not build from its own source, such as Trivy, OpenTofu, and Valkey)
+- **Scans stay on:** Trivy and dependency-audit findings are never suppressed or ignored in config to pass a gate. Findings are fixed or tracked, as the rules below say.
 - **Base images are OpenDepot's (standing decision):** A CRITICAL or HIGH CVE in a `FROM` base image of `services/*/Dockerfile` or `services/ui/Dockerfile` is BLOCKING for the change that ships it. The Developer fixes it by a tag pin bump to the newest published patch of the same major.minor, then re-scans the rebuilt image. Open a tracking issue only for CVEs that remain after the newest fixed tag is in use. This overrides the pin-bump rule below for base images.
 - **Never** suggest patching, forking, vendoring, cloning, or building these from source. The only fix you may suggest is a version pin bump to a published upstream release.
 - **Step 1:** Check the upstream releases for the newest **patch** release of the pinned version (same major and minor). If one fixes the finding, recommend bumping the pin to it. The Developer changes only the pin in the repo (Makefile, Dockerfile, chart values, or CI workflow).
