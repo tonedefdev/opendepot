@@ -3,8 +3,11 @@
 package agentspec
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -201,7 +204,7 @@ type Result struct {
 // The returned error is non-nil if and only if at least one error-level finding was raised.
 // The returned Result is always non-nil and carries every finding, including warnings.
 func Parse(path string, content []byte) (*Result, error) {
-	return parse(path, content, "", false, KnownKeys, "")
+	return parse(path, bytes.NewReader(content), "", false, KnownKeys, "")
 }
 
 // ParseSkillNamed parses a SKILL.md whose name must match name rather than its containing directory.
@@ -210,18 +213,24 @@ func Parse(path string, content []byte) (*Result, error) {
 // The returned error is non-nil if and only if at least one error-level finding was raised.
 // The returned Result is always non-nil and carries every finding, including warnings.
 func ParseSkillNamed(path string, content []byte, name string) (*Result, error) {
-	return parse(path, content, name, false, KnownKeys, "")
+	return parse(path, bytes.NewReader(content), name, false, KnownKeys, "")
 }
 
 // ParseSkillNamedFor is ParseSkillNamed with the frontmatter keys validated against platform. An empty
 // platform accepts the keys of every platform. An unsupported platform returns an error and no findings.
 func ParseSkillNamedFor(path string, content []byte, name string, platform string) (*Result, error) {
+	return ParseSkillNamedForReader(path, bytes.NewReader(content), name, platform)
+}
+
+// ParseSkillNamedForReader is ParseSkillNamedFor for an entry read from r. The entry is parsed as it is read, so
+// the file is not held in memory as a whole.
+func ParseSkillNamedForReader(path string, r io.Reader, name string, platform string) (*Result, error) {
 	keys, err := knownKeysFor(false, platform)
 	if err != nil {
 		return &Result{}, err
 	}
 
-	return parse(path, content, name, false, keys, platform)
+	return parse(path, r, name, false, keys, platform)
 }
 
 // ParseAgent parses and validates an agent entry file, either {name}.agent.md or {name}.md.
@@ -231,23 +240,35 @@ func ParseSkillNamedFor(path string, content []byte, name string, platform strin
 // The returned error is non-nil if and only if at least one error-level finding was raised.
 // The returned Result is always non-nil and carries every finding, including warnings.
 func ParseAgent(path string, content []byte) (*Result, error) {
-	return parse(path, content, "", true, KnownKeys, "")
+	return parse(path, bytes.NewReader(content), "", true, KnownKeys, "")
+}
+
+// ParseAgentReader is ParseAgent for an entry read from r. The entry is parsed as it is read, so the file is not
+// held in memory as a whole.
+func ParseAgentReader(path string, r io.Reader) (*Result, error) {
+	return parse(path, r, "", true, KnownKeys, "")
 }
 
 // ParseAgentFor is ParseAgent with the frontmatter keys validated against platform. An empty platform
 // accepts the keys of every platform. An unsupported platform returns an error and no findings.
 func ParseAgentFor(path string, content []byte, platform string) (*Result, error) {
+	return ParseAgentForReader(path, bytes.NewReader(content), platform)
+}
+
+// ParseAgentForReader is ParseAgentFor for an entry read from r. The entry is parsed as it is read, so the file is
+// not held in memory as a whole.
+func ParseAgentForReader(path string, r io.Reader, platform string) (*Result, error) {
 	keys, err := knownKeysFor(true, platform)
 	if err != nil {
 		return &Result{}, err
 	}
 
-	return parse(path, content, "", true, keys, platform)
+	return parse(path, r, "", true, keys, platform)
 }
 
 // parse validates the file at path. When dirName is empty, a SKILL.md must match its containing directory.
 // Top-level keys outside known produce a warning. The platform is named in that warning when it is set.
-func parse(path string, content []byte, dirName string, agent bool, known map[string]struct{}, platform string) (*Result, error) {
+func parse(path string, r io.Reader, dirName string, agent bool, known map[string]struct{}, platform string) (*Result, error) {
 	result := &Result{}
 	base := filepath.Base(path)
 	expectedName := strings.TrimSuffix(base, filepath.Ext(base))
@@ -259,7 +280,10 @@ func parse(path string, content []byte, dirName string, agent bool, known map[st
 		}
 	}
 
-	frontmatter, body, ok := splitFrontmatter(string(content))
+	frontmatter, body, ok, err := splitFrontmatter(r)
+	if err != nil {
+		return result, fmt.Errorf("read %s: %w", base, err)
+	}
 
 	if !ok {
 		result.add(path, FindingNoFrontmatter, severityError, "file has no YAML frontmatter block")
@@ -300,31 +324,70 @@ func parse(path string, content []byte, dirName string, agent bool, known map[st
 	return result, result.err()
 }
 
-// splitFrontmatter returns the raw frontmatter and the body that follows it. The frontmatter
-// must open with a "---" line on the first line and be closed by a second "---" line.
-func splitFrontmatter(content string) (string, string, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	rest, ok := strings.CutPrefix(content, "---\n")
+// splitFrontmatter reads the raw frontmatter and the body that follows it from r, one line at a time. The frontmatter
+// must open with a "---" line on the first line and be closed by a second "---" line. CRLF line endings are read as LF.
+func splitFrontmatter(r io.Reader) (string, string, bool, error) {
+	br := bufio.NewReader(r)
 
-	if !ok {
-		return "", "", false
+	first, err := readLine(br)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", "", false, err
 	}
 
-	if strings.HasPrefix(rest, "---\n") || rest == "---" {
-		return "", strings.TrimPrefix(strings.TrimPrefix(rest, "---"), "\n"), true
+	if first != "---\n" {
+		return "", "", false, nil
 	}
 
-	end := strings.Index(rest, "\n---\n")
-
-	if end < 0 {
-		if !strings.HasSuffix(rest, "\n---") {
-			return "", "", false
+	var frontmatter strings.Builder
+	for {
+		line, err := readLine(br)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", "", false, err
 		}
 
-		return strings.TrimSuffix(rest, "\n---"), "", true
-	}
+		switch {
+		case line == "---\n":
+			body, err := readBody(br, frontmatter.Len() > 0)
+			if err != nil {
+				return "", "", false, err
+			}
 
-	return rest[:end+1], strings.TrimPrefix(rest[end+len("\n---\n"):], "\n"), true
+			return frontmatter.String(), body, true, nil
+		case line == "---" && errors.Is(err, io.EOF):
+			return strings.TrimSuffix(frontmatter.String(), "\n"), "", true, nil
+		case errors.Is(err, io.EOF):
+			return "", "", false, nil
+		}
+
+		frontmatter.WriteString(line)
+	}
+}
+
+// readBody reads the body that follows the closing frontmatter line. One newline that directly follows the closing
+// line is not part of the body. When the frontmatter is empty, the closing line directly follows the opening line and
+// the body keeps that newline, as splitFrontmatter has always done.
+func readBody(br *bufio.Reader, trimLeadingNewline bool) (string, error) {
+	var body strings.Builder
+	for first := true; ; first = false {
+		line, err := readLine(br)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+
+		if !first || !trimLeadingNewline || line != "\n" {
+			body.WriteString(line)
+		}
+
+		if errors.Is(err, io.EOF) {
+			return body.String(), nil
+		}
+	}
+}
+
+// readLine returns the next line of br with CRLF line endings read as LF.
+func readLine(br *bufio.Reader) (string, error) {
+	line, err := br.ReadString('\n')
+	return strings.ReplaceAll(line, "\r\n", "\n"), err
 }
 
 func validateName(result *Result, path, expectedName string, fm map[string]any, agent bool) {

@@ -417,6 +417,7 @@ type jevReconcileCase struct {
 	cached    *opendepotv1alpha1.JevAssessment
 	forceSync bool
 	noSecret  bool
+	noRef     bool
 	disabled  bool
 }
 
@@ -455,6 +456,9 @@ func newJevReconcileFixture(t *testing.T, c jevReconcileCase) *jevReconcileFixtu
 	version.Spec.AgentSourceRef.Path = "skills/agent"
 	version.Spec.AgentSourceRef.StorageConfig = &opendepotv1alpha1.StorageConfig{
 		FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &storageDir},
+	}
+	if c.noRef {
+		version.Spec.AgentSourceRef.JevSecretRef = nil
 	}
 
 	secret := &corev1.Secret{
@@ -498,12 +502,18 @@ func newJevReconcileFixture(t *testing.T, c jevReconcileCase) *jevReconcileFixtu
 func (f *jevReconcileFixture) reconcile(t *testing.T) ctrl.Result {
 	t.Helper()
 
-	result, err := f.reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: f.key})
+	result, err := f.reconcileResult(t)
 	if err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)
 	}
 
 	return result
+}
+
+func (f *jevReconcileFixture) reconcileResult(t *testing.T) (ctrl.Result, error) {
+	t.Helper()
+
+	return f.reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: f.key})
 }
 
 func (f *jevReconcileFixture) version(t *testing.T) *opendepotv1alpha1.Version {
@@ -637,7 +647,14 @@ func TestReconcileJevDisabledBlocksWithoutCalls(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newJevReconcileFixture(t, jevReconcileCase{policy: tt.policy, disabled: true})
 
-			f.reconcile(t)
+			result, err := f.reconcileResult(t)
+			if err == nil {
+				t.Fatalf("Reconcile returned no error; want the jevDisabledError to hold the Version")
+			}
+
+			if result.RequeueAfter != 0 {
+				t.Fatalf("RequeueAfter = %v; want 0, a disabled Jev is not retried", result.RequeueAfter)
+			}
 
 			stored := f.version(t)
 			wantJevBlocked(t, stored, 0)
@@ -659,8 +676,12 @@ func TestReconcileJevDisabledBlocksWithoutCalls(t *testing.T) {
 func TestReconcileJevDisabledThenEnabledStartsAtAttemptZero(t *testing.T) {
 	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevStatus(http.StatusServiceUnavailable, "unavailable"), disabled: true})
 
-	f.reconcile(t)
-	f.reconcile(t)
+	for range 2 {
+		result, err := f.reconcileResult(t)
+		if err == nil || result.RequeueAfter != 0 {
+			t.Fatalf("disabled reconcile: result = %+v, err = %v; want the held error and no requeue", result, err)
+		}
+	}
 
 	wantJevBlocked(t, f.version(t), 0)
 	wantJevCalls(t, f, 0)
@@ -902,4 +923,27 @@ func TestReconcileJevGateBlockIsNotRetried(t *testing.T) {
 
 	f.reconcile(t)
 	wantJevCalls(t, f, 1)
+}
+
+// TestReconcileJevRefRequiredDoesNotRequeue covers a Jev-enabled Version that has a cached assessment but no
+// jevSecretRef. The reconcile returns the ref-required error without a 15 second requeue, so it is not retried
+// on a fixed timer.
+func TestReconcileJevRefRequiredDoesNotRequeue(t *testing.T) {
+	cached := &opendepotv1alpha1.JevAssessment{
+		EvaluatedAt: "2026-01-01T00:00:00Z",
+		ChunkCount:  1,
+		Chunks:      []opendepotv1alpha1.JevChunkResult{{Index: 1, Label: "1", Status: "Scored"}},
+	}
+	f := newJevReconcileFixture(t, jevReconcileCase{cached: cached, noRef: true})
+
+	result, err := f.reconcileResult(t)
+	if err == nil || !strings.Contains(err.Error(), "jevSecretRef is required") {
+		t.Fatalf("Reconcile error = %v; want the ref-required error", err)
+	}
+
+	if result.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter = %v; want 0, a ref-required error is not retried on a timer", result.RequeueAfter)
+	}
+
+	wantJevCalls(t, f, 0)
 }

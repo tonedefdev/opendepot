@@ -967,8 +967,9 @@ func TestJevChunksIndexesAreOneBasedWithinCRDBounds(t *testing.T) {
 		}
 
 		for i, c := range chunks {
-			if int64(c.Index) != int64(i+1) {
-				t.Fatalf("%s: chunks[%d].Index = %d, want %d", name, i, c.Index, i+1)
+			wantIndex, _ := jevSplitLabel(labels[i])
+			if int64(c.Index) != int64(wantIndex) {
+				t.Fatalf("%s: chunks[%d].Index = %d, want %d from label %q", name, i, c.Index, wantIndex, labels[i])
 			}
 
 			if int64(c.Index) < minimum || int64(c.Index) > maximum {

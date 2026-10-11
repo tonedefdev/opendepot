@@ -95,17 +95,6 @@ func skillName(version *opendepotv1alpha1.Version) string {
 	return ""
 }
 
-// readAgentEntry reads the entry file through a buffered stream reader.
-func readAgentEntry(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	return io.ReadAll(bufio.NewReader(f))
-}
-
 // loadAgentContent parses the entry file and lists the bundled files of an extracted Skill or Agent directory.
 func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentContent, error) {
 	entryPath, err := agentEntryPath(dir, version)
@@ -118,10 +107,11 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		dir:       dir,
 	}
 
-	entryBytes, err := readAgentEntry(entryPath)
+	entryFile, err := os.Open(entryPath)
 	if err != nil {
 		return nil, fmt.Errorf("read agent entry file %s: %w", content.entryName, err)
 	}
+	defer entryFile.Close()
 
 	var parsed *agentspec.Result
 	var parseErr error
@@ -131,9 +121,9 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 	}
 
 	if version.Spec.Type == opendepotv1alpha1.OpenDepotAgent {
-		parsed, parseErr = agentspec.ParseAgentFor(entryPath, entryBytes, platform)
+		parsed, parseErr = agentspec.ParseAgentForReader(entryPath, entryFile, platform)
 	} else {
-		parsed, parseErr = agentspec.ParseSkillNamedFor(entryPath, entryBytes, skillName(version), platform)
+		parsed, parseErr = agentspec.ParseSkillNamedForReader(entryPath, entryFile, skillName(version), platform)
 	}
 
 	if parsed == nil || (parseErr != nil && len(parsed.Findings) == 0) {

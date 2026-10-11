@@ -713,7 +713,11 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, nil
 			}
 
-			return ctrl.Result{RequeueAfter: jevRetryRequeue}, nil
+			if jevAssessment != nil && jevAssessment.ChunkCount > 0 && jevAssessment.Error != jevDisabledError {
+				return ctrl.Result{RequeueAfter: jevRetryRequeue}, nil
+			}
+
+			return ctrl.Result{}, jevErr
 		}
 
 		if jevAssessment != nil && jevAssessment.Blocked {
@@ -1399,14 +1403,20 @@ func (r *VersionReconciler) downloadAgentArchive(ctx context.Context, version *o
 	return tarball, repoName, nil
 }
 
-// fetchAgentArchive returns the Skill or Agent archive, checksum, metadata, and raw definition bytes. Callers that
-// need the definition file name use fetchAgentArchiveWithDefinition.
-func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, error) {
-	packed, checksum, metadata, definition, _, err := r.fetchAgentArchiveWithDefinition(ctx, version)
-	return packed, checksum, metadata, definition, err
+// fetchAgentArchive returns the Skill or Agent archive, checksum and metadata. It does not read the definition file,
+// so the bump path never loads it. Callers that store the definition use fetchAgentArchiveWithDefinition.
+func (r *VersionReconciler) fetchAgentArchive(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, error) {
+	packed, checksum, metadata, _, _, err := r.fetchAgentArchiveFiles(ctx, version, false)
+	return packed, checksum, metadata, err
 }
 
+// fetchAgentArchiveWithDefinition returns the Skill or Agent archive, checksum, metadata, raw definition bytes and the
+// definition file name. The definition is read up to the ConfigMap size limit.
 func (r *VersionReconciler) fetchAgentArchiveWithDefinition(ctx context.Context, version *opendepotv1alpha1.Version) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, string, error) {
+	return r.fetchAgentArchiveFiles(ctx, version, true)
+}
+
+func (r *VersionReconciler) fetchAgentArchiveFiles(ctx context.Context, version *opendepotv1alpha1.Version, readDefinition bool) ([]byte, *string, *opendepotv1alpha1.AgentMetadata, []byte, string, error) {
 	sourceRef := version.Spec.AgentSourceRef
 
 	var refs []string
@@ -1472,14 +1482,29 @@ func (r *VersionReconciler) fetchAgentArchiveWithDefinition(ctx context.Context,
 		}
 	}
 
-	content, err := os.ReadFile(entryPath)
+	entryFile, err := os.Open(entryPath)
 	if err != nil {
 		return nil, nil, nil, nil, "", fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
 	}
+	defer entryFile.Close()
 
-	parsed, err := agentspec.ParseAgent(entryPath, content)
+	parsed, err := agentspec.ParseAgentReader(entryPath, entryFile)
 	if err != nil {
 		return nil, nil, nil, nil, "", fmt.Errorf("failed to validate %s: %w", filepath.Base(entryPath), err)
+	}
+
+	// A definition larger than the ConfigMap limit is rejected when it is stored, so reading one byte past the limit is
+	// enough to reject it without loading the whole file.
+	var definition []byte
+	if readDefinition {
+		if _, err = entryFile.Seek(0, io.SeekStart); err != nil {
+			return nil, nil, nil, nil, "", fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
+		}
+
+		definition, err = io.ReadAll(io.LimitReader(entryFile, maxDefinitionEncodedBytes+1))
+		if err != nil {
+			return nil, nil, nil, nil, "", fmt.Errorf("failed to read %s: %w", filepath.Base(entryPath), err)
+		}
 	}
 
 	var packed bytes.Buffer
@@ -1496,7 +1521,7 @@ func (r *VersionReconciler) fetchAgentArchiveWithDefinition(ctx context.Context,
 		Model:       parsed.Model,
 	}
 
-	return packed.Bytes(), &checksum, metadata, content, filepath.Base(entryPath), nil
+	return packed.Bytes(), &checksum, metadata, definition, filepath.Base(entryPath), nil
 }
 
 // fetchModuleArchive downloads module source from GitHub and returns bytes with a checksum.

@@ -288,7 +288,7 @@ func jevNewAssessment(retries int32, chunks int) *opendepotv1alpha1.JevAssessmen
 func jevSkippedFiles(layout jevChunkLayout) []opendepotv1alpha1.JevSkippedFile {
 	skipped := make([]opendepotv1alpha1.JevSkippedFile, 0, len(layout.skipped))
 	for _, s := range layout.skipped {
-		skipped = append(skipped, opendepotv1alpha1.JevSkippedFile{Path: s.path, Reason: s.reason})
+		skipped = append(skipped, opendepotv1alpha1.JevSkippedFile{Path: jevChunkTruncate(s.path, jevChunkPathLimit), Reason: s.reason})
 	}
 
 	return skipped
@@ -297,19 +297,25 @@ func jevSkippedFiles(layout jevChunkLayout) []opendepotv1alpha1.JevSkippedFile {
 // jevChunks converts sorted part outcomes to the API type. Each entry lists at most the list limit of files.
 func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
 	chunks := make([]opendepotv1alpha1.JevChunkResult, 0, len(outcomes))
-	for i, o := range outcomes {
+	for _, o := range outcomes {
 		files := o.files
 		if len(files) > jevChunkListLimit {
 			files = files[:jevChunkListLimit]
 		}
 
+		listed := make([]string, 0, len(files))
+		for _, f := range files {
+			listed = append(listed, jevChunkTruncate(f, jevChunkPathLimit))
+		}
+
+		index, _ := jevSplitLabel(o.result.label)
 		chunk := opendepotv1alpha1.JevChunkResult{
-			Index:     int32(i + 1),
+			Index:     int32(index),
 			Label:     o.result.label,
-			Files:     files,
+			Files:     listed,
 			FileCount: int32(len(o.files)),
 			Status:    o.result.status,
-			Error:     o.errText,
+			Error:     jevChunkTruncate(o.errText, jevChunkErrorLimit),
 		}
 
 		if o.result.status == jevPartScored {

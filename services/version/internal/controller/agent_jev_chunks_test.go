@@ -474,3 +474,72 @@ func TestJevChunkPlanMissingEntry(t *testing.T) {
 		t.Fatalf("want error for a missing entry file")
 	}
 }
+
+func TestJevChunksHalvedIndexFollowsLabel(t *testing.T) {
+	labels := []string{"1", "2a", "2b", "3"}
+	want := []int32{1, 2, 2, 3}
+
+	outcomes := make([]jevPartOutcome, 0, len(labels))
+	for _, label := range labels {
+		outcomes = append(outcomes, jevPartOutcome{result: jevPartResult{label: label, status: jevPartNotSent}})
+	}
+
+	chunks := jevChunks(outcomes)
+	for i, c := range chunks {
+		if c.Index != want[i] {
+			t.Fatalf("chunks[%d] (label %q).Index = %d, want %d", i, c.Label, c.Index, want[i])
+		}
+	}
+}
+
+func TestJevChunksBoundsStatusStrings(t *testing.T) {
+	longPath := strings.Repeat("é", 200) + "/x.md"
+	if len(longPath) <= jevChunkPathLimit {
+		t.Fatalf("test path is %d bytes, want more than %d", len(longPath), jevChunkPathLimit)
+	}
+
+	longErr := strings.Repeat("€", 300)
+	outcomes := []jevPartOutcome{{
+		result:  jevPartResult{label: "1", status: jevPartFailed},
+		files:   []string{longPath, "short.md"},
+		errText: longErr,
+	}}
+
+	chunks := jevChunks(outcomes)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1", len(chunks))
+	}
+
+	got := chunks[0].Files[0]
+	if len(got) > jevChunkPathLimit || !utf8.ValidString(got) {
+		t.Fatalf("stored path is %d bytes (valid UTF-8: %t), want at most %d valid bytes", len(got), utf8.ValidString(got), jevChunkPathLimit)
+	}
+
+	if chunks[0].Files[1] != "short.md" {
+		t.Fatalf("short path = %q, want it unchanged", chunks[0].Files[1])
+	}
+
+	if chunks[0].FileCount != 2 {
+		t.Fatalf("FileCount = %d, want 2", chunks[0].FileCount)
+	}
+
+	if len(chunks[0].Error) > jevChunkErrorLimit || !utf8.ValidString(chunks[0].Error) {
+		t.Fatalf("stored error is %d bytes (valid UTF-8: %t), want at most %d valid bytes", len(chunks[0].Error), utf8.ValidString(chunks[0].Error), jevChunkErrorLimit)
+	}
+}
+
+func TestJevSkippedFilesBoundPath(t *testing.T) {
+	layout := jevChunkLayout{skipped: []jevChunkSkip{{path: strings.Repeat("é", 200) + "/skip.bin", reason: "binary"}}}
+	skipped := jevSkippedFiles(layout)
+	if len(skipped) != 1 {
+		t.Fatalf("got %d skipped files, want 1", len(skipped))
+	}
+
+	if len(skipped[0].Path) > jevChunkPathLimit || !utf8.ValidString(skipped[0].Path) {
+		t.Fatalf("stored skipped path is %d bytes (valid UTF-8: %t), want at most %d valid bytes", len(skipped[0].Path), utf8.ValidString(skipped[0].Path), jevChunkPathLimit)
+	}
+
+	if skipped[0].Reason != "binary" {
+		t.Fatalf("Reason = %q, want binary", skipped[0].Reason)
+	}
+}

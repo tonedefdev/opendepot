@@ -128,3 +128,33 @@ func TestLoadAgentContentRejectsUnsupportedPlatform(t *testing.T) {
 		t.Fatal("loadAgentContent() error = nil, want unsupported platform error")
 	}
 }
+
+func TestLoadAgentContentStreamsCRLFEntry(t *testing.T) {
+	dir := t.TempDir()
+	body := "---\r\nname: code-review\r\ndescription: Reviews code changes.\r\n---\r\n\r\nBody line.\r\n"
+
+	if err := os.WriteFile(filepath.Join(dir, "code-review.agent.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "code-review"
+	version := &opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:           opendepotv1alpha1.OpenDepotAgent,
+			AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{Name: &name},
+		},
+	}
+
+	content, err := loadAgentContent(dir, version)
+	if err != nil {
+		t.Fatalf("loadAgentContent() error = %v", err)
+	}
+
+	if content.definition.Name != "code-review" {
+		t.Fatalf("definition.Name = %q, want %q", content.definition.Name, "code-review")
+	}
+
+	if content.definition.Body != "Body line.\n" {
+		t.Fatalf("definition.Body = %q, want %q", content.definition.Body, "Body line.\n")
+	}
+}

@@ -103,7 +103,7 @@ func (r *VersionReconciler) fetchAgentArchiveAt(
 ) ([]byte, *string, error) {
 	atCommit := version.DeepCopy()
 	atCommit.Spec.SourceCommit = commit
-	packed, checksum, _, _, err := r.fetchAgentArchive(ctx, atCommit)
+	packed, checksum, _, err := r.fetchAgentArchive(ctx, atCommit)
 	return packed, checksum, err
 }
 
