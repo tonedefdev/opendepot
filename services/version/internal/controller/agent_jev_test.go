@@ -421,6 +421,47 @@ func TestRunAgentJevSplitIOErrorIsServiceOutcome(t *testing.T) {
 	}
 }
 
+// jevSizedFileInfo reports a size other than the one on disk, as if the file changed after it was stat'ed.
+type jevSizedFileInfo struct {
+	os.FileInfo
+	size int64
+}
+
+func (i jevSizedFileInfo) Size() int64 {
+	return i.size
+}
+
+// TestRunAgentJevPackIOErrorIsServiceOutcome covers a cut read error while the content is packed. The stat seam reports
+// a.md as twice the budget, so packing cuts a.md past its end. That read error is a Service outcome, not an over-ceiling
+// Content outcome. It counts one retry, returns an error, and makes no call.
+func TestRunAgentJevPackIOErrorIsServiceOutcome(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry, "a.md": "short"})
+	stat := jevChunkStat
+	jevChunkStat = func(name string) (os.FileInfo, error) {
+		info, err := stat(name)
+		if err != nil || filepath.Base(name) != "a.md" {
+			return info, err
+		}
+
+		return jevSizedFileInfo{FileInfo: info, size: 2 * jevChunkBodyBudget}, nil
+	}
+
+	t.Cleanup(func() { jevChunkStat = stat })
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), content)
+	var serviceErr *jevServiceError
+	if !errors.As(err, &serviceErr) || !assessment.Blocked || assessment.Error == "" || assessment.RetryCount != 1 {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked Service outcome with retryCount 1 and an error", assessment, err)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+}
+
 func TestRunAgentJevMalformedResponseBlocks(t *testing.T) {
 	endpoint, _ := newJevEndpoint(t, func(string) (int, string) {
 		return http.StatusOK, "not json"

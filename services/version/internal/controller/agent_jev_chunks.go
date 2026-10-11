@@ -166,6 +166,7 @@ type jevChunkPacker struct {
 	cur    jevChunkPart
 	used   int64
 	over   bool
+	err    error
 }
 
 // jevChunkPlan classifies every bundled file and packs the content into parts. Files are read only while the content
@@ -241,6 +242,10 @@ func jevChunkPlan(in *jevChunkInput) (jevChunkLayout, error) {
 	}
 
 	p.flush()
+	if p.err != nil {
+		return jevChunkLayout{}, p.err
+	}
+
 	if p.over {
 		return jevChunkOver(lower, skipped), nil
 	}
@@ -428,7 +433,7 @@ func jevChunkSegment(f jevChunkFile, start, end int64, entry bool) jevChunkPiece
 // item places the pieces of one item. An item that fits the open part is appended whole. An item that fits an empty
 // part starts a new part. A larger item is split across parts at newlines or rune boundaries.
 func (p *jevChunkPacker) item(pieces []jevChunkPiece) {
-	if p.over {
+	if p.over || p.err != nil {
 		return
 	}
 
@@ -459,7 +464,7 @@ func (p *jevChunkPacker) item(pieces []jevChunkPiece) {
 	}
 
 	for _, pc := range pieces {
-		if p.over {
+		if p.over || p.err != nil {
 			return
 		}
 
@@ -498,7 +503,7 @@ func (p *jevChunkPacker) split(pc jevChunkPiece) {
 
 		cut, err := jevChunkCut(p.dir, pc.file, start, start+room)
 		if err != nil {
-			p.over = true
+			p.err = err
 			return
 		}
 
@@ -523,9 +528,9 @@ func (p *jevChunkPacker) split(pc jevChunkPiece) {
 }
 
 // add appends a piece to the open part. reserve is charged to the part's budget with the piece. A piece that would
-// open part jevMaxChunks+1 sets over instead.
+// open part jevMaxChunks+1 sets over instead. An I/O error stops packing through err, not over.
 func (p *jevChunkPacker) add(pc jevChunkPiece, reserve int64) {
-	if p.over {
+	if p.over || p.err != nil {
 		return
 	}
 
@@ -615,7 +620,7 @@ func jevChunkFiles(pieces []jevChunkPiece) []string {
 func jevChunkCut(dir, rel string, start, limit int64) (int64, error) {
 	f, err := os.Open(filepath.Join(dir, filepath.FromSlash(rel)))
 	if err != nil {
-		return 0, fmt.Errorf("open %s: %w", rel, err)
+		return 0, fmt.Errorf("%w: open %s: %w", errJevChunkIO, rel, err)
 	}
 
 	defer f.Close()
@@ -624,7 +629,7 @@ func jevChunkCut(dir, rel string, start, limit int64) (int64, error) {
 	window := make([]byte, limit-lo)
 	n, err := f.ReadAt(window, lo)
 	if n != len(window) {
-		return 0, fmt.Errorf("read %s: %w", rel, err)
+		return 0, fmt.Errorf("%w: read %s: %w", errJevChunkIO, rel, err)
 	}
 
 	if i := bytes.LastIndexByte(window, '\n'); i >= 0 {
@@ -635,7 +640,7 @@ func jevChunkCut(dir, rel string, start, limit int64) (int64, error) {
 	for k := 0; k < 3 && cut > start; k++ {
 		var b [1]byte
 		if _, err := f.ReadAt(b[:], cut); err != nil {
-			return 0, fmt.Errorf("read %s: %w", rel, err)
+			return 0, fmt.Errorf("%w: read %s: %w", errJevChunkIO, rel, err)
 		}
 
 		if b[0]&0xC0 != 0x80 {
@@ -652,14 +657,14 @@ func jevChunkCut(dir, rel string, start, limit int64) (int64, error) {
 func jevChunkCopy(w io.Writer, dir string, pc jevChunkPiece) error {
 	f, err := os.Open(filepath.Join(dir, filepath.FromSlash(pc.file)))
 	if err != nil {
-		return fmt.Errorf("open %s: %w", pc.file, err)
+		return fmt.Errorf("%w: open %s: %w", errJevChunkIO, pc.file, err)
 	}
 
 	defer f.Close()
 
 	n, err := io.Copy(w, io.NewSectionReader(f, pc.start, pc.size))
 	if err != nil {
-		return fmt.Errorf("read %s: %w", pc.file, err)
+		return fmt.Errorf("%w: read %s: %w", errJevChunkIO, pc.file, err)
 	}
 
 	if n != pc.size {
