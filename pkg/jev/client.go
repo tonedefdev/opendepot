@@ -92,6 +92,7 @@ type Result struct {
 	RiskScore                     float64
 	RiskLevel                     string
 	RiskConfidence                float64
+	InputTokens                   int64
 }
 
 // NewClient returns a Client that uses DefaultEndpoint unless overridden by opts.
@@ -318,6 +319,9 @@ func truncate(b []byte, n int) string {
 type response struct {
 	Model   string                     `json:"model"`
 	Answers map[string]json.RawMessage `json:"answers"`
+	Usage   struct {
+		InputTokens int64 `json:"input_tokens"`
+	} `json:"usage"`
 }
 
 func parseResponse(raw []byte) (*Result, error) {
@@ -330,7 +334,7 @@ func parseResponse(raw []byte) (*Result, error) {
 		return nil, errors.New("jev: response missing model")
 	}
 
-	result := &Result{Model: resp.Model}
+	result := &Result{Model: resp.Model, InputTokens: resp.Usage.InputTokens}
 	noul := []struct {
 		id  string
 		dst *float64

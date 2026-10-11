@@ -320,12 +320,13 @@ func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
 
 		index, _ := jevSplitLabel(o.result.label)
 		chunk := opendepotv1alpha1.JevChunkResult{
-			Index:     int32(index),
-			Label:     o.result.label,
-			Files:     listed,
-			FileCount: int32(len(o.files)),
-			Status:    o.result.status,
-			Error:     jevChunkTruncate(o.errText, jevChunkErrorLimit),
+			Index:       int32(index),
+			Label:       o.result.label,
+			Files:       listed,
+			FileCount:   int32(len(o.files)),
+			Status:      o.result.status,
+			InputTokens: o.result.result.InputTokens,
+			Error:       jevChunkTruncate(o.errText, jevChunkErrorLimit),
 		}
 
 		if o.result.status == jevPartScored {
@@ -339,6 +340,17 @@ func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
 	}
 
 	return chunks
+}
+
+// jevInputTokens sums the input tokens Jev reported across the outcomes. A part Jev scored is billed even when it is
+// later marked Failed, so every outcome that reports tokens counts.
+func jevInputTokens(outcomes []jevPartOutcome) int64 {
+	var total int64
+	for _, o := range outcomes {
+		total += o.result.result.InputTokens
+	}
+
+	return total
 }
 
 // jevNotSentOutcomes returns one NotSent outcome for each part, with the given reason.
@@ -537,6 +549,7 @@ func (r *VersionReconciler) runAgentJev(
 	assessment := jevNewAssessment(retries, len(layout.parts))
 	assessment.Chunks = jevChunks(outcomes)
 	assessment.AssessedChunks = int32(assessed)
+	assessment.InputTokens = jevInputTokens(outcomes)
 	if assessed > 0 {
 		assessment.Model = result.Model
 		assessment.SafeProbability = ptr.To(result.SafeProbability)

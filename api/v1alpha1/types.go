@@ -728,6 +728,11 @@ type JevAssessment struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=16
 	AssessedChunks int32 `json:"assessedChunks,omitempty"`
+	// The total input tokens Jev reported across every part it processed. It is the sum of each chunk's inputTokens,
+	// and it includes parts that Jev scored but that were then marked Failed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
 	// One entry per scored or attempted part, sorted by label.
 	// +optional
 	// +kubebuilder:validation:MaxItems=16
@@ -782,6 +787,10 @@ type JevChunkResult struct {
 	// The probability that the part is safe to use.
 	// +optional
 	SafeProbability *float64 `json:"safeProbability,omitempty"`
+	// The input tokens Jev reported for this part. Calls that fail report no usage, so this is 0 for them.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
 	// The reason the part failed or was not sent, redacted.
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
