@@ -148,7 +148,7 @@ When the registry has a newer version than the lock file, the plan shows it with
 
 ## Blocked versions
 
-A version that a Jev policy blocks is not installed. The registry returns it as not found, and the CLI also refuses to stage a blocked version if the download metadata marks it as blocked. The error lists the policy reasons. Jev scores are advisory and do not gate installs. They are shown during `apply` and `plan` and are not written to the lock file.
+A version that a Jev policy blocks is not installed. The registry returns it as not found, and the CLI also refuses to stage a blocked version if the download metadata marks it as blocked. The error lists the policy reasons. Jev scores are shown during `apply` and `plan` and are not written to the lock file.
 
 ## Example workflow
 

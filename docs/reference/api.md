@@ -873,6 +873,7 @@ The base64 encoded definition must be at most 1,000,000 bytes. This keeps the Co
 | `archiveSizeBytes` | `int64` | Compressed archive size in bytes stored in the backend. Set automatically by the version controller after a successful upload. Omitted until the archive has been synced. |
 | `readmeConfigMapRef` | `ReadmeConfigMapRef` | Reference to the ConfigMap holding this version's base64 encoded README content. Only populated for module `Version` resources when a README could be resolved from GitHub or the module archive. See [Module READMEs](../guides/operations.md#module-readmes). |
 | `definitionConfigMapRef` | `DefinitionConfigMapRef` | Reference to the ConfigMap holding this version's base64 encoded definition file. Only populated for Skill and Agent `Version` resources. See [`DefinitionConfigMapRef`](#definitionconfigmapref). |
+| `jevAssessment` | `JevAssessment` | The Jev assessment of this Version. Only populated when Jev is enabled and the source sets `jevSecretRef`. See [JevAssessment fields](#jevassessment-fields). |
 
 ### ProviderStatus fields
 
@@ -955,6 +956,70 @@ For a branch Version, `version` is empty until the version controller assigns a 
 | `needsReview` | `bool` | Set when the confidence is below `minConfidence`. Informational only. |
 | `attempts` | `int` | The number of Jev attempts. |
 | `error` | `string` | The redacted error message, when a Jev call failed. |
+
+### JevPolicy fields
+
+`jevPolicy` is set on the same sources as `jevSecretRef`. Each threshold is optional. A threshold that is not set never blocks a Version. Each threshold is checked against every part of the content, and a breach in any part blocks the Version. See [Thresholds](../guides/agents.md#thresholds).
+
+| Field | Type | Description |
+|---|---|---|
+| `minSafeProbability` | `float64` | Blocks when the safe probability is below this value. |
+| `maxInjectionProbability` | `float64` | Blocks when the prompt injection probability is above this value. |
+| `maxExfiltrationProbability` | `float64` | Blocks when the data exfiltration probability is above this value. |
+| `maxDestructiveProbability` | `float64` | Blocks when the destructive action probability is above this value. |
+| `maxHiddenInstructionsProbability` | `float64` | Blocks when the hidden instructions probability is above this value. |
+| `maxScopeMismatchProbability` | `float64` | Blocks when the scope mismatch probability is above this value. |
+| `maxRemoteExecutionProbability` | `float64` | Blocks when the remote execution probability is above this value. |
+| `maxRiskScore` | `float64` | Blocks when the risk score is above this value. |
+| `minConfidence` | `float64` | Blocks when the risk confidence is below this value, and sets `needsReview`. |
+
+### JevAssessment fields
+
+`jevAssessment` is set on `VersionStatus`. It is combined from the scored parts. See [How content is split](../guides/agents.md#how-content-is-split).
+
+| Field | Type | Description |
+|---|---|---|
+| `evaluatedAt` | `string` | The time at which the assessment was evaluated. |
+| `model` | `string` | Optional. The Jev model that produced the assessment. |
+| `safeProbability` | `float64` | Optional. The lowest part value. |
+| `injectionProbability`, `exfiltrationProbability`, `destructiveProbability`, `hiddenInstructionsProbability`, `scopeMismatchProbability`, `remoteExecutionProbability` | `float64` | Optional. The highest part value for each probability. |
+| `riskScore` | `float64` | Optional. The highest part value. |
+| `riskLevel` | `string` | Optional. The worst part value. One of `Minimal`, `Low`, `Moderate`, `High`, or `Critical`. |
+| `riskConfidence` | `float64` | Optional. The lowest part value. |
+| `needsReview` | `bool` | Set when a part's risk confidence is below `minConfidence`. |
+| `blocked` | `bool` | Set when Jev blocks the Version. |
+| `blockReasons` | `[]string` | Optional. The reasons the Version is blocked. |
+| `error` | `string` | Optional. A redacted error that prevented the assessment from completing, or why it is incomplete. |
+| `chunkCount` | `int32` | Optional. The planned number of parts. Above 16, no Jev call is made and the Version is blocked. |
+| `assessedChunks` | `int32` | Optional. The number of part entries that Jev scored. At most 16. |
+| `chunks` | [`[]JevChunkResult`](#jevchunkresult-fields) | Optional. One entry per scored or attempted part. At most 16 entries. |
+| `skippedFiles` | [`[]JevSkippedFile`](#jevskippedfile-fields) | Optional. Files that Jev could not read. Any entry blocks the Version. At most 32 entries are listed. |
+| `skippedFileCount` | `int32` | Optional. The total number of skipped files. |
+| `retryCount` | `int32` | Optional. The number of counted failed attempts since the last ForceSync, which resets it to `0`. The count starts at `0` and rises by one for each counted failure. 401 and 403 failures are not counted. Automatic retries stop once it exceeds `jevMaxRetries`, which defaults to `3`. See [Retries](../guides/agents.md#retries). |
+
+### JevChunkResult fields
+
+Each entry describes one part of a Version's content.
+
+| Field | Type | Description |
+|---|---|---|
+| `index` | `int32` | The 1-based planned part number, from 1 to 16. A halved part keeps the index of the part it came from. |
+| `label` | `string` | The part index plus any halving suffix, such as `3`, `3a`, or `3ab`. At most 4 characters. |
+| `files` | `[]string` | Optional. The paths whose content, or part of it, is in this part. The entry file is in part 1. At most 32 entries. Each path is cut to 256 bytes at a rune boundary, with no suffix. |
+| `fileCount` | `int32` | The exact number of files in this part. |
+| `status` | `string` | `Scored`, `Failed`, `TokenLimitExceeded`, or `NotSent`. |
+| `riskLevel` | `string` | Optional. Set when the part is `Scored`. |
+| `riskScore` | `float64` | Optional. Set when the part is `Scored`. |
+| `riskConfidence` | `float64` | Optional. Set when the part is `Scored`. |
+| `safeProbability` | `float64` | Optional. Set when the part is `Scored`. |
+| `error` | `string` | Optional. The redacted reason the part failed or was not sent. Cut to 512 bytes. |
+
+### JevSkippedFile fields
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | `string` | The path of the skipped file. Cut to 256 bytes at a rune boundary, with no suffix. |
+| `reason` | `string` | `Withheld` for a file flagged for a secret, or `Binary` for a binary file. |
 
 ### GroupBinding
 
