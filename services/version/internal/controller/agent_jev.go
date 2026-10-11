@@ -43,6 +43,9 @@ const jevDisabledError = "jev is disabled on this controller"
 // assessed by Jev, no longer sets jevSecretRef.
 const jevRefRequiredError = "jevSecretRef is required for branch sources when Jev is enabled on the controller"
 
+// jevTruncatedError is recorded when the content exceeds the Jev state limit, so Jev did not see every bundled file.
+const jevTruncatedError = "jev state truncated: content exceeds the Jev state limit, so the assessment is incomplete"
+
 // jevFileListHeader separates the entry file from the bundled file list in the Jev state.
 const jevFileListHeader = "\n\nBundled files:\n"
 
@@ -110,9 +113,10 @@ func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
 
 // buildJevState returns the content sent to Jev: the entry file, the bundled file list, and the bodies of the
 // bundled text files. The whole state is truncated to the Jev limit at a UTF-8 boundary, and a marker records the
-// truncation so that dropped content is never mistaken for absent content. A flagged entry file is omitted so that
-// a detected secret is never sent, and a bundled file flagged for a secret is withheld the same way.
-func buildJevState(content *agentContent) string {
+// truncation so that dropped content is never mistaken for absent content. truncated reports whether any content
+// was dropped. A flagged entry file is omitted so that a detected secret is never sent, and a bundled file flagged
+// for a secret is withheld the same way.
+func buildJevState(content *agentContent) (state string, truncated bool) {
 	var b strings.Builder
 	if !content.entryFlagged {
 		b.Write(content.entryBytes)
@@ -125,9 +129,9 @@ func buildJevState(content *agentContent) string {
 
 	writeJevBundledBodies(&b, content)
 
-	state := b.String()
+	state = b.String()
 	if len(state) <= jev.MaxStateBytes {
-		return state
+		return state, false
 	}
 
 	marker := fmt.Sprintf("\n[truncated: content beyond the %d byte Jev state limit was omitted]\n", jev.MaxStateBytes)
@@ -136,7 +140,18 @@ func buildJevState(content *agentContent) string {
 		cut--
 	}
 
-	return state[:cut] + marker
+	return state[:cut] + marker, true
+}
+
+// jevPublishedStatus returns the SyncStatus of a Skill or Agent Version that is published. When Jev recorded an
+// error that no threshold gates, the error stays visible in SyncStatus and the message says why the Version was
+// published.
+func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment) string {
+	if jevAssessment == nil || jevAssessment.Error == "" {
+		return "Successfully synced version"
+	}
+
+	return fmt.Sprintf("Successfully synced version; Jev assessment did not complete: %s. Version was published because no Jev thresholds are set", jevAssessment.Error)
 }
 
 // writeJevBundledBodies appends the body of each bundled text file under a "--- <name> ---" delimiter. Binary
@@ -252,12 +267,17 @@ func (r *VersionReconciler) runAgentJev(
 		opts = append(opts, jev.WithEndpoint(r.JevEndpoint))
 	}
 
-	result, err := jev.NewClient(opts...).Assess(ctx, token, kind, buildJevState(content))
+	state, truncated := buildJevState(content)
+	result, err := jev.NewClient(opts...).Assess(ctx, token, kind, state)
 	if err != nil {
 		return jevFailure(err, gated)
 	}
 
 	reasons, needsReview := evaluateJevGate(sourceRef.JevPolicy, *result)
+	if truncated && len(reasons) == 0 {
+		// Jev saw only part of the content, so a pass does not cover the omitted files.
+		return jevFailure(errors.New(jevTruncatedError), gated)
+	}
 
 	return &opendepotv1alpha1.JevAssessment{
 		EvaluatedAt:                   time.Now().UTC().Format(time.RFC3339),

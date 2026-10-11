@@ -764,7 +764,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		currentVersion.Status.SyncStatus = "Successfully synced version"
+		currentVersion.Status.SyncStatus = jevPublishedStatus(agentJevAssessment)
 		if binaryScan != nil {
 			currentVersion.Status.BinaryScan = binaryScan
 		}

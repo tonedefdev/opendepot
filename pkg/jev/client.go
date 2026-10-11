@@ -22,9 +22,12 @@ const (
 	// Model is the model alias sent with every request.
 	Model = "jev-latest"
 
-	// MaxStateBytes is the largest state accepted for assessment. It is a byte guard, not Jev's limit: Jev limits
-	// input by tokens. Prose was accepted at about 128 KiB, while symbol-dense text was rejected at about 48 KiB.
-	MaxStateBytes = 64 << 10
+	// MaxStateBytes is the largest state sent for assessment. Jev limits input by tokens, not bytes. A live binary
+	// search over symbol-dense text, sent with the default questions, accepted 51968 bytes (33074 input tokens) and
+	// rejected 52224 bytes with HTTP 400 max_tokens_exceeded; the search resolution was 256 bytes. The limit is 43 KiB,
+	// 84.7% of the accepted size, a margin of about 15%. That margin is a guard. It was not measured against the
+	// 32k-token state-plus-question budget.
+	MaxStateBytes = 43 << 10
 
 	maxResponseBytes = 1 << 20
 	maxErrorBytes    = 256
