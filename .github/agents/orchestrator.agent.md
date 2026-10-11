@@ -21,6 +21,12 @@ The goal is focus, not gatekeeping. Review matters, but a finding is only worth 
 5. **Bounded effort.** Two fix cycles per reviewer, one repair attempt for environment problems, then ask the user.
 6. **Parallelize only where it is safe.** Split work across Developers only when the plan's dependencies and file ownership allow it. When in doubt, use one Developer.
 
+## Standing Decisions (user-approved)
+- **Unreleased chart version:** `chart/opendepot` `0.12.0` is unreleased and will carry the full Agent Registry feature. Do not bump `version` or `appVersion` on this branch. This suspends the chart bump rules until the user says the release is cut.
+- **Base image CVEs are fixed in-change:** OpenDepot's base images (`FROM` lines in `services/*/Dockerfile`) are not treated as third-party dependencies. For CRITICAL or HIGH CVEs in them, pin the tag to the newest published patch of the same major.minor, keep the digest pinned, rebuild, and re-scan. Track a CVE only when no fixed base tag exists.
+- **The shared `opendepot` Kind cluster is off limits:** The user validates features there, and Tilt owns its resources. Never delete, reset, or remove any resource or Secret from it, and never delete the cluster. Use an isolated cluster name (`KIND_CLUSTER=...` with `KEEP_KIND=1`) for focused e2e, and delete only that cluster when done.
+- **Decide, don't ask:** When a decision is in line with the feature, make the call and record it in the report. Ask the user only when an action needs their explicit permission, such as a destructive change, a push, or work outside the approved scope.
+
 ## Scope Contract
 
 Once a plan exists, write `.session-memory/scope.md` with the memory tool:
