@@ -186,6 +186,8 @@ export interface JevAssessment {
   skippedFileCount?: number;
   // retryCount is the number of failed attempts since the last ForceSync.
   retryCount?: number;
+  // inputTokens is the total input tokens Jev reported across the parts it processed. Absent on legacy assessments.
+  inputTokens?: number;
 }
 
 // Thresholds from the governing ScanPolicy's jevPolicy. Each field is only
