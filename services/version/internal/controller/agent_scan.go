@@ -61,6 +61,8 @@ type agentContent struct {
 	scripts string
 	// files lists every bundled file as a slash-separated path relative to the archive root.
 	files []string
+	// fileBodies holds the raw content of every bundled file except the entry file, keyed by its path in files.
+	fileBodies map[string][]byte
 }
 
 // agentEntryPath returns the path of the entry file for a Skill or Agent Version inside dir.
@@ -89,7 +91,7 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		return nil, err
 	}
 
-	content := &agentContent{entryName: filepath.Base(entryPath)}
+	content := &agentContent{entryName: filepath.Base(entryPath), fileBodies: make(map[string][]byte)}
 	entryBytes, err := os.ReadFile(entryPath)
 	if err != nil {
 		return nil, fmt.Errorf("read agent entry file %s: %w", content.entryName, err)
@@ -116,6 +118,12 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 	content.definition = parsed
 	content.parseErr = parseErr
 
+	entryRel, err := filepath.Rel(dir, entryPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve agent entry file: %w", err)
+	}
+
+	entryRel = filepath.ToSlash(entryRel)
 	var scripts strings.Builder
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -134,13 +142,17 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		rel = filepath.ToSlash(rel)
 		content.files = append(content.files, rel)
 
-		if _, ok := scriptExtensions[strings.ToLower(filepath.Ext(rel))]; !ok {
-			return nil
-		}
-
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+
+		if rel != entryRel {
+			content.fileBodies[rel] = data
+		}
+
+		if _, ok := scriptExtensions[strings.ToLower(filepath.Ext(rel))]; !ok {
+			return nil
 		}
 
 		scripts.WriteString(string(data))

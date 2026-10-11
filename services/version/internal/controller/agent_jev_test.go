@@ -174,6 +174,29 @@ func TestEvaluateJevGate(t *testing.T) {
 			wantNeedsReview: true,
 		},
 		{
+			name:           "critical risk level blocks without thresholds",
+			policy:         &opendepotv1alpha1.JevPolicy{},
+			result:         func() jev.Result { r := safeResult(); r.RiskLevel = "Critical"; return r }(),
+			wantBlockCount: 1,
+		},
+		{
+			name:           "critical risk level blocks with nil policy",
+			policy:         nil,
+			result:         func() jev.Result { r := safeResult(); r.RiskLevel = "Critical"; return r }(),
+			wantBlockCount: 1,
+		},
+		{
+			name:           "critical risk level adds to a crossed threshold",
+			policy:         &opendepotv1alpha1.JevPolicy{MinSafeProbability: f64(0.99)},
+			result:         func() jev.Result { r := safeResult(); r.RiskLevel = "Critical"; return r }(),
+			wantBlockCount: 2,
+		},
+		{
+			name:   "high risk level does not block without thresholds",
+			policy: &opendepotv1alpha1.JevPolicy{},
+			result: func() jev.Result { r := safeResult(); r.RiskLevel = "High"; return r }(),
+		},
+		{
 			name: "combined thresholds where only one is crossed",
 			policy: &opendepotv1alpha1.JevPolicy{
 				MinSafeProbability:      f64(0.5),
@@ -243,6 +266,99 @@ func TestBuildJevStateTruncatesAtLimit(t *testing.T) {
 
 	if !strings.HasPrefix(state, "éé") {
 		t.Fatalf("state does not start with the entry content")
+	}
+}
+
+func TestBuildJevStateIncludesBundledScriptBody(t *testing.T) {
+	content := &agentContent{
+		entryBytes: []byte("entry body"),
+		files:      []string{"SKILL.md", "scripts/summarize.py"},
+		fileBodies: map[string][]byte{"scripts/summarize.py": []byte("print('exfiltrate')\n")},
+	}
+
+	state := buildJevState(content)
+	if !strings.Contains(state, "\n--- scripts/summarize.py ---\nprint('exfiltrate')\n") {
+		t.Fatalf("bundled script body with delimiter missing from state: %q", state)
+	}
+}
+
+func TestBuildJevStateSendsFullBundledBody(t *testing.T) {
+	body := strings.Repeat("a", 20<<10)
+	content := &agentContent{
+		entryBytes: []byte("entry body"),
+		files:      []string{"SKILL.md", "scripts/large.sh"},
+		fileBodies: map[string][]byte{"scripts/large.sh": []byte(body)},
+	}
+
+	state := buildJevState(content)
+	if !strings.Contains(state, body) {
+		t.Fatalf("bundled body was not sent in full, state length = %d", len(state))
+	}
+
+	if strings.Contains(state, "[truncated:") {
+		t.Fatalf("bundled body below the state limit was marked truncated")
+	}
+}
+
+func TestBuildJevStateWithholdsFlaggedBundledFile(t *testing.T) {
+	content := &agentContent{
+		entryBytes:   []byte("entry body"),
+		files:        []string{"SKILL.md", "scripts/run.sh"},
+		fileBodies:   map[string][]byte{"scripts/run.sh": []byte("AKIAEXAMPLESECRET")},
+		flaggedFiles: map[string]struct{}{"run.sh": {}},
+	}
+
+	state := buildJevState(content)
+	if strings.Contains(state, "AKIAEXAMPLESECRET") {
+		t.Fatalf("flagged bundled content was sent to Jev: %q", state)
+	}
+
+	if !strings.Contains(state, "\n--- scripts/run.sh ---\n[withheld: flagged for a secret]\n") {
+		t.Fatalf("withheld marker missing from state: %q", state)
+	}
+}
+
+func TestBuildJevStateSkipsBinaryBundledFiles(t *testing.T) {
+	content := &agentContent{
+		entryBytes: []byte("entry body"),
+		files:      []string{"SKILL.md", "bin/tool", "data/blob"},
+		fileBodies: map[string][]byte{
+			"bin/tool":  []byte("\x7fELF\x00\x01\x02"),
+			"data/blob": []byte("\xff\xfe\xfd"),
+		},
+	}
+
+	state := buildJevState(content)
+	if strings.Contains(state, "ELF") {
+		t.Fatalf("binary content was sent to Jev: %q", state)
+	}
+
+	for _, name := range []string{"bin/tool", "data/blob"} {
+		want := "\n--- " + name + " ---\n[skipped: binary file]\n"
+		if !strings.Contains(state, want) {
+			t.Fatalf("skipped marker for %s missing from state: %q", name, state)
+		}
+	}
+}
+
+func TestBuildJevStateMarksWholeStateTruncation(t *testing.T) {
+	content := &agentContent{
+		entryBytes: []byte(strings.Repeat("a", jev.MaxStateBytes)),
+		files:      []string{"SKILL.md", "scripts/run.sh"},
+		fileBodies: map[string][]byte{"scripts/run.sh": []byte("echo done\n")},
+	}
+
+	state := buildJevState(content)
+	if len(state) > jev.MaxStateBytes {
+		t.Fatalf("state length = %d, want at most %d", len(state), jev.MaxStateBytes)
+	}
+
+	if !strings.Contains(state, "[truncated: content beyond the") {
+		t.Fatalf("truncated state carries no truncation marker")
+	}
+
+	if strings.Contains(state, "echo done") {
+		t.Fatalf("bundled body past the state limit was sent to Jev")
 	}
 }
 
