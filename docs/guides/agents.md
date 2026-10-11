@@ -223,7 +223,7 @@ The gate follows three rules:
 
 - **Unset means no block.** A threshold that is not set never blocks a Version. A policy with no thresholds makes the assessment advisory.
 - **Confidence never blocks.** `minConfidence` only sets `needsReview`.
-- **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. If no thresholds are set, the failure is recorded in `status.jevAssessment.error` and the Version can still sync.
+- **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. A truncated state is an incomplete assessment, so with thresholds set it blocks the same way. If no thresholds are set, a Jev failure does not block. The failure is recorded in `status.jevAssessment.error`, the Version still syncs, and the `syncStatus` message names the error. Leaving all thresholds unset is the opt-out from fail-closed behavior. A `RiskLevel` of `Critical` always blocks, regardless of thresholds.
 
 Assessments are cached in `status.jevAssessment`. Set `forceSync: true` on the Skill or Agent to run a new assessment.
 
@@ -241,7 +241,7 @@ For the Safe row, a value above 0.75 is green, and a value of 0.50 or lower is r
 
 ## Version bump classification
 
-In branch mode, the version controller chooses the semver bump for each new commit. The deterministic checks and Trivy scans run first. Jev runs only after they pass.
+In branch mode, the version controller chooses the semver bump for each new commit. The deterministic checks and Trivy scans run first. Jev runs only after they pass. The 43 KiB state cap also applies to bump classification, so a long diff can be truncated before Jev sees it.
 
 - **A flagged entry file means MAJOR.** When the entry file is flagged, the bump is MAJOR with source `Withheld`, and Jev is not called. A flagged file that is not the entry file is shown as `<path> (content withheld)`.
 - **Thresholds set the bump.** The Jev probabilities are compared against `branchPolicy`:
@@ -275,8 +275,8 @@ The Version stays unsynced until the definition changes.
 
 When Jev is enabled and a source sets a `jevPolicy` with a `jevSecretRef`, the controller sends a single request to the Jev endpoint with this content:
 
-- **Sent:** the entry file (`SKILL.md` or the agent `.md` file) and the list of file names bundled with the Version. The state is capped at 64 KiB.
-- **Not sent:** scripts and bundled file contents. Only file names are included in the list.
+- **Sent:** the entry file (`SKILL.md` or the agent `.md` file) and the list of file names bundled with the Version. The state is capped at 43 KiB (44,032 bytes). If the cap is reached, the state is cut and ends with a `[truncated: ...]` marker that says content beyond the limit was omitted.
+- **Not sent:** binary files, which are replaced by `[skipped: binary file]`. Scripts and bundled text files are sent, each under a `--- <path> ---` delimiter.
 - **Withheld:** if the Trivy secret scanner flags the entry file, its content is omitted from the request so that a detected secret is never sent.
 - **Never sent:** the Jev token. The token is only used as the request credential and is never logged or written to a resource.
 
