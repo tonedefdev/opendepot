@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path"
@@ -45,6 +46,10 @@ const (
 	bumpBaseBackoff = time.Minute
 	// bumpMaxBackoff caps the delay between classification attempts.
 	bumpMaxBackoff = 15 * time.Minute
+	// bumpReadBuffer is the fixed size of each stream read when bump files are compared, scanned or diffed.
+	bumpReadBuffer = 32 << 10
+	// bumpStateMarker ends a bump state that was cut to fit jev.MaxStateBytes.
+	bumpStateMarker = "\n[bump state truncated to fit the Jev state limit]\n"
 )
 
 // branchJevEnabled reports whether the semver bump of a branch Version is classified by Jev. Without Jev the bump is PATCH.
@@ -230,6 +235,7 @@ func (r *VersionReconciler) classifyPreparedBump(
 		opts = append(opts, jev.WithEndpoint(r.JevEndpoint))
 	}
 
+	opts = append(opts, jev.WithAttemptGate(jevAttemptGate(r.jevSem, r.jevLimiter)))
 	result, err := jev.NewClient(opts...).ClassifyBump(ctx, token, strings.ToLower(version.Spec.Type), state)
 	if err != nil {
 		return "", fmt.Errorf("jev bump classification: %w", err)
@@ -292,24 +298,18 @@ func buildBumpState(
 
 	var added, removed, modified []string
 	var diffs strings.Builder
+	truncated := false
 	for _, name := range names {
 		_, inPrevious := previousFiles[name]
 		_, inNext := nextFiles[name]
 
-		var before, after []byte
-		var err error
+		var previousPath, nextPath string
 		if inPrevious {
-			before, err = os.ReadFile(filepath.Join(previousDir, filepath.FromSlash(name)))
-			if err != nil {
-				return "", fmt.Errorf("read previous file %s: %w", name, err)
-			}
+			previousPath = filepath.Join(previousDir, filepath.FromSlash(name))
 		}
 
 		if inNext {
-			after, err = os.ReadFile(filepath.Join(nextDir, filepath.FromSlash(name)))
-			if err != nil {
-				return "", fmt.Errorf("read file %s: %w", name, err)
-			}
+			nextPath = filepath.Join(nextDir, filepath.FromSlash(name))
 		}
 
 		switch {
@@ -317,9 +317,16 @@ func buildBumpState(
 			added = append(added, name)
 		case !inNext:
 			removed = append(removed, name)
-		case bytes.Equal(before, after):
-			continue
 		default:
+			equal, err := filesEqual(previousPath, nextPath)
+			if err != nil {
+				return "", fmt.Errorf("compare file %s: %w", name, err)
+			}
+
+			if equal {
+				continue
+			}
+
 			modified = append(modified, name)
 		}
 
@@ -328,11 +335,18 @@ func buildBumpState(
 			continue
 		}
 
-		diff, err := unifiedFileDiff(name, before, after)
+		window := jev.MaxStateBytes - len(bumpStateMarker) - b.Len() - diffs.Len()
+		if window <= 0 {
+			truncated = true
+			continue
+		}
+
+		diff, cut, err := unifiedFileDiff(name, previousPath, nextPath, window)
 		if err != nil {
 			return "", err
 		}
 
+		truncated = truncated || cut
 		diffs.WriteString(diff)
 	}
 
@@ -341,13 +355,31 @@ func buildBumpState(
 	fmt.Fprintf(&b, "Files modified (%d): %s\n\n", len(modified), listOrNone(modified))
 	b.WriteString("Diff:\n")
 	b.WriteString(diffs.String())
-	return truncateUTF8(b.String(), jev.MaxStateBytes), nil
+	return boundBumpState(b.String(), truncated), nil
 }
 
-// unifiedFileDiff returns the unified diff of one file. A binary file is described without its content.
-func unifiedFileDiff(name string, before, after []byte) (string, error) {
-	if bytes.IndexByte(before, 0) >= 0 || bytes.IndexByte(after, 0) >= 0 {
-		return fmt.Sprintf("Binary file %s differs; content omitted\n\n", name), nil
+// unifiedFileDiff returns the unified diff of one file, reading at most window bytes of each side. It reports whether a
+// side was cut at the window. A binary file is described without its content. An empty path is an absent file.
+func unifiedFileDiff(name, previousPath, nextPath string, window int) (string, bool, error) {
+	for _, filePath := range []string{previousPath, nextPath} {
+		binary, err := fileIsBinary(filePath)
+		if err != nil {
+			return "", false, fmt.Errorf("read file %s: %w", name, err)
+		}
+
+		if binary {
+			return fmt.Sprintf("Binary file %s differs; content omitted\n\n", name), false, nil
+		}
+	}
+
+	before, beforeCut, err := readWindow(previousPath, window)
+	if err != nil {
+		return "", false, fmt.Errorf("read file %s: %w", name, err)
+	}
+
+	after, afterCut, err := readWindow(nextPath, window)
+	if err != nil {
+		return "", false, fmt.Errorf("read file %s: %w", name, err)
 	}
 
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
@@ -358,10 +390,161 @@ func unifiedFileDiff(name string, before, after []byte) (string, error) {
 		Context:  3,
 	})
 	if err != nil {
-		return "", fmt.Errorf("diff file %s: %w", name, err)
+		return "", false, fmt.Errorf("diff file %s: %w", name, err)
 	}
 
-	return diff + "\n", nil
+	return diff + "\n", beforeCut || afterCut, nil
+}
+
+// filesEqual streams two files side by side through fixed-size buffers and reports whether they hold the same bytes.
+func filesEqual(previousPath, nextPath string) (bool, error) {
+	previous, err := os.Open(previousPath)
+	if err != nil {
+		return false, err
+	}
+	defer previous.Close()
+
+	next, err := os.Open(nextPath)
+	if err != nil {
+		return false, err
+	}
+	defer next.Close()
+
+	previousBuf := make([]byte, bumpReadBuffer)
+	nextBuf := make([]byte, bumpReadBuffer)
+	for {
+		previousN, previousErr := io.ReadFull(previous, previousBuf)
+		nextN, nextErr := io.ReadFull(next, nextBuf)
+		if previousN != nextN || !bytes.Equal(previousBuf[:previousN], nextBuf[:nextN]) {
+			return false, nil
+		}
+
+		previousEnded, err := streamEnded(previousErr)
+		if err != nil {
+			return false, err
+		}
+
+		nextEnded, err := streamEnded(nextErr)
+		if err != nil {
+			return false, err
+		}
+
+		if previousEnded || nextEnded {
+			return previousEnded && nextEnded, nil
+		}
+	}
+}
+
+// fileIsBinary streams a file through a fixed-size buffer and reports whether it holds a NUL byte or invalid UTF-8.
+// An empty path is an absent file.
+func fileIsBinary(filePath string) (bool, error) {
+	if filePath == "" {
+		return false, nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, bumpReadBuffer)
+	carry := 0
+	for {
+		n, readErr := io.ReadFull(file, buf[carry:])
+		chunk := buf[:carry+n]
+		if bytes.IndexByte(chunk, 0) >= 0 {
+			return true, nil
+		}
+
+		ended, err := streamEnded(readErr)
+		if err != nil {
+			return false, err
+		}
+
+		tail := 0
+		if !ended {
+			tail = incompleteRuneTail(chunk)
+		}
+
+		if !utf8.Valid(chunk[:len(chunk)-tail]) {
+			return true, nil
+		}
+
+		if ended {
+			return false, nil
+		}
+
+		carry = copy(buf, chunk[len(chunk)-tail:])
+	}
+}
+
+// readWindow reads at most limit bytes of the file and reports whether the file holds more. An empty path is an
+// absent file. A rune cut by the window is dropped, so the diff text stays valid UTF-8.
+func readWindow(filePath string, limit int) ([]byte, bool, error) {
+	if filePath == "" {
+		return nil, false, nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, limit+1)
+	n, err := io.ReadFull(file, buf)
+	if _, streamErr := streamEnded(err); streamErr != nil {
+		return nil, false, streamErr
+	}
+
+	if n <= limit {
+		return buf[:n], false, nil
+	}
+
+	window := buf[:limit]
+	return window[:limit-incompleteRuneTail(window)], true, nil
+}
+
+// streamEnded reports whether a read error only marks the end of the stream. Any other error is returned.
+func streamEnded(err error) (bool, error) {
+	switch {
+	case err == nil:
+		return false, nil
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+// incompleteRuneTail returns how many bytes at the end of p start a UTF-8 rune that the next read may complete.
+func incompleteRuneTail(p []byte) int {
+	for i := 1; i < utf8.UTFMax && i <= len(p); i++ {
+		b := p[len(p)-i]
+		switch {
+		case b&0xC0 == 0x80:
+			continue
+		case b < 0xC0:
+			return 0
+		case b >= 0xF0 && i < 4, b >= 0xE0 && i < 3, b >= 0xC0 && i < 2:
+			return i
+		default:
+			return 0
+		}
+	}
+
+	return 0
+}
+
+// boundBumpState keeps the bump state within jev.MaxStateBytes, cutting it at a rune boundary when it is too long.
+// A cut state ends with bumpStateMarker.
+func boundBumpState(state string, truncated bool) string {
+	if !truncated && len(state) <= jev.MaxStateBytes {
+		return state
+	}
+
+	return truncateUTF8(state, jev.MaxStateBytes-len(bumpStateMarker)) + bumpStateMarker
 }
 
 // missingItems returns the sorted, unique items of list that are not in other.
