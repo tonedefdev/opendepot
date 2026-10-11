@@ -20,7 +20,7 @@ import (
 var builtinRules []byte
 
 // AgentRuleEnv is the environment each rule expression is compiled and evaluated against.
-// Rules run against the full extracted content of the Skill or Agent, not the truncated Jev state.
+// Rules see all content, the body and every script segment, not the truncated Jev state.
 type AgentRuleEnv struct {
 	Name           string
 	Description    string
@@ -29,6 +29,13 @@ type AgentRuleEnv struct {
 	Scripts        string
 	Domains        []string
 	AllowedDomains []string
+}
+
+// ScriptSegment is one piece of a script file, streamed for evaluation. CutMidLine reports that the segment ends
+// inside a line, so a URL that touches its end may continue in the next segment.
+type ScriptSegment struct {
+	Text       string
+	CutMidLine bool
 }
 
 type ruleSpec struct {
@@ -129,6 +136,89 @@ func (s *RuleSet) Evaluate(env AgentRuleEnv) ([]opendepotv1alpha1.SecurityFindin
 	}
 
 	return findings, nil
+}
+
+// EvaluateSegments runs every rule against env once, then once per script segment with Scripts set to that segment.
+// env.Scripts and env.Domains are set by this method: Domains is the union of the body's domains and the segments'
+// domains, so the domain rule sees every URL. A rule that fires in any run produces one finding, in rules.yaml order.
+func (s *RuleSet) EvaluateSegments(env AgentRuleEnv, segments []ScriptSegment) ([]opendepotv1alpha1.SecurityFinding, error) {
+	env.Scripts = ""
+	env.Domains = SegmentDomains(env.Body, segments)
+
+	fired := make(map[string]struct{}, len(s.rules))
+	if err := s.markFired(env, fired); err != nil {
+		return nil, err
+	}
+
+	for _, segment := range segments {
+		segmentEnv := env
+		segmentEnv.Scripts = segment.Text
+		if err := s.markFired(segmentEnv, fired); err != nil {
+			return nil, err
+		}
+	}
+
+	findings := make([]opendepotv1alpha1.SecurityFinding, 0, len(fired))
+	for _, rule := range s.rules {
+		if _, ok := fired[rule.ID]; ok {
+			findings = append(findings, opendepotv1alpha1.SecurityFinding{
+				VulnerabilityID: rule.ID,
+				Severity:        rule.Severity,
+				Title:           rule.Title,
+			})
+		}
+	}
+
+	return findings, nil
+}
+
+func (s *RuleSet) markFired(env AgentRuleEnv, fired map[string]struct{}) error {
+	for _, rule := range s.rules {
+		out, err := expr.Run(rule.program, env)
+		if err != nil {
+			return fmt.Errorf("agents: rule %q: %w", rule.ID, err)
+		}
+
+		if hit, isBool := out.(bool); isBool && hit {
+			fired[rule.ID] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+// SegmentDomains returns the deduplicated normalized hosts of the URLs in body and in every segment, in first-seen
+// order. A URL that touches the end of a segment cut mid-line is skipped, because the next segment's overlap contains
+// it whole. Otherwise its host would be truncated.
+func SegmentDomains(body string, segments []ScriptSegment) []string {
+	seen := make(map[string]struct{})
+	domains := make([]string, 0)
+	add := func(host string) {
+		if _, ok := seen[host]; ok {
+			return
+		}
+
+		seen[host] = struct{}{}
+		domains = append(domains, host)
+	}
+
+	for _, host := range ExtractDomains(body) {
+		add(host)
+	}
+
+	for _, segment := range segments {
+		for _, loc := range domainPattern.FindAllStringIndex(segment.Text, -1) {
+			if segment.CutMidLine && loc[1] == len(segment.Text) {
+				continue
+			}
+
+			if host := NormalizeDomain(segment.Text[loc[0]:loc[1]]); host != "" {
+				add(host)
+			}
+		}
+	}
+
+	return domains
 }
 
 // ExtractDomains returns the normalized host of every http or https URL found in text. Hosts are

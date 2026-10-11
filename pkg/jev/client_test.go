@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -511,5 +512,168 @@ func TestBumpQuestions(t *testing.T) {
 		if q[id].Type != "noul" {
 			t.Errorf("%s type = %q, want noul", id, q[id].Type)
 		}
+	}
+}
+
+func TestIsTokenLimitExceeded(t *testing.T) {
+	tokenLimit := &APIError{StatusCode: http.StatusBadRequest, Message: "max_tokens_exceeded: 33074 tokens"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "400 token limit", err: tokenLimit, want: true},
+		{name: "400 token limit wrapped", err: fmt.Errorf("part 2: %w", tokenLimit), want: true},
+		{name: "400 other message", err: &APIError{StatusCode: http.StatusBadRequest, Message: "bad request"}},
+		{name: "429 with token limit text", err: &APIError{StatusCode: http.StatusTooManyRequests, Message: "max_tokens_exceeded"}},
+		{name: "500 with token limit text", err: &APIError{StatusCode: http.StatusInternalServerError, Message: "max_tokens_exceeded"}},
+		{name: "wrapped non-API error", err: fmt.Errorf("jev: request failed: max_tokens_exceeded")},
+		{name: "nil", err: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsTokenLimitExceeded(tt.err); got != tt.want {
+				t.Errorf("IsTokenLimitExceeded() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsTokenLimitExceededFromResponseRedactsToken(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, "max_tokens_exceeded for "+r.Header.Get("Authorization"))
+	})
+
+	_, err := c.Assess(context.Background(), sentinelToken, "skill", "state")
+	if !IsTokenLimitExceeded(err) {
+		t.Fatalf("Assess() error = %v, want token limit error", err)
+	}
+
+	assertNoToken(t, err)
+}
+
+func TestAttemptGateWrapsEachAttempt(t *testing.T) {
+	fixture := loadFixture(t, "response_ok.json")
+
+	t.Run("429 retry is gated", func(t *testing.T) {
+		var held, acquired, calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if held.Load() != 1 {
+				t.Errorf("attempt sent with %d slots held, want 1", held.Load())
+			}
+
+			if calls.Add(1) == 1 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+
+			_, _ = w.Write(fixture)
+		}))
+		t.Cleanup(srv.Close)
+
+		c := NewClient(WithEndpoint(srv.URL), WithAttemptGate(func(context.Context) (func(), error) {
+			acquired.Add(1)
+			held.Add(1)
+
+			return func() { held.Add(-1) }, nil
+		}))
+		c.baseDelay = time.Millisecond
+
+		if _, err := c.Assess(context.Background(), sentinelToken, "skill", "state"); err != nil {
+			t.Fatalf("Assess() error = %v", err)
+		}
+
+		if n := acquired.Load(); n != 2 {
+			t.Errorf("gate calls = %d, want 2", n)
+		}
+
+		if n := held.Load(); n != 0 {
+			t.Errorf("slots held after Assess() = %d, want 0", n)
+		}
+	})
+
+	t.Run("gives up after the retry limit", func(t *testing.T) {
+		var held, acquired atomic.Int32
+		c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		})
+		c.gate = func(context.Context) (func(), error) {
+			acquired.Add(1)
+			held.Add(1)
+
+			return func() { held.Add(-1) }, nil
+		}
+
+		if _, err := c.Assess(context.Background(), sentinelToken, "skill", "state"); err == nil {
+			t.Fatal("Assess() error = nil, want APIError 429")
+		}
+
+		if n := acquired.Load(); n != maxRetries+1 {
+			t.Errorf("gate calls = %d, want %d", n, maxRetries+1)
+		}
+
+		if n := held.Load(); n != 0 {
+			t.Errorf("slots held after Assess() = %d, want 0", n)
+		}
+	})
+}
+
+func TestAttemptGateReleasesBeforeBackoff(t *testing.T) {
+	var held, acquired atomic.Int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	c.baseDelay = time.Hour
+	c.gate = func(context.Context) (func(), error) {
+		acquired.Add(1)
+		held.Add(1)
+
+		return func() { held.Add(-1) }, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The backoff sleep is an hour, so the release can only be observed if it ran before the sleep.
+	go func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for (acquired.Load() != 1 || held.Load() != 0) && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+
+		cancel()
+	}()
+
+	_, err := c.Assess(ctx, sentinelToken, "skill", "state")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Assess() error = %v, want context.Canceled", err)
+	}
+
+	if acquired.Load() != 1 || held.Load() != 0 {
+		t.Errorf("gate acquired %d times with %d held during backoff, want 1 and 0", acquired.Load(), held.Load())
+	}
+}
+
+func TestAttemptGateErrorSendsNoRequest(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(WithEndpoint(srv.URL), WithAttemptGate(func(context.Context) (func(), error) {
+		return nil, errors.New("slot unavailable")
+	}))
+
+	_, err := c.Assess(context.Background(), sentinelToken, "skill", "state")
+	if err == nil || !strings.Contains(err.Error(), "slot unavailable") {
+		t.Fatalf("Assess() error = %v, want gate error", err)
+	}
+
+	if n := calls.Load(); n != 0 {
+		t.Errorf("calls = %d, want 0", n)
 	}
 }
