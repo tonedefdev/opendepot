@@ -19,11 +19,13 @@ package e2e
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -100,6 +102,46 @@ func assertDefinitionRef(versionCRName, wantFileName string) {
 	readmeOut, err := utils.Run(readmeCmd)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(strings.TrimSpace(readmeOut)).To(BeEmpty(), "Version has a stale README ConfigMap")
+}
+
+// jevAssessmentStatus is the subset of Version.status.jevAssessment that assertJevChunks reads.
+type jevAssessmentStatus struct {
+	ChunkCount     int32  `json:"chunkCount"`
+	AssessedChunks int32  `json:"assessedChunks"`
+	RetryCount     int32  `json:"retryCount"`
+	Error          string `json:"error"`
+	Chunks         []struct {
+		Label  string `json:"label"`
+		Status string `json:"status"`
+	} `json:"chunks"`
+	SkippedFiles []json.RawMessage `json:"skippedFiles"`
+}
+
+// jevLabelPattern matches a Jev chunk label: a part index from 1 to 16, with up to two halving suffixes.
+var jevLabelPattern = regexp.MustCompile(`^([1-9]|1[0-6])[ab]{0,2}$`)
+
+// assertJevChunks checks the chunked Jev result of a Skill or Agent Version. At least minChunks parts
+// were planned, every part was scored with a valid label, no content was skipped, and the first
+// assessment was not retried.
+func assertJevChunks(versionCRName string, minChunks int32) {
+	cmd := exec.Command("kubectl", "get", "version", versionCRName,
+		"-n", namespace,
+		"-o", "jsonpath={.status.jevAssessment}",
+	)
+	out, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+
+	var jev jevAssessmentStatus
+	Expect(json.Unmarshal([]byte(out), &jev)).To(Succeed(), "jevAssessment is not valid JSON")
+	Expect(jev.ChunkCount).To(BeNumerically(">=", minChunks), "jevAssessment chunkCount is too small")
+	Expect(jev.AssessedChunks).To(Equal(int32(len(jev.Chunks))), "jevAssessment assessedChunks does not match chunks")
+	for _, chunk := range jev.Chunks {
+		Expect(chunk.Status).To(Equal("Scored"), "chunk %s was not scored", chunk.Label)
+		Expect(jevLabelPattern.MatchString(chunk.Label)).To(BeTrue(), "chunk label %q is invalid", chunk.Label)
+	}
+	Expect(jev.SkippedFiles).To(BeEmpty(), "jevAssessment skipped content")
+	Expect(jev.Error).To(BeEmpty(), "jevAssessment recorded an error")
+	Expect(jev.RetryCount).To(BeZero(), "jevAssessment was retried on its first assessment")
 }
 
 var _ = Describe("Skill", Ordered, func() {
@@ -269,6 +311,7 @@ spec:
 		Expect(jevErrorErr).NotTo(HaveOccurred())
 		jevError := strings.TrimSpace(jevErrorOut)
 		Expect(jevError).To(BeEmpty(), "jevAssessment recorded an error")
+		assertJevChunks(skillVersionCRName, 1)
 	})
 
 	It("serves the version list over agents.v1", func() {
@@ -481,6 +524,9 @@ spec:
 		Expect(jevErrorErr).NotTo(HaveOccurred())
 		jevError := strings.TrimSpace(jevErrorOut)
 		Expect(jevError).To(BeEmpty(), "jevAssessment recorded an error")
+		// The .github/agents fixture totals 45,329 bytes at v0.9.0, over the 41,984-byte single-call limit,
+		// so the assessment must split into at least two parts.
+		assertJevChunks(agentVersionCRName, 2)
 	})
 
 	It("serves the version list over agents.v1", func() {
