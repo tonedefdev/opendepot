@@ -135,6 +135,31 @@ export interface AgentMetadata {
 
 export type JevRiskLevel = "Minimal" | "Low" | "Moderate" | "High" | "Critical";
 
+export type JevChunkStatus = "Scored" | "Failed" | "TokenLimitExceeded" | "NotSent";
+
+export type JevSkipReason = "Withheld" | "Binary";
+
+// JevChunkResult is one planned Jev part. Label is the part index plus any halving suffix (3, 3a, 3ab).
+// FileCount is exact; Files may be cut to 32 entries.
+export interface JevChunkResult {
+  index: number;
+  label: string;
+  files?: string[];
+  fileCount: number;
+  status: JevChunkStatus;
+  riskLevel?: JevRiskLevel;
+  riskScore?: number;
+  riskConfidence?: number;
+  safeProbability?: number;
+  error?: string;
+}
+
+// JevSkippedFile is a file Jev could not read. Any skipped file blocks the Version.
+export interface JevSkippedFile {
+  path: string;
+  reason: JevSkipReason;
+}
+
 export interface JevAssessment {
   evaluatedAt: string;
   model?: string;
@@ -152,6 +177,15 @@ export interface JevAssessment {
   blocked: boolean;
   blockReasons?: string[];
   error?: string;
+  // The fields below are absent on legacy assessments.
+  // chunkCount is exact when it is at most 16. Above 16 it is a lower bound, and no Jev call was made.
+  chunkCount?: number;
+  assessedChunks?: number;
+  chunks?: JevChunkResult[];
+  skippedFiles?: JevSkippedFile[];
+  skippedFileCount?: number;
+  // retryCount is the number of failed attempts since the last ForceSync.
+  retryCount?: number;
 }
 
 // Thresholds from the governing ScanPolicy's jevPolicy. Each field is only
