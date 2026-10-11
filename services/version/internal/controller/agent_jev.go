@@ -57,6 +57,9 @@ const (
 // jevPartDeadline bounds the time spent sending the parts of one Version.
 const jevPartDeadline = 5 * time.Minute
 
+// jevRetryRequeue is how long a Version waits before its failed Jev assessment is re-run (D11).
+const jevRetryRequeue = 15 * time.Second
+
 // jevPartOutcome is the result of one part sent to Jev, or of one half of a part that was split after a token limit.
 type jevPartOutcome struct {
 	result  jevPartResult
