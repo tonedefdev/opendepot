@@ -125,6 +125,13 @@ describe("JevChunkTree", () => {
     expect(screen.getByText("docs/file-00.md")).not.toBeNull();
   });
 
+  it("renders an icon in each view toggle", () => {
+    renderTree();
+
+    expect(within(screen.getByRole("button", { name: "Files" })).getByTestId("FolderOutlinedIcon")).not.toBeNull();
+    expect(within(screen.getByRole("button", { name: "Chunks" })).getByTestId("ViewStreamOutlinedIcon")).not.toBeNull();
+  });
+
   it("switches to one row per part with status, level, score, safe and confidence", () => {
     renderTree();
     fireEvent.click(screen.getByRole("button", { name: "Chunks" }));

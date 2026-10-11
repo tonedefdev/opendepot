@@ -11,6 +11,8 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
+import ViewStreamOutlinedIcon from "@mui/icons-material/ViewStreamOutlined";
 import type { JevAssessment, JevChunkResult, JevChunkStatus, JevSkipReason, JevSkippedFile } from "@/lib/api";
 import {
   buildJevChunkTree,
@@ -71,8 +73,14 @@ export default function JevChunkTree({ assessment }: JevChunkTreeProps) {
             if (next !== null) setView(next);
           }}
         >
-          <ToggleButton value="files">Files</ToggleButton>
-          <ToggleButton value="chunks">Chunks</ToggleButton>
+          <ToggleButton value="files">
+            <FolderOutlinedIcon fontSize="inherit" />
+            Files
+          </ToggleButton>
+          <ToggleButton value="chunks">
+            <ViewStreamOutlinedIcon fontSize="inherit" />
+            Chunks
+          </ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
