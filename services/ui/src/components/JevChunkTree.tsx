@@ -4,14 +4,17 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
+import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import type { JevAssessment, JevChunkResult, JevChunkStatus, JevSkipReason, JevSkippedFile } from "@/lib/api";
 import {
@@ -35,6 +38,11 @@ const TOGGLE_ICON_SX = { fontSize: "1rem", mr: 0.75, verticalAlign: "text-bottom
 
 // One level of nesting is a chevron (20px) plus the row gap (8px), so a child's chevron sits under its parent's name.
 const TREE_INDENT = 3.5;
+
+const VIEW_INFO: Record<TreeView, string> = {
+  files: "Files groups every file Jev read by directory. Each file shows the risk level Jev assigned it, and skipped files show why they were not read.",
+  chunks: "Chunks lists each part sent to Jev in the order it was sent, with its status. Expand a part to see the files it contains. Skipped files are listed at the end.",
+};
 
 const SKIP_REASON_TEXT: Record<JevSkipReason, string> = {
   Withheld: "Withheld by scan",
@@ -68,7 +76,14 @@ export default function JevChunkTree({ assessment }: JevChunkTreeProps) {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
       <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-        <Typography variant="body2">Assessed content</Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <Typography variant="body2">Assessed content</Typography>
+          <Tooltip title={VIEW_INFO[view]}>
+            <IconButton size="small" aria-label={`About ${view} view`}>
+              <InfoOutlinedIcon sx={{ fontSize: "1rem" }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
         <ToggleButtonGroup
           size="small"
           exclusive
