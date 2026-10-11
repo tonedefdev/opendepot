@@ -508,8 +508,7 @@ type JevPolicy struct {
 	MaxRemoteExecutionProbability *float64 `json:"maxRemoteExecutionProbability,omitempty"`
 	// The maximum risk score. A Version is blocked when its risk score is above this value.
 	MaxRiskScore *float64 `json:"maxRiskScore,omitempty"`
-	// The minimum risk confidence. A Version whose risk confidence is below this value is flagged
-	// for review but is never blocked.
+	// A Version is blocked and flagged for review when any part's risk confidence is below this value.
 	MinConfidence *float64 `json:"minConfidence,omitempty"`
 }
 
@@ -709,14 +708,94 @@ type JevAssessment struct {
 	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
 	// Whether the assessment requires a manual review.
 	NeedsReview bool `json:"needsReview"`
-	// Whether a configured JevPolicy threshold blocks the Version.
+	// Whether Jev blocks the Version: a threshold, a Critical risk level, a part below minConfidence,
+	// content Jev could not read, Jev disabled on the controller, or an assessment that could not complete.
 	Blocked bool `json:"blocked"`
 	// The JevPolicy thresholds that were crossed when the Version is blocked.
 	// +optional
 	BlockReasons []string `json:"blockReasons,omitempty"`
-	// A redacted description of the error that prevented the assessment from completing.
+	// A redacted description of the error that prevented the assessment from completing, or why the
+	// assessment is incomplete.
 	// +optional
 	Error string `json:"error,omitempty"`
+	// The planned number of parts. It is exact when it is at most 16. Above 16 it is a lower bound,
+	// and no Jev call was made.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ChunkCount int32 `json:"chunkCount,omitempty"`
+	// The number of part entries Jev scored.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	AssessedChunks int32 `json:"assessedChunks,omitempty"`
+	// One entry per scored or attempted part, sorted by label.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Chunks []JevChunkResult `json:"chunks,omitempty"`
+	// Files that Jev could not read. Any entry here blocks the Version.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	SkippedFiles []JevSkippedFile `json:"skippedFiles,omitempty"`
+	// The total number of skipped files. SkippedFiles holds at most 32 of them.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SkippedFileCount int32 `json:"skippedFileCount,omitempty"`
+	// The number of failed attempts since the last ForceSync, which resets it to 0. 401 and 403 failures
+	// do not count. The first attempt is attempt 0, and this is 1 after the first failure. Automatic
+	// retries stop once it exceeds jevMaxRetries (default 3, so attempts 0 to 3).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount int32 `json:"retryCount,omitempty"`
+}
+
+// JevChunkResult holds the Jev result for one planned part of a Version's content.
+type JevChunkResult struct {
+	// The 1-based planned part.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=16
+	Index int32 `json:"index"`
+	// The part index plus any halving suffix, for example 3, 3a or 3ab.
+	// +kubebuilder:validation:Pattern="^([1-9]|1[0-6])[ab]{0,2}$"
+	// +kubebuilder:validation:MaxLength=4
+	Label string `json:"label"`
+	// The paths whose content, or part of it, is in this part, entry file included.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=256
+	Files []string `json:"files,omitempty"`
+	// The exact number of files in this part.
+	// +kubebuilder:validation:Minimum=0
+	FileCount int32 `json:"fileCount"`
+	// The outcome of the part.
+	// +kubebuilder:validation:Enum=Scored;Failed;TokenLimitExceeded;NotSent
+	Status string `json:"status"`
+	// The risk level assigned to the part.
+	// +kubebuilder:validation:Enum=Minimal;Low;Moderate;High;Critical
+	// +optional
+	RiskLevel string `json:"riskLevel,omitempty"`
+	// The risk score assigned to the part.
+	// +optional
+	RiskScore *float64 `json:"riskScore,omitempty"`
+	// The confidence of the part's risk assessment.
+	// +optional
+	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
+	// The probability that the part is safe to use.
+	// +optional
+	SafeProbability *float64 `json:"safeProbability,omitempty"`
+	// The reason the part failed or was not sent, redacted.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Error string `json:"error,omitempty"`
+}
+
+// JevSkippedFile identifies a file that Jev could not read.
+type JevSkippedFile struct {
+	// The path of the skipped file.
+	// +kubebuilder:validation:MaxLength=256
+	Path string `json:"path"`
+	// Why the file was skipped.
+	// +kubebuilder:validation:Enum=Withheld;Binary
+	Reason string `json:"reason"`
 }
 
 // ScanPolicyTargetRef identifies the Module, Provider, Skill, or Agent resources a ScanPolicy applies to.
