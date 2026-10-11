@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -18,6 +19,9 @@ const (
 	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
 )
+
+// jevInputUSDPerMillionTokens prices Jev input tokens. Jev does not charge for output tokens.
+const jevInputUSDPerMillionTokens = 0.042
 
 // styler adds ANSI color only when output is an interactive terminal and NO_COLOR is unset.
 type styler struct {
@@ -60,6 +64,7 @@ func (a *app) printAssessment(s *stagedEntry) {
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Exfiltration", probabilityLine(st, as.ExfiltrationProbability, false))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Review", reviewLine(st, as.NeedsReview))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Blocked", blockedLine(st, as))
+	fmt.Fprintf(a.out, "  %-12s %s\n", "Tokens", tokensLine(st, as.InputTokens))
 	if as.Error != "" {
 		fmt.Fprintf(a.out, "  %-12s %s\n", "Error", st.paint(ansiRed, as.Error))
 	}
@@ -85,6 +90,31 @@ func blockedLine(st styler, as *opendepotv1alpha1.JevAssessment) string {
 	}
 
 	return st.paint(ansiRed, line)
+}
+
+// tokensLine reports the input tokens Jev reported and the estimated cost they add up to.
+func tokensLine(st styler, inputTokens int64) string {
+	if inputTokens == 0 {
+		return st.paint(ansiDim, "n/a")
+	}
+
+	cost := float64(inputTokens) * jevInputUSDPerMillionTokens / 1_000_000
+	return fmt.Sprintf("%s input · est. cost $%.6f", groupThousands(inputTokens), cost)
+}
+
+// groupThousands formats a non-negative count with commas, for example 15034 as 15,034.
+func groupThousands(n int64) string {
+	digits := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, c := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+
+		b.WriteRune(c)
+	}
+
+	return b.String()
 }
 
 func riskLevelColor(level string) string {

@@ -21,6 +21,7 @@ type planRow struct {
 	label string
 	path  string
 	note  string
+	files []fileChange
 }
 
 // printPlan reports what apply would change. It runs after verification and never writes.
@@ -58,6 +59,13 @@ func (a *app) printPlan(staged []*stagedEntry, prev *lockFile, existing []byte, 
 				return fmt.Errorf("%s: %w", s.source, err)
 			}
 
+			if s.kind == kindSkill && t.label != targetAgentsMD && row.sym != planSame {
+				row.files, err = a.skillChanges(s, t)
+				if err != nil {
+					return fmt.Errorf("%s: %w", s.source, err)
+				}
+			}
+
 			rows = append(rows, row)
 		}
 
@@ -85,6 +93,7 @@ func (a *app) printPlan(staged []*stagedEntry, prev *lockFile, existing []byte, 
 		for _, r := range rows {
 			counts[r.sym]++
 			fmt.Fprintf(a.out, "      %s %-10s %-40s %s\n", st.paint(planColor(r.sym), r.sym), r.label, r.path, st.paint(ansiDim, planNote(r.sym)))
+			a.printSkillTree(r.files)
 		}
 
 		if s.latest != "" && s.latest != s.version {
@@ -232,6 +241,8 @@ func planNote(sym string) string {
 		return "update"
 	case planOverwrite:
 		return "edited locally; will be overwritten"
+	case planRemove:
+		return "removed"
 	default:
 		return "unchanged"
 	}
