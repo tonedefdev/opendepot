@@ -722,6 +722,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if jevAssessment != nil && jevAssessment.Blocked {
+			r.Log.Info("Jev assessment blocked the Version", "version", version.Name, "reasons", jevAssessment.BlockReasons)
+
 			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, "JevBlocked: "+strings.Join(jevAssessment.BlockReasons, "; ")); err != nil {
 				r.Log.Error(err, "Failed to persist jev block", "version", version.Name)
 			}
