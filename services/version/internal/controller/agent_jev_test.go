@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 )
 
 // jevSentinelToken is the Jev token stored in the test Secret. No test may see it in a Jev state or in an assessment.
@@ -893,5 +895,89 @@ func TestRunAgentJevStillLimitsRateWhenLimiterIsSet(t *testing.T) {
 	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevMarkedContent(t, 2, nil))
 	if err != nil || assessment.Blocked || calls.Load() != 2 {
 		t.Fatalf("assessment = %+v, err = %v, calls = %d; want two assessed parts", assessment, err, calls.Load())
+	}
+}
+
+// jevCRDSchema is the part of an OpenAPI v3 schema that the chunk index bounds are read from.
+type jevCRDSchema struct {
+	Properties map[string]jevCRDSchema `json:"properties"`
+	Items      *jevCRDSchema           `json:"items"`
+	Minimum    *int64                  `json:"minimum"`
+	Maximum    *int64                  `json:"maximum"`
+}
+
+// jevCRDIndexBounds returns the minimum and maximum of JevChunkResult.index from the Versions CRD manifest.
+func jevCRDIndexBounds(t *testing.T) (int64, int64) {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "chart", "opendepot", "crds", "opendepot.defdev.io_versions.yaml"))
+	if err != nil {
+		t.Fatalf("read Versions CRD: %v", err)
+	}
+
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema jevCRDSchema `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal(data, &crd); err != nil || len(crd.Spec.Versions) == 0 {
+		t.Fatalf("parse Versions CRD: %v", err)
+	}
+
+	index := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].
+		Properties["jevAssessment"].Properties["chunks"].Items.Properties["index"]
+	if index.Minimum == nil || index.Maximum == nil {
+		t.Fatal("Versions CRD does not bound JevChunkResult.index")
+	}
+
+	return *index.Minimum, *index.Maximum
+}
+
+// TestJevChunksIndexesAreOneBasedWithinCRDBounds checks that chunk indexes run 1 to n, match their labels, and stay
+// within the bounds the CRD enforces. The API server rejects a status write with an index outside those bounds.
+func TestJevChunksIndexesAreOneBasedWithinCRDBounds(t *testing.T) {
+	minimum, maximum := jevCRDIndexBounds(t)
+	if minimum != 1 || maximum != jevMaxChunks {
+		t.Fatalf("CRD index bounds = [%d, %d], want [1, %d]", minimum, maximum, jevMaxChunks)
+	}
+
+	plain := make([]string, 0, jevMaxChunks)
+	for i := 1; i <= jevMaxChunks; i++ {
+		plain = append(plain, strconv.Itoa(i))
+	}
+
+	halved := []string{"1", "2a", "2b"}
+	for i := 3; i < jevMaxChunks; i++ {
+		halved = append(halved, strconv.Itoa(i))
+	}
+
+	for name, labels := range map[string][]string{"plain": plain, "halved": halved} {
+		outcomes := make([]jevPartOutcome, 0, len(labels))
+		for _, label := range labels {
+			outcomes = append(outcomes, jevPartOutcome{result: jevPartResult{label: label, status: jevPartNotSent}})
+		}
+
+		chunks := jevChunks(outcomes)
+		if len(chunks) != len(labels) {
+			t.Fatalf("%s: got %d chunks, want %d", name, len(chunks), len(labels))
+		}
+
+		for i, c := range chunks {
+			if int64(c.Index) != int64(i+1) {
+				t.Fatalf("%s: chunks[%d].Index = %d, want %d", name, i, c.Index, i+1)
+			}
+
+			if int64(c.Index) < minimum || int64(c.Index) > maximum {
+				t.Fatalf("%s: chunks[%d].Index = %d is outside the CRD bounds [%d, %d]", name, i, c.Index, minimum, maximum)
+			}
+
+			if c.Label != labels[i] {
+				t.Fatalf("%s: chunks[%d].Label = %q, want %q", name, i, c.Label, labels[i])
+			}
+		}
 	}
 }

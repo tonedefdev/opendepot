@@ -304,7 +304,7 @@ func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
 		}
 
 		chunk := opendepotv1alpha1.JevChunkResult{
-			Index:     int32(i),
+			Index:     int32(i + 1),
 			Label:     o.result.label,
 			Files:     files,
 			FileCount: int32(len(o.files)),
