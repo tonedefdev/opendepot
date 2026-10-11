@@ -28,7 +28,7 @@ import { useColorScheme } from "@mui/material/styles";
 import Link from "next/link";
 import type { ContractOutput, ContractRequiredProvider, ContractVariable } from "@/lib/api";
 import { GRADE_COLOR, renderTypeCompact, typesRoughlyCompatible } from "@/lib/ctyType";
-import type { FieldValue, ModuleInputValue, Multiplicity, ProviderBinding, ProviderOption, ReferenceOption, VariableOption } from "./types";
+import type { ModuleInputValue, Multiplicity, ProviderBinding, ProviderOption, ReferenceOption, VariableOption } from "./types";
 import { forEachShapeFromTypeSpec, isForEachCompatible } from "./typeSpec";
 import InputsModal from "./InputsModal";
 import ProvidersModal from "./ProvidersModal";

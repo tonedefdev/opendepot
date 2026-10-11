@@ -26,7 +26,6 @@ import SecurityIcon from "@mui/icons-material/Security";
 import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
-import CopyButton from "@/components/CopyButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
 import ResourceReadme from "@/components/ResourceReadme";

@@ -350,8 +350,8 @@ test.describe("Assembly Line module code preview", () => {
     await page.waitForFunction(() => {
       const raw = window.localStorage.getItem("opendepot:assembly:v3");
       if (!raw) return false;
-      const module = JSON.parse(raw).find((node: { id: string }) => node.id === "module-1");
-      return module?.data?.optionalFieldVisibility?.["variable%3Asettings"] === false;
+      const moduleNode = JSON.parse(raw).find((node: { id: string }) => node.id === "module-1");
+      return moduleNode?.data?.optionalFieldVisibility?.["variable%3Asettings"] === false;
     });
     const savedVisibility = await page.evaluate(() => {
       const raw = window.localStorage.getItem("opendepot:assembly:v3");

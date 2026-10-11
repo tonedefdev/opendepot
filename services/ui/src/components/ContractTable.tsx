@@ -518,8 +518,8 @@ export default function ContractTable({ contract }: Props) {
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
   const lightBg = resolvedMode === "light";
 
-  const variables = contract.variables ?? [];
-  const outputs = contract.outputs ?? [];
+  const variables = React.useMemo(() => contract.variables ?? [], [contract.variables]);
+  const outputs = React.useMemo(() => contract.outputs ?? [], [contract.outputs]);
   const warnings = contract.compatibility.warnings ?? [];
   const grade = contract.compatibility.grade;
 

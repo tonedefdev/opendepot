@@ -47,7 +47,6 @@ import {
   type FieldValue,
   type ModuleInputValue,
   type Multiplicity,
-  type ProviderBinding,
   type ProviderConfiguration,
   type ProviderOption,
   type ReferenceOption,
@@ -337,10 +336,7 @@ export function serializeAssemblyDocument(nodes: Node<RawNodeData>[]) {
       version: node.data.version,
       localName: node.data.instanceName,
       values: Object.fromEntries(
-        Object.entries(node.data.values).filter(([, value]) => {
-          const field = scalarInputValue(value);
-          return moduleInputValueProvided(value);
-        }),
+        Object.entries(node.data.values).filter(([, value]) => moduleInputValueProvided(value)),
       ),
       multiplicity: node.data.multiplicity,
       providerBindings: node.data.providerBindings,
@@ -1192,6 +1188,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
       }),
     [
       nodes,
+      changeOptionalFieldVisibility,
       referenceOptionsByNode,
       fieldErrorsByNode,
       instanceNameErrorsByNode,

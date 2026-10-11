@@ -121,7 +121,8 @@ function policyToMutation(policy: ScanPolicy): ScanPolicyMutation {
 }
 
 function policyToYaml(policy: ScanPolicyMutation): string {
-  const { resourceVersion: _resourceVersion, ...metadata } = policy.metadata;
+  const metadata = { ...policy.metadata };
+  delete metadata.resourceVersion;
   const spec = Object.fromEntries(Object.entries(policy.spec).filter(([, value]) => !(Array.isArray(value) && value.length === 0)));
   return dumpYaml({ ...policy, metadata, spec }, { lineWidth: -1, noRefs: true, skipInvalid: true });
 }

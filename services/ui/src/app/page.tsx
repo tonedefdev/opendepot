@@ -38,11 +38,10 @@ export default async function HomePage({ searchParams }: PageProps) {
   };
 
   let resourceList;
-  let namespaceList;
   let fetchError: string | null = null;
 
   try {
-    [resourceList, namespaceList] = await Promise.all([
+    [resourceList] = await Promise.all([
       listResources(listParams, token),
       listNamespaces(token),
     ]);
@@ -53,7 +52,6 @@ export default async function HomePage({ searchParams }: PageProps) {
     }
     fetchError = msg;
     resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
-    namespaceList = { items: [] };
   }
 
   // Build a clean search-params string for pagination controls (exclude page/page_size).
