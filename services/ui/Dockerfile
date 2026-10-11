@@ -1,5 +1,5 @@
 # Stage 1: Build the Next.js app.
-FROM node:22.23.2-alpine3.23 AS builder
+FROM node:22.23.3-alpine3.23 AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN yarn build
 
 # Stage 2: Runtime — NGINX + Node.js standalone server.
-FROM nginx:1.29-alpine3.23 AS runner
+FROM nginx:1.29.8-alpine3.23 AS runner
 
 # Install Node.js for the Next.js standalone server (npm is not installed; the
 # standalone output runs with `node server.js` only).
