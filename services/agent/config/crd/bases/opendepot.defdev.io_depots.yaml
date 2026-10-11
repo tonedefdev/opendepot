@@ -145,9 +145,8 @@ spec:
                             is blocked when its probability is above this value.
                           type: number
                         minConfidence:
-                          description: |-
-                            The minimum risk confidence. A Version whose risk confidence is below this value is flagged
-                            for review but is never blocked.
+                          description: A Version is blocked and flagged for review
+                            when any part's risk confidence is below this value.
                           type: number
                         minSafeProbability:
                           description: The minimum safe probability. A Version is
@@ -986,9 +985,8 @@ spec:
                             is blocked when its probability is above this value.
                           type: number
                         minConfidence:
-                          description: |-
-                            The minimum risk confidence. A Version whose risk confidence is below this value is flagged
-                            for review but is never blocked.
+                          description: A Version is blocked and flagged for review
+                            when any part's risk confidence is below this value.
                           type: number
                         minSafeProbability:
                           description: The minimum safe probability. A Version is

@@ -143,9 +143,8 @@ spec:
                           is blocked when its probability is above this value.
                         type: number
                       minConfidence:
-                        description: |-
-                          The minimum risk confidence. A Version whose risk confidence is below this value is flagged
-                          for review but is never blocked.
+                        description: A Version is blocked and flagged for review when
+                          any part's risk confidence is below this value.
                         type: number
                       minSafeProbability:
                         description: The minimum safe probability. A Version is blocked
@@ -899,6 +898,12 @@ spec:
                   JevAssessment holds the TypeSafe Jev assessment of this Version. Only populated when Jev
                   is enabled and the source opts in with jevSecretRef.
                 properties:
+                  assessedChunks:
+                    description: The number of part entries Jev scored.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
                   blockReasons:
                     description: The JevPolicy thresholds that were crossed when the
                       Version is blocked.
@@ -906,16 +911,96 @@ spec:
                       type: string
                     type: array
                   blocked:
-                    description: Whether a configured JevPolicy threshold blocks the
-                      Version.
+                    description: |-
+                      Whether Jev blocks the Version: a threshold, a Critical risk level, a part below minConfidence,
+                      content Jev could not read, Jev disabled on the controller, or an assessment that could not complete.
                     type: boolean
+                  chunkCount:
+                    description: |-
+                      The planned number of parts. It is exact when it is at most 16. Above 16 it is a lower bound,
+                      and no Jev call was made.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  chunks:
+                    description: One entry per scored or attempted part, sorted by
+                      label.
+                    items:
+                      description: JevChunkResult holds the Jev result for one planned
+                        part of a Version's content.
+                      properties:
+                        error:
+                          description: The reason the part failed or was not sent,
+                            redacted.
+                          maxLength: 512
+                          type: string
+                        fileCount:
+                          description: The exact number of files in this part.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        files:
+                          description: The paths whose content, or part of it, is
+                            in this part, entry file included.
+                          items:
+                            maxLength: 256
+                            type: string
+                          maxItems: 32
+                          type: array
+                        index:
+                          description: The 1-based planned part.
+                          format: int32
+                          maximum: 16
+                          minimum: 1
+                          type: integer
+                        label:
+                          description: The part index plus any halving suffix, for
+                            example 3, 3a or 3ab.
+                          maxLength: 4
+                          pattern: ^([1-9]|1[0-6])[ab]{0,2}$
+                          type: string
+                        riskConfidence:
+                          description: The confidence of the part's risk assessment.
+                          type: number
+                        riskLevel:
+                          description: The risk level assigned to the part.
+                          enum:
+                          - Minimal
+                          - Low
+                          - Moderate
+                          - High
+                          - Critical
+                          type: string
+                        riskScore:
+                          description: The risk score assigned to the part.
+                          type: number
+                        safeProbability:
+                          description: The probability that the part is safe to use.
+                          type: number
+                        status:
+                          description: The outcome of the part.
+                          enum:
+                          - Scored
+                          - Failed
+                          - TokenLimitExceeded
+                          - NotSent
+                          type: string
+                      required:
+                      - fileCount
+                      - index
+                      - label
+                      - status
+                      type: object
+                    maxItems: 16
+                    type: array
                   destructiveProbability:
                     description: The probability that the Version directs destructive
                       or irreversible actions.
                     type: number
                   error:
-                    description: A redacted description of the error that prevented
-                      the assessment from completing.
+                    description: |-
+                      A redacted description of the error that prevented the assessment from completing, or why the
+                      assessment is incomplete.
                     type: string
                   evaluatedAt:
                     description: The RFC3339 timestamp at which the assessment was
@@ -944,6 +1029,14 @@ spec:
                     description: The probability that the Version directs the agent
                       to download and run remote code.
                     type: number
+                  retryCount:
+                    description: |-
+                      The number of failed attempts since the last ForceSync, which resets it to 0. 401 and 403 failures
+                      do not count. The first attempt is attempt 0, and this is 1 after the first failure. Automatic
+                      retries stop once it exceeds jevMaxRetries (default 3, so attempts 0 to 3).
+                    format: int32
+                    minimum: 0
+                    type: integer
                   riskConfidence:
                     description: The confidence of the risk assessment. This describes
                       answer concentration, not correctness.
@@ -967,6 +1060,35 @@ spec:
                     description: The probability that the Version asks the agent to
                       do things beyond its description.
                     type: number
+                  skippedFileCount:
+                    description: The total number of skipped files. SkippedFiles holds
+                      at most 32 of them.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  skippedFiles:
+                    description: Files that Jev could not read. Any entry here blocks
+                      the Version.
+                    items:
+                      description: JevSkippedFile identifies a file that Jev could
+                        not read.
+                      properties:
+                        path:
+                          description: The path of the skipped file.
+                          maxLength: 256
+                          type: string
+                        reason:
+                          description: Why the file was skipped.
+                          enum:
+                          - Withheld
+                          - Binary
+                          type: string
+                      required:
+                      - path
+                      - reason
+                      type: object
+                    maxItems: 32
+                    type: array
                 required:
                 - blocked
                 - evaluatedAt
