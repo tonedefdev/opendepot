@@ -81,3 +81,63 @@ func TestGroupThousands(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintAssessmentLaysOutRiskCategoriesInTwoColumns(t *testing.T) {
+	var buf bytes.Buffer
+	a := &app{out: &buf}
+	risk := 0.4
+	safe := 0.77
+	injection := 0.67
+	exfiltration := 0.12
+	destructive := 0.05
+	hidden := 0.31
+	scope := 0.9
+	remote := 0.2
+	s := &stagedEntry{
+		entry:   entry{source: "opendepot.localtest.me:8443/opendepot-system/code-review"},
+		version: "0.9.0",
+		assessment: &opendepotv1alpha1.JevAssessment{
+			RiskLevel:                     "Moderate",
+			RiskScore:                     &risk,
+			SafeProbability:               &safe,
+			InjectionProbability:          &injection,
+			ExfiltrationProbability:       &exfiltration,
+			DestructiveProbability:        &destructive,
+			HiddenInstructionsProbability: &hidden,
+			ScopeMismatchProbability:      &scope,
+			RemoteExecutionProbability:    &remote,
+		},
+	}
+
+	a.printAssessment(s)
+
+	lines := strings.Split(buf.String(), "\n")
+	rows := map[string][]string{
+		"Risk":         {"Moderate (0.4)", "Destructive actions", "0.05"},
+		"Safe":         {"0.77", "Hidden instructions", "0.31"},
+		"Injection":    {"0.67", "Scope mismatch", "0.90"},
+		"Exfiltration": {"0.12", "Remote execution", "0.20"},
+	}
+	for label, want := range rows {
+		line := findLine(lines, label)
+		for _, w := range want {
+			if !strings.Contains(line, w) {
+				t.Fatalf("expected %q row to contain %q, got %q", label, w, line)
+			}
+		}
+
+		if strings.HasSuffix(line, " ") {
+			t.Fatalf("expected no trailing spaces on %q row, got %q", label, line)
+		}
+	}
+}
+
+func findLine(lines []string, prefix string) string {
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return line
+		}
+	}
+
+	return ""
+}
