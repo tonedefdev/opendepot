@@ -44,7 +44,7 @@ const jevDisabledError = "jev is disabled on this controller"
 const jevRefRequiredError = "jevSecretRef is required for branch sources when Jev is enabled on the controller"
 
 // jevTruncatedError is recorded when Jev did not see every bundled file, because the content exceeded the Jev state
-// limit or a bundled file was skipped as binary or omitted as oversized.
+// limit, a bundled file was skipped as binary or omitted as oversized, or a file was withheld for a flagged secret.
 const jevTruncatedError = "jev state incomplete: content was truncated or a bundled file was omitted, so the assessment is incomplete"
 
 // jevFileListHeader separates the entry file from the bundled file list in the Jev state.
@@ -115,12 +115,15 @@ func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
 // buildJevState returns the content sent to Jev: the entry file, the bundled file list, and the bodies of the
 // bundled text files. The whole state is truncated to the Jev limit at a UTF-8 boundary, and a marker records the
 // truncation so that dropped content is never mistaken for absent content. truncated reports whether the assessment
-// is incomplete: content was dropped to fit the limit, or a bundled file was skipped as binary or omitted as oversized.
-// A flagged entry file is omitted so that a detected secret is never sent, and a bundled file flagged for a secret is
-// withheld the same way.
+// is incomplete: content was dropped to fit the limit, a bundled file was skipped as binary or omitted as oversized,
+// or a file was withheld because Trivy flagged it for a secret. A flagged entry file is withheld so that a detected
+// secret is never sent, and a bundled file flagged for a secret is withheld the same way.
 func buildJevState(content *agentContent) (state string, truncated bool) {
 	var b strings.Builder
-	if !content.entryFlagged {
+	omitted := content.entryFlagged
+	if content.entryFlagged {
+		b.WriteString("[withheld: entry file flagged for a secret]\n")
+	} else {
 		b.Write(content.entryBytes)
 	}
 
@@ -129,7 +132,9 @@ func buildJevState(content *agentContent) (state string, truncated bool) {
 		b.WriteString("- " + file + "\n")
 	}
 
-	omitted := writeJevBundledBodies(&b, content)
+	if writeJevBundledBodies(&b, content) {
+		omitted = true
+	}
 
 	state = b.String()
 	if len(state) <= jev.MaxStateBytes {
@@ -158,8 +163,9 @@ func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment) string {
 
 // writeJevBundledBodies appends the body of each bundled text file under a "--- <name> ---" delimiter. Binary
 // files, files too large for the state, and files flagged for a secret are replaced by a marker that says why, so Jev
-// can tell omitted content from empty content. omitted reports whether a binary or oversized file was not sent in full.
-// A file flagged for a secret is withheld by design and does not make the assessment incomplete.
+// can tell omitted content from empty content. omitted reports whether a binary, oversized, or withheld file was not
+// sent in full. A file flagged for a secret is withheld, so it makes the assessment incomplete like a binary or
+// oversized file does.
 func writeJevBundledBodies(b *strings.Builder, content *agentContent) (omitted bool) {
 	for _, file := range content.files {
 		body, ok := content.fileBodies[file]
@@ -171,6 +177,7 @@ func writeJevBundledBodies(b *strings.Builder, content *agentContent) (omitted b
 		fmt.Fprintf(b, "\n--- %s ---\n", file)
 		if _, flagged := content.flaggedFiles[path.Base(file)]; flagged {
 			b.WriteString("[withheld: flagged for a secret]\n")
+			omitted = true
 			continue
 		}
 
@@ -288,8 +295,12 @@ func (r *VersionReconciler) runAgentJev(
 
 	reasons, needsReview := evaluateJevGate(sourceRef.JevPolicy, *result)
 	if truncated && len(reasons) == 0 {
-		// Jev saw only part of the content, so a pass does not cover the omitted files.
-		return jevFailure(errors.New(jevTruncatedError), gated)
+		// Jev saw only part of the content, so a pass does not cover the omitted files. With thresholds the
+		// incomplete assessment blocks the Version, so it is recorded as blocked.
+		assessment, err := jevFailure(errors.New(jevTruncatedError), gated)
+		assessment.Blocked = gated
+
+		return assessment, err
 	}
 
 	return &opendepotv1alpha1.JevAssessment{
