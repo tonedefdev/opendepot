@@ -78,9 +78,9 @@ export default function JevChunkTree({ assessment }: JevChunkTreeProps) {
       <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <Typography variant="body2">Assessed content</Typography>
-          <Tooltip title={VIEW_INFO[view]}>
-            <IconButton size="small" aria-label={`About ${view} view`}>
-              <InfoOutlinedIcon sx={{ fontSize: "1rem" }} />
+          <Tooltip title={VIEW_INFO[view]} placement="top" describeChild>
+            <IconButton size="small" aria-label={`About ${view} view`} sx={{ p: 0.25, color: "text.secondary" }}>
+              <InfoOutlinedIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
         </Box>
