@@ -223,7 +223,7 @@ The gate follows three rules:
 
 - **Unset means no block.** A threshold that is not set never blocks a Version. The assessment is advisory unless a threshold is set or the `RiskLevel` is `Critical`.
 - **Confidence never blocks.** `minConfidence` only sets `needsReview`.
-- **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. A truncated state is an incomplete assessment, so with thresholds set it blocks the same way. If no thresholds are set, a Jev failure does not block. The failure is recorded in `status.jevAssessment.error`, the Version still syncs, and the `syncStatus` message names the error. Leaving all thresholds unset is the opt-out from fail-closed behavior. A `RiskLevel` of `Critical` always blocks, regardless of thresholds.
+- **Fail closed only with thresholds.** If thresholds are set and Jev cannot be reached or the token cannot be read, the Version stays unsynced and the error is recorded. A truncated state is an incomplete assessment, so with thresholds set it blocks the same way. A binary or oversized bundled file counts like truncation: it makes the assessment incomplete, so with thresholds set it blocks, and with no thresholds the Version publishes and the `syncStatus` message names the incomplete assessment. If no thresholds are set, a Jev failure does not block. The failure is recorded in `status.jevAssessment.error`, the Version still syncs, and the `syncStatus` message names the error. Leaving all thresholds unset is the opt-out from fail-closed behavior. A `RiskLevel` of `Critical` always blocks, regardless of thresholds.
 
 Assessments are cached in `status.jevAssessment`. Set `forceSync: true` on the Skill or Agent to run a new assessment.
 
@@ -275,9 +275,9 @@ The Version stays unsynced until the definition changes.
 
 When Jev is enabled and a source sets a `jevPolicy` with a `jevSecretRef`, the controller sends a single request to the Jev endpoint with this content:
 
-- **Sent:** the entry file (`SKILL.md` or the agent `.md` file) and the list of file names bundled with the Version. The state is capped at 43 KiB (44,032 bytes). If the cap is reached, the state is cut and ends with a `[truncated: ...]` marker that says content beyond the limit was omitted.
-- **Not sent:** binary files, which are replaced by `[skipped: binary file]`. Scripts and bundled text files are sent, each under a `--- <path> ---` delimiter.
-- **Withheld:** bundled text files that the Trivy secret scanner flags are replaced by `[withheld: flagged for a secret]` and are not sent to Jev. The entry file is handled the same way.
+- **Sent:** the entry file (`SKILL.md` or the agent `.md` file) and the list of file names bundled with the Version. The state is capped at 43 KiB (44,032 bytes). If the cap is reached, the state is cut and ends with a `[truncated: ...]` marker that says content beyond the limit was omitted. A bundled file larger than the 43 KiB cap is omitted and replaced by `[omitted: file exceeds the Jev state limit]`. The entry file has no per-file cap and is sent in full unless Trivy flags it for a secret.
+- **Not sent:** binary files (a NUL byte or invalid UTF-8), which are replaced by `[skipped: binary file]`. A skipped binary file makes the assessment incomplete. Scripts and bundled text files are sent, each under a `--- <path> ---` delimiter.
+- **Withheld:** bundled text files that the Trivy secret scanner flags are replaced by `[withheld: flagged for a secret]` and are not sent to Jev. The entry file is handled the same way. Withheld files do not make the assessment incomplete.
 - **Never sent:** the Jev token. The token is only used as the request credential and is never logged or written to a resource.
 
 Before you use Jev on private repositories, get the TypeSafe retention and training terms in writing. Confirm how long TypeSafe keeps submitted content and whether it is used for model training. Do not enable Jev for private source until those terms are confirmed.
