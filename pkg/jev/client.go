@@ -22,7 +22,8 @@ const (
 	// Model is the model alias sent with every request.
 	Model = "jev-latest"
 
-	// MaxStateBytes is the largest state accepted for assessment.
+	// MaxStateBytes is the largest state accepted for assessment. It is a byte guard, not Jev's limit: Jev limits
+	// input by tokens. Prose was accepted at about 128 KiB, while symbol-dense text was rejected at about 48 KiB.
 	MaxStateBytes = 64 << 10
 
 	maxResponseBytes = 1 << 20
