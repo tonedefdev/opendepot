@@ -143,7 +143,17 @@ func jevFailure(err error, gated bool) (*opendepotv1alpha1.JevAssessment, error)
 	return assessment, nil
 }
 
-// jevIncomplete records an assessment that could not finish and blocks the Version. The returned error keeps the
+// jevServiceError marks a Service outcome: a failed part or an unreadable token Secret. Only these are retried at
+// jevRetryRequeue. A Content outcome returns no error, so it is never retried.
+type jevServiceError struct {
+	msg string
+}
+
+func (e *jevServiceError) Error() string {
+	return e.msg
+}
+
+// jevIncomplete records a Service outcome that could not finish and blocks the Version. The returned error keeps the
 // Version unsynced, so an incomplete assessment never publishes.
 func jevIncomplete(retries int32, chunks int, msg string) (*opendepotv1alpha1.JevAssessment, error) {
 	return &opendepotv1alpha1.JevAssessment{
@@ -153,7 +163,7 @@ func jevIncomplete(retries int32, chunks int, msg string) (*opendepotv1alpha1.Je
 		Error:        msg,
 		Blocked:      true,
 		BlockReasons: []string{msg},
-	}, errors.New(msg)
+	}, &jevServiceError{msg: msg}
 }
 
 // jevRefRequired reports whether a Version without jevSecretRef must fail its Jev check. It applies while Jev is enabled
@@ -421,7 +431,11 @@ func (r *VersionReconciler) runAgentJev(
 
 	layout, err := jevChunkPlan(in)
 	if err != nil {
-		return jevIncomplete(retries+1, 1, fmt.Sprintf("jev assessment incomplete: split the content: %s", err))
+		assessment := jevNewAssessment(retries, 0)
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{fmt.Sprintf("jev assessment incomplete: split the content: %s", err)}
+
+		return assessment, nil
 	}
 
 	if layout.over {
@@ -559,7 +573,7 @@ func (r *VersionReconciler) runAgentJev(
 		assessment.Blocked = true
 		assessment.BlockReasons = append([]string{msg}, gateReasons...)
 
-		return assessment, errors.New(msg)
+		return assessment, &jevServiceError{msg: msg}
 	}
 
 	if tokenLimit {

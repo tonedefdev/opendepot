@@ -713,7 +713,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, nil
 			}
 
-			if jevAssessment != nil && jevAssessment.ChunkCount > 0 && jevAssessment.Error != jevDisabledError {
+			var serviceErr *jevServiceError
+			if jevAssessment != nil && jevAssessment.Error != "" && jevAssessment.Error != jevDisabledError && errors.As(jevErr, &serviceErr) {
 				return ctrl.Result{RequeueAfter: jevRetryRequeue}, nil
 			}
 

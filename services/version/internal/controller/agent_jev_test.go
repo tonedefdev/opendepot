@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
@@ -332,6 +333,49 @@ func TestRunAgentJevMissingTokenBlocks(t *testing.T) {
 	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevLoadContent(t, map[string]string{"SKILL.md": jevEntry}))
 	if err == nil || !assessment.Blocked {
 		t.Fatalf("assessment = %+v, err = %v; want a blocked missing-token failure", assessment, err)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+}
+
+// TestRunAgentJevMissingTokenCountsRetry covers D11: an unreadable token Secret is a Service outcome. It returns an
+// error, adds 1 to retryCount, and makes no call.
+func TestRunAgentJevMissingTokenCountsRetry(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	reconciler.Client = fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+	cached := &opendepotv1alpha1.JevAssessment{Error: "old", ChunkCount: 1, RetryCount: 1}
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, cached), jevLoadContent(t, map[string]string{"SKILL.md": jevEntry}))
+	var serviceErr *jevServiceError
+	if !errors.As(err, &serviceErr) || !assessment.Blocked || assessment.RetryCount != 2 {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked Service failure with retryCount 2", assessment, err)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+}
+
+// TestRunAgentJevSplitFailureIsContentOutcome covers D11: a content split failure is a Content outcome. It returns no
+// error, keeps retryCount, and makes no call.
+func TestRunAgentJevSplitFailureIsContentOutcome(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	cached := &opendepotv1alpha1.JevAssessment{Error: "old", ChunkCount: 1, RetryCount: 2}
+
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.entryRel = "missing.md"
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, cached), content)
+	if err != nil || !assessment.Blocked || assessment.Error != "" || assessment.RetryCount != 2 || assessment.ChunkCount != 0 {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked Content outcome with retryCount 2 and no error", assessment, err)
+	}
+
+	if len(assessment.BlockReasons) != 1 || !strings.HasPrefix(assessment.BlockReasons[0], "jev assessment incomplete:") {
+		t.Fatalf("BlockReasons = %v; want one incomplete reason", assessment.BlockReasons)
 	}
 
 	if calls.Load() != 0 {
