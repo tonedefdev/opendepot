@@ -705,7 +705,9 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				r.Log.Error(err, "Failed to persist jev unavailable status", "version", version.Name)
 			}
 
-			return ctrl.Result{}, jevErr
+			r.Log.Error(jevErr, "Jev assessment failed, retrying", "version", version.Name, "retryAfter", jevRetryRequeue)
+
+			return ctrl.Result{RequeueAfter: jevRetryRequeue}, nil
 		}
 
 		if jevAssessment != nil && jevAssessment.Blocked {
