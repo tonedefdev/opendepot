@@ -5,8 +5,6 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
 import IconButton from "@mui/material/IconButton";
 import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Tooltip from "@mui/material/Tooltip";
@@ -32,6 +30,7 @@ import ResourceReadme from "@/components/ResourceReadme";
 import ContractTable from "@/components/ContractTable";
 import JevPanel from "@/components/JevPanel";
 import { AgentConfigSnippet, AgentDefinition, AgentMetadataChips } from "@/components/AgentDetail";
+import { SectionCard } from "@/components/SectionCard";
 import SourceRefChip from "@/components/SourceRefChip";
 import { kindColor } from "@/lib/kindColors";
 import { getContract, getResourceDetail, listDepots } from "@/lib/api";
@@ -44,30 +43,6 @@ interface PageProps {
     kind: string;
     name: string;
   }>;
-}
-
-function SectionCard({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card sx={{ mb: 2 }}>
-      <CardContent>
-        <Box display="flex" alignItems="center" gap={1} mb={2}>
-          <Box sx={{ color: "primary.main", display: "flex" }}>{icon}</Box>
-          <Typography variant="h6" sx={{ fontSize: "0.9375rem", fontWeight: 600 }}>
-            {title}
-          </Typography>
-        </Box>
-        {children}
-      </CardContent>
-    </Card>
-  );
 }
 
 function LabelValue({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -357,9 +332,11 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
       {/* Agent definition, metadata, Jev assessment, and config snippet */}
       {isAgentKind && detail.definitionContent && (
-        <SectionCard icon={<DescriptionIcon fontSize="small" />} title={kind === "skill" ? "SKILL.md" : "AGENT.md"}>
-          <AgentDefinition content={detail.definitionContent} fileName={detail.definitionFileName ?? ""} />
-        </SectionCard>
+        <AgentDefinition
+          content={detail.definitionContent}
+          fileName={detail.definitionFileName ?? ""}
+          title={kind === "skill" ? "SKILL.md" : "AGENT.md"}
+        />
       )}
 
       {isAgentKind && (detail.agentMetadata?.model || detail.agentMetadata?.tools?.length) && (

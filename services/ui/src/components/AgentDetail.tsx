@@ -2,9 +2,14 @@
 
 import * as React from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Typography from "@mui/material/Typography";
 import { useColorScheme } from "@mui/material/styles";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import DataObjectIcon from "@mui/icons-material/DataObject";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
@@ -14,30 +19,61 @@ import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import CopyButton from "@/components/CopyButton";
 import { highlightedMarkdownComponents } from "@/components/HighlightedCodeBlock";
+import { SectionCard } from "@/components/SectionCard";
 import type { AgentMetadata } from "@/lib/api";
 
 // Lets prism-react-renderer use the full prismjs instance that has the HCL grammar registered.
 (typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
+
+// Heights (px) match the module README so long definitions collapse the same way.
+const COLLAPSED_HEIGHT = 360;
+const EXPANDED_HEIGHT = 720;
 
 interface AgentBodyProps {
   content: string;
 }
 
 export function AgentBody({ content }: AgentBodyProps) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [overflows, setOverflows] = React.useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [content, expanded]);
+
   return (
-    <Box
-      sx={{
-        maxHeight: 720,
-        overflow: "auto",
-        "& h1, & h2, & h3": { fontWeight: 600, mt: 2, mb: 1 },
-        "& p, & li": { fontSize: "0.9rem", lineHeight: 1.6 },
-        "& pre.md-plain-pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
-        "& code": { fontFamily: "monospace", fontSize: "0.8125rem" },
-      }}
-    >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={highlightedMarkdownComponents({ renderEmbeddedMarkdown: true })}>
-        {content}
-      </ReactMarkdown>
+    <Box>
+      <Box
+        ref={scrollRef}
+        sx={{
+          maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+          overflowY: "auto",
+          pr: 0.5,
+          "& h1, & h2, & h3": { fontWeight: 600, mt: 2, mb: 1 },
+          "& p, & li": { fontSize: "0.9rem", lineHeight: 1.6 },
+          "& pre.md-plain-pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
+          "& code": { fontFamily: "monospace", fontSize: "0.8125rem" },
+        }}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={highlightedMarkdownComponents({ renderEmbeddedMarkdown: true })}>
+          {content}
+        </ReactMarkdown>
+      </Box>
+      {overflows && (
+        <Box sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
+          <Button
+            size="small"
+            onClick={() => setExpanded((prev) => !prev)}
+            startIcon={expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          >
+            {expanded ? "Show less" : "Show more"}
+          </Button>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -170,21 +206,19 @@ export function splitFrontmatter(content: string): { frontmatter: string | null;
 interface AgentDefinitionProps {
   content: string;
   fileName: string;
+  title: string;
 }
 
-export function AgentDefinition({ content, fileName }: AgentDefinitionProps) {
+export function AgentDefinition({ content, fileName, title }: AgentDefinitionProps) {
   const { frontmatter, body } = splitFrontmatter(content);
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <>
       {frontmatter !== null && (
-        <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>
-            FRONTMATTER
-          </Typography>
+        <SectionCard icon={<DataObjectIcon fontSize="small" />} title="Frontmatter">
           <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={frontmatter} language={"yaml" as Language}>
             {({ style, tokens, getLineProps, getTokenProps }) => (
               <Box
@@ -210,9 +244,11 @@ export function AgentDefinition({ content, fileName }: AgentDefinitionProps) {
               </Box>
             )}
           </Highlight>
-        </Box>
+        </SectionCard>
       )}
-      <AgentBody content={body} />
-    </Box>
+      <SectionCard icon={<DescriptionIcon fontSize="small" />} title={title}>
+        <AgentBody content={body} />
+      </SectionCard>
+    </>
   );
 }

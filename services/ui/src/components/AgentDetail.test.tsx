@@ -92,7 +92,7 @@ describe("splitFrontmatter", () => {
 
 describe("AgentDefinition", () => {
   it("shows the frontmatter in a code block and the body as markdown", () => {
-    render(<AgentDefinition content={"---\nname: review\n---\n# Heading\n\nSome **bold** text"} fileName="code-review.agent.md" />);
+    render(<AgentDefinition content={"---\nname: review\n---\n# Heading\n\nSome **bold** text"} fileName="code-review.agent.md" title="AGENT.md" />);
 
     expect(screen.getByLabelText("code-review.agent.md frontmatter").textContent).toBe("name: review");
     expect(screen.getByRole("heading", { name: "Heading" })).toBeTruthy();
@@ -100,14 +100,14 @@ describe("AgentDefinition", () => {
   });
 
   it("renders the frontmatter with YAML syntax highlighting", () => {
-    render(<AgentDefinition content={"---\nname: review\n---\n# Heading"} fileName="code-review.agent.md" />);
+    render(<AgentDefinition content={"---\nname: review\n---\n# Heading"} fileName="code-review.agent.md" title="AGENT.md" />);
 
     const frontmatter = screen.getByLabelText("code-review.agent.md frontmatter");
     expect(frontmatter.querySelector(".token.key")?.textContent).toBe("name");
   });
 
   it("renders content with no frontmatter as markdown only", () => {
-    render(<AgentDefinition content={"# Only body"} fileName="SKILL.md" />);
+    render(<AgentDefinition content={"# Only body"} fileName="SKILL.md" title="SKILL.md" />);
 
     expect(screen.queryByLabelText("SKILL.md frontmatter")).toBeNull();
     expect(screen.getByRole("heading", { name: "Only body" })).toBeTruthy();
