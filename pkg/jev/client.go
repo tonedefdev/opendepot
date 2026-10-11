@@ -22,7 +22,8 @@ const (
 	// Model is the model alias sent with every request.
 	Model = "jev-latest"
 
-	// MaxStateBytes is the largest state sent for assessment. Jev limits input by tokens, not bytes. A live binary
+	// MaxStateBytes is the per-part budget: the largest state sent in one assessment request. When a Version is split
+	// into parts, each part is held to this limit. Jev limits input by tokens, not bytes. A live binary
 	// search over symbol-dense text, sent with the default questions, accepted 51968 bytes (33074 input tokens) and
 	// rejected 52224 bytes with HTTP 400 max_tokens_exceeded; the search resolution was 256 bytes. The limit is 43 KiB,
 	// 84.7% of the accepted size, a margin of about 15%. That margin is a guard. It was not measured against the
@@ -48,11 +49,24 @@ func WithEndpoint(endpoint string) Option {
 	}
 }
 
+// AttemptGate runs before each HTTP attempt to the Jev API, including retries. It returns a release function that the
+// client calls when the attempt's request has finished, before any backoff sleep. A non-nil error means the attempt
+// was not sent, and release is not called.
+type AttemptGate func(ctx context.Context) (release func(), err error)
+
+// WithAttemptGate sets a gate that every HTTP attempt must pass. A nil gate leaves attempts ungated.
+func WithAttemptGate(gate AttemptGate) Option {
+	return func(c *Client) {
+		c.gate = gate
+	}
+}
+
 // Client calls the Jev API.
 type Client struct {
 	endpoint   string
 	httpClient *http.Client
 	baseDelay  time.Duration
+	gate       AttemptGate
 }
 
 // APIError is returned when the Jev API responds with a non-2xx status. The message is redacted.
@@ -165,9 +179,20 @@ func (c *Client) send(ctx context.Context, token, kind, state string, questions 
 	return c.do(ctx, token, body)
 }
 
+// IsTokenLimitExceeded reports whether err is an HTTP 400 from Jev whose message contains max_tokens_exceeded. The
+// message is already redacted, so err can be logged or reported safely.
+func IsTokenLimitExceeded(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+
+	return apiErr.StatusCode == http.StatusBadRequest && strings.Contains(apiErr.Message, "max_tokens_exceeded")
+}
+
 func (c *Client) do(ctx context.Context, token string, body []byte) ([]byte, error) {
 	for attempt := 0; ; attempt++ {
-		status, respBody, err := c.post(ctx, token, body)
+		status, respBody, err := c.attempt(ctx, token, body)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
@@ -197,6 +222,21 @@ func (c *Client) do(ctx context.Context, token string, body []byte) ([]byte, err
 		case <-timer.C:
 		}
 	}
+}
+
+// attempt sends one HTTP request under the attempt gate. The gate is released when the attempt returns, so no slot is
+// held during a retry's backoff sleep.
+func (c *Client) attempt(ctx context.Context, token string, body []byte) (int, []byte, error) {
+	if c.gate != nil {
+		release, err := c.gate(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		defer release()
+	}
+
+	return c.post(ctx, token, body)
 }
 
 // validateEndpoint requires https so the bearer token is never sent in cleartext. Plain http is
