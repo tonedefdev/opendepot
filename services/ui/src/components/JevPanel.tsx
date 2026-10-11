@@ -200,6 +200,8 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
             icon={<AttachMoneyOutlinedIcon />}
             size="small"
             variant="outlined"
+            color="success"
+            sx={{ cursor: "help", "& .MuiChip-icon": { fontSize: 16, ml: 0.5, mr: -0.25 } }}
           />
         )}
         {assessment.needsReview && (
