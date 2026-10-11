@@ -10,6 +10,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import DescriptionIcon from "@mui/icons-material/Description";
+import { load } from "js-yaml";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
@@ -193,6 +194,58 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
   );
 }
 
+const FRONTMATTER_FOLD_WIDTH = 80;
+
+// Display-only: wraps long single-line top-level string values as YAML folded (>-) blocks so
+// they fit the card. The stored definition is unchanged, and folding keeps the parsed value the same.
+export function foldLongFrontmatterValues(frontmatter: string): string {
+  const lines = frontmatter.split("\n");
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = /^([A-Za-z_][\w-]*):[ \t]+(\S.*)$/.exec(line);
+    const nextLine = lines[i + 1];
+    const continues = nextLine !== undefined && /^\s/.test(nextLine);
+
+    if (!match || line.length <= FRONTMATTER_FOLD_WIDTH || continues || match[2].includes(" #")) {
+      out.push(line);
+      continue;
+    }
+
+    let value: unknown;
+    try {
+      value = load(match[2]);
+    } catch {
+      out.push(line);
+      continue;
+    }
+
+    if (typeof value !== "string" || value !== value.trim() || value.includes("  ") || /[\t\r\n]/.test(value)) {
+      out.push(line);
+      continue;
+    }
+
+    const indent = "  ";
+    const width = FRONTMATTER_FOLD_WIDTH - indent.length;
+    const wrapped: string[] = [];
+    let current = "";
+    for (const word of value.split(" ")) {
+      if (current && current.length + 1 + word.length > width) {
+        wrapped.push(current);
+        current = word;
+      } else {
+        current = current ? `${current} ${word}` : word;
+      }
+    }
+    wrapped.push(current);
+
+    out.push(`${match[1]}: >-`, ...wrapped.map((part) => `${indent}${part}`));
+  }
+
+  return out.join("\n");
+}
+
 // Splits a leading YAML frontmatter block (between two --- lines) from the Markdown body.
 export function splitFrontmatter(content: string): { frontmatter: string | null; body: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
@@ -219,7 +272,7 @@ export function AgentDefinition({ content, fileName, title }: AgentDefinitionPro
     <>
       {frontmatter !== null && (
         <SectionCard icon={<DataObjectIcon fontSize="small" />} title="Frontmatter">
-          <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={frontmatter} language={"yaml" as Language}>
+          <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={foldLongFrontmatterValues(frontmatter)} language={"yaml" as Language}>
             {({ style, tokens, getLineProps, getTokenProps }) => (
               <Box
                 component="pre"
