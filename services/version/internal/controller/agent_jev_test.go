@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -346,6 +348,103 @@ func TestBuildJevStateSkipsBinaryBundledFiles(t *testing.T) {
 		if !strings.Contains(state, want) {
 			t.Fatalf("skipped marker for %s missing from state: %q", name, state)
 		}
+	}
+}
+
+func TestBuildJevStateMarksSkippedBinaryFileIncomplete(t *testing.T) {
+	content := &agentContent{
+		entryBytes: []byte("entry body"),
+		files:      []string{"SKILL.md", "bin/tool"},
+		fileBodies: map[string][]byte{"bin/tool": []byte("\x7fELF\x00\x01\x02")},
+	}
+
+	_, truncated := buildJevState(content)
+	if !truncated {
+		t.Fatalf("skipped binary file was not reported as an incomplete assessment")
+	}
+}
+
+func TestBuildJevStateMarksOmittedOversizedFileIncomplete(t *testing.T) {
+	content := &agentContent{
+		entryBytes:   []byte("entry body"),
+		files:        []string{"SKILL.md", "data/big.txt"},
+		omittedFiles: map[string]struct{}{"data/big.txt": {}},
+	}
+
+	state, truncated := buildJevState(content)
+	if !truncated {
+		t.Fatalf("omitted oversized file was not reported as an incomplete assessment")
+	}
+
+	if !strings.Contains(state, "\n--- data/big.txt ---\n[omitted: file exceeds the Jev state limit]\n") {
+		t.Fatalf("omitted marker missing from state: %q", state)
+	}
+}
+
+func TestLoadAgentContentBoundsBundledReads(t *testing.T) {
+	dir := t.TempDir()
+	skill := "---\nname: summarize\ndescription: Summarizes documents.\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skill), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	// Each file is 30 KiB, so the second file does not fit in the budget left by the first.
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, "data", name), []byte(strings.Repeat("a", 30<<10)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "data", "huge.bin"), []byte(strings.Repeat("a", 2*jev.MaxStateBytes)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "summarize"
+	version := &opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:           opendepotv1alpha1.OpenDepotSkill,
+			AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{Name: &name},
+		},
+	}
+
+	content, err := loadAgentContent(dir, version)
+	if err != nil {
+		t.Fatalf("loadAgentContent: %v", err)
+	}
+
+	if _, ok := content.fileBodies["data/a.txt"]; !ok {
+		t.Fatalf("file within the budget was not held")
+	}
+
+	for _, rel := range []string{"data/b.txt", "data/huge.bin"} {
+		if _, ok := content.fileBodies[rel]; ok {
+			t.Fatalf("%s was held in fileBodies, want it omitted", rel)
+		}
+
+		if _, ok := content.omittedFiles[rel]; !ok {
+			t.Fatalf("%s was not marked omitted", rel)
+		}
+	}
+
+	if _, ok := content.fileBodies["SKILL.md"]; ok {
+		t.Fatalf("entry file was held in fileBodies")
+	}
+
+	if _, truncated := buildJevState(content); !truncated {
+		t.Fatalf("omitted bundled files did not make the assessment incomplete")
+	}
+
+	prefix, err := readBundledPrefix(filepath.Join(dir, "data", "huge.bin"))
+	if err != nil {
+		t.Fatalf("readBundledPrefix: %v", err)
+	}
+
+	if len(prefix) != jev.MaxStateBytes+1 {
+		t.Fatalf("readBundledPrefix returned %d bytes, want %d", len(prefix), jev.MaxStateBytes+1)
 	}
 }
 
@@ -794,6 +893,54 @@ func TestRunAgentJevTruncationBlocksWithThresholds(t *testing.T) {
 
 	if assessment == nil || assessment.Error != jevTruncatedError {
 		t.Fatalf("assessment = %+v, want the truncation recorded", assessment)
+	}
+}
+
+func jevBinaryContent() *agentContent {
+	return &agentContent{
+		entryName:  "SKILL.md",
+		entryBytes: []byte("# Skill\nSummarize documents."),
+		files:      []string{"SKILL.md", "bin/tool"},
+		fileBodies: map[string][]byte{"bin/tool": []byte("\x7fELF\x00\x01\x02")},
+	}
+}
+
+func TestRunAgentJevBinaryBundledFileBlocksWithThresholds(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevPolicy = &opendepotv1alpha1.JevPolicy{MinSafeProbability: f64(0.5)}
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevBinaryContent())
+	if err == nil || err.Error() != jevTruncatedError {
+		t.Fatalf("assessment = %+v, err = %v; want %q", assessment, err, jevTruncatedError)
+	}
+
+	if assessment == nil || assessment.Error != jevTruncatedError {
+		t.Fatalf("assessment = %+v, want the incomplete assessment recorded", assessment)
+	}
+
+	if calls.Load() != 1 {
+		t.Fatalf("Jev calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestRunAgentJevBinaryBundledFilePublishesWithoutThresholds(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevPolicy = nil
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevBinaryContent())
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if assessment == nil || assessment.Error != jevTruncatedError || assessment.Blocked {
+		t.Fatalf("assessment = %+v, want the incomplete assessment recorded and not blocked", assessment)
+	}
+
+	want := "Successfully synced version; Jev assessment did not complete: " + jevTruncatedError + ". Version was published because no Jev thresholds are set"
+	if got := jevPublishedStatus(assessment); got != want {
+		t.Fatalf("status = %q, want %q", got, want)
 	}
 }
 
