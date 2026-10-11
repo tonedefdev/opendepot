@@ -400,7 +400,7 @@ type AgentSourceConfig struct {
 	// Jev enabled and this reference is set.
 	JevSecretRef *corev1.SecretKeySelector `json:"jevSecretRef,omitempty"`
 	// The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
-	// is unset, Jev results are informational only.
+	// is unset, the scores are informational only. Failed assessments and content outcomes still block the Version.
 	JevPolicy *JevPolicy `json:"jevPolicy,omitempty"`
 	// The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
 	// commit that touches the source path becomes a Version. Setting ref together with versionConstraints
