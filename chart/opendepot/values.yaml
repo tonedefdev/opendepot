@@ -298,7 +298,8 @@ scanning:
   agentAllowedDomains: ""
   jev:
     # Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy and a secret.
-    # The assessment is labeled as a TypeSafe assessment and is advisory unless thresholds are configured.
+    # The assessment is labeled as a TypeSafe assessment. Jev can block a Version whenever it is configured.
+    # A source that sets jevSecretRef is not published while this is false.
     enabled: false
     # Override the TypeSafe Jev API endpoint.
     endpoint: "https://api.typesafe.ai/v1/systemone"
