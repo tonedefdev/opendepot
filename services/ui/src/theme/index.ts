@@ -113,6 +113,25 @@ const theme = createTheme({
         },
       }),
     },
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: ({ theme }) => ({
+          backgroundColor: "#24292f",
+          color: "#f6f8fa",
+          border: `1px solid ${theme.vars.palette.divider}`,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+          ...theme.applyStyles("dark", {
+            backgroundColor: "#2d333b",
+          }),
+        }),
+        arrow: ({ theme }) => ({
+          color: "#24292f",
+          ...theme.applyStyles("dark", {
+            color: "#2d333b",
+          }),
+        }),
+      },
+    },
     MuiTypography: {
       styleOverrides: {
         caption: ({ theme }) => ({
