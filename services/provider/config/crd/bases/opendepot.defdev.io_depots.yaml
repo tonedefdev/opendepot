@@ -109,7 +109,7 @@ spec:
                     jevPolicy:
                       description: |-
                         The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
-                        is unset, Jev results are informational only.
+                        is unset, the scores are informational only. Failed assessments and content outcomes still block the Version.
                       properties:
                         maxDestructiveProbability:
                           description: The maximum destructive action probability.
@@ -949,7 +949,7 @@ spec:
                     jevPolicy:
                       description: |-
                         The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
-                        is unset, Jev results are informational only.
+                        is unset, the scores are informational only. Failed assessments and content outcomes still block the Version.
                       properties:
                         maxDestructiveProbability:
                           description: The maximum destructive action probability.
