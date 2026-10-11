@@ -32,7 +32,10 @@ test.describe("dev token input — production guard", () => {
     // The dev token input must not be rendered unless explicitly enabled.
     const devInput = page.locator('[data-testid="dev-token-input"]');
     const count = await devInput.count();
-    expect(count).toBe(0);
+    expect(
+      count,
+      "DEV_TOKEN_INPUT_ENABLED is true on the server under test; restart the UI with it unset or false",
+    ).toBe(0);
   });
 
   test("GET / does not expose DEV_TOKEN_INPUT_ENABLED env var in page source", async ({
