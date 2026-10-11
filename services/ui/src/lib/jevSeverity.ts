@@ -1,5 +1,14 @@
 export type JevSeverity = "success" | "warning" | "error";
 
+// RISK_COLORS maps a Jev risk level to an MUI Chip color.
+export const RISK_COLORS: Record<string, "success" | "info" | "warning" | "error"> = {
+  Minimal: "success",
+  Low: "success",
+  Moderate: "warning",
+  High: "error",
+  Critical: "error",
+};
+
 // probabilitySeverity mirrors cli/output.go probabilityColor. Rows where higher is better (Safe) are
 // inverted so that a high safe probability reads as green.
 export function probabilitySeverity(v: number, higherIsBetter: boolean): JevSeverity {

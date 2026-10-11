@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { probabilitySeverity, riskLevelSeverity } from "./jevSeverity";
+import { RISK_COLORS, probabilitySeverity, riskLevelSeverity } from "./jevSeverity";
 
 describe("probabilitySeverity", () => {
   it("uses the CLI thresholds at the boundaries", () => {
@@ -30,5 +30,17 @@ describe("riskLevelSeverity", () => {
   it("leaves unknown levels neutral", () => {
     expect(riskLevelSeverity("")).toBeUndefined();
     expect(riskLevelSeverity("Unknown")).toBeUndefined();
+  });
+});
+
+describe("RISK_COLORS", () => {
+  it("maps each risk level to a chip color", () => {
+    expect(RISK_COLORS).toEqual({
+      Minimal: "success",
+      Low: "success",
+      Moderate: "warning",
+      High: "error",
+      Critical: "error",
+    });
   });
 });
