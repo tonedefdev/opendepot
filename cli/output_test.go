@@ -57,3 +57,27 @@ func TestPrintAssessmentShowsReviewAndBlockReasons(t *testing.T) {
 		}
 	}
 }
+
+func TestTokensLineShowsInputTokensAndCost(t *testing.T) {
+	st := newStyler(&bytes.Buffer{})
+
+	if got := tokensLine(st, 0); got != "n/a" {
+		t.Fatalf("tokensLine(0) = %q, want n/a", got)
+	}
+
+	got := tokensLine(st, 15034)
+	for _, want := range []string{"15,034 input", "est. cost $0.000631"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tokensLine(15034) = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestGroupThousands(t *testing.T) {
+	cases := map[int64]string{0: "0", 999: "999", 1000: "1,000", 1234567: "1,234,567"}
+	for in, want := range cases {
+		if got := groupThousands(in); got != want {
+			t.Errorf("groupThousands(%d) = %q, want %q", in, got, want)
+		}
+	}
+}

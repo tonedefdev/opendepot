@@ -477,6 +477,18 @@ func (a *app) applyProject(ctx context.Context, opts applyOptions) error {
 				continue
 			}
 
+			if s.kind == kindSkill {
+				changes, err := a.skillChanges(s, t)
+				if err != nil {
+					return fmt.Errorf("%s: install to %s: %w", s.source, t.path, err)
+				}
+
+				if hasFileChanges(changes) {
+					fmt.Fprintf(a.out, "  %s  %s\n", s.source, t.path)
+					a.printSkillTree(changes)
+				}
+			}
+
 			if err := a.installEntry(s, t); err != nil {
 				return fmt.Errorf("%s: install to %s: %w", s.source, t.path, err)
 			}
