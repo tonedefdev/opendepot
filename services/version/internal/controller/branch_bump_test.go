@@ -20,11 +20,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -43,6 +45,8 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/archive"
+	"github.com/tonedefdev/opendepot/pkg/jev"
+	"golang.org/x/time/rate"
 )
 
 const bumpSkillDocument = "---\nname: bump\ndescription: Summarize documents.\n---\n# Skill\nSummarize documents.\n"
@@ -826,5 +830,269 @@ func TestAssignBranchVersionRejectsInvalidOverrideOnFirstCommit(t *testing.T) {
 
 	if stored.Spec.Version != "" {
 		t.Fatalf("Spec.Version = %q; want unassigned", stored.Spec.Version)
+	}
+}
+
+// bumpText returns text of at least size bytes, made of numbered lines that start with prefix.
+func bumpText(prefix string, size int) string {
+	line := prefix + " line 0123456789 the quick brown fox jumps over the lazy dog\n"
+	return strings.Repeat(line, size/len(line)+1)[:size]
+}
+
+func writeBumpFile(t *testing.T, content string) string {
+	t.Helper()
+
+	filePath := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	return filePath
+}
+
+func TestClassifyPreparedBumpLargeTreeMakesOneCall(t *testing.T) {
+	var calls atomic.Int32
+	var states []string
+	server := bumpJevServer(t, http.StatusOK, bumpJevResponse(0.1, 0.1, 0.8, 0.9), &states, &calls)
+	reconciler, version := newBumpReconciler(t, server.URL, false)
+
+	previousFiles := map[string]string{"SKILL.md": bumpSkillDocument}
+	nextFiles := map[string]string{"SKILL.md": bumpSkillDocument}
+	for _, name := range []string{"part-a.md", "part-b.md", "part-c.md"} {
+		previousFiles[name] = bumpText("old "+name, 30<<10)
+		nextFiles[name] = bumpText("new "+name, 30<<10)
+	}
+
+	previous := writeBumpTree(t, previousFiles)
+	nextDir := writeBumpDir(t, nextFiles)
+	assessment := &opendepotv1alpha1.BumpAssessment{}
+	if _, err := reconciler.classifyPreparedBump(context.Background(), version, previous, loadBumpContent(t, nextDir, version), packBumpTree(t, nextDir), assessment); err != nil {
+		t.Fatalf("classifyPreparedBump: %v", err)
+	}
+
+	if calls.Load() != 1 || len(states) != 1 {
+		t.Fatalf("jev calls = %d states = %d, want exactly 1 call", calls.Load(), len(states))
+	}
+
+	if len(states[0]) > jev.MaxStateBytes {
+		t.Fatalf("state is %d bytes, want <= %d", len(states[0]), jev.MaxStateBytes)
+	}
+
+	if !strings.Contains(states[0], "Files modified (3)") || !strings.HasSuffix(states[0], bumpStateMarker) {
+		t.Fatal("state must list all three parts and end with the truncation marker")
+	}
+}
+
+func TestClassifyPreparedBumpSharesJevSemaphore(t *testing.T) {
+	var calls atomic.Int32
+	var states []string
+	server := bumpJevServer(t, http.StatusOK, bumpJevResponse(0.1, 0.1, 0.8, 0.9), &states, &calls)
+	reconciler, version := newBumpReconciler(t, server.URL, false)
+
+	previous := writeBumpTree(t, map[string]string{"SKILL.md": bumpSkillDocument})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument + "More.\n"})
+	next := packBumpTree(t, nextDir)
+
+	t.Run("waits for a free slot and honors cancellation", func(t *testing.T) {
+		reconciler.jevSem = make(chan struct{}, 1)
+		reconciler.jevSem <- struct{}{}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(50*time.Millisecond, cancel)
+		assessment := &opendepotv1alpha1.BumpAssessment{}
+		_, err := reconciler.classifyPreparedBump(ctx, version, previous, loadBumpContent(t, nextDir, version), next, assessment)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled while the semaphore is full", err)
+		}
+
+		if calls.Load() != 0 {
+			t.Fatalf("jev calls = %d, want 0 while the semaphore is full", calls.Load())
+		}
+	})
+
+	t.Run("proceeds once a slot is released", func(t *testing.T) {
+		reconciler.jevSem = make(chan struct{}, 1)
+		reconciler.jevSem <- struct{}{}
+		time.AfterFunc(50*time.Millisecond, func() { <-reconciler.jevSem })
+
+		assessment := &opendepotv1alpha1.BumpAssessment{}
+		if _, err := reconciler.classifyPreparedBump(context.Background(), version, previous, loadBumpContent(t, nextDir, version), next, assessment); err != nil {
+			t.Fatalf("classifyPreparedBump: %v", err)
+		}
+
+		if calls.Load() != 1 {
+			t.Fatalf("jev calls = %d, want 1 after the slot is released", calls.Load())
+		}
+	})
+}
+
+func TestClassifyPreparedBumpWaitsOnRateLimiter(t *testing.T) {
+	var calls atomic.Int32
+	var states []string
+	server := bumpJevServer(t, http.StatusOK, bumpJevResponse(0.1, 0.1, 0.8, 0.9), &states, &calls)
+	reconciler, version := newBumpReconciler(t, server.URL, false)
+
+	previous := writeBumpTree(t, map[string]string{"SKILL.md": bumpSkillDocument})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument + "More.\n"})
+	next := packBumpTree(t, nextDir)
+
+	t.Run("waits for a token", func(t *testing.T) {
+		limiter := rate.NewLimiter(rate.Every(40*time.Millisecond), 1)
+		limiter.Allow()
+		reconciler.jevLimiter = limiter
+
+		start := time.Now()
+		assessment := &opendepotv1alpha1.BumpAssessment{}
+		if _, err := reconciler.classifyPreparedBump(context.Background(), version, previous, loadBumpContent(t, nextDir, version), next, assessment); err != nil {
+			t.Fatalf("classifyPreparedBump: %v", err)
+		}
+
+		if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+			t.Fatalf("classification took %v, want it to wait for the rate limiter", elapsed)
+		}
+	})
+
+	t.Run("honors cancellation", func(t *testing.T) {
+		limiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+		limiter.Allow()
+		reconciler.jevLimiter = limiter
+
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(50*time.Millisecond, cancel)
+		assessment := &opendepotv1alpha1.BumpAssessment{}
+		_, err := reconciler.classifyPreparedBump(ctx, version, previous, loadBumpContent(t, nextDir, version), next, assessment)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled while waiting for a token", err)
+		}
+	})
+}
+
+func TestBuildBumpStateStreamsFiftyMiBFiles(t *testing.T) {
+	const size = 50 << 20
+	_, version := newBumpReconciler(t, "", false)
+	previousDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": bumpText("old", size)})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": bumpText("new", size)})
+	previous := loadBumpContent(t, previousDir, version)
+	next := loadBumpContent(t, nextDir, version)
+
+	var before, after goruntime.MemStats
+	goruntime.GC()
+	goruntime.ReadMemStats(&before)
+	state, err := buildBumpState(previous, next, previousDir, nextDir, nil)
+	goruntime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("buildBumpState: %v", err)
+	}
+
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 16<<20 {
+		t.Fatalf("buildBumpState allocated %d bytes for 50 MiB files, want bounded memory", allocated)
+	}
+
+	if len(state) > jev.MaxStateBytes || !strings.HasSuffix(state, bumpStateMarker) {
+		t.Fatalf("state is %d bytes, want <= %d and a truncation marker", len(state), jev.MaxStateBytes)
+	}
+
+	if !strings.Contains(state, "Files modified (1): big.txt") {
+		t.Fatal("state must list big.txt as modified")
+	}
+}
+
+func TestBuildBumpStateEqualLargeFilesUnchanged(t *testing.T) {
+	const size = 2 << 20
+	_, version := newBumpReconciler(t, "", false)
+	previousDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": bumpText("same", size)})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": bumpText("same", size)})
+
+	state, err := buildBumpState(loadBumpContent(t, previousDir, version), loadBumpContent(t, nextDir, version), previousDir, nextDir, nil)
+	if err != nil {
+		t.Fatalf("buildBumpState: %v", err)
+	}
+
+	if !strings.Contains(state, "Files modified (0): none") || strings.Contains(state, "big.txt") {
+		t.Fatalf("equal large files must be unchanged; state = %q", state)
+	}
+}
+
+func TestBuildBumpStateDifferenceBeyondReadWindowIsModified(t *testing.T) {
+	const size = 200 << 10
+	_, version := newBumpReconciler(t, "", false)
+	previousText := bumpText("same", size)
+	nextText := previousText[:size-1] + "#"
+	previousDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": previousText})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument, "big.txt": nextText})
+
+	state, err := buildBumpState(loadBumpContent(t, previousDir, version), loadBumpContent(t, nextDir, version), previousDir, nextDir, nil)
+	if err != nil {
+		t.Fatalf("buildBumpState: %v", err)
+	}
+
+	if !strings.Contains(state, "Files modified (1): big.txt") {
+		t.Fatalf("a difference past the read window must still mark big.txt modified; state = %q", state)
+	}
+
+	if len(state) > jev.MaxStateBytes {
+		t.Fatalf("state is %d bytes, want <= %d", len(state), jev.MaxStateBytes)
+	}
+}
+
+func TestBuildBumpStateSmallInputHasNoMarker(t *testing.T) {
+	_, version := newBumpReconciler(t, "", false)
+	previousDir := writeBumpDir(t, map[string]string{"SKILL.md": bumpSkillDocument})
+	nextDir := writeBumpDir(t, map[string]string{"SKILL.md": strings.Replace(bumpSkillDocument, "Summarize documents.", "Summarize carefully.", 1)})
+
+	state, err := buildBumpState(loadBumpContent(t, previousDir, version), loadBumpContent(t, nextDir, version), previousDir, nextDir, nil)
+	if err != nil {
+		t.Fatalf("buildBumpState: %v", err)
+	}
+
+	if strings.Contains(state, bumpStateMarker) || !strings.Contains(state, "Files modified (1): SKILL.md") {
+		t.Fatalf("small input must not be marked truncated; state = %q", state)
+	}
+
+	if !strings.Contains(state, "-description: Summarize documents.") || !strings.Contains(state, "+description: Summarize carefully.") {
+		t.Fatalf("small input diff missing; state = %q", state)
+	}
+}
+
+func TestFileIsBinaryStreamsRunesAcrossReads(t *testing.T) {
+	const window = bumpReadBuffer
+	for _, r := range []string{"é", "€", "😀"} {
+		for offset := 1; offset < len(r); offset++ {
+			content := strings.Repeat("a", window-offset) + r + "tail\n"
+			binary, err := fileIsBinary(writeBumpFile(t, content))
+			if err != nil || binary {
+				t.Fatalf("rune %q split at offset %d: binary = %v err = %v, want text", r, offset, binary, err)
+			}
+		}
+	}
+
+	cases := map[string]string{
+		"invalid byte at the read boundary": strings.Repeat("a", window-1) + "\xc3" + "x",
+		"incomplete rune at end of file":    "text\xe2\x82",
+		"NUL past the first read":           strings.Repeat("a", window+10) + "\x00",
+	}
+	for name, content := range cases {
+		binary, err := fileIsBinary(writeBumpFile(t, content))
+		if err != nil || !binary {
+			t.Fatalf("%s: binary = %v err = %v, want binary", name, binary, err)
+		}
+	}
+}
+
+func TestFilesEqualStreamsWholeFile(t *testing.T) {
+	base := bumpText("eq", 2*bumpReadBuffer)
+	same, err := filesEqual(writeBumpFile(t, base), writeBumpFile(t, base))
+	if err != nil || !same {
+		t.Fatalf("identical files: equal = %v err = %v, want equal", same, err)
+	}
+
+	for name, other := range map[string]string{
+		"extra trailing byte":      base + "x",
+		"difference at the buffer": base[:bumpReadBuffer] + "#" + base[bumpReadBuffer+1:],
+	} {
+		equal, err := filesEqual(writeBumpFile(t, base), writeBumpFile(t, other))
+		if err != nil || equal {
+			t.Fatalf("%s: equal = %v err = %v, want not equal", name, equal, err)
+		}
 	}
 }
