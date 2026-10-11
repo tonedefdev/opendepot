@@ -255,6 +255,47 @@ func TestBuildJevStateOmitsFlaggedEntry(t *testing.T) {
 	}
 }
 
+func TestBuildJevStateMarksFlaggedEntryIncomplete(t *testing.T) {
+	content := &agentContent{
+		entryName:    "SKILL.md",
+		entryBytes:   []byte("secret body"),
+		entryFlagged: true,
+		files:        []string{"SKILL.md"},
+	}
+
+	state, truncated := buildJevState(content)
+	if !truncated {
+		t.Fatalf("flagged entry did not mark the assessment incomplete: %q", state)
+	}
+
+	if !strings.Contains(state, "[withheld: entry file flagged for a secret]\n") {
+		t.Fatalf("withheld marker missing from state: %q", state)
+	}
+}
+
+func TestBuildJevStateMarksWithheldBundledFileIncomplete(t *testing.T) {
+	content := &agentContent{
+		entryName:    "SKILL.md",
+		entryBytes:   []byte("entry body"),
+		files:        []string{"SKILL.md", "scripts/run.sh"},
+		fileBodies:   map[string][]byte{"scripts/run.sh": []byte("AKIAEXAMPLESECRET")},
+		flaggedFiles: map[string]struct{}{"run.sh": {}},
+	}
+
+	state, truncated := buildJevState(content)
+	if !truncated {
+		t.Fatalf("withheld bundled file did not mark the assessment incomplete: %q", state)
+	}
+
+	if strings.Contains(state, "AKIAEXAMPLESECRET") {
+		t.Fatalf("flagged bundled content was sent to Jev: %q", state)
+	}
+
+	if !strings.Contains(state, "\n--- scripts/run.sh ---\n[withheld: flagged for a secret]\n") {
+		t.Fatalf("withheld marker missing from state: %q", state)
+	}
+}
+
 func TestBuildJevStateTruncatesAtLimit(t *testing.T) {
 	content := &agentContent{
 		entryBytes: []byte(strings.Repeat("é", jev.MaxStateBytes)),
@@ -956,6 +997,88 @@ func TestRunAgentJevTruncationPublishesWithoutThresholds(t *testing.T) {
 
 	if assessment == nil || assessment.Error != jevTruncatedError || assessment.Blocked {
 		t.Fatalf("assessment = %+v, want the truncation recorded and not blocked", assessment)
+	}
+
+	want := "Successfully synced version; Jev assessment did not complete: " + jevTruncatedError + ". Version was published because no Jev thresholds are set"
+	if got := jevPublishedStatus(assessment); got != want {
+		t.Fatalf("status = %q, want %q", got, want)
+	}
+
+	if calls.Load() != 1 {
+		t.Fatalf("Jev calls = %d, want 1", calls.Load())
+	}
+}
+
+func jevFlaggedBundledContent() *agentContent {
+	return &agentContent{
+		entryName:    "SKILL.md",
+		entryBytes:   []byte("# Skill\nSummarize documents."),
+		files:        []string{"SKILL.md", "scripts/run.sh"},
+		fileBodies:   map[string][]byte{"scripts/run.sh": []byte("AKIAEXAMPLESECRET")},
+		flaggedFiles: map[string]struct{}{"run.sh": {}},
+	}
+}
+
+func jevFlaggedEntryContent() *agentContent {
+	return &agentContent{
+		entryName:    "SKILL.md",
+		entryBytes:   []byte("# Skill\nAKIAEXAMPLESECRET"),
+		entryFlagged: true,
+		files:        []string{"SKILL.md"},
+		flaggedFiles: map[string]struct{}{"SKILL.md": {}},
+	}
+}
+
+func TestRunAgentJevFlaggedBundledFileBlocksWithThresholds(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevPolicy = &opendepotv1alpha1.JevPolicy{MinSafeProbability: f64(0.5)}
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevFlaggedBundledContent())
+	if err == nil || err.Error() != jevTruncatedError {
+		t.Fatalf("assessment = %+v, err = %v; want %q", assessment, err, jevTruncatedError)
+	}
+
+	if assessment == nil || assessment.Error != jevTruncatedError || !assessment.Blocked {
+		t.Fatalf("assessment = %+v, want the incomplete assessment recorded and blocked", assessment)
+	}
+
+	if calls.Load() != 1 {
+		t.Fatalf("Jev calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestRunAgentJevFlaggedEntryBlocksWithThresholds(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevPolicy = &opendepotv1alpha1.JevPolicy{MinSafeProbability: f64(0.5)}
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevFlaggedEntryContent())
+	if err == nil || err.Error() != jevTruncatedError {
+		t.Fatalf("assessment = %+v, err = %v; want %q", assessment, err, jevTruncatedError)
+	}
+
+	if assessment == nil || assessment.Error != jevTruncatedError || !assessment.Blocked {
+		t.Fatalf("assessment = %+v, want the incomplete assessment recorded and blocked", assessment)
+	}
+
+	if calls.Load() != 1 {
+		t.Fatalf("Jev calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestRunAgentJevFlaggedBundledFilePublishesWithoutThresholds(t *testing.T) {
+	var calls atomic.Int32
+	_, reconciler, version := newJevRunnerFixture(t, http.StatusOK, jevOKResponse, &calls)
+	version.Spec.AgentSourceRef.JevPolicy = nil
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, jevFlaggedBundledContent())
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if assessment == nil || assessment.Error != jevTruncatedError || assessment.Blocked {
+		t.Fatalf("assessment = %+v, want the incomplete assessment recorded and not blocked", assessment)
 	}
 
 	want := "Successfully synced version; Jev assessment did not complete: " + jevTruncatedError + ". Version was published because no Jev thresholds are set"
