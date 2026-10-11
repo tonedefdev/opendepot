@@ -143,8 +143,8 @@ func jevFailure(err error, gated bool) (*opendepotv1alpha1.JevAssessment, error)
 	return assessment, nil
 }
 
-// jevServiceError marks a Service outcome: a failed part or an unreadable token Secret. Only these are retried at
-// jevRetryRequeue. A Content outcome returns no error, so it is never retried.
+// jevServiceError marks a Service outcome: a failed part, an unreadable token Secret, or a read error on the extracted
+// content. Only these are retried at jevRetryRequeue. A Content outcome returns no error, so it is never retried.
 type jevServiceError struct {
 	msg string
 }
@@ -400,7 +400,7 @@ func (r *VersionReconciler) runAgentJev(
 		return assessment, err
 	}
 
-	if reuse && cached.ChunkCount == 0 && len(cached.Chunks) == 0 {
+	if reuse && cached.ChunkCount == 0 && len(cached.Chunks) == 0 && !cached.Blocked {
 		if cached.Error != "" && gated {
 			return cached, errors.New(cached.Error)
 		}
@@ -431,6 +431,12 @@ func (r *VersionReconciler) runAgentJev(
 
 	layout, err := jevChunkPlan(in)
 	if err != nil {
+		if errors.Is(err, errJevChunkIO) {
+			r.Log.Error(err, "Jev split could not read the extracted content", "version", version.Name)
+
+			return jevIncomplete(retries+1, 0, "jev assessment incomplete: the extracted content could not be read")
+		}
+
 		assessment := jevNewAssessment(retries, 0)
 		assessment.Blocked = true
 		assessment.BlockReasons = []string{fmt.Sprintf("jev assessment incomplete: split the content: %s", err)}

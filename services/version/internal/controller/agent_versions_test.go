@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -608,6 +609,49 @@ func TestReconcileJevUnauthorizedRerunsWithoutCount(t *testing.T) {
 	}
 
 	wantJevCalls(t, f, 3)
+}
+
+// TestReconcileJevSplitIOErrorRequeues covers a read error on the extracted tree. The Version blocks with a Service
+// error, is re-run after 15 seconds, and makes no Jev call. Once the read succeeds, the retry publishes.
+func TestReconcileJevSplitIOErrorRequeues(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{files: map[string]string{
+		"SKILL.md":  jevEntry,
+		"helper.md": "helper",
+	}})
+
+	jevChunkStat = func(name string) (os.FileInfo, error) {
+		if filepath.Base(name) == "helper.md" {
+			return nil, os.ErrPermission
+		}
+
+		return os.Stat(name)
+	}
+	defer func() { jevChunkStat = os.Stat }()
+
+	result := f.reconcile(t)
+	if result.RequeueAfter != jevRetryRequeue {
+		t.Fatalf("RequeueAfter = %v; want %v", result.RequeueAfter, jevRetryRequeue)
+	}
+
+	stored := f.version(t)
+	wantJevBlocked(t, stored, 1)
+	if !strings.HasPrefix(stored.Status.SyncStatus, "JevUnavailable:") || stored.Status.JevAssessment.Error == "" {
+		t.Fatalf("SyncStatus = %q, Error = %q; want a JevUnavailable Service failure", stored.Status.SyncStatus, stored.Status.JevAssessment.Error)
+	}
+
+	wantJevCalls(t, f, 0)
+
+	jevChunkStat = os.Stat
+	result = f.reconcile(t)
+	if result.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter after the retry = %v; want 0", result.RequeueAfter)
+	}
+
+	if stored = f.version(t); !stored.Status.Synced {
+		t.Fatalf("Synced = false after the retry; want true")
+	}
+
+	wantJevCalls(t, f, 1)
 }
 
 // TestReconcileJevMissingTokenSecretBlocks covers a missing token Secret without thresholds. The Version blocks, no
