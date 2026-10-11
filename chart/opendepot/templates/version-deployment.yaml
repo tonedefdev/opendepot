@@ -127,6 +127,7 @@ spec:
         - "--agent-allowed-domains={{ .Values.scanning.agentAllowedDomains }}"
         - --jev-enabled={{ .Values.scanning.jev.enabled }}
         - "--jev-endpoint={{ .Values.scanning.jev.endpoint }}"
+        - --jev-max-retries={{ .Values.scanning.jev.maxRetries }}
         - --branch-sourcing-enabled={{ .Values.branchSourcing.enabled }}
         {{- if .Values.scanning.enabled }}
         - --scanning-enabled=true

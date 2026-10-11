@@ -39,6 +39,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-github/v81/github"
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -89,6 +90,8 @@ type VersionReconciler struct {
 	JevEnabled bool
 	// JevEndpoint overrides the default TypeSafe Jev API endpoint.
 	JevEndpoint string
+	// JevMaxRetries is the number of times a failed Jev assessment is run again before it stays failed.
+	JevMaxRetries int
 	// BranchSourcingEnabled allows Skill and Agent Versions that pin a commit SHA (spec.sourceCommit) to be synced.
 	BranchSourcingEnabled bool
 	// APIReader reads sibling Versions straight from the API server, bypassing the cache, for the
@@ -109,6 +112,12 @@ type VersionReconciler struct {
 	// Each download streams a ~700 MB zip to disk; allowing all four workers to
 	// download simultaneously risks exhausting memory and disk I/O.
 	downloadSem chan struct{}
+	// jevSem limits the Jev HTTP attempts in flight across all Versions.
+	jevSem chan struct{}
+	// jevLimiter limits the rate of Jev HTTP attempts across all Versions.
+	jevLimiter *rate.Limiter
+	// jevDeadline bounds the time spent sending the parts of one Version to Jev. Zero uses jevPartDeadline.
+	jevDeadline time.Duration
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions,verbs=get;list;watch;create;update;patch;delete
@@ -672,6 +681,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			return ctrl.Result{}, scanErr
 		}
+
+		defer content.release()
 
 		sourceScan = agentSourceScan
 		agentTree = content
@@ -1702,6 +1713,9 @@ func (r *VersionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Allow at most one provider archive download at a time. Each download is
 	// ~700 MB; concurrent downloads exhaust memory and storage I/O.
 	r.downloadSem = make(chan struct{}, 1)
+	// Allow at most jevMaxInFlight Jev HTTP attempts at a time, and rate limit them, across all Versions.
+	r.jevSem = make(chan struct{}, jevMaxInFlight)
+	r.jevLimiter = rate.NewLimiter(rate.Limit(jevRateLimitPerMinute)/60, jevRateBurst)
 	// GenerationChangedPredicate only overrides Update; its Create/Delete/Generic all
 	// default to true. client-go informers synthesize a Create event for every
 	// pre-existing object during the initial cache sync on every controller restart, so

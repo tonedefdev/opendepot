@@ -101,6 +101,7 @@ func main() {
 	var jevEnabled bool
 	var branchSourcingEnabled bool
 	var jevEndpoint string
+	var jevMaxRetries int
 	flag.BoolVar(&scanningEnabled, "scanning-enabled", false,
 		"Enable Trivy vulnerability scanning for provider artifacts.")
 	flag.StringVar(&trivyCacheDir, "trivy-cache-dir", "/var/cache/trivy",
@@ -121,6 +122,8 @@ func main() {
 		"Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy.")
 	flag.StringVar(&jevEndpoint, "jev-endpoint", "",
 		"Override the TypeSafe Jev API endpoint. Empty uses the default endpoint.")
+	flag.IntVar(&jevMaxRetries, "jev-max-retries", 3,
+		"Number of times a failed Jev assessment is run again before it stays failed.")
 	flag.BoolVar(&branchSourcingEnabled, "branch-sourcing-enabled", false,
 		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
 	var assemblyEnabled bool
@@ -303,6 +306,7 @@ func main() {
 		AgentAllowedDomains:     allowedDomains,
 		JevEnabled:              jevEnabled,
 		JevEndpoint:             jevEndpoint,
+		JevMaxRetries:           jevMaxRetries,
 		BranchSourcingEnabled:   branchSourcingEnabled,
 		APIReader:               mgr.GetAPIReader(),
 		TrivyCacheDir:           trivyCacheDir,

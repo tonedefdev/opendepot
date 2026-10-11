@@ -302,6 +302,7 @@ scanning:
     enabled: false
     # Override the TypeSafe Jev API endpoint.
     endpoint: "https://api.typesafe.ai/v1/systemone"
+    maxRetries: 3
   # PersistentVolumeClaim for the shared Trivy vulnerability database.
   # Only created when providerScanning is true.
   cache:

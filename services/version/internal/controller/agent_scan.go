@@ -17,7 +17,9 @@ limitations under the License.
 package controller
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -29,9 +31,16 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/agentspec"
-	"github.com/tonedefdev/opendepot/pkg/jev"
 	"github.com/tonedefdev/opendepot/services/version/checks/agents"
 	"github.com/tonedefdev/opendepot/services/version/internal/policy"
+)
+
+const (
+	// scriptWindowBytes is the size of each script window handed to the Expr rules.
+	scriptWindowBytes = 1 << 20
+	// scriptCarryBytes is the tail of each script window repeated at the start of the next, so a match that
+	// straddles a window boundary is still seen whole.
+	scriptCarryBytes = 64 << 10
 )
 
 // scriptExtensions are the bundled file types whose content is evaluated by the Expr rules as scripts.
@@ -45,12 +54,15 @@ var scriptExtensions = map[string]struct{}{
 	".ts":   {},
 }
 
-// agentContent is the parsed content of a Skill or Agent archive.
+// agentContent is the parsed content of a Skill or Agent archive. The extracted directory stays on disk until
+// release is called, so the Jev assessment can read the entry file and the bundled files again.
 type agentContent struct {
 	// entryName is the file that defines the Skill or Agent, such as SKILL.md.
 	entryName string
-	// entryBytes is the raw content of the entry file.
-	entryBytes []byte
+	// entryRel is the slash-separated path of the entry file relative to dir.
+	entryRel string
+	// dir is the extracted archive directory.
+	dir string
 	// entryFlagged reports whether Trivy flagged the entry file for a secret.
 	entryFlagged bool
 	// flaggedFiles holds the base names of every file Trivy flagged for a secret.
@@ -59,27 +71,10 @@ type agentContent struct {
 	parseErr error
 	// definition is the parsed frontmatter and body of the entry file.
 	definition *agentspec.Result
-	// scripts is the concatenated content of every bundled script file.
-	scripts string
 	// files lists every bundled file as a slash-separated path relative to the archive root.
 	files []string
-	// fileBodies holds the raw content of each bundled file except the entry file, keyed by its path in files. A file
-	// is held only when it fits in the Jev state limit together with the files already held.
-	fileBodies map[string][]byte
-	// omittedFiles holds the paths of bundled files whose content was not held because it exceeds the Jev state limit.
-	omittedFiles map[string]struct{}
-}
-
-// readBundledPrefix reads at most jev.MaxStateBytes+1 bytes of a bundled file. A result longer than
-// jev.MaxStateBytes means the file cannot fit in the Jev state, and the rest of the file is never read.
-func readBundledPrefix(name string) ([]byte, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	return io.ReadAll(io.LimitReader(f, jev.MaxStateBytes+1))
+	// release removes the extracted directory. It is set only when runAgentScan succeeds.
+	release func()
 }
 
 // agentEntryPath returns the path of the entry file for a Skill or Agent Version inside dir.
@@ -100,8 +95,18 @@ func skillName(version *opendepotv1alpha1.Version) string {
 	return ""
 }
 
-// loadAgentContent reads the entry file, the bundled file list, and the bundled scripts from an
-// extracted Skill or Agent directory.
+// readAgentEntry reads the entry file through a buffered stream reader.
+func readAgentEntry(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return io.ReadAll(bufio.NewReader(f))
+}
+
+// loadAgentContent parses the entry file and lists the bundled files of an extracted Skill or Agent directory.
 func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentContent, error) {
 	entryPath, err := agentEntryPath(dir, version)
 	if err != nil {
@@ -109,17 +114,15 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 	}
 
 	content := &agentContent{
-		entryName:    filepath.Base(entryPath),
-		fileBodies:   make(map[string][]byte),
-		omittedFiles: make(map[string]struct{}),
+		entryName: filepath.Base(entryPath),
+		dir:       dir,
 	}
 
-	entryBytes, err := os.ReadFile(entryPath)
+	entryBytes, err := readAgentEntry(entryPath)
 	if err != nil {
 		return nil, fmt.Errorf("read agent entry file %s: %w", content.entryName, err)
 	}
 
-	content.entryBytes = entryBytes
 	var parsed *agentspec.Result
 	var parseErr error
 	platform := ""
@@ -145,9 +148,7 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 		return nil, fmt.Errorf("resolve agent entry file: %w", err)
 	}
 
-	entryRel = filepath.ToSlash(entryRel)
-	var scripts strings.Builder
-	retainedBytes := 0
+	content.entryRel = filepath.ToSlash(entryRel)
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -162,35 +163,7 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 			return err
 		}
 
-		rel = filepath.ToSlash(rel)
-		content.files = append(content.files, rel)
-
-		if rel != entryRel {
-			body, err := readBundledPrefix(path)
-			if err != nil {
-				return err
-			}
-
-			if len(body) > jev.MaxStateBytes || retainedBytes+len(body) > jev.MaxStateBytes {
-				content.omittedFiles[rel] = struct{}{}
-			} else {
-				content.fileBodies[rel] = body
-				retainedBytes += len(body)
-			}
-		}
-
-		if _, ok := scriptExtensions[strings.ToLower(filepath.Ext(rel))]; !ok {
-			return nil
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		scripts.WriteString(string(data))
-		scripts.WriteString("\n")
-
+		content.files = append(content.files, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {
@@ -198,14 +171,72 @@ func loadAgentContent(dir string, version *opendepotv1alpha1.Version) (*agentCon
 	}
 
 	sort.Strings(content.files)
-	content.scripts = scripts.String()
 	return content, nil
+}
+
+// evaluateScriptStream streams the bundled script files through the Expr rules in fixed-size windows. Each
+// window is evaluated with the carry of the previous one in front, and the files are joined with a newline so
+// a rule never matches across two files by accident. evaluate is called once per window; when there are no
+// script bytes it is called once with no segments, which runs the body-only rules.
+func evaluateScriptStream(dir string, scriptFiles []string, evaluate func(segments []agents.ScriptSegment) error) error {
+	readers := make([]io.Reader, 0, 2*len(scriptFiles))
+	closers := make([]io.Closer, 0, len(scriptFiles))
+	defer func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	}()
+
+	for _, rel := range scriptFiles {
+		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			return err
+		}
+
+		closers = append(closers, f)
+		readers = append(readers, f, strings.NewReader("\n"))
+	}
+
+	stream := bufio.NewReaderSize(io.MultiReader(readers...), scriptWindowBytes)
+	chunk := make([]byte, scriptWindowBytes)
+	var carry []byte
+	windows := 0
+	for {
+		n, readErr := io.ReadFull(stream, chunk)
+		final := readErr == io.EOF || errors.Is(readErr, io.ErrUnexpectedEOF)
+		if readErr != nil && !final {
+			return readErr
+		}
+
+		window := make([]byte, 0, len(carry)+n)
+		window = append(window, carry...)
+		window = append(window, chunk[:n]...)
+		if len(window) > 0 {
+			windows++
+			if err := evaluate([]agents.ScriptSegment{{Text: string(window), CutMidLine: !final}}); err != nil {
+				return err
+			}
+		}
+
+		if final {
+			break
+		}
+
+		carry = window[max(0, len(window)-scriptCarryBytes):]
+	}
+
+	if windows == 0 {
+		return evaluate(nil)
+	}
+
+	return nil
 }
 
 // runAgentScan extracts a stored Skill or Agent archive and evaluates it with the agentspec parser,
 // the Expr rules, and a Trivy fs scan with the vuln, secret, and misconfig scanners. Trivy is always
 // on for agents and fails closed: a scanner error is returned rather than an empty result. A non-nil
-// blocking finding means the Version must not be published.
+// blocking finding means the Version must not be published. On success the extracted directory is kept
+// until the returned content's release is called; on error it is removed before returning.
 func (r *VersionReconciler) runAgentScan(
 	ctx context.Context,
 	version *opendepotv1alpha1.Version,
@@ -218,7 +249,13 @@ func (r *VersionReconciler) runAgentScan(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	defer cleanup()
+
+	keep := false
+	defer func() {
+		if !keep {
+			cleanup()
+		}
+	}()
 
 	content, err := loadAgentContent(tmpDir, version)
 	if err != nil {
@@ -280,15 +317,39 @@ func (r *VersionReconciler) runAgentScan(
 	}
 
 	def := content.definition
-	body := def.Body + "\n" + content.scripts
-	exprFindings, err := ruleSet.Evaluate(agents.AgentRuleEnv{
+	var scriptFiles []string
+	for _, rel := range content.files {
+		if _, ok := scriptExtensions[strings.ToLower(filepath.Ext(rel))]; ok {
+			scriptFiles = append(scriptFiles, rel)
+		}
+	}
+
+	env := agents.AgentRuleEnv{
 		Name:           def.Name,
 		Description:    def.Description,
 		Tools:          def.Tools,
 		Body:           def.Body,
-		Scripts:        content.scripts,
-		Domains:        agents.ExtractDomains(body),
 		AllowedDomains: r.AgentAllowedDomains,
+	}
+
+	var exprFindings []opendepotv1alpha1.SecurityFinding
+	seen := make(map[string]struct{})
+	err = evaluateScriptStream(tmpDir, scriptFiles, func(segments []agents.ScriptSegment) error {
+		found, err := ruleSet.EvaluateSegments(env, segments)
+		if err != nil {
+			return err
+		}
+
+		for _, finding := range found {
+			if _, ok := seen[finding.VulnerabilityID]; ok {
+				continue
+			}
+
+			seen[finding.VulnerabilityID] = struct{}{}
+			exprFindings = append(exprFindings, finding)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, nil, nil, err
@@ -305,6 +366,8 @@ func (r *VersionReconciler) runAgentScan(
 		Findings:  annotated,
 	}
 
+	content.release = cleanup
+	keep = true
 	return sourceScan, content, blocking, nil
 }
 
