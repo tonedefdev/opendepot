@@ -6647,6 +6647,7 @@ __metadata:
     "@emotion/react": "npm:^11.14.0"
     "@emotion/server": "npm:^11.11.0"
     "@emotion/styled": "npm:^11.14.0"
+    "@eslint/eslintrc": "npm:^3.3.5"
     "@mui/icons-material": "npm:^7.1.1"
     "@mui/material": "npm:^7.1.1"
     "@mui/material-nextjs": "npm:^7.1.1"
