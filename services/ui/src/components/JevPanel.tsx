@@ -6,6 +6,7 @@ import IconButton from "@mui/material/IconButton";
 import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { JevAssessment, JevThresholds } from "@/lib/api";
 import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
@@ -19,6 +20,16 @@ interface JevPanelProps {
 // JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
 const JEV_MAX_PARTS = 16;
 
+// JEV_INPUT_USD_PER_MILLION_TOKENS is Jev's current list price for input tokens.
+const JEV_INPUT_USD_PER_MILLION_TOKENS = 0.042;
+
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
+
 interface ProbabilityRow {
   label: string;
   description: string;
@@ -30,6 +41,10 @@ interface ProbabilityRow {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatInputCost(inputTokens: number): string {
+  return usdFormatter.format((inputTokens * JEV_INPUT_USD_PER_MILLION_TOKENS) / 1_000_000);
 }
 
 function formatLimit(row: ProbabilityRow): string | undefined {
@@ -176,6 +191,15 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
             size="small"
             variant="outlined"
             color={confidenceLimit !== undefined && assessment.riskConfidence < confidenceLimit ? "error" : "default"}
+          />
+        )}
+        {assessment.inputTokens !== undefined && assessment.inputTokens > 0 && (
+          <InfoChip
+            label={`Cost: ${formatInputCost(assessment.inputTokens)}`}
+            description={`Estimated Jev input cost: the input tokens Jev reported for every part it processed, ${assessment.inputTokens.toLocaleString("en-US")} in total, at $${JEV_INPUT_USD_PER_MILLION_TOKENS} per million input tokens. Output tokens are not included.`}
+            icon={<AttachMoneyOutlinedIcon />}
+            size="small"
+            variant="outlined"
           />
         )}
         {assessment.needsReview && (

@@ -170,6 +170,43 @@ describe("JevPanel", () => {
   });
 });
 
+describe("JevPanel input cost", () => {
+  afterEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it("prices reported input tokens at the Jev rate per million tokens", () => {
+    renderPanel({ assessment: { ...assessment, inputTokens: 1_000_000 } });
+
+    expect(screen.getByText("Cost: $0.042")).not.toBeNull();
+  });
+
+  it("keeps small evaluations visible instead of rounding them to zero", () => {
+    renderPanel({ assessment: { ...assessment, inputTokens: 1234 } });
+
+    expect(screen.getByText("Cost: $0.000052")).not.toBeNull();
+  });
+
+  it("hides the cost chip for legacy assessments and when no tokens were billed", () => {
+    const { unmount } = renderPanel({ assessment });
+    expect(screen.queryByText(/^Cost:/)).toBeNull();
+    unmount();
+
+    renderPanel({ assessment: { ...assessment, inputTokens: 0 } });
+    expect(screen.queryByText(/^Cost:/)).toBeNull();
+  });
+
+  it("explains the estimate and the rate on hover", async () => {
+    renderPanel({ assessment: { ...assessment, inputTokens: 1_234_567 } });
+
+    fireEvent.mouseOver(screen.getByText(/^Cost:/));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("1,234,567 in total, at $0.042 per million input tokens");
+    expect(tooltip.textContent).toContain("Output tokens are not included");
+  });
+});
+
 describe("buildAgentConfigSnippet", () => {
   it("uses agent_skill for skills and agent for agents", () => {
     const skill = buildAgentConfigSnippet({ kind: "skill", namespace: "acme", name: "code-review", registryHost: "registry.example.com", latestVersion: "v1.2.0" });
