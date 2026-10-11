@@ -194,11 +194,10 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
   );
 }
 
-const FRONTMATTER_FOLD_WIDTH = 80;
-
-// Display-only: wraps long single-line top-level string values as YAML folded (>-) blocks so
-// they fit the card. The stored definition is unchanged, and folding keeps the parsed value the same.
-export function foldLongFrontmatterValues(frontmatter: string): string {
+// Display-only: a top-level string value that overflows its container is shown as a YAML folded (>-)
+// block, wrapped at the measured width. Values that fit stay on one line. The stored definition is
+// unchanged, and folding keeps the parsed value the same.
+export function foldFrontmatterValues(frontmatter: string, fits: (line: string) => boolean): string {
   const lines = frontmatter.split("\n");
   const out: string[] = [];
 
@@ -208,7 +207,7 @@ export function foldLongFrontmatterValues(frontmatter: string): string {
     const nextLine = lines[i + 1];
     const continues = nextLine !== undefined && /^\s/.test(nextLine);
 
-    if (!match || line.length <= FRONTMATTER_FOLD_WIDTH || continues || match[2].includes(" #")) {
+    if (fits(line) || !match || continues || match[2].includes(" #")) {
       out.push(line);
       continue;
     }
@@ -227,15 +226,15 @@ export function foldLongFrontmatterValues(frontmatter: string): string {
     }
 
     const indent = "  ";
-    const width = FRONTMATTER_FOLD_WIDTH - indent.length;
     const wrapped: string[] = [];
     let current = "";
     for (const word of value.split(" ")) {
-      if (current && current.length + 1 + word.length > width) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (current && !fits(`${indent}${candidate}`)) {
         wrapped.push(current);
         current = word;
       } else {
-        current = current ? `${current} ${word}` : word;
+        current = candidate;
       }
     }
     wrapped.push(current);
@@ -262,41 +261,96 @@ interface AgentDefinitionProps {
   title: string;
 }
 
-export function AgentDefinition({ content, fileName, title }: AgentDefinitionProps) {
-  const { frontmatter, body } = splitFrontmatter(content);
+interface FrontmatterCodeProps {
+  frontmatter: string;
+  fileName: string;
+}
+
+function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const preRef = React.useRef<HTMLPreElement>(null);
+  const probeRef = React.useRef<HTMLSpanElement>(null);
+  const [code, setCode] = React.useState(frontmatter);
+
+  React.useEffect(() => {
+    const pre = preRef.current;
+    const probe = probeRef.current;
+    if (!pre || !probe) return;
+
+    const compute = () => {
+      const styles = window.getComputedStyle(pre);
+      const inner = pre.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+      const fits = (text: string) => {
+        probe.textContent = text;
+        return probe.getBoundingClientRect().width <= inner;
+      };
+      setCode(foldFrontmatterValues(frontmatter, fits));
+    };
+
+    compute();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(compute);
+    observer.observe(pre);
+    return () => observer.disconnect();
+  }, [frontmatter]);
+
+  return (
+    <Box sx={{ position: "relative", overflow: "hidden" }}>
+      <Box
+        component="span"
+        ref={probeRef}
+        aria-hidden
+        sx={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          visibility: "hidden",
+          whiteSpace: "pre",
+          fontFamily: "monospace",
+          fontSize: "0.8125rem",
+        }}
+      />
+      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"yaml" as Language}>
+        {({ style, tokens, getLineProps, getTokenProps }) => (
+          <Box
+            component="pre"
+            ref={preRef}
+            aria-label={`${fileName} frontmatter`}
+            sx={{
+              m: 0,
+              p: 1.5,
+              borderRadius: 1,
+              overflowX: "auto",
+              fontFamily: "monospace",
+              fontSize: "0.8125rem",
+              lineHeight: 1.6,
+              ...style,
+              ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
+            }}
+          >
+            {tokens.map((line, i) => (
+              <div key={i} {...getLineProps({ line })}>
+                {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
+              </div>
+            ))}
+          </Box>
+        )}
+      </Highlight>
+    </Box>
+  );
+}
+
+export function AgentDefinition({ content, fileName, title }: AgentDefinitionProps) {
+  const { frontmatter, body } = splitFrontmatter(content);
 
   return (
     <>
       {frontmatter !== null && (
         <SectionCard icon={<DataObjectIcon fontSize="small" />} title="Frontmatter">
-          <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={foldLongFrontmatterValues(frontmatter)} language={"yaml" as Language}>
-            {({ style, tokens, getLineProps, getTokenProps }) => (
-              <Box
-                component="pre"
-                aria-label={`${fileName} frontmatter`}
-                sx={{
-                  m: 0,
-                  p: 1.5,
-                  borderRadius: 1,
-                  overflowX: "auto",
-                  fontFamily: "monospace",
-                  fontSize: "0.8125rem",
-                  lineHeight: 1.6,
-                  ...style,
-                  ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-                }}
-              >
-                {tokens.map((line, i) => (
-                  <div key={i} {...getLineProps({ line })}>
-                    {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-                  </div>
-                ))}
-              </Box>
-            )}
-          </Highlight>
+          <FrontmatterCode frontmatter={frontmatter} fileName={fileName} />
         </SectionCard>
       )}
       <SectionCard icon={<DescriptionIcon fontSize="small" />} title={title}>
