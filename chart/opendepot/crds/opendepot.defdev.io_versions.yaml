@@ -953,6 +953,12 @@ spec:
                           maximum: 16
                           minimum: 1
                           type: integer
+                        inputTokens:
+                          description: The input tokens Jev reported for this part.
+                            Calls that fail report no usage, so this is 0 for them.
+                          format: int64
+                          minimum: 0
+                          type: integer
                         label:
                           description: The part index plus any halving suffix, for
                             example 3, 3a or 3ab.
@@ -1018,6 +1024,13 @@ spec:
                     description: The probability that the Version is susceptible to
                       prompt injection.
                     type: number
+                  inputTokens:
+                    description: |-
+                      The total input tokens Jev reported across every part it processed. It is the sum of each chunk's inputTokens,
+                      and it includes parts that Jev scored but that were then marked Failed.
+                    format: int64
+                    minimum: 0
+                    type: integer
                   model:
                     description: The Jev model that produced the assessment, as returned
                       by the API.

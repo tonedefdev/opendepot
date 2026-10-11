@@ -762,6 +762,58 @@ func TestRunAgentJevHalvesAgainOnSecondRejection(t *testing.T) {
 	}
 }
 
+// TestRunAgentJevSumsInputTokensAcrossChunks checks that each chunk keeps its reported input tokens and the assessment
+// total is their sum.
+func TestRunAgentJevSumsInputTokensAcrossChunks(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevMarkedContent(t, 3, nil))
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if calls.Load() != 3 || len(assessment.Chunks) != 3 {
+		t.Fatalf("Jev calls = %d, chunks = %d; want 3 of each", calls.Load(), len(assessment.Chunks))
+	}
+
+	for _, c := range assessment.Chunks {
+		if c.InputTokens != 1234 {
+			t.Fatalf("chunk %s InputTokens = %d, want 1234", c.Label, c.InputTokens)
+		}
+	}
+
+	if assessment.InputTokens != 3*1234 {
+		t.Fatalf("InputTokens = %d, want %d", assessment.InputTokens, 3*1234)
+	}
+}
+
+// TestRunAgentJevInputTokensCountOnlyCallsWithUsage checks that a token-limit rejection, which returns no usage, adds
+// nothing to the total, while the split halves that Jev scored do.
+func TestRunAgentJevInputTokensCountOnlyCallsWithUsage(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevRejectMark("MARK-3", 1))
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevMarkedContent(t, 3, map[int]string{3: "MARK-3"}))
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	scored := int64(calls.Load() - 1)
+	if assessment.InputTokens != scored*1234 {
+		t.Fatalf("InputTokens = %d, want %d for %d scored calls", assessment.InputTokens, scored*1234, scored)
+	}
+
+	var chunkSum int64
+	for _, c := range assessment.Chunks {
+		chunkSum += c.InputTokens
+	}
+
+	if chunkSum != assessment.InputTokens {
+		t.Fatalf("chunk InputTokens sum = %d, assessment InputTokens = %d", chunkSum, assessment.InputTokens)
+	}
+}
+
 // TestRunAgentJevDepthTwoRejectionIsTokenLimitExceeded covers D6: a rejection past the second halving is not split.
 func TestRunAgentJevDepthTwoRejectionIsTokenLimitExceeded(t *testing.T) {
 	endpoint, _ := newJevEndpoint(t, jevRejectMark("MARK-3", 1<<30))

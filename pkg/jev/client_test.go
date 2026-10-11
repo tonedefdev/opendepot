@@ -108,6 +108,7 @@ func TestAssessParsesResponse(t *testing.T) {
 		RiskScore:                     0.75,
 		RiskLevel:                     "Minimal",
 		RiskConfidence:                0.88,
+		InputTokens:                   1234,
 	}
 
 	if !reflect.DeepEqual(got, want) {

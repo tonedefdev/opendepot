@@ -327,6 +327,8 @@ For a Skill or Agent that follows a branch, the detail header shows the source r
 
 The assessed content view in the Jev panel has two views, switched with the Files and Chunks toggle. **Files** shows a directory tree. Each file shows its risk level and the parts that contain it, such as `3` and `3a`. When a part that holds a file did not score, the file shows that part's status. **Chunks** lists the parts sorted by index. Each row shows the part's status, risk level, score, and confidence. Skipped files are listed below the parts. When a part's file list was cut, the view shows how many files are not listed.
 
+The Jev panel also shows an estimated input cost when a Version has `status.jevAssessment.inputTokens`. The value is the sum of the input tokens that Jev reports for every call that returned usage, across all parts. This includes parts that Jev later marked as failed, because Jev still bills them. A call that fails without usage is not counted. The UI estimates the cost at $0.042 per million input tokens. Output tokens are not included. Update the rate in `services/ui/src/components/JevPanel.tsx` if Jev pricing changes.
+
 ## Yanked and blocked Versions
 
 Yank a Version by setting `spec.yanked: true` on the Version resource. Yanked Versions stay listed and downloadable, and the listing includes `yanked: true`. The CLI skips yanked Versions when it resolves a version constraint unless you pass `--allow-yanked`.
