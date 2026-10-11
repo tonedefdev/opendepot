@@ -610,14 +610,35 @@ func TestReconcileJevUnauthorizedRerunsWithoutCount(t *testing.T) {
 	wantJevCalls(t, f, 3)
 }
 
-// TestReconcileJevMissingTokenSecretBlocks covers a missing token Secret without thresholds. The Version blocks and
-// no HTTP request is sent.
+// TestReconcileJevMissingTokenSecretBlocks covers a missing token Secret without thresholds. The Version blocks, no
+// HTTP request is sent, and the Service failure is re-run every 15 seconds.
 func TestReconcileJevMissingTokenSecretBlocks(t *testing.T) {
 	f := newJevReconcileFixture(t, jevReconcileCase{noSecret: true})
 
-	f.reconcile(t)
+	result := f.reconcile(t)
+
+	if result.RequeueAfter != jevRetryRequeue {
+		t.Fatalf("RequeueAfter = %v; want %v", result.RequeueAfter, jevRetryRequeue)
+	}
 
 	wantJevBlocked(t, f.version(t), 1)
+	wantJevCalls(t, f, 0)
+}
+
+// TestReconcileJevCeilingIsContentOutcome covers D2 and D11: content over the 16-part ceiling is a Content outcome.
+// The Version blocks with no error and no requeue, and no Jev call is made.
+func TestReconcileJevCeilingIsContentOutcome(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{files: map[string]string{
+		"SKILL.md": jevEntry,
+		"big.txt":  strings.Repeat("a", (jevMaxChunks+1)*jevChunkBodyBudget),
+	}})
+
+	result, err := f.reconcileResult(t)
+	if err != nil || result.RequeueAfter != 0 {
+		t.Fatalf("result = %+v, err = %v; want no requeue and no error", result, err)
+	}
+
+	wantJevBlocked(t, f.version(t), 0)
 	wantJevCalls(t, f, 0)
 }
 
