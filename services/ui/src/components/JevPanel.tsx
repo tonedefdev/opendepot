@@ -201,7 +201,11 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
             size="small"
             variant="outlined"
             color="success"
-            sx={{ cursor: "help", "& .MuiChip-icon": { fontSize: 16, ml: 0.5, mr: -0.25 } }}
+            sx={{
+              cursor: "help",
+              "& .MuiChip-icon": { fontSize: 16, ml: 0.5, mr: -0.125 },
+              "& .MuiChip-label": { pl: 0 },
+            }}
           />
         )}
         {assessment.needsReview && (
