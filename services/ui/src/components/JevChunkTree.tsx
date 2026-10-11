@@ -223,7 +223,7 @@ function ChunksView({ chunks, skippedFiles }: { chunks: JevChunkResult[]; skippe
         <ChunkRow key={chunk.label} chunk={chunk} />
       ))}
       {skippedFiles.map((skipped) => (
-        <ListItem key={skipped.path} dense sx={{ gap: 1, flexWrap: "wrap" }}>
+        <ListItem key={skipped.path} dense sx={{ pl: 1, gap: 1, flexWrap: "wrap" }}>
           <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
             {skipped.path}
           </Typography>
@@ -248,7 +248,7 @@ function ChunkRow({ chunk }: { chunk: JevChunkResult }) {
         aria-expanded={open}
         aria-controls={filesId}
         onClick={() => setOpen((value) => !value)}
-        sx={{ gap: 1, flexWrap: "wrap" }}
+        sx={{ pl: 1, gap: 1, flexWrap: "wrap" }}
       >
         <ExpandMoreIcon
           fontSize="small"
@@ -278,21 +278,21 @@ function ChunkRow({ chunk }: { chunk: JevChunkResult }) {
         </Typography>
       </ListItemButton>
       {showError && (
-        <Typography variant="caption" color="error.main" sx={{ display: "block", pl: 6, pb: 0.5 }}>
+        <Typography variant="caption" color="error.main" sx={{ display: "block", pl: 1 + TREE_INDENT, pb: 0.5 }}>
           {chunk.error}
         </Typography>
       )}
       <Collapse in={open} unmountOnExit id={filesId}>
-        <List dense disablePadding sx={{ pl: 5 }}>
+        <List dense disablePadding>
           {files.map((path) => (
-            <ListItem key={path} dense>
+            <ListItem key={path} dense sx={{ pl: 1 + TREE_INDENT }}>
               <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
                 {path}
               </Typography>
             </ListItem>
           ))}
           {unlisted > 0 && (
-            <ListItem dense>
+            <ListItem dense sx={{ pl: 1 + TREE_INDENT }}>
               <Typography variant="caption" color="text.secondary">
                 {`+${unlisted} more`}
               </Typography>
