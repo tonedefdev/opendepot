@@ -1,9 +1,9 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { fetchOIDCEndpoint, validateOIDCBaseURL, validateOIDCEndpoint } from "@/lib/oidc";
 
 // PKCE + state + nonce authorization redirect.
-export async function GET(_req: NextRequest): Promise<NextResponse> {
+export async function GET(): Promise<NextResponse> {
   const issuer = process.env.OIDC_ISSUER_URL;
   const clientId = process.env.OIDC_CLIENT_ID;
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;

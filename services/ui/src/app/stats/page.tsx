@@ -30,7 +30,6 @@ import { getStats, getDepotsGraph } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import RefreshIconButton from "@/components/RefreshIconButton";
-import { unknownSeverityChipSx } from "@/components/severityStyles";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 

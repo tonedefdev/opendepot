@@ -3,7 +3,7 @@ import Box from "@mui/material/Box";
 import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
 import { cookies } from "next/headers";
 import ThemeRegistry from "@/components/ThemeRegistry";
-import Sidebar, { DRAWER_WIDTH, SIDEBAR_COLLAPSED_COOKIE } from "@/components/Sidebar";
+import Sidebar, { SIDEBAR_COLLAPSED_COOKIE } from "@/components/Sidebar";
 import { getScanPolicyCatalog, listNamespaces } from "@/lib/api";
 import { getServerSessionToken, parseJWTClaims } from "@/lib/session";
 import { COLOR_MODE_COOKIE } from "@/theme";

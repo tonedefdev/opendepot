@@ -143,7 +143,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
       });
 
     return () => { cancelled = true; };
-  }, [namespace, kind, name, page, pageSize, debouncedQ, synced, os, arch, refreshNonce]);
+  }, [namespace, kind, name, page, pageSize, debouncedQ, synced, os, arch, refreshNonce, onAllSynced]);
 
   const hasActiveFilter = debouncedQ !== "" || synced !== "" || os !== "" || arch !== "";
 

@@ -78,9 +78,9 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 				return;
 			}
 
-			const module = graph.modules.find((item) => item.id === edge.source || item.id === edge.target);
-			if (module) {
-				moduleIdSet.add(module.id);
+			const graphModule = graph.modules.find((item) => item.id === edge.source || item.id === edge.target);
+			if (graphModule) {
+				moduleIdSet.add(graphModule.id);
 			}
 
 			const provider = graph.providers.find((item) => item.id === edge.source || item.id === edge.target);

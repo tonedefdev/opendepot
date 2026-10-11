@@ -139,6 +139,7 @@ export function ReferenceSelectorControls({
   compact?: boolean;
   onChange: (value: FieldValue) => void;
 }) {
+  const [pointerActivated, setPointerActivated] = React.useState(false);
   const matchedOption = value?.mode === "reference"
     ? referenceOptions.find((option) => option.nodeId === value.refNodeId && option.output === value.refOutput)
     : undefined;
@@ -152,7 +153,6 @@ export function ReferenceSelectorControls({
     ? collectionElementType(matchedOption.type)
     : undefined;
   const descendantPaths = selectedElementType ? objectDescendantPaths(selectedElementType) : [];
-  const [pointerActivated, setPointerActivated] = React.useState(false);
 
   return (
     <>
