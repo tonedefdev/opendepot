@@ -383,6 +383,44 @@ func TestRunAgentJevSplitFailureIsContentOutcome(t *testing.T) {
 	}
 }
 
+// TestRunAgentJevSplitIOErrorIsServiceOutcome covers a read error on the extracted tree. The controller created that
+// tree, so a file that cannot be stat'ed is a Service outcome: it counts one retry, returns an error, and makes no call.
+// The next run reuses the failed assessment and retries it.
+func TestRunAgentJevSplitIOErrorIsServiceOutcome(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry, "helper.md": "helper"})
+	if err := os.Remove(filepath.Join(content.dir, "helper.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	version := newJevTestVersion(nil, nil)
+	assessment, err := reconciler.runAgentJev(context.Background(), version, content)
+	var serviceErr *jevServiceError
+	if !errors.As(err, &serviceErr) || !assessment.Blocked || assessment.Error == "" || assessment.RetryCount != 1 {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked Service outcome with retryCount 1 and an error", assessment, err)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+
+	if err := os.WriteFile(filepath.Join(content.dir, "helper.md"), []byte("helper"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	version.Status.JevAssessment = assessment
+	again, err := reconciler.runAgentJev(context.Background(), version, content)
+	if err != nil || again.Error != "" || again.RetryCount != 1 {
+		t.Fatalf("retry assessment = %+v, err = %v; want a scored assessment that keeps retryCount 1", again, err)
+	}
+
+	if calls.Load() == 0 {
+		t.Fatal("Jev calls = 0 after the retry, want the failed assessment to be re-run")
+	}
+}
+
 func TestRunAgentJevMalformedResponseBlocks(t *testing.T) {
 	endpoint, _ := newJevEndpoint(t, func(string) (int, string) {
 		return http.StatusOK, "not json"

@@ -76,6 +76,13 @@ const jevChunkListContinued = "Bundled files (continued):\n"
 // errJevChunkOversize reports a built part that is over the Jev state limit.
 var errJevChunkOversize = errors.New("part over Jev state limit")
 
+// errJevChunkIO marks a read error on the extracted tree. The controller created that tree, so the error is transient
+// and is a Service outcome, not a content problem.
+var errJevChunkIO = errors.New("read extracted content")
+
+// jevChunkStat stats a bundled file. It is a variable so a test can fail one stat on the extracted tree.
+var jevChunkStat = os.Stat
+
 // jevChunkClass is how a bundled file is sent to Jev.
 type jevChunkClass int
 
@@ -168,9 +175,9 @@ func jevChunkPlan(in *jevChunkInput) (jevChunkLayout, error) {
 	sizes := make([]int64, len(in.files))
 	var total int64
 	for i, rel := range in.files {
-		info, err := os.Stat(filepath.Join(in.dir, filepath.FromSlash(rel)))
+		info, err := jevChunkStat(filepath.Join(in.dir, filepath.FromSlash(rel)))
 		if err != nil {
-			return jevChunkLayout{}, fmt.Errorf("stat %s: %w", rel, err)
+			return jevChunkLayout{}, fmt.Errorf("%w: stat %s: %w", errJevChunkIO, rel, err)
 		}
 
 		sizes[i] = info.Size()
@@ -284,7 +291,7 @@ func (in *jevChunkInput) classify(rel string, size int64) (jevChunkClass, error)
 func jevChunkScan(full string) (jevChunkClass, error) {
 	f, err := os.Open(full)
 	if err != nil {
-		return 0, fmt.Errorf("open %s: %w", full, err)
+		return 0, fmt.Errorf("%w: open %s: %w", errJevChunkIO, full, err)
 	}
 
 	defer f.Close()
@@ -314,7 +321,7 @@ func jevChunkScan(full string) (jevChunkClass, error) {
 		}
 
 		if rerr != nil {
-			return 0, fmt.Errorf("read %s: %w", full, rerr)
+			return 0, fmt.Errorf("%w: read %s: %w", errJevChunkIO, full, rerr)
 		}
 	}
 
