@@ -129,7 +129,7 @@ describe("JevChunkTree", () => {
     renderTree();
 
     expect(within(screen.getByRole("button", { name: "Files" })).getByTestId("FolderOutlinedIcon")).not.toBeNull();
-    expect(within(screen.getByRole("button", { name: "Chunks" })).getByTestId("ViewStreamOutlinedIcon")).not.toBeNull();
+    expect(within(screen.getByRole("button", { name: "Chunks" })).getByTestId("ViewQuiltOutlinedIcon")).not.toBeNull();
   });
 
   it("switches to one row per part with status, level, score, safe and confidence", () => {

@@ -12,7 +12,7 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
-import ViewStreamOutlinedIcon from "@mui/icons-material/ViewStreamOutlined";
+import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import type { JevAssessment, JevChunkResult, JevChunkStatus, JevSkipReason, JevSkippedFile } from "@/lib/api";
 import {
   buildJevChunkTree,
@@ -30,6 +30,8 @@ interface JevChunkTreeProps {
 }
 
 type TreeView = "files" | "chunks";
+
+const TOGGLE_ICON_SX = { fontSize: "1rem", mr: 0.75, verticalAlign: "text-bottom" };
 
 const SKIP_REASON_TEXT: Record<JevSkipReason, string> = {
   Withheld: "Withheld by scan",
@@ -74,11 +76,11 @@ export default function JevChunkTree({ assessment }: JevChunkTreeProps) {
           }}
         >
           <ToggleButton value="files">
-            <FolderOutlinedIcon fontSize="inherit" />
+            <FolderOutlinedIcon sx={TOGGLE_ICON_SX} />
             Files
           </ToggleButton>
           <ToggleButton value="chunks">
-            <ViewStreamOutlinedIcon fontSize="inherit" />
+            <ViewQuiltOutlinedIcon sx={TOGGLE_ICON_SX} />
             Chunks
           </ToggleButton>
         </ToggleButtonGroup>
