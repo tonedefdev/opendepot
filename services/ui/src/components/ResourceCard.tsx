@@ -20,6 +20,7 @@ import ProviderLogo from "./ProviderLogo";
 import SourceRefChip from "./SourceRefChip";
 import type { BrowseResource } from "@/lib/api";
 import { kindColor } from "@/lib/kindColors";
+import { RISK_COLORS } from "@/lib/jevSeverity";
 
 // Resource-kind hues are fixed brand colors from kindColors, so they must NOT
 // swap with the primary/secondary palette between light and dark mode.
@@ -129,6 +130,15 @@ export default function ResourceCard({ resource }: Props) {
                 size="small"
                 label={displayVersion(resource.latestVersion)}
                 sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
+              />
+            )}
+            {isAgentKind && resource.jevRiskLevel && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color={RISK_COLORS[resource.jevRiskLevel] ?? "default"}
+                label={`Risk: ${resource.jevRiskLevel}`}
+                sx={{ fontSize: "0.72rem" }}
               />
             )}
             {resource.sourceRef && (

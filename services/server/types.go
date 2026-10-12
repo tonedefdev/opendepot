@@ -159,6 +159,8 @@ type BrowseResource struct {
 	SourceRef    string `json:"sourceRef,omitempty"`
 	SourceCommit string `json:"sourceCommit,omitempty"`
 	SourcePath   string `json:"sourcePath,omitempty"`
+	// JevRiskLevel is the Jev risk level of the latest Skill or Agent Version, when it has been assessed.
+	JevRiskLevel string `json:"jevRiskLevel,omitempty"`
 	// Provider-specific fields.
 	ProviderNamespace string             `json:"providerNamespace,omitempty"`
 	UpstreamRegistry  string             `json:"upstreamRegistry,omitempty"`

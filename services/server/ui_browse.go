@@ -615,6 +615,8 @@ func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFi
 		logger.Error("browse: failed to load "+kind+" download stats", "error", err)
 	}
 
+	riskLevels := browseAgentRiskLevels(cs, r, kind)
+
 	var items []BrowseResource
 	for _, a := range list.Items {
 		ns := a.Metadata.Namespace
@@ -628,10 +630,53 @@ func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFi
 		}
 
 		card := agentToCard(kind, a, pub)
+		card.JevRiskLevel = riskLevels[browseAgentRiskKey(ns, kind, a.Metadata.Name, opendepotUtils.SanitizeVersion(card.LatestVersion))]
 		enrichResourceWithDownloads(&card, dlStats)
 		items = append(items, card)
 	}
 	return items, nil
+}
+
+// browseAgentRiskLevels maps each assessed Skill or Agent Version to its Jev risk level, keyed by
+// browseAgentRiskKey. A failed Version list is logged and yields an empty map so the cards still render
+// without a risk chip.
+func browseAgentRiskLevels(cs *kubernetes.Clientset, r *http.Request, kind string) map[string]string {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		logger.Error("browse: failed to list versions for "+kind+" risk levels", "error", err)
+		return nil
+	}
+
+	var list opendepotv1alpha1.VersionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		logger.Error("browse: failed to unmarshal versions for "+kind+" risk levels", "error", err)
+		return nil
+	}
+
+	levels := make(map[string]string)
+	for _, v := range list.Items {
+		if v.Status.JevAssessment == nil || v.Status.JevAssessment.RiskLevel == "" {
+			continue
+		}
+
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil || strings.ToLower(v.Spec.Type) != kind {
+			continue
+		}
+
+		key := browseAgentRiskKey(v.Namespace, kind, *v.Spec.AgentSourceRef.Name, opendepotUtils.SanitizeVersion(v.Spec.Version))
+		levels[key] = v.Status.JevAssessment.RiskLevel
+	}
+
+	return levels
+}
+
+// browseAgentRiskKey identifies a Skill or Agent Version for risk level lookups.
+func browseAgentRiskKey(namespace, kind, name, version string) string {
+	return namespace + "/" + kind + "/" + name + "@" + version
 }
 
 // browseAgentResource returns the plural Kubernetes resource name for a Skill or Agent browse kind.
