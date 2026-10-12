@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
@@ -635,4 +636,82 @@ func browseAgentTestListRouter() http.Handler {
 	router.Get("/opendepot/ui/v1/resources", handleBrowseResources)
 
 	return router
+}
+
+func TestBrowseAgentCardsCarryLatestJevRiskLevel(t *testing.T) {
+	const name = "reviewer"
+
+	latest := browseAgentTestVersion("skill", name)
+	latest.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "High"}
+
+	older := browseAgentTestVersion("skill", name)
+	older.Name = name + "-0-9-0"
+	older.Spec.Version = "0.9.0"
+	older.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "Minimal"}
+
+	unassessedLatest := browseAgentTestVersion("agent", name)
+	unassessedLatest.Status.JevAssessment = nil
+	olderAssessed := browseAgentTestVersion("agent", name)
+	olderAssessed.Name = name + "-0-9-0"
+	olderAssessed.Spec.Version = "0.9.0"
+	olderAssessed.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "Minimal"}
+
+	cases := []struct {
+		name     string
+		kind     string
+		versions []opendepotv1alpha1.Version
+		want     string
+	}{
+		{name: "latest assessed version risk is returned", kind: "skill", versions: []opendepotv1alpha1.Version{older, latest}, want: "High"},
+		{name: "older assessed version is not used for an unassessed latest", kind: "agent", versions: []opendepotv1alpha1.Version{olderAssessed, unassessedLatest}, want: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			card := map[string]any{
+				"metadata": map[string]any{"name": name, "namespace": browseAgentTestNamespace},
+				"status":   map[string]any{"synced": true, "latestVersion": "1.0.0"},
+			}
+			skills, err := json.Marshal(map[string]any{"items": []any{card}})
+			if err != nil {
+				t.Fatalf("marshal %s list: %v", tc.kind, err)
+			}
+			versions, err := json.Marshal(opendepotv1alpha1.VersionList{Items: tc.versions})
+			if err != nil {
+				t.Fatalf("marshal versions: %v", err)
+			}
+
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/apis/opendepot.defdev.io/v1alpha1/" + browseAgentResource(tc.kind):
+					_, _ = w.Write(skills)
+				case "/apis/opendepot.defdev.io/v1alpha1/versions":
+					_, _ = w.Write(versions)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(api.Close)
+
+			cs, err := kubernetes.NewForConfig(&rest.Config{Host: api.URL})
+			if err != nil {
+				t.Fatalf("new clientset: %v", err)
+			}
+
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources", nil)
+			items, err := browseCollectAgentResources(cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind)
+			if err != nil {
+				t.Fatalf("browseCollectAgentResources: %v", err)
+			}
+
+			if len(items) != 1 {
+				t.Fatalf("len(items) = %d, want 1", len(items))
+			}
+
+			if items[0].JevRiskLevel != tc.want {
+				t.Fatalf("JevRiskLevel = %q, want %q", items[0].JevRiskLevel, tc.want)
+			}
+		})
+	}
 }

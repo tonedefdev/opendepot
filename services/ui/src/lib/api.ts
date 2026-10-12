@@ -40,6 +40,7 @@ export interface BrowseResource {
   sourceRef?: string;
   sourceCommit?: string;
   sourcePath?: string;
+  jevRiskLevel?: JevRiskLevel;
 }
 
 export interface BrowseResourceList {
