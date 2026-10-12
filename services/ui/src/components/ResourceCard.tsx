@@ -132,15 +132,6 @@ export default function ResourceCard({ resource }: Props) {
                 sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
               />
             )}
-            {isAgentKind && resource.jevRiskLevel && (
-              <Chip
-                size="small"
-                variant="outlined"
-                color={RISK_COLORS[resource.jevRiskLevel] ?? "default"}
-                label={`Risk: ${resource.jevRiskLevel}`}
-                sx={{ fontSize: "0.72rem" }}
-              />
-            )}
             {resource.sourceRef && (
               <SourceRefChip
                 sourceRef={resource.sourceRef}
@@ -148,6 +139,15 @@ export default function ResourceCard({ resource }: Props) {
                 sourcePath={resource.sourcePath}
                 repoUrl={resource.repoUrl}
                 linked={false}
+              />
+            )}
+            {isAgentKind && resource.jevRiskLevel && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color={RISK_COLORS[resource.jevRiskLevel] ?? "default"}
+                label={`Risk: ${resource.jevRiskLevel}`}
+                sx={{ fontSize: "0.72rem" }}
               />
             )}
           </Box>
