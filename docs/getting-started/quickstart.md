@@ -23,8 +23,9 @@ corresponding OpenDepot resources automatically.
 
 Install [Docker](https://docs.docker.com/get-docker/),
 [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation),
-[`kubectl`](https://kubernetes.io/docs/tasks/tools/), and
-[Helm 3](https://helm.sh/docs/intro/install/).
+[`kubectl`](https://kubernetes.io/docs/tasks/tools/),
+[Helm 3](https://helm.sh/docs/intro/install/), and
+[mkcert](https://github.com/FiloSottile/mkcert#installation).
 
 ## Step 1: Create a cluster
 
@@ -58,24 +59,69 @@ helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
+The UI encrypts its session cookies with a secret that must be at least 32
+characters long. Create it before installing the chart:
+
+```bash
+kubectl create secret generic ui-session-secret \
+  --from-literal=sessionPassword=$(openssl rand -base64 32) \
+  -n opendepot-system
+```
+
+The server serves its API over HTTPS. Use [mkcert](https://github.com/FiloSottile/mkcert)
+to create a local CA and a certificate for the Quickstart hostnames, then store
+them in the `opendepot-tls` Secret. Run these commands in an empty directory:
+
+```bash
+mkcert -install
+mkcert -cert-file tls.crt -key-file tls.key \
+  opendepot.localtest.me server.opendepot-system.svc.cluster.local localhost
+
+kubectl create secret generic opendepot-tls \
+  --from-file=tls.crt=tls.crt \
+  --from-file=tls.key=tls.key \
+  --from-file=ca.crt="$(mkcert -CAROOT)/rootCA.pem" \
+  -n opendepot-system
+```
+
+!!! note
+    The UI loads the CA from the `opendepot-tls` Secret when it starts. If you
+    regenerate the certificates after installing, restart the UI so it picks up
+    the new CA:
+
+    ```bash
+    kubectl rollout restart deployment/ui -n opendepot-system
+    ```
+
 Install the released chart with the features used in this Quickstart:
 
 ```bash
 helm install opendepot opendepot/opendepot \
   --namespace opendepot-system \
   --set server.anonymousAuth=true \
+  --set server.tls.enabled=true \
   --set server.service.type=ClusterIP \
   --set provider.enabled=true \
   --set depot.enabled=true \
   --set ui.enabled=true \
+  --set ui.sessionPasswordSecretName=ui-session-secret \
+  --set ui.serverCACertPath=/etc/tls/ca.crt \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.hostPath=/var/local/opendepot-modules \
   --set scanning.enabled=true \
   --set scanning.providerScanning=true \
   --set scanning.cache.storageClassName=standard \
   --set scanning.cache.accessMode=ReadWriteOnce \
+  --set monitoring.enabled=false \
   --wait
 ```
+
+!!! note "Monitoring is disabled"
+    By default, the chart creates a `ServiceMonitor`, which requires the
+    Prometheus Operator CRDs. This Quickstart doesn't install Prometheus, so
+    `monitoring.enabled=false` turns off the `ServiceMonitor` and the Stats
+    page's Prometheus lookup. To enable monitoring later, see
+    [Prometheus Monitoring](../helm-chart.md#prometheus-monitoring).
 
 Wait for the workloads and CRDs to become ready:
 
@@ -87,9 +133,12 @@ kubectl get crds | grep opendepot
 The installation pulls the released controller, server, and UI images. The
 version-controller image includes Trivy for module and provider scanning.
 
-## Step 3: Open OpenDepot Workshop
+## Step 3: Launch OpenDepot Workshop
 
-In a second terminal, forward the UI service:
+In a second terminal, forward local port 8080 to the UI service. Keep this
+command running while you use the UI. If another process already holds port
+8080 on localhost, `kubectl` reports `unable to listen on any of the requested
+ports` and doesn't start the forward:
 
 ```bash
 kubectl port-forward -n opendepot-system svc/ui 8080:80
@@ -98,12 +147,16 @@ kubectl port-forward -n opendepot-system svc/ui 8080:80
 Open [http://localhost:8080](http://localhost:8080). Anonymous access is
 enabled for this Quickstart, so no login or OIDC configuration is required.
 
-To access the registry API directly, forward the server service in another
-terminal:
+To access the registry API directly, forward local port 8081 to the server
+service in another terminal. If another process already holds port 8081 on
+localhost, this forward fails the same way:
 
 ```bash
 kubectl port-forward -n opendepot-system svc/server 8081:80
 ```
+
+The registry API is then available at `https://opendepot.localtest.me:8081`.
+The hostname resolves to `127.0.0.1`, and the mkcert certificate is valid for it.
 
 ## Step 4: Deploy the example Depot
 
@@ -225,26 +278,21 @@ terraform {
       version = "6.60.0"
     }
   }
+}
 
-  module "s3" {
-    source  = "opendepot.localtest.me:8081/opendepot-system/terraform-aws-s3/aws"
-    version = ">= 0.0.0"
-  }
+module "s3" {
+  source  = "opendepot.localtest.me:8081/opendepot-system/terraform-aws-s3/aws"
+  version = ">= 0.0.0"
 }
 EOF
 
 cat > .tofurc <<'EOF'
-host "opendepot.localtest.me:8081" {
-  services = {
-    "modules.v1" = "http://opendepot.localtest.me:8081/opendepot/modules/v1/"
-  }
-}
-
 provider_installation {
   network_mirror {
-    url     = "http://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/"
+    url     = "https://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/"
     include = ["registry.opentofu.org/*/*"]
   }
+
   direct {
     exclude = ["registry.opentofu.org/*/*"]
   }
@@ -257,6 +305,12 @@ TF_CLI_CONFIG_FILE=.tofurc tofu init
 The module and provider archives now come from OpenDepot. The provider retains
 its canonical `registry.opentofu.org/hashicorp/aws` identity, while the module
 uses the local OpenDepot host in its source address.
+
+!!! note
+    The mirror uses the mkcert certificate. `mkcert -install` added its CA to
+    your system trust store, so OpenTofu accepts the HTTPS connection. In
+    production, use a certificate from your organization's CA. See the
+    [Providers guide](../guides/providers.md).
 
 !!! note
     For Terraform, use the equivalent `.terraformrc` host configuration and
