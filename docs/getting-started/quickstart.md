@@ -58,6 +58,15 @@ helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
+The UI encrypts its session cookies with a secret that must be at least 32
+characters long. Create it before installing the chart:
+
+```bash
+kubectl create secret generic ui-session-secret \
+  --from-literal=sessionPassword=$(openssl rand -base64 32) \
+  -n opendepot-system
+```
+
 Install the released chart with the features used in this Quickstart:
 
 ```bash
@@ -68,14 +77,23 @@ helm install opendepot opendepot/opendepot \
   --set provider.enabled=true \
   --set depot.enabled=true \
   --set ui.enabled=true \
+  --set ui.sessionPasswordSecretName=ui-session-secret \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.hostPath=/var/local/opendepot-modules \
   --set scanning.enabled=true \
   --set scanning.providerScanning=true \
   --set scanning.cache.storageClassName=standard \
   --set scanning.cache.accessMode=ReadWriteOnce \
+  --set monitoring.enabled=false \
   --wait
 ```
+
+!!! note "Monitoring is disabled"
+    By default, the chart creates a `ServiceMonitor`, which requires the
+    Prometheus Operator CRDs. This Quickstart doesn't install Prometheus, so
+    `monitoring.enabled=false` turns off the `ServiceMonitor` and the Stats
+    page's Prometheus lookup. To enable monitoring later, see
+    [Prometheus Monitoring](../helm-chart.md#prometheus-monitoring).
 
 Wait for the workloads and CRDs to become ready:
 
