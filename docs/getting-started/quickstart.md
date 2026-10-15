@@ -84,6 +84,15 @@ kubectl create secret generic opendepot-tls \
   -n opendepot-system
 ```
 
+!!! note
+    The UI loads the CA from the `opendepot-tls` Secret when it starts. If you
+    regenerate the certificates after installing, restart the UI so it picks up
+    the new CA:
+
+    ```bash
+    kubectl rollout restart deployment/ui -n opendepot-system
+    ```
+
 Install the released chart with the features used in this Quickstart:
 
 ```bash
