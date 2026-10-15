@@ -23,8 +23,9 @@ corresponding OpenDepot resources automatically.
 
 Install [Docker](https://docs.docker.com/get-docker/),
 [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation),
-[`kubectl`](https://kubernetes.io/docs/tasks/tools/), and
-[Helm 3](https://helm.sh/docs/intro/install/).
+[`kubectl`](https://kubernetes.io/docs/tasks/tools/),
+[Helm 3](https://helm.sh/docs/intro/install/), and
+[mkcert](https://github.com/FiloSottile/mkcert#installation).
 
 ## Step 1: Create a cluster
 
@@ -67,17 +68,35 @@ kubectl create secret generic ui-session-secret \
   -n opendepot-system
 ```
 
+The server serves its API over HTTPS. Use [mkcert](https://github.com/FiloSottile/mkcert)
+to create a local CA and a certificate for the Quickstart hostnames, then store
+them in the `opendepot-tls` Secret. Run these commands in an empty directory:
+
+```bash
+mkcert -install
+mkcert -cert-file tls.crt -key-file tls.key \
+  opendepot.localtest.me server.opendepot-system.svc.cluster.local localhost
+
+kubectl create secret generic opendepot-tls \
+  --from-file=tls.crt=tls.crt \
+  --from-file=tls.key=tls.key \
+  --from-file=ca.crt="$(mkcert -CAROOT)/rootCA.pem" \
+  -n opendepot-system
+```
+
 Install the released chart with the features used in this Quickstart:
 
 ```bash
 helm install opendepot opendepot/opendepot \
   --namespace opendepot-system \
   --set server.anonymousAuth=true \
+  --set server.tls.enabled=true \
   --set server.service.type=ClusterIP \
   --set provider.enabled=true \
   --set depot.enabled=true \
   --set ui.enabled=true \
   --set ui.sessionPasswordSecretName=ui-session-secret \
+  --set ui.serverCACertPath=/etc/tls/ca.crt \
   --set storage.filesystem.enabled=true \
   --set storage.filesystem.hostPath=/var/local/opendepot-modules \
   --set scanning.enabled=true \
@@ -122,6 +141,9 @@ terminal:
 ```bash
 kubectl port-forward -n opendepot-system svc/server 8081:80
 ```
+
+The registry API is then available at `https://opendepot.localtest.me:8081`.
+The hostname resolves to `127.0.0.1`, and the mkcert certificate is valid for it.
 
 ## Step 4: Deploy the example Depot
 
@@ -251,25 +273,13 @@ module "s3" {
 }
 EOF
 
-MIRROR=http://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/registry.opentofu.org/hashicorp/aws
-PLATFORM=$(tofu version | awk '/^on /{print $2}')
-ARCHIVE=$(curl -fsS "$MIRROR/6.60.0.json" | jq -r --arg p "$PLATFORM" '.archives[$p].url')
-
-mkdir -p /tmp/opendepot-providers/registry.opentofu.org/hashicorp/aws
-curl -fsSL -o "/tmp/opendepot-providers/registry.opentofu.org/hashicorp/aws/terraform-provider-aws_6.60.0_${PLATFORM}.zip" "$MIRROR/$ARCHIVE"
-
 cat > .tofurc <<'EOF'
-host "opendepot.localtest.me:8081" {
-  services = {
-    "modules.v1" = "http://opendepot.localtest.me:8081/opendepot/modules/v1/"
-  }
-}
-
 provider_installation {
-  filesystem_mirror {
-    path    = "/tmp/opendepot-providers"
+  network_mirror {
+    url     = "https://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/"
     include = ["registry.opentofu.org/*/*"]
   }
+
   direct {
     exclude = ["registry.opentofu.org/*/*"]
   }
@@ -284,10 +294,9 @@ its canonical `registry.opentofu.org/hashicorp/aws` identity, while the module
 uses the local OpenDepot host in its source address.
 
 !!! note
-    OpenTofu requires an `https://` URL for `network_mirror`, so this
-    Quickstart copies the provider archive from the OpenDepot mirror into a
-    local `filesystem_mirror`. The archive download requires `jq`. For a
-    production `network_mirror` configuration, see the
+    The mirror uses the mkcert certificate. `mkcert -install` added its CA to
+    your system trust store, so OpenTofu accepts the HTTPS connection. In
+    production, use a certificate from your organization's CA. See the
     [Providers guide](../guides/providers.md).
 
 !!! note
