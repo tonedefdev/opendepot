@@ -237,3 +237,73 @@ func TestJevPartsGateSkipsFailedParts(t *testing.T) {
 		t.Fatalf("failed part must not be gated as a value, got %v", reasons)
 	}
 }
+
+func TestJevCompositeRiskWeighting(t *testing.T) {
+	tests := []struct {
+		name      string
+		level     string
+		score     float64
+		set       func(*jev.Result)
+		wantLevel string
+	}{
+		{name: "injection alone raises to Moderate", level: "Low", score: 0.2, set: func(r *jev.Result) { r.PromptInjectionProbability = 0.9 }, wantLevel: "Moderate"},
+		{name: "injection with hidden instructions raises to Critical", level: "Low", score: 0.2, set: func(r *jev.Result) {
+			r.PromptInjectionProbability = 0.9
+			r.HiddenInstructionsProbability = 0.9
+		}, wantLevel: "Critical"},
+		{name: "exfiltration alone keeps Jev level", level: "Low", score: 0.2, set: func(r *jev.Result) { r.DataExfiltrationProbability = 0.9 }, wantLevel: "Low"},
+		{name: "scope mismatch alone does not raise", level: "Minimal", score: 0, set: func(r *jev.Result) { r.ScopeMismatchProbability = 1 }, wantLevel: "Minimal"},
+		{name: "Jev Critical is never lowered", level: "Critical", score: 4, wantLevel: "Critical"},
+		{name: "no signal keeps Jev level", level: "High", score: 3, wantLevel: "High"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			part := jevAggTestPart("1", tt.level, tt.score, 0.9, 0.9)
+			if tt.set != nil {
+				tt.set(&part.result)
+			}
+
+			got := jevApplyCompositeRisk([]jevPartResult{part})[0].result
+			if got.RiskLevel != tt.wantLevel {
+				t.Fatalf("want level %s, got %s (score %v)", tt.wantLevel, got.RiskLevel, got.RiskScore)
+			}
+
+			if got.RiskScore < tt.score {
+				t.Fatalf("risk score lowered from %v to %v", tt.score, got.RiskScore)
+			}
+		})
+	}
+}
+
+func TestJevCompositeRiskIgnoresScope(t *testing.T) {
+	base := jev.Result{SafeProbability: 0.9, RiskConfidence: 0.9, PromptInjectionProbability: 0.5}
+	withScope := base
+	withScope.ScopeMismatchProbability = 1
+
+	if jevCombinedScore(base) != jevCombinedScore(withScope) {
+		t.Fatalf("scope mismatch changed the combined score: %v vs %v", jevCombinedScore(base), jevCombinedScore(withScope))
+	}
+}
+
+func TestJevCompositeRiskSkipsFailedParts(t *testing.T) {
+	part := jevAggTestPart("1", "Bogus", 0, 0.9, 0.9)
+	part.result.PromptInjectionProbability = 0.9
+	parts := jevNormalizeParts([]jevPartResult{part})
+
+	got := jevApplyCompositeRisk(parts)[0]
+	if got.status != jevPartFailed || got.result.RiskLevel != "Bogus" {
+		t.Fatalf("failed part changed: status %s level %s", got.status, got.result.RiskLevel)
+	}
+}
+
+func TestJevCompositeCriticalBlocksGate(t *testing.T) {
+	part := jevAggTestPart("1", "Low", 0.2, 0.9, 0.9)
+	part.result.PromptInjectionProbability = 0.9
+	part.result.HiddenInstructionsProbability = 0.9
+
+	reasons, _ := evaluateJevPartsGate(nil, jevApplyCompositeRisk([]jevPartResult{part}))
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "Critical") {
+		t.Fatalf("want a Critical block from the composite, got %v", reasons)
+	}
+}

@@ -44,7 +44,7 @@ Each entry accepts the same source fields as other OpenDepot sources:
 |-------|---------|
 | `name` | The skill or agent name. Defaults to the Skill or Agent resource name when omitted. |
 | `repoOwner`, `repoUrl` | The GitHub repository that holds the source. The owner and repository names must match `^[A-Za-z0-9._-]{1,100}$`. |
-| `path` | The directory inside the repository that holds the skill or agent. |
+| `path` | For a skill, the directory that holds `SKILL.md`. For an agent, either the directory that holds the agent definition or the definition file itself, such as `agents/code-reviewer.agent.md`. A file path bundles only that file. |
 | `platform` | The agent platform whose frontmatter keys are enforced. One of `agentskills`, `claude`, `copilot`, `codex`, `opencode`, or `pi`. Optional. See [Frontmatter validation](#frontmatter-validation). |
 | `tagPrefix` | A prefix that Git tags must have to be considered versions. The prefix may contain `/`, for example `skills/`. |
 | `versionConstraints` | A version constraint applied to the discovered Git tags. Tag mode only. Mutually exclusive with `ref`. |
@@ -197,13 +197,15 @@ Each Version is assessed with these questions. The `skill` or `agent` word is fi
 | Question | Answer used |
 |----------|-------------|
 | Is this skill or agent safe to use? | `safeProbability` |
-| Is this skill or agent susceptible to prompt injection? | `injectionProbability` |
-| Does it direct the agent to send data, files, or credentials to an external destination? | `exfiltrationProbability` |
+| Is this skill or agent susceptible to prompt injection, or does it contain text that targets an AI reviewer, scanner, or evaluator? | `injectionProbability` |
+| Does it read, collect, or send data, files, environment variables, or credentials to an external destination, including through bundled scripts or code? | `exfiltrationProbability` |
 | Does it direct the agent to take destructive or irreversible actions without asking the user first? | `destructiveProbability` |
-| Does it contain hidden or obfuscated instructions? | `hiddenInstructionsProbability` |
+| Does it contain hidden or obfuscated instructions or code, such as encoded text, compiled or binary artifacts, or instructions to conceal actions? | `hiddenInstructionsProbability` |
 | Does it ask the agent to do things beyond what its description says? | `scopeMismatchProbability` |
-| Does it direct the agent to download and run remote code or scripts, or install unpinned dependencies? | `remoteExecutionProbability` |
-| How much harm could it cause if an AI agent follows it? | `riskScore`, `riskLevel`, and `riskConfidence` |
+| Does it direct the agent to download and run remote code or scripts, install unpinned dependencies, or redirect package registries, shell profiles, or git config to untrusted sources? | `remoteExecutionProbability` |
+| How much harm could it cause if an AI agent follows its instructions or a user runs its bundled scripts? | `riskScore`, `riskLevel`, and `riskConfidence` |
+
+Each yes-or-no question also has a definition of what counts as a yes, which keeps the answers consistent across Versions. The yes-or-no questions ask Jev to judge the worst behavior anywhere in the content, even when a part contains only a fragment of a larger file. The risk question asks for the same thing, so a single harmful section can raise the score for the whole Version.
 
 ### How content is split
 
@@ -212,7 +214,8 @@ Jev assesses a Version in parts. Each part is one request, and a Version has at 
 - **Order.** Part 1 holds the entry file, then the bundled file list. Other files follow in list order. When the list does not fit in part 1, it continues in a later part under `Bundled files (continued):`.
 - **File boundaries.** A part ends at a file boundary when it can. A file that does not fit in the rest of its part is split across parts. Each segment has a header such as `[part 1 of 2, bytes 0-43999 of 90000]`, and a segment that continues ends with `[continues in part 2]`.
 - **Halving.** When Jev rejects a part with `max_tokens_exceeded`, the part is halved at its midpoint and both halves are sent. The halves take a suffix, such as `3a` and `3b`. A part can be halved twice, so a half can split again into labels such as `3aa` and `3ab`. Both halves keep the index of the original part.
-- **Call budget.** A run makes at most 16 Jev requests, and each halving reserves two of them.
+- **Evidence view.** When a Version has more than one part, one more request is sent. It holds excerpts, with file names and line numbers, of the lines that match a signal group: exfiltration destinations, outbound requests, host and user details, credentials, keystroke capture, execution, encoding, persistence, or reviewer and agent-override language. The patterns are case-insensitive regular expressions. Most are adapted from the [DataDog GuardDog](https://github.com/DataDog/guarddog) YARA rules (Apache-2.0). Excerpts that match more groups are kept first. The view is limited to one part's size, and excerpts that do not fit are counted in a note. The view is skipped for a Version with one part and for a Version at the 16-part limit. Pattern selection can miss code, so the numbered parts still hold all of the content. The view's result feeds the composite score, but it is not listed as a chunk, and the chunk and assessed-chunk counts cover only the numbered parts.
+- **Call budget.** A run makes at most 16 Jev requests, including the evidence view. Each halving reserves two of them.
 - **Concurrency.** At most 16 requests are in flight at once, and at most 1,000 start per minute. These limits apply to the whole controller, and branch bump classification shares them.
 
 Scored parts are combined into the Version's `jevAssessment` fields as follows. A part whose risk level is not a known label counts as a failed part.
@@ -225,6 +228,16 @@ Scored parts are combined into the Version's `jevAssessment` fields as follows. 
 | `safeProbability` | The lowest part. |
 | `riskConfidence` | The lowest part. |
 | `model` | The model of the worst part. |
+
+Before the parts are combined, each scored part also gets a composite risk. The composite is a logistic regression over Jev's answers for the safe probability, the risk confidence, and the prompt injection, data exfiltration, destructive actions, hidden instructions, and remote execution probabilities. It estimates the chance that the part is malicious. That chance is scaled to the 0 to 4 score scale by multiplying by 5 and capping at 4, so a chance of 0.5 is High and a chance of 0.7 or more is `Critical`. Scope mismatch is not an input, so it cannot raise a part on its own. The coefficients were fit on 300 samples from public benchmarks, outside their sealed test partitions: 150 malicious and 150 benign. Most malicious samples come from [MaliciousSkillBench](https://github.com/protectskills/MaliciousSkillBench) (code Apache-2.0; metadata CC BY 4.0) and SkillTrustBench. Nearly all benign samples come from SkillTrustBench and AgentTrap, so the fit reflects those sources more than the general population of skills. They are fixed in the controller. The coefficients depend on the current question wording. Some of that wording, including the explicit lists of what is and is not a finding, was adapted from the [Cisco AI Defense skill-scanner](https://github.com/cisco-ai-defense/skill-scanner) (Apache-2.0).
+
+A scored part's level becomes the label nearest its composite score when that label is higher than Jev's own label. The composite can only raise a part's risk score and level. It never lowers Jev's own answer. The raised values flow into the chunk chips, the combined `riskLevel`, and the threshold and `Critical` checks. A strong combination of prompt injection and hidden instructions can raise a part to `Critical`. Exfiltration on its own does not raise a part, because the fitted coefficient for it is near zero.
+
+The composite's accuracy is limited to the sources it was fit on, and it does not transfer reliably to other sources. On the sealed MaliciousSkillBench test partition, which the coefficients never saw, 28% of malicious parts reached High or higher, and 8% of benign parts did. The question wording was adjusted on samples that include 12 test-partition members, so that result is not fully clean. On two held-out malicious sources the composite reached High or higher for 30% (SRC004) and 3% (SRC005) of samples. Benign samples for those sources were not available, so their false-positive rate is unknown.
+
+A second composite was fit on the full train and validation splits, with the original question wording, and tested once on the same sealed partition. It flagged 24% of malicious parts and 17% of benign parts at High or higher, with an AUC of 0.70. Benign false positives varied by source, from 2% to 90%, and the fit depended heavily on the hidden instructions probe. That composite is not in the controller, and the shipped coefficients are unchanged. Treat a risk level as a triage signal, not a verdict.
+
+To check benign false positives outside the fit sources, 250 benign skills from [awesome-copilot](https://github.com/github/awesome-copilot) (MIT) were scored with the shipped coefficients. None of them were used to fit those coefficients. Of the first 150, 1.3% reached High or higher. A later set of 100, chosen so it did not overlap the first 150, gave 2 High or higher out of 95 usable skills (2.1%). The first 150 were also used to compare refit coefficients, so the second set is the cleaner estimate. Both sets cover benign skills only, so they do not measure malicious recall.
 
 ### Thresholds
 
@@ -254,11 +267,11 @@ The gate follows these rules:
     - A part that Jev rejects for its token limit, when the part cannot be split further or no call budget is left, and no other part failed.
 - **Jev disabled blocks sources that set `jevSecretRef`.** When Jev is disabled on the controller (`scanning.jev.enabled: false`), a source that sets `jevSecretRef` is blocked. No Jev call is made, and this is not counted as a retry.
 
-Assessments are cached in `status.jevAssessment`. A completed assessment is reused. Set `forceSync: true` on the Skill or Agent to run a new assessment. A completed assessment from before this release is reused unchanged.
+Assessments are cached in `status.jevAssessment`. A completed assessment is reused. Set `forceSync: true` on the Version that the Skill or Agent points to, not on the Skill or Agent itself, to run a new assessment. A completed assessment from before this release is reused unchanged.
 
 ### Retries
 
-A Service failure is retried every 15 seconds. The controller counts each failure in `status.jevAssessment.retryCount`. Retries stop once `retryCount` exceeds `jevMaxRetries`. With the default of `3`, a Version gets 4 attempts. After that, the error stays recorded until you set `forceSync: true`, which resets `retryCount` to `0` and runs a new assessment. Each attempt makes at most 16 Jev requests.
+A Service failure is retried every 15 seconds. The controller counts each failure in controller memory, keyed by the Version, its generation, and its archive checksum, and copies the count to `status.jevAssessment.retryCount`. The count does not depend on the status write, so retries stop even when the API server rejects that write. Retries stop once the count exceeds `jevMaxRetries`. With the default of `3`, a Version gets 4 attempts. After that, the error stays recorded until you set `forceSync: true` or change the spec. Either one bumps the generation and starts a new count. A controller restart also clears the in-memory count, and the next run starts again from the stored `retryCount`. Each attempt makes at most 16 Jev requests.
 
 A `401` or `403` from Jev is retried every 15 seconds and is not counted. These retries continue until the token is fixed.
 

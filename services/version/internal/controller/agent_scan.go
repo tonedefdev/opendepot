@@ -19,6 +19,8 @@ package controller
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -73,6 +75,8 @@ type agentContent struct {
 	definition *agentspec.Result
 	// files lists every bundled file as a slash-separated path relative to the archive root.
 	files []string
+	// checksum is the hex SHA-256 of the archive the content was extracted from.
+	checksum string
 	// release removes the extracted directory. It is set only when runAgentScan succeeds.
 	release func()
 }
@@ -251,6 +255,9 @@ func (r *VersionReconciler) runAgentScan(
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	archiveSum := sha256.Sum256(archiveBytes)
+	content.checksum = hex.EncodeToString(archiveSum[:])
 
 	args := []string{"fs", "--format", "json", "--scanners", "vuln,secret,misconfig"}
 	if offline {

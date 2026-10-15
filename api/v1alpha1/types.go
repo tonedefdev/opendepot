@@ -373,7 +373,8 @@ type AgentSourceConfig struct {
 	RepoOwner string `json:"repoOwner,omitempty"`
 	// The full URL of the Github repository.
 	RepoUrl *string `json:"repoUrl,omitempty"`
-	// The path within the repository to the directory that contains the skill or agent.
+	// The path within the repository to the directory that contains the skill, or to the agent definition file
+	// (for example agents/code-reviewer.agent.md) for an Agent.
 	// If omitted, the repository root is used.
 	Path string `json:"path,omitempty"`
 	// The prefix of the Git tags that version this source, such as 'my-skill/'. The prefix is

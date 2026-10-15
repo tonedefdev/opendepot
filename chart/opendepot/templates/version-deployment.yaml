@@ -106,7 +106,9 @@ spec:
               fieldPath: metadata.namespace
         securityContext:
           allowPrivilegeEscalation: false
+          {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
+          {{- end }}
           runAsUser: 65532
         resources:
           limits:
@@ -169,7 +171,9 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
+          {{- end }}
         resources:
           {{- toYaml .Values.version.resources | nindent 10 }}
         volumeMounts:

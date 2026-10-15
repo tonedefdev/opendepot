@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -64,6 +65,48 @@ const jevRetryRequeue = 15 * time.Second
 // A nil assessment or a 401/403 failure, which does not increment RetryCount, is never exhausted.
 func jevRetriesExhausted(assessment *opendepotv1alpha1.JevAssessment, maxRetries int) bool {
 	return assessment != nil && int(assessment.RetryCount) > maxRetries
+}
+
+// jevRetryTracker counts failed Jev attempts in controller memory. The stored status can lag behind when the API
+// server rejects its write, so this count is what caps the retries of a Version whose status cannot be persisted.
+type jevRetryTracker struct {
+	mu     sync.Mutex
+	counts map[string]int32
+}
+
+// jevRetryKey identifies one archive of one generation of a Version. A spec change or ForceSync bumps the
+// generation, which starts a fresh retry budget.
+func jevRetryKey(version *opendepotv1alpha1.Version, content *agentContent) string {
+	key := fmt.Sprintf("%s/%s@%d", version.Namespace, version.Name, version.Generation)
+	if content != nil {
+		key += "/" + content.checksum
+	}
+
+	return key
+}
+
+func (t *jevRetryTracker) get(key string) int32 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.counts[key]
+}
+
+func (t *jevRetryTracker) set(key string, count int32) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.counts == nil {
+		t.counts = make(map[string]int32)
+	}
+	t.counts[key] = count
+}
+
+func (t *jevRetryTracker) clear(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.counts, key)
 }
 
 // jevPartOutcome is the result of one part sent to Jev, or of one half of a part that was split after a token limit.
@@ -304,6 +347,19 @@ func jevSkippedFiles(layout jevChunkLayout) []opendepotv1alpha1.JevSkippedFile {
 	return skipped
 }
 
+// jevPlannedOutcomes drops the evidence view. It is not a planned part, so it has no chunk index and is not
+// counted in the chunk fields. Its result still feeds the aggregate and the failure checks.
+func jevPlannedOutcomes(outcomes []jevPartOutcome) []jevPartOutcome {
+	planned := make([]jevPartOutcome, 0, len(outcomes))
+	for _, o := range outcomes {
+		if o.result.label != jevEvidenceLabel {
+			planned = append(planned, o)
+		}
+	}
+
+	return planned
+}
+
 // jevChunks converts sorted part outcomes to the API type. Each entry lists at most the list limit of files.
 func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
 	chunks := make([]opendepotv1alpha1.JevChunkResult, 0, len(outcomes))
@@ -393,8 +449,8 @@ func (r *VersionReconciler) runAgentJev(
 	cached := version.Status.JevAssessment
 	reuse := cached != nil && !version.Spec.ForceSync && cached.Error != jevDisabledError
 
-	var retries int32
-	if reuse {
+	retries := r.jevRetries.get(jevRetryKey(version, content))
+	if reuse && cached.RetryCount > retries {
 		retries = cached.RetryCount
 	}
 
@@ -426,6 +482,16 @@ func (r *VersionReconciler) runAgentJev(
 		}
 
 		return cached, nil
+	}
+
+	if int(retries) > r.JevMaxRetries {
+		msg := fmt.Sprintf("jev assessment incomplete: automatic retries exhausted after %d attempts; set forceSync or change the spec to run again", retries)
+		assessment := jevNewAssessment(retries, 0)
+		assessment.Error = msg
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{msg}
+
+		return assessment, &jevServiceError{msg: msg}
 	}
 
 	kind := strings.ToLower(version.Spec.Type)
@@ -480,6 +546,20 @@ func (r *VersionReconciler) runAgentJev(
 		return assessment, nil
 	}
 
+	sent := layout.parts
+	if len(layout.parts) > 1 && len(layout.parts) < jevMaxChunks {
+		evidence, found, err := jevEvidencePart(in)
+		if err != nil {
+			r.Log.Error(err, "Jev evidence view could not read the extracted content", "version", version.Name)
+
+			return jevIncomplete(retries+1, len(layout.parts), "jev assessment incomplete: the extracted content could not be read")
+		}
+
+		if found {
+			sent = append(sent, evidence)
+		}
+	}
+
 	token, err := r.readJevToken(ctx, version.Namespace, sourceRef.JevSecretRef)
 	if err != nil {
 		return jevIncomplete(retries+1, len(layout.parts), err.Error())
@@ -505,14 +585,14 @@ func (r *VersionReconciler) runAgentJev(
 		in:     in,
 		total:  len(layout.parts),
 	}
-	run.calls.Store(int64(jevMaxChunks - len(layout.parts)))
+	run.calls.Store(int64(jevMaxChunks - len(sent)))
 
 	var g errgroup.Group
 	g.SetLimit(jevMaxInFlight)
-	slots := make([][]jevPartOutcome, len(layout.parts))
-	for i := range layout.parts {
+	slots := make([][]jevPartOutcome, len(sent))
+	for i := range sent {
 		g.Go(func() error {
-			slots[i] = run.assess(sendCtx, layout.parts[i])
+			slots[i] = run.assess(sendCtx, sent[i])
 
 			return nil
 		})
@@ -534,7 +614,7 @@ func (r *VersionReconciler) runAgentJev(
 		parts[i] = o.result
 	}
 
-	normalized := jevNormalizeParts(parts)
+	normalized := jevApplyCompositeRisk(jevNormalizeParts(parts))
 	for i := range outcomes {
 		if outcomes[i].result.status == jevPartScored && normalized[i].status == jevPartFailed {
 			outcomes[i].errText = "unrecognized risk level"
@@ -546,9 +626,17 @@ func (r *VersionReconciler) runAgentJev(
 	result, assessed := aggregateJevParts(normalized)
 	gateReasons, needsReview := evaluateJevPartsGate(sourceRef.JevPolicy, normalized)
 
+	planned := jevPlannedOutcomes(outcomes)
+	plannedScored := 0
+	for _, o := range planned {
+		if o.result.status == jevPartScored {
+			plannedScored++
+		}
+	}
+
 	assessment := jevNewAssessment(retries, len(layout.parts))
-	assessment.Chunks = jevChunks(outcomes)
-	assessment.AssessedChunks = int32(assessed)
+	assessment.Chunks = jevChunks(planned)
+	assessment.AssessedChunks = int32(plannedScored)
 	assessment.InputTokens = jevInputTokens(outcomes)
 	if assessed > 0 {
 		assessment.Model = result.Model

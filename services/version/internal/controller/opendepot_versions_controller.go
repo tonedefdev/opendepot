@@ -118,6 +118,8 @@ type VersionReconciler struct {
 	jevLimiter *rate.Limiter
 	// jevDeadline bounds the time spent sending the parts of one Version to Jev. Zero uses jevPartDeadline.
 	jevDeadline time.Duration
+	// jevRetries holds the failed Jev attempts per Version archive, so retries stop even when the status write fails.
+	jevRetries jevRetryTracker
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions,verbs=get;list;watch;create;update;patch;delete
@@ -700,6 +702,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		jevAssessment, jevErr := r.runAgentJev(ctx, version, content)
+		retryKey := jevRetryKey(version, content)
+		if jevErr == nil {
+			r.jevRetries.clear(retryKey)
+		} else if jevAssessment != nil {
+			r.jevRetries.set(retryKey, jevAssessment.RetryCount)
+		}
+
 		if jevErr != nil {
 			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("JevUnavailable: %v", jevErr)); err != nil {
 				r.Log.Error(err, "Failed to persist jev unavailable status", "version", version.Name)
