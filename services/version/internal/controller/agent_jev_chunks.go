@@ -141,11 +141,13 @@ type jevChunkPiece struct {
 }
 
 // jevChunkPart is one part of the assessed content. Its label is 1-based, and a halved part adds an a or b suffix.
+// An evidence part is the keyword view of the content. It is one state and is never halved.
 type jevChunkPart struct {
-	label  string
-	depth  int
-	pieces []jevChunkPiece
-	files  []string
+	label    string
+	depth    int
+	evidence bool
+	pieces   []jevChunkPiece
+	files    []string
 }
 
 // jevChunkLayout is the result of planning. parts is nil when over is set, and count is then a lower bound on the
@@ -683,10 +685,11 @@ func jevChunkMarker(pc jevChunkPiece) string {
 	return fmt.Sprintf("[continued, bytes %d-%d of %d]\n", pc.start, pc.end-1, pc.fileSize)
 }
 
-// preamble returns the header that opens a part. A part without the entry file points to part 1, which holds it.
-func (in *jevChunkInput) preamble(label string, total int, hasEntry bool) string {
+// preamble returns the header that opens a part. position names the part. A part without the entry file points to
+// part 1, which holds it.
+func (in *jevChunkInput) preamble(position string, hasEntry bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "OpenDepot %s \"%s\", part %s of %d\n", in.kind, jevChunkTruncate(in.name, jevChunkNameLimit), label, total)
+	fmt.Fprintf(&b, "OpenDepot %s \"%s\", %s\n", in.kind, jevChunkTruncate(in.name, jevChunkNameLimit), position)
 	b.WriteString(jevChunkTruncate(in.description, jevChunkDescriptionLimit))
 	fmt.Fprintf(&b, "\nTools: %s\n", jevChunkTruncate(strings.Join(in.tools, ", "), jevChunkToolsLimit))
 	if !hasEntry {
@@ -699,7 +702,12 @@ func (in *jevChunkInput) preamble(label string, total int, hasEntry bool) string
 
 // build returns the full state for one part. total is the number of parts in the layout.
 func (in *jevChunkInput) build(part jevChunkPart, total int) (string, error) {
-	hasEntry := false
+	position := fmt.Sprintf("part %s of %d", part.label, total)
+	hasEntry := part.evidence
+	if part.evidence {
+		position = "evidence view"
+	}
+
 	for _, pc := range part.pieces {
 		if pc.entry {
 			hasEntry = true
@@ -707,7 +715,7 @@ func (in *jevChunkInput) build(part jevChunkPart, total int) (string, error) {
 	}
 
 	var b strings.Builder
-	b.WriteString(in.preamble(part.label, total, hasEntry))
+	b.WriteString(in.preamble(position, hasEntry))
 	for _, pc := range part.pieces {
 		if !pc.seg {
 			b.WriteString(pc.text)
@@ -738,7 +746,7 @@ func (in *jevChunkInput) build(part jevChunkPart, total int) (string, error) {
 // near it. The first half continues into the second half, labelled with a b suffix. ok is false when the part is
 // already halved jevMaxHalvings times, when a half would be empty, or when a half is still over the Jev limit.
 func (in *jevChunkInput) halve(part jevChunkPart, total int) (first, second jevChunkPart, ok bool, err error) {
-	if part.depth >= jevMaxHalvings {
+	if part.evidence || part.depth >= jevMaxHalvings {
 		return first, second, false, nil
 	}
 

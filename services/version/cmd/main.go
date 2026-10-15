@@ -273,11 +273,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := removeServiceAccountToken(); err != nil {
-		setupLog.Error(err, "unable to remove ServiceAccount token before provider execution")
-		os.Exit(1)
-	}
-
 	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -361,15 +356,6 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-func removeServiceAccountToken() error {
-	err := os.Remove("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if os.IsNotExist(err) {
-		return nil
-	}
-
-	return err
 }
 
 func runTokenRefreshHelper() {

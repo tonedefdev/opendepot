@@ -224,7 +224,8 @@ docker_build_with_restart(
         sync('pkg/archive', '/workspace/pkg/archive'),
         sync('pkg/jev', '/workspace/pkg/jev'),
         sync('pkg/signing', '/workspace/pkg/signing'),
-        run('cd /workspace/services/version && CGO_ENABLED=0 go build -o /workspace/bin/version-controller ./cmd', trigger=[
+        # The token-refresh-helper sidecar shares this image with a 32Mi memory and 10m CPU limit, so it cannot run go build. It keeps the binary it started with.
+        run('if grep -q -e token-refresh-helper /proc/1/cmdline; then exit 0; fi && cd /workspace/services/version && CGO_ENABLED=0 go build -o /workspace/bin/version-controller ./cmd', trigger=[
             'services/version',
             'api/v1alpha1',
             'pkg/github',

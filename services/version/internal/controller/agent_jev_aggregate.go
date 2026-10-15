@@ -15,6 +15,7 @@ package controller
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +69,84 @@ func jevNormalizeParts(parts []jevPartResult) []jevPartResult {
 	}
 
 	return out
+}
+
+// jevRiskLegend lists the risk levels by their index on Jev's 0 to 4 score scale.
+var jevRiskLegend = []string{"Minimal", "Low", "Moderate", "High", "Critical"}
+
+// jevRiskWeight is how much one risk probability counts toward the composite risk.
+// jevCombinerTerm is one Jev probability and its coefficient in the logistic combiner.
+type jevCombinerTerm struct {
+	get  func(jev.Result) float64
+	coef float64
+}
+
+// jevCombinerIntercept and jevCombinerTerms are a logistic regression fit on Jev's per-probe answers for 300
+// public-benchmark samples (150 malicious, 150 benign) outside the sealed test partition. Scope mismatch is left out
+// so it cannot raise a part by itself.
+const jevCombinerIntercept = -0.4833
+
+var jevCombinerTerms = []jevCombinerTerm{
+	{func(r jev.Result) float64 { return r.SafeProbability }, -1.8217},
+	{func(r jev.Result) float64 { return r.RiskConfidence }, -0.5541},
+	{func(r jev.Result) float64 { return r.PromptInjectionProbability }, 2.7442},
+	{func(r jev.Result) float64 { return r.DataExfiltrationProbability }, 0.0266},
+	{func(r jev.Result) float64 { return r.DestructiveActionsProbability }, 0.3532},
+	{func(r jev.Result) float64 { return r.HiddenInstructionsProbability }, 2.9699},
+	{func(r jev.Result) float64 { return r.RemoteExecutionProbability }, 2.4684},
+}
+
+// jevCombinedScore is the composite risk of a part on the 0 to 4 score scale. It scales the combiner's probability that
+// the part is malicious by 5 and caps the result at 4. The level rounds to the nearest label, so 0.5 maps to 2.5 (High)
+// and 0.7 or more maps to Critical (3.5).
+func jevCombinedScore(r jev.Result) float64 {
+	z := jevCombinerIntercept
+	for _, t := range jevCombinerTerms {
+		z += t.coef * t.get(r)
+	}
+
+	p := 1 / (1 + math.Exp(-z))
+
+	return math.Min(p*float64(len(jevRiskLegend)), float64(len(jevRiskLegend)-1))
+}
+
+// jevApplyCompositeRisk raises the risk score of each scored part to its composite risk when the composite is higher.
+// The level is then raised to the legend entry nearest the score, so the level and score agree. Jev's own score and
+// level are never lowered. The parts must already be normalized. The result is a copy.
+func jevApplyCompositeRisk(parts []jevPartResult) []jevPartResult {
+	out := make([]jevPartResult, len(parts))
+	copy(out, parts)
+	for i := range out {
+		if out[i].status != jevPartScored {
+			continue
+		}
+
+		composite := jevCombinedScore(out[i].result)
+		if composite > out[i].result.RiskScore {
+			out[i].result.RiskScore = composite
+		}
+
+		level := jevLevelForScore(out[i].result.RiskScore)
+		if jevRiskRank(level) > jevRiskRank(out[i].result.RiskLevel) {
+			out[i].result.RiskLevel = level
+		}
+	}
+
+	return out
+}
+
+// jevLevelForScore returns the legend entry nearest the score, clamped to the legend.
+func jevLevelForScore(score float64) string {
+	idx := int(math.Round(score))
+	if idx < 0 {
+		idx = 0
+	}
+
+	if idx > len(jevRiskLegend)-1 {
+		idx = len(jevRiskLegend) - 1
+	}
+
+	return jevRiskLegend[idx]
 }
 
 // jevScoredByLabel returns the Scored parts ordered by label.

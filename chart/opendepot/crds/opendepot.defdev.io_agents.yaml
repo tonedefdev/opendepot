@@ -185,7 +185,8 @@ spec:
                     type: string
                   path:
                     description: |-
-                      The path within the repository to the directory that contains the skill or agent.
+                      The path within the repository to the directory that contains the skill, or to the agent definition file
+                      (for example agents/code-reviewer.agent.md) for an Agent.
                       If omitted, the repository root is used.
                     type: string
                   platform:
