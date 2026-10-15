@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.filter.outputs.app }}
+      chart: ${{ steps.filter.outputs.chart }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,8 +27,11 @@ jobs:
         with:
           filters: |
             app:
-              - '.github/workflows/release.yaml'
               - '.releaserc.json'
+              - 'services/**'
+            chart:
+              - '.github/workflows/release.yaml'
+              - 'chart/**'
               - 'services/**'
 
   semantic-release:
@@ -44,3 +48,25 @@ jobs:
         uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+  chart-release:
+    needs: [changes]
+    if: needs.changes.outputs.chart == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          charts_dir: chart
+          skip_existing: true
