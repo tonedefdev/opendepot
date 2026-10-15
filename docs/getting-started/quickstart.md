@@ -243,11 +243,11 @@ terraform {
       version = "6.60.0"
     }
   }
+}
 
-  module "s3" {
-    source  = "opendepot.localtest.me:8081/opendepot-system/terraform-aws-s3/aws"
-    version = ">= 0.0.0"
-  }
+module "s3" {
+  source  = "opendepot.localtest.me:8081/opendepot-system/terraform-aws-s3/aws"
+  version = ">= 0.0.0"
 }
 EOF
 
