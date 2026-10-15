@@ -65,12 +65,32 @@ jobs:
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Package chart
         run: helm package chart/opendepot --destination .cr-release-packages
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
+      - name: Install chart-releaser
+        env:
+          CR_VERSION: v1.6.1
+        run: |
+          curl -sSLo cr.tar.gz "https://github.com/helm/chart-releaser/releases/download/${CR_VERSION}/chart-releaser_${CR_VERSION#v}_linux_amd64.tar.gz"
+          curl -sSLo checksums.txt "https://github.com/helm/chart-releaser/releases/download/${CR_VERSION}/checksums.txt"
+          grep "chart-releaser_${CR_VERSION#v}_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/cr"
+          tar -xzf cr.tar.gz -C "$RUNNER_TEMP/cr" cr
+          echo "$RUNNER_TEMP/cr" >> "$GITHUB_PATH"
+      - name: Upload chart release
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          charts_dir: chart
-          skip_packaging: true
-          skip_existing: true
-          mark_as_latest: false
+        run: |
+          cr upload \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --git-repo "${GITHUB_REPOSITORY#*/}" \
+            --commit "$(git rev-parse HEAD)" \
+            --skip-existing \
+            --make-release-latest=false
+      - name: Update chart index
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .cr-index
+          cr index \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --git-repo "${GITHUB_REPOSITORY#*/}" \
+            --push
