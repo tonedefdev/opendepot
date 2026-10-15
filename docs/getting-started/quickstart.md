@@ -105,7 +105,7 @@ kubectl get crds | grep opendepot
 The installation pulls the released controller, server, and UI images. The
 version-controller image includes Trivy for module and provider scanning.
 
-## Step 3: Open OpenDepot Workshop
+## Step 3: Launch OpenDepot Workshop
 
 In a second terminal, forward the UI service:
 
