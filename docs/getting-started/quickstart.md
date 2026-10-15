@@ -135,7 +135,10 @@ version-controller image includes Trivy for module and provider scanning.
 
 ## Step 3: Launch OpenDepot Workshop
 
-In a second terminal, forward the UI service:
+In a second terminal, forward local port 8080 to the UI service. Keep this
+command running while you use the UI. If another process already holds port
+8080 on localhost, `kubectl` reports `unable to listen on any of the requested
+ports` and doesn't start the forward:
 
 ```bash
 kubectl port-forward -n opendepot-system svc/ui 8080:80
@@ -144,8 +147,9 @@ kubectl port-forward -n opendepot-system svc/ui 8080:80
 Open [http://localhost:8080](http://localhost:8080). Anonymous access is
 enabled for this Quickstart, so no login or OIDC configuration is required.
 
-To access the registry API directly, forward the server service in another
-terminal:
+To access the registry API directly, forward local port 8081 to the server
+service in another terminal. If another process already holds port 8081 on
+localhost, this forward fails the same way:
 
 ```bash
 kubectl port-forward -n opendepot-system svc/server 8081:80
