@@ -251,6 +251,13 @@ module "s3" {
 }
 EOF
 
+MIRROR=http://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/registry.opentofu.org/hashicorp/aws
+PLATFORM=$(tofu version | awk '/^on /{print $2}')
+ARCHIVE=$(curl -fsS "$MIRROR/6.60.0.json" | jq -r --arg p "$PLATFORM" '.archives[$p].url')
+
+mkdir -p /tmp/opendepot-providers/registry.opentofu.org/hashicorp/aws
+curl -fsSL -o "/tmp/opendepot-providers/registry.opentofu.org/hashicorp/aws/terraform-provider-aws_6.60.0_${PLATFORM}.zip" "$MIRROR/$ARCHIVE"
+
 cat > .tofurc <<'EOF'
 host "opendepot.localtest.me:8081" {
   services = {
@@ -259,8 +266,8 @@ host "opendepot.localtest.me:8081" {
 }
 
 provider_installation {
-  network_mirror {
-    url     = "http://opendepot.localtest.me:8081/opendepot/providers/mirror/v1/opendepot-system/"
+  filesystem_mirror {
+    path    = "/tmp/opendepot-providers"
     include = ["registry.opentofu.org/*/*"]
   }
   direct {
@@ -275,6 +282,13 @@ TF_CLI_CONFIG_FILE=.tofurc tofu init
 The module and provider archives now come from OpenDepot. The provider retains
 its canonical `registry.opentofu.org/hashicorp/aws` identity, while the module
 uses the local OpenDepot host in its source address.
+
+!!! note
+    OpenTofu requires an `https://` URL for `network_mirror`, so this
+    Quickstart copies the provider archive from the OpenDepot mirror into a
+    local `filesystem_mirror`. The archive download requires `jq`. For a
+    production `network_mirror` configuration, see the
+    [Providers guide](../guides/providers.md).
 
 !!! note
     For Terraform, use the equivalent `.terraformrc` host configuration and
