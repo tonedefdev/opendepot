@@ -30,7 +30,7 @@ For each provider version, the Version controller performs two scans:
       --type merge -p '{"spec":{"forceSync":true}}'
     ```
 
-    The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/providers.md#consuming-providers) for the full `Version` name pattern.
+    The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/operations.md#force-re-sync-a-specific-provider-version) for the full `Version` name pattern.
 
 See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
@@ -161,8 +161,10 @@ See [`examples/scanpolicy.yaml`](https://github.com/tonedefdev/opendepot/blob/ma
 **How a policy matches a `Version`:**
 
 - `selector` — a `matchLabels`/`matchExpressions` selector evaluated against the `Version`'s labels.
-- `targetRefs` — an explicit list of `{kind: Module|Provider, name, versions}` entries. `versions` is an optional [`hashicorp/go-version`](https://github.com/hashicorp/go-version) constraint string (e.g. `"< 5.0.0"`), the same constraint syntax already used by the [Depot controller](../architecture.md).
+- `targetRefs` — a list of `{kind: Module|Provider, name, versions}` entries. `name` matches exactly, or `*` matches every resource of that kind. `versions` is an optional comma-separated constraint (e.g. `">= 1.0.0, < 2.0.0"`) with AND semantics. Omit it to match every version.
 - When both `selector` and `targetRefs` are omitted, the policy applies to every `Version` in its namespace.
+
+An exemption covers a finding when the finding matches every populated field of the exemption. Omitted fields match everything. `reason` is required.
 
 **Precedence — the highest priority policy wins outright, policies do not merge:**
 
@@ -187,9 +189,9 @@ An exemption with `expires` set stops applying once that time has passed — the
 
 If the controller cannot list `ScanPolicy` resources (e.g. a transient API server error or a missing RBAC grant), it falls back to the stricter `blockOnCritical`/`blockOnHigh` baseline rather than allowing everything through. An invalid `selector` on a policy surfaces an `InvalidSelector` condition on that policy's `status.conditions`, and the policy matches **no** Versions rather than every Version.
 
-**RBAC is the control, there is no separate kill switch:**
+**RBAC is the only control:**
 
-There is intentionally no global flag to disable `ScanPolicy` enforcement. Controlling who may create or edit `scanpolicies` in a namespace **is** the control over who may waive scan enforcement. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`, and deliberately does not ship any user-facing `Role` granting write access to `scanpolicies` — binding that permission to specific users or groups is a decision for your cluster administrators. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
+There is no global flag to disable `ScanPolicy` enforcement. Whoever can create or edit `scanpolicies` in a namespace can waive scan enforcement there. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`. It ships no user-facing `Role` with write access to `scanpolicies`. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
 
 ### Migrating from global thresholds
 
