@@ -10,14 +10,9 @@ search:
 
 # Quickstart
 
-Run OpenDepot locally with the released Helm chart and its publicly available
-container images. This Quickstart creates a Kind cluster, installs the complete
-registry experience, and uses anonymous access so you can start exploring
-without configuring an identity provider.
+Run OpenDepot locally with the released Helm chart and public container images. This Quickstart creates a Kind cluster, installs the registry and UI, and uses anonymous access so you can explore without an identity provider.
 
-The main event is one `Depot` resource. It discovers a useful set of AWS
-modules and the AWS provider from upstream, then creates and reconciles the
-corresponding OpenDepot resources automatically.
+The main step is one `Depot` resource. It discovers AWS modules and the AWS provider from upstream and creates the matching OpenDepot resources.
 
 ## Prerequisites
 
@@ -130,14 +125,11 @@ kubectl get pods -n opendepot-system
 kubectl get crds | grep opendepot
 ```
 
-The installation pulls the released controller, server, and UI images. The
-version-controller image includes Trivy for module and provider scanning.
+The installation pulls the released controller, server, and UI images. The version-controller image includes Trivy for module and provider scanning.
 
 ## Step 3: Launch OpenDepot Workshop
 
-In a second terminal, forward local port 8080 to the UI and keep it running. If
-the port is in use, `kubectl` reports `unable to listen on any of the requested
-ports`.
+In a second terminal, forward local port 8080 to the UI and keep it running. If the port is in use, `kubectl` reports `unable to listen on any of the requested ports`.
 
 ```bash
 kubectl port-forward -n opendepot-system svc/ui 8080:80
@@ -236,11 +228,7 @@ spec:
 kubectl apply -f quickstart-depot.yaml
 ```
 
-The chart's `server.anonymousAuth=true` setting makes the generated modules
-and providers visible through the anonymous browse API. No separate `Module`
-or `Provider` resources are needed. This quickstart does not create a
-`GroupBinding`; for OIDC deployments, create one scoped to your IdP group and
-the specific module and provider names users need.
+The chart's `server.anonymousAuth=true` setting exposes the generated modules and providers through the anonymous browse API. No separate `Module` or `Provider` resources are needed. This Quickstart creates no `GroupBinding`. For OIDC deployments, create one scoped to your IdP group and the module and provider names users need.
 
 Watch the controllers create and synchronize the generated resources:
 
@@ -248,20 +236,14 @@ Watch the controllers create and synchronize the generated resources:
 kubectl get depots,modules,providers,versions -n opendepot-system
 ```
 
-Open the **Depots** and **Modules** pages in OpenDepot Workshop to inspect
-the relationships, versions, scan results, and provider metadata as they become
-available.
+Open the **Depots** and **Modules** pages in OpenDepot Workshop to inspect relationships, versions, scan results, and provider metadata.
 
 !!! note
-    The first reconciliation downloads artifacts from GitHub and the upstream
-    provider registry, so the catalog fills in over several minutes. The Depot
-    continues polling every 60 minutes after the initial sync.
+    The first reconciliation downloads artifacts from GitHub and the upstream provider registry, so the catalog fills in over several minutes. The Depot polls every 60 minutes after the initial sync.
 
 ## Step 5: Configure OpenTofu for Modules and Providers
 
-The Depot keeps the module and provider source addresses familiar to OpenTofu
-while OpenDepot serves both kinds of artifact locally. Add a module reference
-to `main.tf`:
+OpenDepot serves the module and provider artifacts locally, and the source addresses stay the same. Create a configuration that uses a module and the provider:
 
 ```bash
 mkdir -p /tmp/opendepot-provider-test
@@ -299,19 +281,13 @@ EOF
 TF_CLI_CONFIG_FILE=.tofurc tofu init
 ```
 
-The module and provider archives now come from OpenDepot. The provider retains
-its canonical `registry.opentofu.org/hashicorp/aws` identity, while the module
-uses the local OpenDepot host in its source address.
+The module and provider archives now come from OpenDepot. The provider keeps its canonical `registry.opentofu.org/hashicorp/aws` identity, and the module source uses the OpenDepot host.
 
 !!! note
-    The mirror uses the mkcert certificate. `mkcert -install` added its CA to
-    your system trust store, so OpenTofu accepts the HTTPS connection. In
-    production, use a certificate from your organization's CA. See the
-    [Providers guide](../guides/providers.md).
+    The mirror uses the mkcert certificate. `mkcert -install` adds its CA to your system trust store, so OpenTofu accepts the connection. In production, use a certificate from your organization's CA. See the [Providers guide](../guides/providers.md).
 
 !!! note
-    For Terraform, use the equivalent `.terraformrc` host configuration and
-    run `terraform init`.
+    For Terraform, use the equivalent `.terraformrc` host configuration and run `terraform init`.
 
 ## Cleanup
 
