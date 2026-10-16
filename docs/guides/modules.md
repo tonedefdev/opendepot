@@ -21,31 +21,39 @@ module "aks" {
 }
 ```
 
-The source format is `<registry-host>/<namespace>/<name>/<provider>`, where `<namespace>` is the Kubernetes namespace where the `Module` resource lives.
+The source format is `<registry-host>/<namespace>/<name>/<provider>`:
 
-## Authenticate with tofu login (Recommended)
+- `<namespace>` is the Kubernetes namespace of the `Module` resource.
+- `<name>` is the name of the `Module` resource.
+- `<provider>` is the provider name, such as `aws`.
 
-OpenDepot is designed around OIDC for client authentication. For module consumption, the preferred workflow is:
+## Authenticate
+
+`tofu login` requires OIDC enabled on the server (`server.oidc.enabled: true`). See [OIDC via Dex](../authentication/oidc.md).
 
 ```bash
 tofu login opendepot.defdev.io
 tofu init
 ```
 
-If you have not configured a host mapping yet, add this to your `.tofurc` so OpenTofu can find the module registry API:
+If OIDC is not enabled, see [Authentication](../authentication/index.md).
 
-```hcl
-host "opendepot.defdev.io" {
-  services = {
-    "modules.v1" = "https://opendepot.defdev.io/opendepot/modules/v1/"
-  }
-}
-```
+!!! note "Host mapping fallback"
+    OpenTofu discovers the module API from `/.well-known/terraform.json`. Only add this host block to your `.tofurc` if discovery does not resolve for your host.
 
-`tofu login` stores credentials for subsequent `tofu init` runs, so you do not need to inject bearer tokens into your shell for normal module reads.
+    ```hcl
+    host "opendepot.defdev.io" {
+      services = {
+        "modules.v1" = "https://opendepot.defdev.io/opendepot/modules/v1/"
+      }
+    }
+    ```
+
+## Module Fields
+
+For `Module` spec fields such as `moduleConfig`, `versions`, and `forceSync`, see the [API Reference](../reference/api.md).
 
 ## Next Steps for Admins
 
-For module publishing and lifecycle operations (creating `Module` resources, inline `Version` config, force re-sync), use [Registry Operations](operations.md).
-
-For scan configuration and policy controls, see [Vulnerability Scanning](../configuration/scanning.md).
+- [Registry Operations](operations.md): create `Module` resources, add inline `Version` config, and force re-sync.
+- [Vulnerability Scanning](../configuration/scanning.md): scan configuration and policy controls.
