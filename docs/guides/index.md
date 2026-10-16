@@ -26,7 +26,7 @@ Guides for teams consuming modules and providers from OpenDepot.
 
     ---
 
-    Use OpenDepot as a private provider mirror, including GPG-verified downloads for air-gapped environments.
+    Use OpenDepot as a private provider mirror, including in air-gapped environments.
 
 - :material-graph: &nbsp;[__Assembly Line__](assembly-line.md)
 

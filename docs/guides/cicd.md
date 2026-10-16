@@ -102,7 +102,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity in your configuration and lockfile. The CC token is short-lived (TTL controlled by Dex) and scoped to read-only operations via the `GroupBinding`. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
+This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity in your configuration and lockfile. Token lifetime is set by Dex. Access is limited to the resources that a `GroupBinding` grants to the `client:<sub>` group. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
@@ -224,7 +224,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity. The SA token is short-lived (15 minutes) and scoped to read-only registry operations via the RBAC defined above. No Dex client credentials are needed.
+This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity. The SA token from the `--duration=15m` command is short-lived. Its access is limited by the RBAC defined above. No Dex client credentials are needed.
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
