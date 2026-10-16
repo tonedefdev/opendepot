@@ -19,11 +19,11 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 
 For each provider version, the Version controller performs two scans:
 
-- **Binary scan** — runs `trivy rootfs` against the compiled provider binary extracted from the upstream registry archive. Results are stored per `Version` resource in `Version.status.binaryScan` because each OS/architecture binary may embed different Go standard library versions or runtime dependencies. The binary is written with `0500` (execute) permissions before scanning; Trivy requires the execute bit to be set for gobinary detection — binaries without execute permission are silently skipped.
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are stored on each `Version` resource in `Version.status.sourceScan`, deduplicated across OS/architecture variants of the same provider version since all variants share the same source code. When a provider repository has no `go.mod`, the scan completes with `findings: []` (an empty slice, not absent) — this is a tombstone indicating the version was scanned and nothing was found, as opposed to not yet scanned.
+- **Binary scan** — runs `trivy rootfs` against the provider binary from the upstream archive. Results are stored in `Version.status.binaryScan` per OS and architecture. The binary is written with `0500` permissions because Trivy skips binaries without the execute bit.
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If the repository has no `go.mod`, the scan stores `findings: []`. An empty list means the version was scanned, not that it is unscanned.
 
 !!! note
-    `status.binaryScan` will be empty for any `Version` that was synced before scanning was enabled. The controller does not automatically re-scan on restart to avoid re-downloading potentially hundreds of large provider binaries. To trigger a one-time re-download and re-scan, set `forceSync: true` on the `Version` resource:
+    `status.binaryScan` is empty for `Version` resources synced before scanning was enabled. The controller does not re-scan on restart, to avoid re-downloading large provider binaries. To re-download and re-scan once, set `forceSync: true`:
 
     ```bash
     kubectl patch version aws-5-80-0-linux-amd64 -n opendepot-system \
@@ -43,7 +43,7 @@ For each module version, the Version controller runs an IaC scan on the extracte
 Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `aws-0057`) rather than a CVE identifier.
 
 !!! tip
-    Current Trivy releases emit rule IDs in lowercase-provider form (`aws-0057`, `azu-0012`, `gcp-0003`), not the deprecated Aqua/AVD format (`AVD-AWS-0057`). If you plan to reference a rule ID in a `ScanPolicy` exemption (see [Policy Enforcement](#policy-enforcement)), always copy it verbatim from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version` rather than typing it from memory — matching is exact, so a wrong format silently never matches.
+    Current Trivy releases use lowercase provider rule IDs (`aws-0057`, `azu-0012`, `gcp-0003`), not the deprecated `AVD-AWS-0057` format. To exempt a rule in a `ScanPolicy` (see [Policy Enforcement](#policy-enforcement)), copy the ID from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version`. Matching is exact.
 
 See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
@@ -109,7 +109,7 @@ helm upgrade opendepot opendepot/opendepot \
 
 ## Policy Enforcement
 
-When `blockOnCritical` or `blockOnHigh` is set to `true`, the Version controller will stop reconciliation for any provider or module version that has findings at or above the configured severity threshold. The `Version` resource will remain in an unsynced state with a descriptive `syncStatus` message until the vulnerability is resolved or the policy flag is relaxed.
+When `blockOnCritical` or `blockOnHigh` is `true`, the Version controller stops reconciliation for any provider or module version with findings at or above that severity. The `Version` stays unsynced, with a `syncStatus` message, until the finding is resolved or the flag is relaxed.
 
 ```yaml
 scanning:
@@ -119,16 +119,16 @@ scanning:
 ```
 
 !!! warning
-    Policy enforcement halts reconciliation for the affected `Version` resource only. Other versions that do not have findings at the blocked severity level will continue to reconcile normally.
+    Enforcement halts only the affected `Version`. Other versions continue to reconcile.
 
-!!! warning "`blockOnHigh` now blocks at HIGH **or above**"
-    Prior to this release, `blockOnHigh` only matched findings whose severity was exactly `HIGH` — a `blockOnHigh: true, blockOnCritical: false` configuration silently let CRITICAL findings through. `blockOnHigh` now means "block at HIGH or above", so CRITICAL findings are blocked as well. This is strictly more restrictive than before, so no previously-blocked version becomes unblocked, but your effective enforcement may tighten on upgrade. See [Upgrading](../upgrading.md) for details.
+!!! warning "`blockOnHigh` blocks at HIGH **or above**"
+    `blockOnHigh: true` also blocks CRITICAL findings.
 
-A blocked `Version` still has its `status.sourceScan` and `status.binaryScan` populated with the findings that caused the block. This is required so an exemption can be authored against a finding, but it also means **anyone with `get` on `Version` resources in a namespace can enumerate the known vulnerabilities of stored artifacts**, whether or not the version is currently blocked. Factor this into your [RBAC](../reference/rbac/index.md) design.
+A blocked `Version` keeps its `status.sourceScan` and `status.binaryScan` so that exemptions can be written against its findings. As a result, **anyone with `get` on `Version` resources in a namespace can read the known vulnerabilities of stored artifacts**, blocked or not. Factor this into your [RBAC](../reference/rbac/index.md) design.
 
 ### Fine-Grained Exemptions with `ScanPolicy`
 
-The global `blockOnCritical`/`blockOnHigh` flags are all-or-nothing: they either block every affected version or none of them. The **`ScanPolicy`** custom resource lets you exempt specific findings — a known CVE with no fix, an accepted-risk misconfiguration — without lowering enforcement for everything else.
+The global flags are all-or-nothing. The **`ScanPolicy`** custom resource exempts specific findings, such as a CVE with no fix, without lowering enforcement for everything else.
 
 `ScanPolicy` is **namespaced**, not cluster-scoped, so it works with `rbac.scopeToNamespace: true` and only ever affects `Version` resources in its own namespace.
 
@@ -210,20 +210,20 @@ The Version controller evaluates the effective policy during reconciliation and 
 
 ### Policy-management API and OpenDepot Workshop workflow
 
-The server is the authoritative write surface for the first UI-managed custom resource. Enable it explicitly with `server.policyManagement.enabled: true`; it is disabled by default. The server validates and persists Kubernetes-shaped `ScanPolicy` objects and leaves CRD validation, resource versions, RBAC, and audit metadata to Kubernetes. The read, catalog, capabilities, preview, create, replace, and delete routes are documented in the [API reference](../reference/api.md#scanpolicy). For OIDC, configure a separate [SecurityGroupBinding](../guides/security-groupbinding.md); `GroupBinding` controls Registry access only.
+The server is the write surface for UI-managed `ScanPolicy` objects. It is disabled by default. Enable it with `server.policyManagement.enabled: true`. The server validates and persists Kubernetes-shaped objects. CRD validation, resource versions, RBAC, and audit metadata come from Kubernetes. Routes are documented in the [API reference](../reference/api.md#scanpolicy). For OIDC, configure a separate [SecurityGroupBinding](../guides/security-groupbinding.md). `GroupBinding` controls Registry access only.
 
-In OpenDepot Workshop, an operator opens **Security policies**, selects a namespace, and chooses **New policy** or an existing policy. The editor supports priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates the draft without persisting it. The UI reads the capabilities route first and disables write controls when writes are disabled or the caller is unauthorized. A successful save returns the server's resource version; an update or delete uses that version as an `If-Match` precondition. If another operator changed the object, the UI keeps the unsaved draft and asks the operator to reload rather than overwriting it. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for the route payloads.
+In OpenDepot Workshop, open **Security policies**, select a namespace, and choose **New policy** or an existing policy. The editor covers priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates a draft without saving it. Write controls are disabled when writes are off or the caller is not authorized. Updates and deletes send the resource version as an `If-Match` precondition. If another operator changed the policy, the UI keeps the draft and asks you to reload. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for route payloads.
 
 !!! warning "Treat policy writes as security-sensitive"
     A policy can lower a threshold or waive findings. Enable writes only after assigning an explicit administrator workflow, namespace ownership, and review/audit process. Keep writes disabled when policies are managed declaratively with `kubectl` or GitOps.
 
 ### Rollout, rollback, and validation
 
-Roll out the `SecurityGroupBinding` and `ScanPolicy` CRDs before enabling policy writes. Create least-privilege bindings with explicit namespace and onboarded resource scope, deploy the chart with the policy API still disabled, verify the catalog and existing scan behavior, and then enable `server.policyManagement.enabled` only when authorized and unauthorized UI workflows have been tested. The chart version containing this feature is `0.12.6`.
+Install the `SecurityGroupBinding` and `ScanPolicy` CRDs before you enable policy writes. Create least-privilege bindings with explicit namespace and onboarded-resource scope. Deploy with the policy API disabled, and verify the catalog and existing scan behavior. Then enable `server.policyManagement.enabled` after you test authorized and unauthorized UI workflows.
 
-For rollback, first stop policy writes, remove or revert the affected `ScanPolicy` objects, and restore the previous global threshold values if they were changed. Then roll back the application chart. Keep the `ScanPolicy` CRD installed until all policy objects have been removed; Helm does not remove CRDs during rollback. Because findings remain stored on Versions, reverting a policy does not erase scan evidence.
+To roll back, stop policy writes, remove or revert the affected `ScanPolicy` objects, and restore the previous global thresholds if you changed them. Then roll back the chart. Keep the `ScanPolicy` CRD installed until all policy objects are removed, because Helm does not remove CRDs on rollback. Findings stay on Versions, so reverting a policy does not erase scan evidence.
 
-Validate the rollout with an end-to-end test in a disposable namespace: create a blocked finding, confirm the global baseline blocks it, apply an exact exemption and confirm the finding remains visible but reconciliation proceeds, confirm expiry restores blocking, verify priority shadowing, and exercise preview/create/update/delete through the UI with both an authorized and unauthorized identity. Also test first-match binding order, an invalid earlier binding, denied cross-namespace and non-onboarded targets, selector/empty-target rejection for scoped operators, and a stale `If-Match` update with `409 Conflict` without losing the draft. The repository includes focused server, controller, and UI tests for the implemented paths; production rollout validation should additionally verify the deployed chart RBAC and OIDC identity configuration.
+Validate in a disposable namespace. Confirm that the global baseline blocks a finding. Apply an exact exemption, then confirm that the finding stays visible and reconciliation proceeds. Confirm that expiry restores blocking. Check priority shadowing, first-match binding order, and denial of cross-namespace and non-onboarded targets. Confirm that a stale `If-Match` returns `409 Conflict` without losing the draft. Test preview, create, update, and delete with authorized and unauthorized identities. Also verify the deployed chart's RBAC and OIDC identity configuration.
 
 ## Offline Mode
 
