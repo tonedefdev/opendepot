@@ -8,7 +8,7 @@ tags:
 # GitOps with Argo CD
 
 !!! tip "Recommended for OIDC organizations"
-    If your organization has OIDC enabled, this is the **recommended approach** for publishing modules. Developers push to Git; no pipeline ever holds cluster credentials, no ServiceAccount token bypasses GroupBinding, and every module version published maps to an approved pull request. This is the least-privilege publishing model and the most defensible posture in regulated or security-sensitive environments.
+    With OIDC enabled, GitOps is the recommended way to publish modules. Developers push to Git, pipelines hold no cluster credentials, and no ServiceAccount token bypasses GroupBinding.
 
 For teams that manage infrastructure declaratively through Git, OpenDepot fits naturally into a GitOps workflow with [Argo CD](https://argo-cd.readthedocs.io/). Instead of running `kubectl apply` from a CI pipeline, you check your `Module` manifests into a Git repository and let Argo CD sync them to the cluster.
 
@@ -103,4 +103,5 @@ When OIDC is enabled, the alternative to GitOps is enabling [ServiceAccount fall
 - A compromised pipeline token grants direct cluster API access, not just registry access.
 - Access granted to an SA does not appear in GroupBinding audit logs.
 
-For organizations subject to SOC 2, PCI DSS, FedRAMP, or similar frameworks where principle of least privilege and separation of duties are mandatory controls, GitOps removes these concerns entirely. The pipeline has no cluster credentials to compromise.
+For organizations that must enforce least privilege and separation of duties,
+GitOps keeps cluster credentials out of pipelines entirely.

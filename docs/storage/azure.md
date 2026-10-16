@@ -7,7 +7,7 @@ tags:
 # Azure Blob Storage
 
 Azure Blob Storage is recommended for production deployments. It stores module
-archives and provider binaries with checksum metadata.
+archives and provider binaries. The SHA256 checksum is stored in the container's metadata.
 
 ## Configuration
 

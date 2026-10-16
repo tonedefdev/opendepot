@@ -19,18 +19,18 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 
 For each provider version, the Version controller performs two scans:
 
-- **Binary scan** — runs `trivy rootfs` against the compiled provider binary extracted from the upstream registry archive. Results are stored per `Version` resource in `Version.status.binaryScan` because each OS/architecture binary may embed different Go standard library versions or runtime dependencies. The binary is written with `0500` (execute) permissions before scanning; Trivy requires the execute bit to be set for gobinary detection — binaries without execute permission are silently skipped.
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs` to find vulnerable source dependencies. Results are stored on each `Version` resource in `Version.status.sourceScan`, deduplicated across OS/architecture variants of the same provider version since all variants share the same source code. When a provider repository has no `go.mod`, the scan completes with `findings: []` (an empty slice, not absent) — this is a tombstone indicating the version was scanned and nothing was found, as opposed to not yet scanned.
+- **Binary scan** — runs `trivy rootfs` against the provider binary from the upstream archive. Results are stored in `Version.status.binaryScan` per OS and architecture. The binary is written with `0500` permissions (owner read and execute).
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If `go.mod` cannot be fetched, no source result is stored, the binary result still is, and the next reconcile retries. A Trivy run that finds nothing stores `findings: []`, which means scanned with no findings.
 
 !!! note
-    `status.binaryScan` will be empty for any `Version` that was synced before scanning was enabled. The controller does not automatically re-scan on restart to avoid re-downloading potentially hundreds of large provider binaries. To trigger a one-time re-download and re-scan, set `forceSync: true` on the `Version` resource:
+    `status.binaryScan` is empty for `Version` resources synced before scanning was enabled. The controller does not re-scan on restart, to avoid re-downloading large provider binaries. To re-download and re-scan once, set `forceSync: true`:
 
     ```bash
     kubectl patch version aws-5-80-0-linux-amd64 -n opendepot-system \
       --type merge -p '{"spec":{"forceSync":true}}'
     ```
 
-    The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/providers.md#consuming-providers) for the full `Version` name pattern.
+    The controller resets `forceSync` to `false` after reconciliation completes. See [Force re-sync a specific provider version](../guides/operations.md#force-re-sync-a-specific-provider-version) for the full `Version` name pattern.
 
 See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
@@ -38,18 +38,18 @@ See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scan
 
 For each module version, the Version controller runs an IaC scan on the extracted module archive:
 
-- **IaC scan** — extracts the module archive (`.zip` or `.tar.gz`) to a temporary directory and runs `trivy fs` targeting Trivy's config-class checks. This detects HCL misconfigurations — for example, S3 buckets with public ACLs, security groups open to `0.0.0.0/0`, or unencrypted storage resources.
+- **IaC scan** — extracts the module archive (`.zip` or `.tar.gz`) to a temporary directory and runs `trivy fs --scanners misconfig`. This detects HCL misconfigurations — for example, S3 buckets with public ACLs, security groups open to `0.0.0.0/0`, or unencrypted storage resources.
 
-Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `aws-0057`) rather than a CVE identifier.
+Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains Trivy's rule ID (e.g. `AWS-0057`) rather than a CVE identifier.
 
 !!! tip
-    Current Trivy releases emit rule IDs in lowercase-provider form (`aws-0057`, `azu-0012`, `gcp-0003`), not the deprecated Aqua/AVD format (`AVD-AWS-0057`). If you plan to reference a rule ID in a `ScanPolicy` exemption (see [Policy Enforcement](#policy-enforcement)), always copy it verbatim from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version` rather than typing it from memory — matching is exact, so a wrong format silently never matches.
+    Rule IDs use Trivy's uppercase form (for example `AWS-0057`), not the `AVD-AWS-0057` form. To exempt a rule in a `ScanPolicy` (see [Policy Enforcement](#policy-enforcement)), copy the ID from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version`. Matching is case-insensitive.
 
 See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
 ## Trivy-Enabled Image
 
-The release publishes one ARM64 version-controller image with the Trivy binary bundled using the `INCLUDE_TRIVY=true` build argument. The chart uses this standard image tag for both module IaC scanning and provider binary/source scanning; there is no separate `-scanning` image variant.
+Release builds publish multi-architecture (`amd64` and `arm64`) version-controller images with Trivy bundled (`INCLUDE_TRIVY=true`). The chart uses this standard image for module IaC and provider scanning. There is no separate `-scanning` image.
 
 ## Prerequisites
 
@@ -83,33 +83,19 @@ helm upgrade opendepot opendepot/opendepot \
 
 ## Customizing Provider Scanning
 
-To customize full provider binary and source scanning:
-
-```yaml
-scanning:
-  enabled: true
-  providerScanning: true
-  blockOnCritical: false
-  blockOnHigh: false
-  cache:
-    storageClassName: "efs-sc"   # must support ReadWriteMany in multi-node clusters
-    accessMode: ReadWriteMany
-    size: 1Gi
-```
-
-Apply via Helm upgrade:
+To use a specific StorageClass for the Trivy cache, set `scanning.cache.*`. The example below uses a ReadWriteMany class, which multi-node clusters need:
 
 ```bash
 helm upgrade opendepot opendepot/opendepot \
   --namespace opendepot-system \
-  --set scanning.enabled=true \
-  --set scanning.providerScanning=true \
-  --set scanning.cache.storageClassName=efs-sc
+  --set scanning.cache.storageClassName=efs-sc \
+  --set scanning.cache.accessMode=ReadWriteMany \
+  --set scanning.cache.size=1Gi
 ```
 
 ## Policy Enforcement
 
-When `blockOnCritical` or `blockOnHigh` is set to `true`, the Version controller will stop reconciliation for any provider or module version that has findings at or above the configured severity threshold. The `Version` resource will remain in an unsynced state with a descriptive `syncStatus` message until the vulnerability is resolved or the policy flag is relaxed.
+The global flags set the baseline. When `blockOnCritical` or `blockOnHigh` is `true` and no `ScanPolicy` matches a `Version`, the Version controller stops reconciliation for a provider or module version with findings at or above that severity. The `Version` stays unsynced, and its `syncStatus` starts with `Scan policy violation:`. A matching `ScanPolicy` can change the threshold or exempt findings, as described below. The controller clears the block when no blocking finding remains. Stored findings are not refreshed on each reconcile. To rescan after a fix is available, set `forceSync: true` on the `Version`.
 
 ```yaml
 scanning:
@@ -119,16 +105,16 @@ scanning:
 ```
 
 !!! warning
-    Policy enforcement halts reconciliation for the affected `Version` resource only. Other versions that do not have findings at the blocked severity level will continue to reconcile normally.
+    Enforcement halts only the affected `Version`. Other versions continue to reconcile.
 
-!!! warning "`blockOnHigh` now blocks at HIGH **or above**"
-    Prior to this release, `blockOnHigh` only matched findings whose severity was exactly `HIGH` — a `blockOnHigh: true, blockOnCritical: false` configuration silently let CRITICAL findings through. `blockOnHigh` now means "block at HIGH or above", so CRITICAL findings are blocked as well. This is strictly more restrictive than before, so no previously-blocked version becomes unblocked, but your effective enforcement may tighten on upgrade. See [Upgrading](../upgrading.md) for details.
+!!! warning "`blockOnHigh` blocks at HIGH **or above**"
+    `blockOnHigh: true` also blocks CRITICAL findings. Before 0.11.0, it blocked only HIGH. See the [upgrade notes](../upgrading.md).
 
-A blocked `Version` still has its `status.sourceScan` and `status.binaryScan` populated with the findings that caused the block. This is required so an exemption can be authored against a finding, but it also means **anyone with `get` on `Version` resources in a namespace can enumerate the known vulnerabilities of stored artifacts**, whether or not the version is currently blocked. Factor this into your [RBAC](../reference/rbac/index.md) design.
+A blocked `Version` keeps its `status.sourceScan` and `status.binaryScan` so that exemptions can be written against its findings. As a result, **anyone with `get` on `Version` resources in a namespace can read the known vulnerabilities of stored artifacts**, blocked or not. Factor this into your [RBAC](../reference/rbac/index.md) design.
 
 ### Fine-Grained Exemptions with `ScanPolicy`
 
-The global `blockOnCritical`/`blockOnHigh` flags are all-or-nothing: they either block every affected version or none of them. The **`ScanPolicy`** custom resource lets you exempt specific findings — a known CVE with no fix, an accepted-risk misconfiguration — without lowering enforcement for everything else.
+The global flags are all-or-nothing. The **`ScanPolicy`** custom resource exempts specific findings, such as a CVE with no fix, without lowering enforcement for everything else.
 
 `ScanPolicy` is **namespaced**, not cluster-scoped, so it works with `rbac.scopeToNamespace: true` and only ever affects `Version` resources in its own namespace.
 
@@ -150,7 +136,7 @@ spec:
         - source
     - reason: Encryption at rest is handled by the platform-managed CMK, not the module.
       vulnerabilityIDs:
-        - aws-0057
+        - AWS-0057
       scanTypes:
         - module
       expires: "2026-12-31T00:00:00Z"
@@ -161,8 +147,10 @@ See [`examples/scanpolicy.yaml`](https://github.com/tonedefdev/opendepot/blob/ma
 **How a policy matches a `Version`:**
 
 - `selector` — a `matchLabels`/`matchExpressions` selector evaluated against the `Version`'s labels.
-- `targetRefs` — an explicit list of `{kind: Module|Provider, name, versions}` entries. `versions` is an optional [`hashicorp/go-version`](https://github.com/hashicorp/go-version) constraint string (e.g. `"< 5.0.0"`), the same constraint syntax already used by the [Depot controller](../architecture.md).
+- `targetRefs` — a list of `{kind: Module|Provider, name, versions}` entries. `name` matches exactly, or `*` matches every resource of that kind. `versions` is an optional comma-separated constraint (e.g. `">= 1.0.0, < 2.0.0"`) with AND semantics. Omit it to match every version.
 - When both `selector` and `targetRefs` are omitted, the policy applies to every `Version` in its namespace.
+
+An exemption covers a finding when the finding matches every populated field of the exemption. Omitted fields match everything. `reason` is required.
 
 **Precedence — the highest priority policy wins outright, policies do not merge:**
 
@@ -173,11 +161,11 @@ When more than one `ScanPolicy` matches a `Version`, only the single highest-`pr
 
 **Matching is exact, never a glob or regex:**
 
-`vulnerabilityIDs`, `pkgNames`, `severities`, and `scanTypes` only support exact string matches, plus the single literal `"*"` meaning "match everything". There is deliberately no glob, prefix, or regex support — partial matching risks silently over-exempting findings, and regex-based matching risks ReDoS on attacker-influenced strings such as package names.
+`vulnerabilityIDs`, `pkgNames`, `severities`, and `scanTypes` compare case-insensitively for exact equality. The only wildcard is the single literal `"*"`, which matches everything. There is deliberately no glob, prefix, or regex support, because partial matching risks silently over-exempting findings and regex matching risks ReDoS on attacker-influenced strings such as package names.
 
 **Exempted findings stay visible, they are not hidden:**
 
-A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings).
+A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown with an "Exempted by" chip in [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings).
 
 **Expiry:**
 
@@ -185,11 +173,11 @@ An exemption with `expires` set stops applying once that time has passed — the
 
 **Fail-closed:**
 
-If the controller cannot list `ScanPolicy` resources (e.g. a transient API server error or a missing RBAC grant), it falls back to the stricter `blockOnCritical`/`blockOnHigh` baseline rather than allowing everything through. An invalid `selector` on a policy surfaces an `InvalidSelector` condition on that policy's `status.conditions`, and the policy matches **no** Versions rather than every Version.
+If the controller cannot list `ScanPolicy` resources (for example, a transient API error or a missing RBAC grant), it logs the error and applies only the global `blockOnCritical`/`blockOnHigh` flags. If those are `false`, nothing blocks. An invalid `selector` sets an `InvalidSelector` condition on that policy, and the policy matches **no** Versions.
 
-**RBAC is the control, there is no separate kill switch:**
+**RBAC is the only control:**
 
-There is intentionally no global flag to disable `ScanPolicy` enforcement. Controlling who may create or edit `scanpolicies` in a namespace **is** the control over who may waive scan enforcement. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`, and deliberately does not ship any user-facing `Role` granting write access to `scanpolicies` — binding that permission to specific users or groups is a decision for your cluster administrators. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
+There is no global flag to disable `ScanPolicy` enforcement. Whoever can create or edit `scanpolicies` in a namespace can waive scan enforcement there. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`. It ships no user-facing `Role` with write access to `scanpolicies`. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
 
 ### Migrating from global thresholds
 
@@ -204,37 +192,46 @@ The global `scanning.blockOnCritical` and `scanning.blockOnHigh` values remain t
 
 ### Re-evaluation and retained findings
 
-The Version controller evaluates the effective policy during reconciliation and when a ScanPolicy changes. It requeues Versions for the earliest future exemption expiry, so an expired exemption begins blocking without a manual edit. Findings are retained in `Version.status.sourceScan` and `Version.status.binaryScan` after policy evaluation. Exemptions annotate, rather than remove, findings; removing or expiring an exemption therefore restores enforcement from the retained scan result on the next reconciliation. Use `forceSync: true` only when a fresh artifact scan is required.
+When a `ScanPolicy` changes, the controller re-evaluates the findings stored on each affected Version. It also requeues each Version for the earliest future exemption expiry, so an expired exemption blocks again without a manual edit. Findings stay in `status.sourceScan` and `status.binaryScan`. Removing or expiring an exemption restores enforcement from that stored result. Use `forceSync: true` only when a fresh scan is needed.
 
 ### Policy-management API and OpenDepot Workshop workflow
 
-The server is the authoritative write surface for the first UI-managed custom resource. Enable it explicitly with `server.policyManagement.enabled: true`; it is disabled by default. The server validates and persists Kubernetes-shaped `ScanPolicy` objects and leaves CRD validation, resource versions, RBAC, and audit metadata to Kubernetes. The read, catalog, capabilities, preview, create, replace, and delete routes are documented in the [API reference](../reference/api.md#scanpolicy). For OIDC, configure a separate [SecurityGroupBinding](../guides/security-groupbinding.md); `GroupBinding` controls Registry access only.
+The server is the write surface for UI-managed `ScanPolicy` objects. It is disabled by default. Enable it with `server.policyManagement.enabled: true`. The server validates and persists Kubernetes-shaped objects. CRD validation, resource versions, RBAC, and audit metadata come from Kubernetes. Routes are documented in the [API reference](../reference/api.md#scanpolicy). For OIDC, configure a separate [SecurityGroupBinding](../guides/security-groupbinding.md). `GroupBinding` controls Registry access only.
 
-In OpenDepot Workshop, an operator opens **Security policies**, selects a namespace, and chooses **New policy** or an existing policy. The editor supports priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates the draft without persisting it. The UI reads the capabilities route first and disables write controls when writes are disabled or the caller is unauthorized. A successful save returns the server's resource version; an update or delete uses that version as an `If-Match` precondition. If another operator changed the object, the UI keeps the unsaved draft and asks the operator to reload rather than overwriting it. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for the route payloads.
+In OpenDepot Workshop, open **Security policies**, select a namespace, and choose **New policy** or an existing policy. The editor covers priority, severity threshold, selectors or target references, exact-match exemptions, reasons, and expiry. **Preview** validates a draft without saving it. Write controls are disabled when writes are off or the caller is not authorized. Updates and deletes send the resource version as an `If-Match` precondition. If another operator changed the policy, the UI keeps the draft and asks you to reload. See the [policy API contract](https://github.com/tonedefdev/opendepot/blob/main/services/ui/docs/security-policies-api.md) for route payloads.
 
 !!! warning "Treat policy writes as security-sensitive"
     A policy can lower a threshold or waive findings. Enable writes only after assigning an explicit administrator workflow, namespace ownership, and review/audit process. Keep writes disabled when policies are managed declaratively with `kubectl` or GitOps.
 
 ### Rollout, rollback, and validation
 
-Roll out the `SecurityGroupBinding` and `ScanPolicy` CRDs before enabling policy writes. Create least-privilege bindings with explicit namespace and onboarded resource scope, deploy the chart with the policy API still disabled, verify the catalog and existing scan behavior, and then enable `server.policyManagement.enabled` only when authorized and unauthorized UI workflows have been tested. The chart version containing this feature is `0.12.6`.
+Install the `SecurityGroupBinding` and `ScanPolicy` CRDs before you enable policy writes. Create least-privilege bindings with explicit namespace and onboarded-resource scope. Deploy with the policy API disabled, and verify the catalog and existing scan behavior. Then enable `server.policyManagement.enabled` after you test authorized and unauthorized UI workflows.
 
-For rollback, first stop policy writes, remove or revert the affected `ScanPolicy` objects, and restore the previous global threshold values if they were changed. Then roll back the application chart. Keep the `ScanPolicy` CRD installed until all policy objects have been removed; Helm does not remove CRDs during rollback. Because findings remain stored on Versions, reverting a policy does not erase scan evidence.
+To roll back, stop policy writes, remove or revert the affected `ScanPolicy` objects, and restore the previous global thresholds if you changed them. Then roll back the chart. Keep the `ScanPolicy` CRD installed until all policy objects are removed, because Helm does not remove CRDs on rollback. Findings stay on Versions, so reverting a policy does not erase scan evidence.
 
-Validate the rollout with an end-to-end test in a disposable namespace: create a blocked finding, confirm the global baseline blocks it, apply an exact exemption and confirm the finding remains visible but reconciliation proceeds, confirm expiry restores blocking, verify priority shadowing, and exercise preview/create/update/delete through the UI with both an authorized and unauthorized identity. Also test first-match binding order, an invalid earlier binding, denied cross-namespace and non-onboarded targets, selector/empty-target rejection for scoped operators, and a stale `If-Match` update with `409 Conflict` without losing the draft. The repository includes focused server, controller, and UI tests for the implemented paths; production rollout validation should additionally verify the deployed chart RBAC and OIDC identity configuration.
+Validate the rollout in a disposable namespace:
+
+- [ ] The global baseline blocks a finding.
+- [ ] An exact exemption keeps the finding visible and lets reconciliation proceed.
+- [ ] Expiry of that exemption restores blocking.
+- [ ] Priority shadowing and first-match binding order behave as configured.
+- [ ] Cross-namespace and non-onboarded targets are denied.
+- [ ] A stale `If-Match` update returns `409 Conflict` and keeps the unsaved draft.
+- [ ] Preview, create, update, and delete work for an authorized identity and are denied for an unauthorized identity.
+- [ ] The deployed chart's RBAC and OIDC identity configuration match what you expect.
 
 ## Offline Mode
 
 By default, provider scanning runs in offline mode (`scanning.offline: true`). Trivy reads the vulnerability database from the shared PVC populated by the `trivy-db-updater` CronJob and makes no outbound network calls during a scan. This is the recommended configuration for production clusters.
 
-Set `scanning.offline: false` only if you want Trivy to download the database directly at scan time instead of relying on the CronJob. This requires the version-controller pod to have egress access to `ghcr.io`.
+Set `scanning.offline: false` only if you want Trivy to download the database at scan time instead. This requires egress to `ghcr.io` from the version-controller pod.
 
 !!! note
-    `scanning.offline` only applies to provider scanning. Module IaC scanning uses bundled config rules and makes no network calls regardless of this setting.
+    `scanning.offline` applies only to provider scanning. Module IaC scans run `trivy fs --scanners misconfig` without `--offline-scan` and do not use the vulnerability database.
 
 ## Trivy DB Updater CronJob
 
-The `trivy-db-updater` CronJob runs `trivy image --download-db-only` on a schedule to refresh the local vulnerability database cache. It is only created when `scanning.providerScanning: true`. By default it runs daily at 02:00 UTC.
+The `trivy-db-updater` CronJob runs `trivy image --download-db-only` to refresh the local vulnerability database cache. It is created only when `scanning.providerScanning: true`. The default schedule is `0 2 * * *`, interpreted in the kube-controller-manager time zone.
 
 ```yaml
 scanning:
@@ -253,9 +250,9 @@ When performing a source scan, the Version controller resolves the provider's Gi
 2. **OpenTofu registry lookup** — for providers with `upstreamRegistry: registry.opentofu.org`, queries `api.opentofu.org` for the registered VCS URL.
 3. **Heuristic fallback** — for Terraform Registry providers, or when the OpenTofu lookup fails, constructs `https://github.com/{namespace}/terraform-provider-{name}` from the configured namespace and name.
 
-If all three steps fail to produce a usable URL, the Version controller logs a warning and skips the source scan. The binary scan still runs.
+Step 3 always produces a URL. If that URL is wrong and `go.mod` cannot be fetched, no source scan is stored, the binary scan still runs, and the Version retries on the next reconcile.
 
-The resolved URL is written to `Provider.status.resolvedSourceRepository` after the first successful scan. Once set, subsequent reconciliations do not overwrite it. To inspect the effective repository URL in use:
+The resolved URL is written to `Provider.status.resolvedSourceRepository` when a Version reconcile completes. Once set, it is not overwritten. To inspect the effective URL:
 
 ```bash
 kubectl get provider <name> -n <namespace> \

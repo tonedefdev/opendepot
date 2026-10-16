@@ -61,7 +61,7 @@ GitHub Actions Example (Append on Release):
       -p "[{\"op\":\"add\",\"path\":\"/spec/versions/-\",\"value\":{\"version\":\"${VERSION}\"}}]"
 ```
 
-Removing a version: remove the entry from `spec.versions` and re-apply. The Module controller garbage-collects orphaned `Version` resources. If `versionHistoryLimit` is set, older versions are automatically pruned when the limit is exceeded.
+Removing a version: remove the entry from `spec.versions` and re-apply. The controller garbage-collects the removed `Version` resources. With `versionHistoryLimit` set, the controller also trims `spec.versions` to the newest N entries and garbage-collects the rest.
 
 ### Force re-sync
 
@@ -81,19 +81,13 @@ The controller resets `forceSync` to `false` after reconciliation completes.
 
 ### Module READMEs
 
-For `Module`-type `Version` resources, the Version controller automatically resolves the module's README and makes it available to OpenDepot Workshop. Resolution is best-effort: it tries the GitHub API first (`GetReadme`, using the same authenticated/unauthenticated client selection as the archive download), and falls back to extracting a `README.md` from the already-downloaded module archive if the GitHub lookup fails or is unauthenticated.
+For module `Version` resources, the Version controller resolves the README on a best-effort basis. It tries the GitHub API first, then falls back to a `README.md` extracted from the downloaded archive. An unresolved README does not fail the sync, and OpenDepot Workshop omits the README card.
 
-The README is base64-encoded and stored in a ConfigMap named `<version-name>-readme`, owned by the `Version` resource. Because it is owned via `ownerReferences`, the ConfigMap is garbage collected automatically when the `Version` CR is deleted — no manual cleanup is required. The reference is recorded on the `Version` resource as `status.readmeConfigMapRef`.
-
-The controller only (re)fetches the README on the version's first sync (`status.readmeConfigMapRef` unset) or when `forceSync: true` is set, to avoid unnecessary GitHub API calls on every reconcile. A README that cannot be resolved by either method is not an error — the `Version` still syncs normally and OpenDepot Workshop simply omits the README card.
-
-This behavior does not apply to `Provider`-type Version resources.
+The README is stored base64-encoded in a ConfigMap named `<version-name>-readme`. The `Version` owns the ConfigMap, so deleting the `Version` removes it. The reference is recorded in `status.readmeConfigMapRef`. The README is fetched on the first sync, when `status.readmeConfigMapRef` is unset, and again when `forceSync: true` is set. Provider `Version` resources do not get a README.
 
 ### Inline module configuration (Version CR)
 
-`moduleConfigRef.name` is optional on a `Version` CR. When `name` is omitted, or when no `Module` CR with that name exists in the namespace, the Version controller treats all fields on `moduleConfigRef` as fully inline. A UUID-based filename is generated automatically so the archive has a stable storage key, and the download proceeds using the GitHub and storage config set directly on the `Version` CR.
-
-This is useful when running the Version controller standalone (without the Module controller), or for one-off version testing where creating a full `Module` CR is unnecessary.
+`moduleConfigRef.name` is optional. When it is omitted, or when no `Module` with that name exists in the namespace, the Version controller uses the fields on `moduleConfigRef` directly and generates a UUID filename as the storage key. Use this to run the Version controller without the Module controller, or for one-off testing.
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -151,45 +145,16 @@ The `<version-name>` follows the pattern `<provider>-<version-dashes>-<os>-<arch
 The controller bypasses the provider fast-path, re-downloads the artifact, runs the binary scan, and resets `forceSync` to `false` once reconciliation completes.
 
 !!! note
-    The Version controller does **not** automatically re-scan provider binaries on restart. Provider binaries are about 700 MB each; re-downloading every cached binary on startup can exhaust memory and I/O in clusters with many provider versions. Use `forceSync: true` on a specific `Version` resource to trigger a targeted one-time re-download and re-scan.
+    On restart, a provider `Version` with a stored checksum that still matches storage skips the download. Stored scan findings are re-evaluated against the current ScanPolicy, but Trivy does not run again. Use `forceSync: true` on that `Version` for a one-time re-download and re-scan.
 
 ### Provider source repository
 
-For providers from `registry.opentofu.org`, OpenDepot automatically resolves the provider's GitHub repository for source scanning through `api.opentofu.org`. For providers from `registry.terraform.io`, it constructs `https://github.com/{namespace}/terraform-provider-{name}` because the Terraform Registry API does not expose equivalent source metadata.
-
-For providers not published under the `hashicorp` organization, set the `namespace` field to match the registry namespace:
-
-```yaml
-spec:
-  providerConfig:
-    name: github
-    namespace: integrations
-```
-
-Use `sourceRepository` to pin a specific URL when registry metadata is unavailable, the heuristic does not match the provider repository, or the lookup returns the wrong repository:
-
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    sourceRepository: "https://github.com/my-org/terraform-provider-myprovider"
-```
+For `registry.opentofu.org` providers, OpenDepot looks up the source repository through `api.opentofu.org`. For `registry.terraform.io` providers, it builds `https://github.com/{namespace}/terraform-provider-{name}`. Set `spec.providerConfig.namespace` when the provider is not published under `hashicorp`, or set `sourceRepository` to pin the URL. The resolution order and examples are in [Provider Source Repository Resolution](../configuration/scanning.md#provider-source-repository-resolution).
 
 ### Authenticated source scanning
 
-For private provider source repositories or high-volume environments where unauthenticated GitHub requests hit API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the same `opendepot-github-application-secret` Secret that modules use, so no additional Secret is required if GitHub App auth is already configured in the namespace.
+For private source repositories, or to avoid GitHub API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the `opendepot-github-application-secret` that modules use. See [Authenticated Source Scanning](../configuration/scanning.md#authenticated-source-scanning) and [GitHub Authentication](../configuration/github-auth.md).
 
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    githubClientConfig:
-      useAuthenticatedClient: true
-```
-
-See [GitHub Authentication](../configuration/github-auth.md) for setup details.
 
 ## Vulnerability Scanning Runbooks
 
@@ -236,6 +201,6 @@ spec:
       fallbackToProxy: true
 ```
 
-When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required; any failure returns `502 Bad Gateway`.
+When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required. Storage initialization, checksum lookup, and presign failures then return `502 Bad Gateway`. A checksum mismatch returns `500 Internal Server Error`.
 
-Pre-signed URLs are supported on S3, GCS, and Azure Blob Storage. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for per-backend IAM requirements and field reference.
+Pre-signed URLs are supported on S3, GCS, and Azure Blob Storage. Filesystem storage cannot pre-sign, so with `fallbackToProxy: false` its downloads fail with `502`. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for IAM requirements and field reference.

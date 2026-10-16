@@ -513,7 +513,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
 ```
 
-Returns scan findings for a single resource. The optional `?version=` query parameter selects which scanned version's findings to return. When omitted, findings from the most recently scanned version are returned. Both leading `v` and surrounding whitespace are stripped from the version string, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` are treated identically. Authentication follows the same rules as the other browse endpoints.
+Returns scan findings for one resource. `?version=` selects the scanned version. Without it, the most recently scanned version is returned. A leading `v` and surrounding whitespace are stripped, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` match. Authentication follows the other browse endpoints.
 
 **Path Parameters:**
 
@@ -556,9 +556,120 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 `sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
 
-`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
+`selectedVersion` is the version whose source findings are returned. `scannedVersions` lists every version with source scan results, sorted by semver descending. The UI uses it for the source scan version selector. `binaryVersions` is the equivalent list for binary scans and appears only for providers. All three fields are omitted when no scan results exist.
 
 This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings) refresh button to re-fetch findings without a full page reload.
+
+### Module Contract
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/contract
+```
+
+Returns the Assembly Line contract for a module version. The contract is the input schema that the Assembly Line canvas uses to render module inputs. It is derived when the Version is synced. This endpoint is available whether or not Assembly Line is enabled.
+
+Only `module` is supported. Requests for `provider` return `400`.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Exact module version. Omit to use the module's latest version. |
+
+**Responses:**
+
+| Status | Description |
+|--------|-------------|
+| `200` | The contract JSON, served as `application/json`. |
+| `400` | The resource is not a module. |
+| `404` | The resource or version was not found, or no contract has been derived for it. An unavailable contract returns `{"error": "contract_unavailable", "message": "...", "version": "..."}`. |
+
+The decompressed payload is capped at 32 MiB.
+
+### Provider Configuration Schema
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/provider/{name}/provider-schema
+```
+
+Returns the configuration schema for a provider version, extracted from the provider binary. Assembly Line must be enabled with `--assembly-enabled` (`server.assembly.enabled` in the chart). When it is disabled, the route is not registered and the request returns `404`.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Exact provider version. Omit to use the provider's latest version. |
+
+**Response (`providerConfigurationSchemaResponse`):**
+
+```json
+{
+  "namespace": "opendepot",
+  "name": "example",
+  "providerNamespace": "hashicorp",
+  "providerName": "aws",
+  "version": "5.0.0",
+  "schemaVersion": "1",
+  "configuration": {}
+}
+```
+
+The decompressed payload is capped at 128 MiB.
+
+### Assembly Line Export
+
+```
+POST /opendepot/ui/v1/assembly/export
+```
+
+Validates an Assembly Line canvas and packages it as a root module. This endpoint is registered only when Assembly Line is enabled. Authentication follows the browse rules. The export needs a bearer token, so OpenTofu can download the artifacts that the generated module references.
+
+**Request Body (`assembly.export.v1`):**
+
+```json
+{
+  "schemaVersion": "assembly.export.v1",
+  "variables": [],
+  "modules": [],
+  "providers": []
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schemaVersion` | string | Yes | Must be `assembly.export.v1`. |
+| `variables` | array | Yes | Root module input variables. |
+| `modules` | array | Yes | Module nodes from the canvas. |
+| `providers` | array | No | Provider nodes from the canvas. |
+
+The request body is limited to 2 MiB by default (`--assembly-max-request-bytes`). The total node count across `variables`, `modules`, and `providers` is limited to 100 by default (`--assembly-max-nodes`). Unknown fields and trailing data after the JSON object are rejected.
+
+**Response formats:**
+
+The format depends on the `Accept` header.
+
+- Default: `200 OK` with `application/zip` and `Content-Disposition: attachment; filename="assembly-line.zip"`. The archive is the root module.
+- `Accept: application/x-ndjson`: `200 OK` with a stream of newline-delimited JSON events. The stream emits `started`, then zero or more `output` events, then either `complete` or `error`.
+
+| Event `type` | Fields | Description |
+|--------------|--------|-------------|
+| `started` | `phase` | Validation or packaging began. |
+| `output` | `phase`, `output` | Progress output from `tofu init` and validation. |
+| `complete` | `archive` | The base64-encoded ZIP archive. |
+| `error` | `error` | An error object with `error` and `message` fields. |
+
+**Errors:**
+
+Errors use the `ErrorResponse` shape: `{"error": "<code>", "message": "...", "diagnostics": [], "output": "..."}`. The `diagnostics` and `output` fields appear only when they apply.
+
+| Status | `error` code | Description |
+|--------|--------------|-------------|
+| `400` | `invalid_request` | The body is not valid JSON, contains unknown fields, or has trailing data. |
+| `413` | `too_many_nodes` | The canvas exceeds the node limit. |
+| `413` | `request_too_large` | The body exceeds the request size limit. |
+| `422` | `invalid_canvas` | The canvas failed validation. `diagnostics` lists the problems. |
+| `500` | `internal_error` | The export failed on the server. |
+| `500` | `streaming_unavailable` | The client requested NDJSON but the response writer cannot stream. |
 
 ### List Depots
 
@@ -710,9 +821,162 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 }
 ```
 
-`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are queried from Prometheus over the configured lookback window; both are `0` / empty until a matching metric has been scraped. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+`totalStorageBytes` sums `VersionStatus.archiveSizeBytes` across visible versions and is `0` when no sizes are recorded. `totalDownloads` and `mostDownloaded` come from Prometheus over the configured lookback window and count only resources in the caller's visibility set. Both stay `0` or empty until a matching metric is scraped. Download counts are filtered by the caller's visibility, so unauthenticated callers do not see private names in `mostDownloaded`.
 
 ## Kubernetes Resource Types
+
+All resources are in the `opendepot.defdev.io/v1alpha1` group. Fields marked *controller-managed* are written by OpenDepot, not by you.
+
+### Module
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.moduleConfig` | `ModuleConfig` | **Required.** Settings for the module and for each `Version` it creates. |
+| `spec.versions` | `[]ModuleVersion` | **Required.** Versions to sync. A leading `v` is trimmed. |
+| `spec.forceSync` | `bool` | Forces a re-sync. The controller resets it to `false`. Default `false`. |
+| `status.latestVersion` | `string` | *Controller-managed.* Latest available version. |
+| `status.synced` | `bool` | *Controller-managed.* Whether the module reached its desired state. |
+| `status.syncStatus` | `string` | *Controller-managed.* Reconciliation status. |
+| `status.fileName` | `string` | *Controller-managed.* Generated archive file name. |
+| `status.moduleVersionRefs` | `map[string]ModuleVersion` | *Controller-managed.* Versions the controller created. |
+
+### ModuleConfig
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Name used when naming `Version` resources. Defaults to the `Module` resource name. |
+| `provider` | `string` | Main OpenTofu provider the module requires (for example, `aws`). |
+| `repoOwner` | `string` | Owner of the GitHub source repository. |
+| `repoUrl` | `string` | Full URL of the GitHub source repository. |
+| `fileFormat` | `string` | `zip` produces `.zip` archives. Any other value produces `.tar.gz`. Inherited from `global.moduleConfig` when unset in a Depot. |
+| `immutable` | `bool` | When `true`, the archive checksum must match the stored `checksumSHA256` on every sync. Inherited from `global.moduleConfig` when unset in a Depot. |
+| `versionConstraints` | `string` | Comma-separated constraints such as `>= 1.0.0, < 2.0.0`. Used only by the Depot controller. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.moduleConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings. See [GithubClientConfig](#githubclientconfig). |
+| `storageConfig` | `StorageConfig` | Storage backend for the archives. See [StorageConfig](#storageconfig). |
+
+### ModuleVersion
+
+Items in `spec.versions` and `status.moduleVersionRefs`.
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `string` | Semantic version to sync. A leading `v` is trimmed. |
+| `name` | `string` | *Controller-managed.* Name of the generated `Version` resource. |
+| `fileName` | `string` | *Controller-managed.* Archive file name. |
+| `synced` | `bool` | *Controller-managed.* Whether the `Version` has synced. |
+
+### Provider
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.providerConfig` | `ProviderConfig` | **Required.** Settings for the provider and for each `Version` it creates. |
+| `spec.versions` | `[]ProviderVersion` | **Required.** Versions to sync. A leading `v` is trimmed. |
+| `spec.forceSync` | `bool` | Forces a re-sync. The controller resets it to `false`. Default `false`. |
+| `status.latestVersion` | `string` | *Controller-managed.* Latest available version. |
+| `status.synced` | `bool` | *Controller-managed.* Whether the provider reached its desired state. |
+| `status.syncStatus` | `string` | *Controller-managed.* Reconciliation status. |
+| `status.resolvedSourceRepository` | `string` | *Controller-managed.* See [ProviderStatus fields](#providerstatus-fields). |
+
+### ProviderConfig
+
+The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described in [ProviderConfig fields](#providerconfig-fields).
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Provider name. Defaults to the `Provider` resource name. |
+| `operatingSystems` | `[]string` | Operating systems the provider supports, used as the `os` constraint. |
+| `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
+| `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.moduleConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
+| `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
+
+### ProviderVersion
+
+Items in `spec.versions`.
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `string` | Semantic version to sync. A leading `v` is trimmed. |
+| `architecture` | `string` | Architecture for this provider version. |
+| `operatingSystem` | `string` | Operating system for this provider version. |
+| `name` | `string` | *Controller-managed.* Provider name. |
+| `synced` | `bool` | *Controller-managed.* Whether the `Version` has synced. |
+
+### Version
+
+`Version` resources are created by the Module and Provider controllers. Edit the parent resource instead of creating them by hand.
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.type` | `string` | **Required.** `Module` or `Provider`. |
+| `spec.version` | `string` | **Required.** Semantic version. |
+| `spec.architecture` | `string` | Provider architecture. |
+| `spec.operatingSystem` | `string` | Provider operating system. |
+| `spec.fileName` | `string` | Archive file name. Controller-managed. |
+| `spec.forceSync` | `bool` | Forces this version to re-sync. |
+| `spec.moduleConfigRef` | `ModuleConfig` | Copy of the parent module's config. Set by the Module controller. |
+| `spec.providerConfigRef` | `ProviderConfig` | Copy of the parent provider's config. Set by the Provider controller. |
+| `status` | `VersionStatus` | Sync state, checksum, and scan results. See [VersionStatus fields](#versionstatus-fields). |
+
+### Depot
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules and providers. Requires `storageConfig`. Optional `githubClientConfig`, `moduleConfig`, `providerConfig`, and `versionHistoryLimit`. `versionHistoryLimit` applies to each entry that sets neither its own value nor a kind-specific `moduleConfig` or `providerConfig` value. |
+| `spec.moduleConfigs` | `[]ModuleConfig` | Modules to create and manage. |
+| `spec.providerConfigs` | `[]ProviderConfig` | Providers to create and manage. |
+| `spec.pollingIntervalMinutes` | `int` | Minutes between checks for new versions. Unset or `0` disables periodic polling. |
+| `status.modules` | `[]string` | *Controller-managed.* Names of the `Module` resources the Depot manages. |
+| `status.providers` | `[]string` | *Controller-managed.* Names of the `Provider` resources the Depot manages. |
+
+### GithubClientConfig
+
+| Field | Type | Description |
+|---|---|---|
+| `useAuthenticatedClient` | `bool` | Authenticates GitHub requests with a GitHub App to avoid rate limits. Requires a Secret named `opendepot-github-application-secret` in the resource's namespace with `githubAppID`, `githubInstallID`, and a base64 encoded `githubPrivateKey`. |
+
+### StorageConfig
+
+Each field selects a storage backend. `presign` configures pre-signed downloads.
+
+| Field | Type | Description |
+|---|---|---|
+| `s3` | `AmazonS3Config` | Amazon S3 bucket. |
+| `azureStorage` | `AzureStorageConfig` | Azure Storage account. |
+| `gcs` | `GoogleCloudStorageConfig` | Google Cloud Storage bucket. |
+| `fileSystem` | `FileSystemConfig` | Local filesystem path. |
+| `presign` | `PresignConfig` | Pre-signed download URLs. See [PresignConfig fields](#presignconfig-fields). |
+
+**AmazonS3Config**
+
+| Field | Type | Description |
+|---|---|---|
+| `bucket` | `string` | **Required.** Bucket name. |
+| `region` | `string` | **Required.** AWS region of the bucket. |
+| `key` | `string` | Key prefix (for example, `my/bucket/prefix`). The file name is generated. |
+
+**AzureStorageConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `accountName` | `string` | **Required.** Storage account name. |
+| `accountUrl` | `string` | **Required.** Storage account URL. |
+| `subscriptionID` | `string` | **Required.** Subscription that contains the account. |
+| `resourceGroup` | `string` | **Required.** Resource group that contains the account. |
+
+**GoogleCloudStorageConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `bucket` | `string` | **Required.** Bucket name. |
+
+**FileSystemConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `directoryPath` | `string` | Directory where archives are stored. |
 
 ### SecurityFinding
 
@@ -720,7 +984,7 @@ Represents a single vulnerability finding from a Trivy scan.
 
 | Field | Type | Description |
 |---|---|---|
-| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability, or a Trivy rule ID (e.g. `aws-0057`) for module IaC findings |
+| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability, or a Trivy rule ID (e.g. `AWS-0057`) for module IaC findings |
 | `pkgName` | `string` | Name of the package containing the vulnerability |
 | `installedVersion` | `string` | Version of the package currently in use |
 | `fixedVersion` | `string` | Minimum version that resolves the vulnerability, if known |
@@ -749,7 +1013,7 @@ Holds Trivy source scan results. Used for both provider `go.mod` dependency scan
 | Field | Type | Description |
 |---|---|---|
 | `scannedAt` | `string` | RFC3339 timestamp at which the scan completed |
-| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `aws-0057`). |
+| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `AWS-0057`). |
 
 ### ScanPolicy
 
@@ -768,9 +1032,11 @@ The server also exposes the optional policy-management API for UI clients:
 | `PUT` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Replaces a policy. Requires `If-Match` and matching `metadata.resourceVersion`; missing preconditions return `428`, stale versions return `409 Conflict`. |
 | `DELETE` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Deletes a policy. Requires `If-Match`; missing preconditions return `428`, stale versions return `409 Conflict`. |
 
-`POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is set to `true`. Anonymous authentication may read policies but receives `403` for mutations. In OIDC mode, policy access is default-deny and uses the effective `SecurityGroupBinding`; `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`, while a disallowed mutation in an otherwise authorized namespace returns `403`. Kubeconfig or bearer-token requests use the Kubernetes identity and are authorized by Kubernetes RBAC. Validation errors return `400`, authentication failures return `401`, authorization failures return `403`, and Kubernetes conflicts return `409`.
+`POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is `true`. Anonymous callers can read policies but get `403` on mutations. In OIDC mode, access is default-deny and uses the effective `SecurityGroupBinding`. `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`. A disallowed mutation in an authorized namespace returns `403`. Kubeconfig and bearer-token requests use Kubernetes RBAC. Status codes: `400` validation, `401` authentication, `403` authorization, `409` Kubernetes conflict.
 
-Every successful create, update, and delete is logged by the server with the operation, namespace, policy name, and authenticated subject. Kubernetes audit logging remains the authoritative cluster audit trail; configure the API server audit policy if durable records of the underlying CRD write are required. Do not treat UI access or a successful preview as authorization to write.
+The server logs each successful create, update, and delete with the operation, namespace, policy name, and authenticated subject. Kubernetes audit logging remains the authoritative record of the underlying CRD writes.
+
+The server logs every successful create, update, and delete with the operation, namespace, policy name, and subject. For a durable record of the CRD write, configure the Kubernetes API server audit policy. UI access and a successful preview do not authorize writes.
 
 **ScanPolicySpec fields:**
 
@@ -808,14 +1074,14 @@ Declares a set of scan findings that must not block reconciliation. A finding is
 
 | Field | Type | Description |
 |---|---|---|
-| `vulnerabilityIDs` | `[]string` | Vulnerability or misconfiguration identifiers this exemption covers, e.g. `CVE-2024-1234` or `aws-0057`. `["*"]` matches every identifier. Omitted covers every identifier. |
+| `vulnerabilityIDs` | `[]string` | Vulnerability or misconfiguration identifiers this exemption covers, e.g. `CVE-2024-1234` or `AWS-0057`. `["*"]` matches every identifier. Omitted covers every identifier. |
 | `pkgNames` | `[]string` | Package names this exemption covers, e.g. `stdlib` or `golang.org/x/net`. `["*"]` matches every package. Omitted covers every package. |
 | `scanTypes` | `[]string` | Scan types this exemption applies to: `binary`, `source`, `module`. Omitted covers every scan type. |
 | `severities` | `[]string` | Severities this exemption covers. Matching is exact and case-insensitive. `["*"]` matches every severity. Omitted covers every severity. |
 | `reason` | `string` | **Required.** Justification for the exemption, so every exemption remains auditable. Must be non-empty. |
 | `expires` | `string` | RFC3339 timestamp at which this exemption stops applying. Once passed, the covered findings block again with no user action required. Omitted means the exemption never expires. |
 
-The server's preview route accepts the same complete object as create/update and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS-compatible names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL namespace. Preview is useful for validating a draft, but it does not reserve a name or evaluate authorization to perform a later write.
+Preview accepts the same object as create and update, and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL. Preview does not reserve a name or check authorization for a later write.
 
 ### ProviderConfig fields
 
@@ -851,7 +1117,7 @@ References the ConfigMap and data key holding a module `Version`'s base64 encode
 
 ### GroupBinding
 
-`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules and providers. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.
+`GroupBinding` is a namespaced resource that grants OIDC groups access to specific modules and providers. The server evaluates bindings alphabetically by name and applies the first whose `expression` matches the user's groups claim. An expression that fails to compile or evaluate denies the request with `403 Forbidden`. Requires OIDC authentication.
 
 See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
 
@@ -928,7 +1194,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `totalProviders` | `int` | Number of visible `Provider` resources |
 | `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
 | `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
-| `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window; `0` until a matching metric has been scraped |
+| `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window, counted only for resources in the caller's visibility set; `0` until a matching metric has been scraped |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |

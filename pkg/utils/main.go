@@ -89,7 +89,7 @@ func VersionsToKeep(module *opendepotv1alpha1.Module, provider *opendepotv1alpha
 		}
 
 		semver.Sort(versions)
-		return versions[len(versions)-versionHistoryLimit:], nil
+		return keepNewest(versions, versionHistoryLimit), nil
 	}
 
 	if provider != nil {
@@ -111,10 +111,17 @@ func VersionsToKeep(module *opendepotv1alpha1.Module, provider *opendepotv1alpha
 		}
 
 		semver.Sort(versions)
-		return versions[len(versions)-versionHistoryLimit:], nil
+		return keepNewest(versions, versionHistoryLimit), nil
 	}
 
 	return nil, fmt.Errorf("both module and provider were nil, cannot determine versions")
+}
+
+// keepNewest returns the last limit entries of sorted versions. If limit is greater than the number of versions,
+// all versions are returned.
+func keepNewest(sorted []string, limit int) []string {
+	start := max(len(sorted)-limit, 0)
+	return sorted[start:]
 }
 
 // GetName returns the Module or Provider name as the resource's name if

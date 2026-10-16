@@ -8,8 +8,8 @@ tags:
 
 # Depots
 
-The **Depots** page (`/depots`) renders an interactive graph of visible `Depot`
-resources and the `Module` and `Provider` resources each depot manages.
+The **Depots** page (`/depots`) graphs the visible `Depot` resources and the
+`Module` and `Provider` resources each one manages.
 
 ![OpenDepot Workshop Depots page showing registry storage locations](../../img/registry-depots.png)
 
@@ -20,9 +20,9 @@ graph LR
   D -->|manages| P[Provider]
 ```
 
-Each node opens a detail panel showing storage, polling, versions, sync status,
-and scan severity counts. A namespace selector narrows the graph to one
-Kubernetes namespace.
+Select a depot from the filter to narrow the graph. Each node opens a detail
+panel with its namespace, name, storage backend and configuration, presigned URL
+settings, and sync status.
 
-The graph uses the [`GET /opendepot/ui/v1/depots/graph`](../../reference/api.md#depot-relationship-graph)
-browse endpoint and applies the same visibility rules as the rest of the UI.
+The graph is served by [`GET /opendepot/ui/v1/depots/graph`](../../reference/api.md#depot-relationship-graph)
+and applies the same visibility rules as the rest of the Workshop.

@@ -1,1 +1,30 @@
-vulnerabilities: []
+# Issue #98: these findings are confined to the embedded OpenTofu binary at
+# usr/local/bin/tofu (v1.13.1, the latest upstream release). The binary is an
+# upstream release artifact checksum-verified at build time and is not rebuilt
+# here. Remove these entries when an upstream OpenTofu release contains the
+# fixed dependencies. See https://github.com/tonedefdev/opendepot/issues/98.
+vulnerabilities:
+  - id: CVE-2026-56864
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 bundles golang.org/x/mod v0.39.0; tracked in Issue #98 pending an upstream release with the fix.
+  - id: CVE-2026-56865
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 bundles golang.org/x/mod v0.39.0; tracked in Issue #98 pending an upstream release with the fix.
+  - id: CVE-2026-78669
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 bundles golang.org/x/net v0.57.0 and an older Go stdlib; tracked in Issue #98 pending an upstream release with the fix.
+  - id: CVE-2026-84445
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 bundles google.golang.org/grpc v1.83.1; tracked in Issue #98 pending an upstream release with the fix.
+  - id: CVE-2026-78667
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 is built with Go 1.27.1 stdlib; tracked in Issue #98 pending an upstream release with the fix.
+  - id: CVE-2026-97031
+    paths:
+      - usr/local/bin/tofu
+    statement: OpenTofu v1.13.1 is built with Go 1.27.1 stdlib; tracked in Issue #98 pending an upstream release with the fix.

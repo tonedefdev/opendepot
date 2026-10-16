@@ -21,7 +21,7 @@ RUN set -eux; \
   unzip -o /tmp/tofu.zip tofu -d /usr/local/bin; \
   chmod 0755 /usr/local/bin/tofu
 
-FROM golang:1.26.6 AS server-runtime
+FROM golang:1.26.9 AS server-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
@@ -41,7 +41,7 @@ COPY --from=tofu-source /usr/local/bin/tofu /usr/local/bin/tofu
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS depot-runtime
+FROM golang:1.26.9 AS depot-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
@@ -58,7 +58,7 @@ RUN cd services/depot && CGO_ENABLED=0 go build -o /workspace/bin/depot-controll
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS module-runtime
+FROM golang:1.26.9 AS module-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
@@ -73,7 +73,7 @@ RUN cd services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-contro
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS provider-runtime
+FROM golang:1.26.9 AS provider-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
@@ -88,7 +88,7 @@ RUN cd services/provider && CGO_ENABLED=0 go build -o /workspace/bin/provider-co
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS version-runtime
+FROM golang:1.26.9 AS version-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/

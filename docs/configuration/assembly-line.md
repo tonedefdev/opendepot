@@ -90,12 +90,12 @@ general provider registry can mirror both OpenTofu and Terraform origins.
 ## Authentication
 
 Anonymous export does not write credentials. Authenticated export forwards the
-caller’s Bearer token through a temporary mode-`0600` OpenTofu credentials file.
+caller’s bearer token through a temporary mode-`0600` OpenTofu credentials file.
 The token is not included in command arguments, logs, generated HCL,
 diagnostics, or the ZIP archive.
 
 Legacy kubeconfig authentication cannot be forwarded through the registry
-protocol. Authenticated exports therefore require a Bearer token.
+protocol. Authenticated exports therefore require a bearer token.
 
 ## Export Behavior
 

@@ -9,11 +9,11 @@ tags:
 
 ## Registry Reads with Dex Client Credentials
 
-If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach because it preserves separation of duties: OIDC stays read-only for registry access, while Kubernetes RBAC governs create, update, and delete permissions.
+If your organization uses OIDC (Dex) for humans, pipelines can authenticate with the Dex client credentials grant. This keeps OIDC read-only for registry access, while Kubernetes RBAC governs create, update, and delete.
 
-The examples below assume the recommended [server-proxied Dex](../configuration/oidc/proxy.md#proxy-dex-through-the-server) setup (`server.oidc.dexProxy.enabled: true`), so the Dex token endpoint shares the same host as the registry API. If Dex is exposed separately instead, substitute that host (e.g. `https://dex.defdev.io/dex/token`).
+The examples assume server-proxied Dex (`server.oidc.dexProxy.enabled: true`), so the token endpoint shares the registry host. If Dex is exposed separately, substitute its host (for example `https://dex.defdev.io/dex/token`).
 
-Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
+Enable client credentials in your Helm values and register a dedicated Dex static client:
 
 ```yaml
 dex:
@@ -27,7 +27,7 @@ dex:
         name: OpenDepot
         secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
         redirectURIs:
-          - https://opendepot.defdev.io/...
+          - https://opendepot.defdev.io/auth/callback
       - id: ci-pipeline
         name: CI Pipeline
         secretEnv: OPENDEPOT_CC_CLIENT_SECRET
@@ -102,7 +102,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity in your configuration and lockfile. The CC token is short-lived (TTL controlled by Dex) and scoped to read-only operations via the `GroupBinding`. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
+This configures OpenTofu to install providers through the Network Mirror Protocol while keeping canonical `registry.opentofu.org` identity in your configuration and lockfile. Dex sets the token lifetime, and access is limited to what a `GroupBinding` grants `client:<sub>`. The runner needs only network access to the Dex token endpoint, not a kubeconfig.
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
@@ -124,7 +124,7 @@ For full configuration details see [Client Credentials (Machine-to-Machine)](../
 
     SA fallback is appropriate when your pipeline must interact with the Kubernetes API directly for reasons beyond registry access and you have already ruled out the above options.
 
-When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
+When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. Without a fallback, pipelines need a separate credential mechanism. The ServiceAccount fallback removes this constraint.
 
 ### Enable SA Fallback in Your Helm Values
 
@@ -224,11 +224,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity. The SA token is short-lived (15 minutes) and scoped to read-only registry operations via the RBAC defined above. No Dex client credentials are needed.
-
-To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
-
-This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md)).
+This configures OpenTofu to install providers through the Network Mirror Protocol while keeping canonical `registry.opentofu.org` identity. For Terraform, see the note in the Dex section above. The `--duration=15m` token expires quickly, and RBAC limits what it can read, whatever the runner's cloud IAM role allows. If the runner's identity already has suitable Kubernetes RBAC, you can use its token instead. See [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md).
 
 ## Push-Based Workflows
 
@@ -314,9 +310,4 @@ To publish subsequent versions of an existing module from a pipeline, see [Addin
 
 ## Related Admin Operations
 
-For day-2 operations such as force re-sync, inline `Version` configs, provider lifecycle actions, vulnerability scanning runbooks, and pre-signed URL tuning, see [Registry Operations](operations.md).
-
-For canonical configuration reference:
-
-- [Vulnerability Scanning](../configuration/scanning.md)
-- [Pre-signed URL Redirects](../storage/presigned-urls.md)
+For day-2 operations, see [Registry Operations](operations.md). For configuration reference, see [Vulnerability Scanning](../configuration/scanning.md) and [Pre-signed URL Redirects](../storage/presigned-urls.md).

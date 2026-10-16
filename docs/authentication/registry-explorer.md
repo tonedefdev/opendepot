@@ -38,8 +38,8 @@ users receive only publicly labelled resources.
 ## Provider Unavailability
 
 If the OIDC provider is unreachable when a user attempts to sign in,
-`/auth/login` returns `HTTP 503`. Load balancers, health checks, and monitoring
-can distinguish provider unavailability from an application error (`HTTP 500`).
+`/auth/login` returns `HTTP 503`. Load balancers and health checks can tell
+provider outages apart from other failures.
 
 ## Developer Token Input
 

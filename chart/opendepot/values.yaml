@@ -120,7 +120,8 @@ server:
     # clientId must match the id field of the Dex static client configured below.
     clientId: "opendepot"
     # clientSecretName is the name of an existing Kubernetes Secret that holds
-    # the clientSecret key.
+    # the OPENDEPOT_DEX_CLIENT_SECRET key. When Dex and OIDC are enabled, it is
+    # required and must match a secretRef name in dex.envFrom.
     clientSecretName: ""
     # groupsClaim is the JWT claim name containing the OIDC groups.
     # Only used when GroupBinding resources are deployed. Defaults to "groups".
@@ -388,6 +389,7 @@ dex:
     # staticPasswords is for e2e testing only — NEVER enable in production.
     enablePasswordDB: false
     staticPasswords: []
+  # Must match server.oidc.clientSecretName. Helm cannot template subchart values.
   envFrom:
     - secretRef:
         name: opendepot-dex-client-secret

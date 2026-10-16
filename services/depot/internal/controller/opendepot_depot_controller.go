@@ -94,6 +94,13 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				moduleConfig.Immutable = depot.Spec.GlobalConfig.ModuleConfig.Immutable
 			}
 
+			if moduleConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
+				moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
+				if depot.Spec.GlobalConfig.ModuleConfig != nil && depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit != nil {
+					moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit
+				}
+			}
+
 			if moduleConfig.RepoUrl == nil {
 				repoUrl := fmt.Sprintf("https://github.com/%s/%s", moduleConfig.RepoOwner, *moduleConfig.Name)
 				moduleConfig.RepoUrl = &repoUrl
@@ -187,6 +194,15 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				opt.Page = resp.NextPage
 			}
 
+			if limit := moduleConfig.VersionHistoryLimit; limit != nil && *limit > 0 && int(*limit) < len(matchedVersions) {
+				// Every entry was parsed when it was matched, so parse errors cannot occur here.
+				slices.SortFunc(matchedVersions, func(a, b string) int {
+					va, _ := version.NewVersion(a)
+					vb, _ := version.NewVersion(b)
+					return va.Compare(vb)
+				})
+				matchedVersions = matchedVersions[len(matchedVersions)-int(*limit):]
+			}
 			r.Log.Info("Matched versions for module", "module", moduleConfig.Name, "versions", matchedVersions)
 
 			var versions []opendepotv1alpha1.ModuleVersion
@@ -243,6 +259,13 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				providerConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
 			}
 
+			if providerConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
+				providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
+				if depot.Spec.GlobalConfig.ProviderConfig != nil && depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit != nil {
+					providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit
+				}
+			}
+
 			providerName := ""
 			if providerConfig.Name != nil {
 				providerName = *providerConfig.Name
@@ -281,6 +304,15 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				}
 			}
 
+			if limit := providerConfig.VersionHistoryLimit; limit != nil && *limit > 0 && int(*limit) < len(matchedVersions) {
+				// Every entry was parsed when it was matched, so parse errors cannot occur here.
+				slices.SortFunc(matchedVersions, func(a, b string) int {
+					va, _ := version.NewVersion(a)
+					vb, _ := version.NewVersion(b)
+					return va.Compare(vb)
+				})
+				matchedVersions = matchedVersions[len(matchedVersions)-int(*limit):]
+			}
 			r.Log.Info("Matched versions for provider", "provider", providerName, "versions", matchedVersions)
 
 			var providerVersions []opendepotv1alpha1.ProviderVersion

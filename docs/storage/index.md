@@ -51,7 +51,7 @@ backend. Choose the backend that matches your deployment environment.
 
 `storageConfig` can be set at multiple levels:
 
-- `Depot.spec.globalConfig.storageConfig` applies to resources managed by a
+- `Depot.spec.global.storageConfig` applies to resources managed by a
   Depot unless overridden.
 - `Module.spec.moduleConfig.storageConfig` configures a module.
 - `Provider.spec.providerConfig.storageConfig` configures a provider.

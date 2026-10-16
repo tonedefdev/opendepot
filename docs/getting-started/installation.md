@@ -21,12 +21,12 @@ search:
 
 If you plan to use OIDC authentication and `tofu login`, also prepare:
 
-- An OIDC issuer (Dex via Helm subchart or an external OIDC provider)
-- A registered OIDC client for OpenDepot (client ID/secret)
-- Externally reachable OIDC auth/token endpoints advertised in service discovery (`login.v1`)
-- *(Optional)* `GroupBinding` resources for fine-grained module/provider access control
+- An OIDC issuer (Dex via the Helm subchart, or an external provider)
+- An OIDC client for OpenDepot and its client secret
+- *(Optional)* `server.oidc.authzUrl` and `server.oidc.tokenUrl`, if CLI clients must reach different endpoints than the issuer advertises
+- *(Optional)* `GroupBinding` resources for module and provider access control
 
-See [OIDC Configuration](../configuration/oidc/index.md) for full setup details and examples.
+See [OIDC Configuration](../configuration/oidc/index.md) for setup details.
 
 ## Install with Helm
 
@@ -67,7 +67,7 @@ helm install opendepot opendepot/opendepot \
   -f my-values.yaml
 ```
 
-See [Helm Chart](../helm-chart.md) for the full Helm values reference — Global, Server, OIDC, Dex, UI, Prometheus monitoring, Controllers, GPG, Service Account & RBAC, Storage, and Scanning values.
+See the [Helm Chart](../helm-chart.md) reference for all values.
 
 ## Build from Source (Alternative)
 
@@ -106,7 +106,7 @@ make deploy
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PLATFORM` | `linux/arm64` | Target platform for container builds |
-| `KIND_CLUSTER` | `kind` | Name of the kind cluster |
+| `KIND_CLUSTER` | `opendepot` | Name of the kind cluster |
 | `TAG` | Current Unix timestamp (`date +%s`) | Image tag for all services. Set `TAG` explicitly for a stable tag |
 | `REGISTRY` | `ghcr.io/tonedefdev/opendepot` | Container registry prefix |
 

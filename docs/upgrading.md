@@ -15,18 +15,49 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## v0.11.1
+
+v0.11.1 updates the chart and application version to `0.11.1`.
+
+The Depot CRD adds `spec.global.providerConfig` and `spec.global.versionHistoryLimit`.
+Depots trim `spec.versions` to the newest N matching versions, so trimmed versions no longer return on later polls.
+
+Helm does not update CRDs in the `crds/` directory on `helm upgrade`. Apply the new Depot CRD before you upgrade:
+
+```bash
+kubectl apply -f chart/opendepot/crds/opendepot.defdev.io_depots.yaml
+```
+
+When Dex and OIDC are enabled, the chart fails to render unless
+`server.oidc.clientSecretName` is set and matches a `secretRef` name in
+`dex.envFrom`. Before this release, a mismatch rendered successfully, and Dex
+started without the client secret.
+
+The Depot `GlobalConfig` printer column now reads `.spec.global`, the JSON key.
+Before this release, the column was always blank in `kubectl get depots`.
+
+Use any Secret name, but set the same name in both `server.oidc.clientSecretName`
+and `dex.envFrom`. The Secret must contain the `OPENDEPOT_DEX_CLIENT_SECRET` key.
+
 ## v0.11.0
 
 v0.11.0 updates the chart and application version to `0.11.0`. Download
 statistics now use Prometheus instead of Valkey, and the Stats page queries
 Prometheus over a 90-day lookback by default.
 
+### Vulnerability Blocking Thresholds
+
+`scanning.blockOnHigh` now blocks HIGH **and** CRITICAL findings. In `0.10.x`,
+it blocked only HIGH, so CRITICAL findings did not block reconciliation. Before
+upgrading, review any `Version` that has CRITICAL findings. This release may
+block reconciliation for those versions. Add a `ScanPolicy` `exemptions`
+entry to allow a specific finding.
+
 ### Prometheus Statistics
 
 Prometheus replaces Valkey as the statistics backend. The chart can optionally
-install a minimal kube-prometheus-stack. The bundled stack is disabled by
-default because Prometheus Operator requires cluster-wide RBAC. Enable it
-explicitly when that access is acceptable:
+install a minimal kube-prometheus-stack. It is disabled by default. Enable it
+explicitly:
 
 ```yaml
 monitoring:
@@ -43,11 +74,11 @@ Service. Set `server.metrics.serviceMonitor.additionalLabels` if the existing
 operator requires matching labels, or disable the ServiceMonitor when another
 scrape configuration is already in place. The URL must be absolute.
 
-When `server.stats.prometheusURL` is empty, the server uses the bundled-service
-address only when `monitoring.enabled=true`; that fallback requires
-`monitoring.bundled.enabled=true`. To retain time series beyond the local
+When `server.stats.prometheusURL` is empty and `monitoring.enabled` is `true`,
+the server uses the bundled Prometheus service address. That service exists only
+when `monitoring.bundled.enabled` is `true`. To keep time series beyond the local
 90-day window, configure `monitoring.prometheus.prometheusSpec.remoteWrite` for
-Mimir or another Prometheus-compatible long-term storage system.
+Mimir or another Prometheus-compatible system.
 
 ### Security and Configuration Changes
 
@@ -271,18 +302,14 @@ The version-controller ServiceAccount now requires `configmaps` (`create`, `get`
 
 No manual action is required for existing `Module` and `Version` resources — the version controller resolves and stores READMEs automatically on each Version's next reconcile, or immediately when `forceSync: true` is set.
 
-### Dependency Updates
-
-The UI's `vitest` dependency was bumped to `^3.2.6`, with `vite` and `undici` pinned via `resolutions`, resolving HIGH/CRITICAL npm advisories. This affects the UI's build and test tooling only — no runtime or Helm values changes are required.
-
 ## v0.6.0
 
 v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance.
 
 ### Breaking Changes
 
-- **`--stats-db-path` is removed.** The server flag no longer exists. Any custom Helm values overrides that reference `server.stats.*` must be removed — the chart will reject unknown values.
-- **`server.stats` values block is removed.** Remove `server.stats.emptyDir`, `server.stats.persistence.*`, or any `server.stats` key from your `values.yaml` before upgrading.
+- **`--stats-db-path` is removed.** The server flag no longer exists.
+- **`server.stats` values block is removed.** Remove `server.stats.emptyDir`, `server.stats.persistence.*`, or any other old `server.stats` key from your `values.yaml`. The chart does not validate values against a schema, so these keys are ignored rather than rejected.
 - **Stats history is not migrated.** Valkey starts with a clean slate — download counts accumulated in the previous SQLite database are not carried over. Historic data can be discarded or archived manually before upgrading.
 
 ### Upgrade Steps

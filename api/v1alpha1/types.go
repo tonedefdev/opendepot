@@ -44,7 +44,12 @@ type DepotSpec struct {
 type GlobalConfig struct {
 	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
 	ModuleConfig       *ModuleConfig       `json:"moduleConfig,omitempty"`
+	ProviderConfig     *ProviderConfig     `json:"providerConfig,omitempty"`
 	StorageConfig      *StorageConfig      `json:"storageConfig"`
+	// The number of versions to keep for each Module and Provider managed by the Depot.
+	// The moduleConfig and providerConfig values take precedence, and a versionHistoryLimit set on a
+	// moduleConfigs or providerConfigs entry overrides all of them.
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
 }
 
 // DepotStatus defines the observed state of Depot.
@@ -57,7 +62,7 @@ type DepotStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.globalConfig",description="The global configuration applied to all modules managed by this Depot"
+// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.global",description="The global configuration applied to all modules managed by this Depot"
 
 // Depot is the Schema for the depots API.
 type Depot struct {

@@ -22,29 +22,23 @@ Each resource card summarizes the latest available version:
 | --- | --- |
 | Namespace | The Kubernetes namespace that owns the resource. |
 | Resource name | The name used to identify the module or provider. Select the card to open its details. |
-| Provider icon | The provider ecosystem associated with the resource, such as AWS. |
-| Type | Whether the resource is a `Module` or `Provider`. |
-| Version | The latest version currently shown for the resource. |
-| Sync status | Whether the resource version was successfully synchronized or needs attention. |
-| Finding badges | The number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, and `U` unknown. |
+| Provider logo | The provider associated with the resource, such as AWS. |
+| Kind | Whether the resource is a `Module` or `Provider`. |
+| Version | The latest version shown for the resource. |
+| Sync status | Whether the latest version is synced. A warning icon means some versions are out of sync. |
+| Finding badges | Scan finding counts by severity: `C` critical, `H` high, `M` medium, `L` low, `U` unknown, and `E` exempted. |
 
-The footer shows how many resources are displayed, the selected page size, and
-pagination controls. Change the page size or move between pages to browse the
-full set of resources visible to you.
+The footer shows the resource count, the **Per page** setting, and pagination
+controls.
 
 ## What users see
 
-Depending on their authentication and visibility permissions, users can expect
-to find:
+- **Modules**: versions, README, usage, contract, and scan findings.
+- **Providers**: versions, platform artifacts, checksums, schema extraction status, and scan findings.
 
-- **Modules** with versions, README content, usage examples, contracts, inputs,
-  outputs, and scan findings.
-- **Providers** with versions, platform artifacts, checksums, extracted schemas,
-  and source or binary scan findings.
-
-The Registry Explorer shows the resources the current user can access. If a
-resource is not visible, check the current authentication mode, public labels,
-and any applicable `GroupBinding`.
+The Registry Explorer shows only resources the current user can access. If a
+resource is missing, check the authentication mode, public labels, and any
+applicable `GroupBinding`.
 
 ## Related Guides
 
