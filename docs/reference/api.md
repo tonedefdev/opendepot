@@ -513,7 +513,7 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings
 ```
 
-Returns scan findings for a single resource. The optional `?version=` query parameter selects which scanned version's findings to return. When omitted, findings from the most recently scanned version are returned. Both leading `v` and surrounding whitespace are stripped from the version string, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` are treated identically. Authentication follows the same rules as the other browse endpoints.
+Returns scan findings for one resource. `?version=` selects the scanned version. Without it, the most recently scanned version is returned. A leading `v` and surrounding whitespace are stripped, so `v1.2.3`, `1.2.3`, and ` 1.2.3 ` match. Authentication follows the other browse endpoints.
 
 **Path Parameters:**
 
@@ -556,7 +556,7 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 `sourceScanFindings` contains IaC (module) or `go.mod` (provider) vulnerability findings. `binaryScanFindings` is a map of `os/arch` → findings; it is only populated for providers. Both fields are omitted when empty.
 
-`selectedVersion` is the version whose source scan findings are included in this response. `scannedVersions` is the full list of versions with accumulated source scan results, sorted descending by semver — used by the UI to populate the source scan version selector dropdown. `binaryVersions` is the equivalent list for binary scan results and is only present for providers. All three fields are omitted when no scan results exist for the resource.
+`selectedVersion` is the version whose source findings are returned. `scannedVersions` lists every version with source scan results, sorted by semver descending. The UI uses it for the source scan version selector. `binaryVersions` is the equivalent list for binary scans and appears only for providers. All three fields are omitted when no scan results exist.
 
 This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
@@ -821,7 +821,7 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 }
 ```
 
-`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are queried from Prometheus over the configured lookback window; both are `0` / empty until a matching metric has been scraped. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+`totalStorageBytes` sums `VersionStatus.archiveSizeBytes` across visible versions and is `0` when no sizes are recorded. `totalDownloads` and `mostDownloaded` come from Prometheus over the configured lookback window. Both stay `0` or empty until a matching metric is scraped. Download counts are filtered by the caller's visibility, so unauthenticated callers do not see private names in `mostDownloaded`.
 
 ## Kubernetes Resource Types
 
@@ -1032,9 +1032,9 @@ The server also exposes the optional policy-management API for UI clients:
 | `PUT` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Replaces a policy. Requires `If-Match` and matching `metadata.resourceVersion`; missing preconditions return `428`, stale versions return `409 Conflict`. |
 | `DELETE` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Deletes a policy. Requires `If-Match`; missing preconditions return `428`, stale versions return `409 Conflict`. |
 
-`POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is set to `true`. Anonymous authentication may read policies but receives `403` for mutations. In OIDC mode, policy access is default-deny and uses the effective `SecurityGroupBinding`; `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`, while a disallowed mutation in an otherwise authorized namespace returns `403`. Kubeconfig or bearer-token requests use the Kubernetes identity and are authorized by Kubernetes RBAC. Validation errors return `400`, authentication failures return `401`, authorization failures return `403`, and Kubernetes conflicts return `409`.
+`POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is `true`. Anonymous callers can read policies but get `403` on mutations. In OIDC mode, access is default-deny and uses the effective `SecurityGroupBinding`. `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`. A disallowed mutation in an authorized namespace returns `403`. Kubeconfig and bearer-token requests use Kubernetes RBAC. Status codes: `400` validation, `401` authentication, `403` authorization, `409` Kubernetes conflict.
 
-Every successful create, update, and delete is logged by the server with the operation, namespace, policy name, and authenticated subject. Kubernetes audit logging remains the authoritative cluster audit trail; configure the API server audit policy if durable records of the underlying CRD write are required. Do not treat UI access or a successful preview as authorization to write.
+The server logs every successful create, update, and delete with the operation, namespace, policy name, and subject. For a durable record of the CRD write, configure the Kubernetes API server audit policy. UI access and a successful preview do not authorize writes.
 
 **ScanPolicySpec fields:**
 
@@ -1079,7 +1079,7 @@ Declares a set of scan findings that must not block reconciliation. A finding is
 | `reason` | `string` | **Required.** Justification for the exemption, so every exemption remains auditable. Must be non-empty. |
 | `expires` | `string` | RFC3339 timestamp at which this exemption stops applying. Once passed, the covered findings block again with no user action required. Omitted means the exemption never expires. |
 
-The server's preview route accepts the same complete object as create/update and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS-compatible names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL namespace. Preview is useful for validating a draft, but it does not reserve a name or evaluate authorization to perform a later write.
+Preview accepts the same object as create and update, and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL. Preview does not reserve a name or check authorization for a later write.
 
 ### ProviderConfig fields
 
@@ -1115,7 +1115,7 @@ References the ConfigMap and data key holding a module `Version`'s base64 encode
 
 ### GroupBinding
 
-`GroupBinding` is a namespaced resource that grants a group of OIDC users access to specific modules and providers. The server evaluates all GroupBindings in alphabetical order by name and applies the first one whose `expression` matches the user's groups claim. If an expression fails to compile or evaluate, the request is denied with `403 Forbidden`. Requires OIDC authentication to be enabled.
+`GroupBinding` is a namespaced resource that grants OIDC groups access to specific modules and providers. The server evaluates bindings alphabetically by name and applies the first whose `expression` matches the user's groups claim. An expression that fails to compile or evaluate denies the request with `403 Forbidden`. Requires OIDC authentication.
 
 See the [GroupBinding guide](../guides/groupbinding.md) for usage examples.
 
