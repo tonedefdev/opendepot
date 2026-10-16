@@ -851,7 +851,7 @@ All resources are in the `opendepot.defdev.io/v1alpha1` group. Fields marked *co
 | `fileFormat` | `string` | `zip` produces `.zip` archives. Any other value produces `.tar.gz`. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `immutable` | `bool` | When `true`, the archive checksum must match the stored `checksumSHA256` on every sync. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `>= 1.0.0, < 2.0.0`. Used only by the Depot controller. |
-| `versionHistoryLimit` | `int` | Number of versions to keep. Unset or `<= 0` keeps all versions. |
+| `versionHistoryLimit` | `int` | Stored on the spec. Not enforced by the current controllers. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the archives. See [StorageConfig](#storageconfig). |
 
@@ -889,7 +889,7 @@ The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described
 | `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
-| `versionHistoryLimit` | `int` | Number of versions to keep. Unset or `<= 0` keeps all versions. |
+| `versionHistoryLimit` | `int` | Stored on the spec. Not enforced by the current controllers. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
 
 ### ProviderVersion
