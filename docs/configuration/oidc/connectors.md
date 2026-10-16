@@ -103,15 +103,8 @@ The Dex client secret authenticates the OpenDepot client application to Dex. It
 is not used by the server to validate tokens; the server validates JWTs through
 the issuer's public JWKS endpoint.
 
-| Scenario | Configuration |
-|----------|--------------|
-| Auto-create from value | Leave `server.oidc.clientSecretName` blank and set `server.oidc.clientSecret`. |
-| Use an existing Secret | Set `server.oidc.clientSecretName` to a Secret containing a `clientSecret` key. |
-
-!!! warning "Production requirement"
-    When both `dex.enabled` and `server.oidc.enabled` are true, set either
-    `server.oidc.clientSecret` or `server.oidc.clientSecretName`. For production,
-    use an external secret operator or an existing Kubernetes Secret.
+The chart does not create the client Secret. Create it before installing and set
+`server.oidc.clientSecretName` to its name. The Secret must contain a `clientSecret` key.
 
 ```yaml
 server:
@@ -119,8 +112,14 @@ server:
     clientSecretName: my-oidc-client-secret
 ```
 
-The client secret is injected into the Dex deployment through `envFrom`. The
-OpenDepot server container never receives it.
+!!! warning
+    When `dex.enabled` and `server.oidc.enabled` are `true`, the render fails if
+    `server.oidc.clientSecretName` is blank and a static client uses
+    `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`.
+
+Dex loads its environment from the Secret listed in `dex.envFrom`, which defaults to
+`opendepot-dex-client-secret`. That Secret must provide the `OPENDEPOT_DEX_CLIENT_SECRET` key.
+The OpenDepot server container does not receive the client secret.
 
 ### Connector Secrets
 
