@@ -560,6 +560,117 @@ Returns scan findings for a single resource. The optional `?version=` query para
 
 This endpoint is used by the [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings) refresh button to re-fetch findings without a full page reload.
 
+### Module Contract
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/contract
+```
+
+Returns the Assembly Line contract for a module version. The contract is the input schema that the Assembly Line canvas uses to render module inputs. It is derived when the Version is synced. This endpoint is available whether or not Assembly Line is enabled.
+
+Only `module` is supported. Requests for `provider` return `400`.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Exact module version. Omit to use the module's latest version. |
+
+**Responses:**
+
+| Status | Description |
+|--------|-------------|
+| `200` | The contract JSON, served as `application/json`. |
+| `400` | The resource is not a module. |
+| `404` | The resource or version was not found, or no contract has been derived for it. An unavailable contract returns `{"error": "contract_unavailable", "message": "...", "version": "..."}`. |
+
+The decompressed payload is capped at 32 MiB.
+
+### Provider Configuration Schema
+
+```
+GET /opendepot/ui/v1/resources/{namespace}/provider/{name}/provider-schema
+```
+
+Returns the configuration schema for a provider version, extracted from the provider binary. Assembly Line must be enabled with `--assembly-enabled` (`server.assembly.enabled` in the chart). When it is disabled, the route is not registered and the request returns `404`.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Exact provider version. Omit to use the provider's latest version. |
+
+**Response (`providerConfigurationSchemaResponse`):**
+
+```json
+{
+  "namespace": "opendepot",
+  "name": "example",
+  "providerNamespace": "hashicorp",
+  "providerName": "aws",
+  "version": "5.0.0",
+  "schemaVersion": "1",
+  "configuration": {}
+}
+```
+
+The decompressed payload is capped at 128 MiB.
+
+### Assembly Line Export
+
+```
+POST /opendepot/ui/v1/assembly/export
+```
+
+Validates an Assembly Line canvas and packages it as a root module. This endpoint is registered only when Assembly Line is enabled. Authentication follows the browse rules. The export needs a bearer token, so OpenTofu can download the artifacts that the generated module references.
+
+**Request Body (`assembly.export.v1`):**
+
+```json
+{
+  "schemaVersion": "assembly.export.v1",
+  "variables": [],
+  "modules": [],
+  "providers": []
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schemaVersion` | string | Yes | Must be `assembly.export.v1`. |
+| `variables` | array | Yes | Root module input variables. |
+| `modules` | array | Yes | Module nodes from the canvas. |
+| `providers` | array | No | Provider nodes from the canvas. |
+
+The request body is limited to 2 MiB by default (`--assembly-max-request-bytes`). The total node count across `variables`, `modules`, and `providers` is limited to 100 by default (`--assembly-max-nodes`). Unknown fields and trailing data after the JSON object are rejected.
+
+**Response formats:**
+
+The format depends on the `Accept` header.
+
+- Default: `200 OK` with `application/zip` and `Content-Disposition: attachment; filename="assembly-line.zip"`. The archive is the root module.
+- `Accept: application/x-ndjson`: `200 OK` with a stream of newline-delimited JSON events. The stream emits `started`, then zero or more `output` events, then either `complete` or `error`.
+
+| Event `type` | Fields | Description |
+|--------------|--------|-------------|
+| `started` | `phase` | Validation or packaging began. |
+| `output` | `phase`, `output` | Progress output from `tofu init` and validation. |
+| `complete` | `archive` | The base64-encoded ZIP archive. |
+| `error` | `error` | An error object with `error` and `message` fields. |
+
+**Errors:**
+
+Errors use the `ErrorResponse` shape: `{"error": "<code>", "message": "...", "diagnostics": [], "output": "..."}`. The `diagnostics` and `output` fields appear only when they apply.
+
+| Status | `error` code | Description |
+|--------|--------------|-------------|
+| `400` | `invalid_request` | The body is not valid JSON, contains unknown fields, or has trailing data. |
+| `413` | `too_many_nodes` | The canvas exceeds the node limit. |
+| `413` | `request_too_large` | The body exceeds the request size limit. |
+| `422` | `invalid_canvas` | The canvas failed validation. `diagnostics` lists the problems. |
+| `500` | `internal_error` | The export failed on the server. |
+| `500` | `streaming_unavailable` | The client requested NDJSON but the response writer cannot stream. |
+
 ### List Depots
 
 ```
