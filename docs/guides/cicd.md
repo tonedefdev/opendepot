@@ -27,7 +27,7 @@ dex:
         name: OpenDepot
         secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
         redirectURIs:
-          - https://opendepot.defdev.io/...
+          - https://opendepot.defdev.io/auth/callback
       - id: ci-pipeline
         name: CI Pipeline
         secretEnv: OPENDEPOT_CC_CLIENT_SECRET
@@ -228,7 +228,7 @@ This configures OpenTofu to install providers from OpenDepot via the Network Mir
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
-This approach uses `kubectl create token` to authenticate as the dedicated `ci-registry-reader` SA, keeping the pipeline's registry access strictly bounded to the RBAC above — regardless of how broad the runner's cloud IAM role is. If your runner's cloud IAM role already has appropriate K8s RBAC configured, you can simplify by using the provider token directly instead of creating an SA token (see [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md)).
+The pipeline's registry access is bounded by the RBAC above, regardless of how broad the runner's cloud IAM role is. If the runner's role already has suitable Kubernetes RBAC, you can use its token directly instead of creating an SA token. See [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md).
 
 ## Push-Based Workflows
 
@@ -314,9 +314,4 @@ To publish subsequent versions of an existing module from a pipeline, see [Addin
 
 ## Related Admin Operations
 
-For day-2 operations such as force re-sync, inline `Version` configs, provider lifecycle actions, vulnerability scanning runbooks, and pre-signed URL tuning, see [Registry Operations](operations.md).
-
-For canonical configuration reference:
-
-- [Vulnerability Scanning](../configuration/scanning.md)
-- [Pre-signed URL Redirects](../storage/presigned-urls.md)
+For day-2 operations, see [Registry Operations](operations.md). For configuration reference, see [Vulnerability Scanning](../configuration/scanning.md) and [Pre-signed URL Redirects](../storage/presigned-urls.md).
