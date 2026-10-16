@@ -109,7 +109,7 @@ helm upgrade opendepot opendepot/opendepot \
 
 ## Policy Enforcement
 
-When `blockOnCritical` or `blockOnHigh` is `true`, the Version controller stops reconciliation for any provider or module version with findings at or above that severity. The `Version` stays unsynced, with a `syncStatus` message, until the finding is resolved or the flag is relaxed.
+The global flags set the baseline. When `blockOnCritical` or `blockOnHigh` is `true` and no `ScanPolicy` matches a `Version`, the Version controller stops reconciliation for a provider or module version with findings at or above that severity. The `Version` stays unsynced, and its `syncStatus` starts with `Scan policy violation:`. A matching `ScanPolicy` can change the threshold or exempt findings, as described below. The controller clears the block when no blocking finding remains. Stored findings are not refreshed on each reconcile. To rescan after a fix is available, set `forceSync: true` on the `Version`.
 
 ```yaml
 scanning:
