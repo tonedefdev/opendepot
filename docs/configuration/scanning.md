@@ -19,8 +19,8 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 
 For each provider version, the Version controller performs two scans:
 
-- **Binary scan** — runs `trivy rootfs` against the provider binary from the upstream archive. Results are stored in `Version.status.binaryScan` per OS and architecture. The binary is written with `0500` permissions because Trivy skips binaries without the execute bit.
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If the repository has no `go.mod`, the scan stores `findings: []`. An empty list means the version was scanned, not that it is unscanned.
+- **Binary scan** — runs `trivy rootfs` against the provider binary from the upstream archive. Results are stored in `Version.status.binaryScan` per OS and architecture. The binary is written with `0500` permissions (owner read and execute).
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If `go.mod` cannot be fetched (for example, the repository has none), nothing is stored and the next reconcile retries. A Trivy run that finds nothing stores `findings: []`, which means scanned with no findings.
 
 !!! note
     `status.binaryScan` is empty for `Version` resources synced before scanning was enabled. The controller does not re-scan on restart, to avoid re-downloading large provider binaries. To re-download and re-scan once, set `forceSync: true`:
@@ -38,7 +38,7 @@ See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scan
 
 For each module version, the Version controller runs an IaC scan on the extracted module archive:
 
-- **IaC scan** — extracts the module archive (`.zip` or `.tar.gz`) to a temporary directory and runs `trivy fs` targeting Trivy's config-class checks. This detects HCL misconfigurations — for example, S3 buckets with public ACLs, security groups open to `0.0.0.0/0`, or unencrypted storage resources.
+- **IaC scan** — extracts the module archive (`.zip` or `.tar.gz`) to a temporary directory and runs `trivy fs --scanners misconfig`. This detects HCL misconfigurations — for example, S3 buckets with public ACLs, security groups open to `0.0.0.0/0`, or unencrypted storage resources.
 
 Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `aws-0057`) rather than a CVE identifier.
 
@@ -49,7 +49,7 @@ See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scan
 
 ## Trivy-Enabled Image
 
-The release publishes one ARM64 version-controller image with the Trivy binary bundled using the `INCLUDE_TRIVY=true` build argument. The chart uses this standard image tag for both module IaC scanning and provider binary/source scanning; there is no separate `-scanning` image variant.
+Release builds publish multi-architecture (`amd64` and `arm64`) version-controller images with Trivy bundled (`INCLUDE_TRIVY=true`). The chart uses this standard image for module IaC and provider scanning. There is no separate `-scanning` image.
 
 ## Prerequisites
 
@@ -179,7 +179,7 @@ When more than one `ScanPolicy` matches a `Version`, only the single highest-`pr
 
 **Exempted findings stay visible, they are not hidden:**
 
-A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown (dimmed, with an "Exempted" chip) in [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings).
+A finding covered by an exemption still appears in `status.sourceScan`/`status.binaryScan` with `exempted: true`, `exemptionReason`, and `exemptedBy` (the name of the `ScanPolicy` that exempted it) set. Exemption only stops the finding from blocking reconciliation — it does not remove the finding from the record, and it is still shown with an "Exempted by" chip in [OpenDepot Workshop](../guides/registry-explorer/module-details.md#scan-findings).
 
 **Expiry:**
 
@@ -187,7 +187,7 @@ An exemption with `expires` set stops applying once that time has passed — the
 
 **Fail-closed:**
 
-If the controller cannot list `ScanPolicy` resources (e.g. a transient API server error or a missing RBAC grant), it falls back to the stricter `blockOnCritical`/`blockOnHigh` baseline rather than allowing everything through. An invalid `selector` on a policy surfaces an `InvalidSelector` condition on that policy's `status.conditions`, and the policy matches **no** Versions rather than every Version.
+If the controller cannot list `ScanPolicy` resources (for example, a transient API error or a missing RBAC grant), it logs the error and applies only the global `blockOnCritical`/`blockOnHigh` flags. If those are `false`, nothing blocks. An invalid `selector` sets an `InvalidSelector` condition on that policy, and the policy matches **no** Versions.
 
 **RBAC is the only control:**
 
@@ -206,7 +206,7 @@ The global `scanning.blockOnCritical` and `scanning.blockOnHigh` values remain t
 
 ### Re-evaluation and retained findings
 
-The Version controller evaluates the effective policy during reconciliation and when a ScanPolicy changes. It requeues Versions for the earliest future exemption expiry, so an expired exemption begins blocking without a manual edit. Findings are retained in `Version.status.sourceScan` and `Version.status.binaryScan` after policy evaluation. Exemptions annotate, rather than remove, findings; removing or expiring an exemption therefore restores enforcement from the retained scan result on the next reconciliation. Use `forceSync: true` only when a fresh artifact scan is required.
+When a `ScanPolicy` changes, the controller re-evaluates the findings stored on each affected Version. It also requeues each Version for the earliest future exemption expiry, so an expired exemption blocks again without a manual edit. Findings stay in `status.sourceScan` and `status.binaryScan`. Removing or expiring an exemption restores enforcement from that stored result. Use `forceSync: true` only when a fresh scan is needed.
 
 ### Policy-management API and OpenDepot Workshop workflow
 
@@ -238,10 +238,10 @@ Validate the rollout in a disposable namespace:
 
 By default, provider scanning runs in offline mode (`scanning.offline: true`). Trivy reads the vulnerability database from the shared PVC populated by the `trivy-db-updater` CronJob and makes no outbound network calls during a scan. This is the recommended configuration for production clusters.
 
-Set `scanning.offline: false` only if you want Trivy to download the database directly at scan time instead of relying on the CronJob. This requires the version-controller pod to have egress access to `ghcr.io`.
+Set `scanning.offline: false` only if you want Trivy to download the database at scan time instead. This requires egress to `ghcr.io` from the version-controller pod.
 
 !!! note
-    `scanning.offline` only applies to provider scanning. Module IaC scanning uses bundled config rules and makes no network calls regardless of this setting.
+    `scanning.offline` applies only to provider scanning. Module IaC scans run `trivy fs --scanners misconfig` without `--offline-scan` and do not use the vulnerability database.
 
 ## Trivy DB Updater CronJob
 
@@ -264,7 +264,7 @@ When performing a source scan, the Version controller resolves the provider's Gi
 2. **OpenTofu registry lookup** — for providers with `upstreamRegistry: registry.opentofu.org`, queries `api.opentofu.org` for the registered VCS URL.
 3. **Heuristic fallback** — for Terraform Registry providers, or when the OpenTofu lookup fails, constructs `https://github.com/{namespace}/terraform-provider-{name}` from the configured namespace and name.
 
-If all three steps fail to produce a usable URL, the Version controller logs a warning and skips the source scan. The binary scan still runs.
+Step 3 always produces a URL. If that URL is wrong, the `go.mod` fetch fails, the source scan is skipped, and the binary scan still runs.
 
 The resolved URL is written to `Provider.status.resolvedSourceRepository` after the first successful scan. Once set, subsequent reconciliations do not overwrite it. To inspect the effective repository URL in use:
 
