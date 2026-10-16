@@ -125,5 +125,49 @@ var _ = Describe("Depot Controller", func() {
 				_ = k8sClient.Delete(ctx, provider)
 			})
 		})
+
+		It("keeps only the newest versions allowed by the global version history limit", func() {
+			providerName := "limited"
+			providerNamespace := "hashicorp"
+			upstreamRegistry := opendepotv1alpha1.TerraformRegistryHost
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4", "1.0.0", "3.0.0", "2.0.0"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			historyLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &historyLimit,
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				UpstreamRegistry:   &upstreamRegistry,
+				OperatingSystems:   []string{"linux"},
+				Architectures:      []string{"amd64"},
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.0.0"}, {Version: "3.2.4"}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
 	})
 })

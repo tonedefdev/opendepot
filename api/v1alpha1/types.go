@@ -45,6 +45,9 @@ type GlobalConfig struct {
 	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
 	ModuleConfig       *ModuleConfig       `json:"moduleConfig,omitempty"`
 	StorageConfig      *StorageConfig      `json:"storageConfig"`
+	// The number of versions to keep for each Module and Provider managed by the Depot.
+	// A versionHistoryLimit set on a moduleConfigs or providerConfigs entry overrides this value.
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
 }
 
 // DepotStatus defines the observed state of Depot.

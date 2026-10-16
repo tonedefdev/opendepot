@@ -214,4 +214,4 @@ moduleConfigs:
         resourceGroup: opendepot-rg
 ```
 
-**Version history limit:** set `versionHistoryLimit` on each `moduleConfigs` or `providerConfigs` entry. `global` does not apply it. On every poll, the Depot resets each generated resource's `spec.versions` to all matching upstream versions. The Module and Provider controllers trim the list to N and delete the removed `Version` resources, but they also recreate any listed version that is missing. Trimmed versions can return on the next poll.
+**Version history limit:** set `versionHistoryLimit` on a `moduleConfigs` or `providerConfigs` entry, or on `spec.global` to apply one limit to every entry that does not set its own. The Depot keeps the newest N matching versions and writes only those to each generated resource's `spec.versions`. The Module and Provider controllers then delete the `Version` resources that were removed. Trimmed versions do not return on later polls.
