@@ -6,16 +6,14 @@ tags:
 
 # Helm Chart
 
-The OpenDepot Helm chart is published to a GitHub Pages Helm repository. The repository index is served at `https://opendepot.defdev.io/index.yaml`. Add the repository by its base URL:
+The chart is published to a GitHub Pages Helm repository at `https://opendepot.defdev.io/index.yaml`:
 
 ```bash
 helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
-The chart source is also available at [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot) in the repository.
-
-See [Installation](getting-started/installation.md) for prerequisites and deployment instructions.
+The source is in [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot). For prerequisites and install steps, see [Installation](getting-started/installation.md).
 
 ## Global
 
@@ -59,7 +57,7 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 
 ### OIDC Authentication
 
-The `server.oidc` section enables OIDC JWT validation for production-ready single sign-on. See [Authentication](authentication/index.md) for detailed setup and examples.
+The `server.oidc` section enables OIDC JWT validation. For setup, see [Authentication](authentication/index.md).
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -88,11 +86,11 @@ server:
 ```
 
 !!! warning
-    When `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the Helm render fails unless `server.oidc.clientSecretName` is set and matches a `dex.envFrom` `secretRef` name. Set the same name in both places. Create the Secret before installing.
+    If `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the render fails unless `server.oidc.clientSecretName` is set and matches a `dex.envFrom` `secretRef` name. Set the same name in both places and create the Secret before installing.
 
 ## Dex Configuration
 
-The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, etc.) and issues JWTs that the server validates locally.
+The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and others) and issues the JWTs that the server validates.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -145,7 +143,7 @@ For connector configuration details, refer to the [Dex Connector Documentation](
 
 ## Controllers
 
-These values apply to `version`, `module`, `depot`, and `provider` independently — substitute `<service>` with the controller name:
+These values apply to `version`, `module`, `depot`, and `provider`. Replace `<service>` with the controller name:
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -161,17 +159,13 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 | `<service>.affinity` | map | Affinity rules. Default: `{}` |
 
 !!! note
-    The provider controller is disabled by default (`provider.enabled: false`). Enable it explicitly when you are ready to sync provider binaries — provider archives can be several hundred megabytes each.
+    `provider` is disabled by default because provider archives can be several hundred megabytes each. Enable it when you are ready to sync binaries.
 
-The Version controller's init containers use fixed bounded resources (`10m` CPU
-and `16Mi` memory requests; `100m` CPU and `32Mi` memory limits). The controller
-also runs a `token-refresh-helper` sidecar that refreshes the projected
-ServiceAccount token used by the controller. The main controller does not use a
-directly mounted Kubernetes ServiceAccount token.
+The Version controller's init containers have fixed, bounded resources (requests `10m` CPU and `16Mi` memory; limits `100m` CPU and `32Mi` memory). The Version pod also runs a `token-refresh-helper` sidecar that refreshes the projected ServiceAccount token. The main controller does not mount a Kubernetes ServiceAccount token directly.
 
 ## Assembly Line
 
-Assembly Line is disabled by default and requires OpenTofu. Default images do not include OpenTofu, so set `server.image.tag` and `version.image.tag` to a `-assembly` tag when enabling it. `ui.baseUrl` must be an external HTTP(S) URL. Its host and port appear in generated module source addresses and the OpenTofu Provider Network Mirror URL. See [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility.
+Assembly Line is disabled by default and requires OpenTofu. Default images do not include OpenTofu, so set `server.image.tag` and `version.image.tag` to a `-assembly` tag. `ui.baseUrl` must be an external HTTP(S) URL, because its host and port appear in generated module source addresses and the OpenTofu Provider Network Mirror URL. For provider eligibility, see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility).
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -187,13 +181,13 @@ Assembly Line is disabled by default and requires OpenTofu. Default images do no
 | `assembly.workDir` | string | Server validation workspace mount. Default: `/var/lib/opendepot/assembly` |
 | `assembly.workspaceSizeLimit` | quantity | Validation `emptyDir` size limit. Default: `1Gi` |
 
-The server root filesystem remains read-only. The chart mounts only `assembly.workDir` as a writable, size-limited `emptyDir`. Consider adding `ephemeral-storage` requests and limits under `server.resources` and `version.resources` for production workloads.
+The server root filesystem is read-only. The chart mounts only `assembly.workDir`, as a size-limited `emptyDir`. For production, consider adding `ephemeral-storage` requests and limits under `server.resources` and `version.resources`.
 
-See [Assembly Line](guides/assembly-line.md) for provider bindings, generated files, authentication, and validation behavior.
+For provider bindings, generated files, authentication, and validation, see [Assembly Line](guides/assembly-line.md).
 
 ## GPG Signing (Providers)
 
-The server signs `SHA256SUMS` files for provider packages using a GPG key you supply. OpenTofu and Terraform verify this signature as part of the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). See [GPG Signing for Providers](configuration/gpg.md) for full setup instructions.
+The server signs `SHA256SUMS` for provider packages with a GPG key you supply. OpenTofu and Terraform verify that signature under the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). For setup, see [GPG Signing for Providers](configuration/gpg.md).
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -248,11 +242,9 @@ The `ui` section deploys the OpenDepot Workshop frontend. See [OpenDepot Worksho
 
 ## Prometheus Monitoring
 
-The chart can optionally install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). Grafana, Alertmanager, and node exporters are disabled by default. The OpenDepot `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The chart's `ServiceMonitor` selects that Service by the `app: server` label in `global.namespace`.
+The chart can install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). The `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The `ServiceMonitor` selects that Service by the `app: server` label and is enabled by default. It requires a Prometheus Operator. If your operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to match. Set `server.metrics.serviceMonitor.enabled: false` if your monitoring discovers the endpoint another way.
 
-The ServiceMonitor is enabled by default and scrapes every 15 seconds with a 10-second timeout. It requires a Prometheus Operator. If an existing operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to the labels it expects. Set `server.metrics.serviceMonitor.enabled: false` when the external monitoring system discovers the endpoint by another method.
-
-The Stats page queries Prometheus through its HTTP API. For an existing Prometheus deployment, set `server.stats.prometheusURL` to its absolute HTTP API base URL:
+The Stats page queries Prometheus over its HTTP API. To use an existing Prometheus, set `server.stats.prometheusURL`. This takes precedence over the in-cluster fallback:
 
 ```yaml
 server:
@@ -260,7 +252,17 @@ server:
     prometheusURL: https://prometheus.example.com
 ```
 
-This value takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`, which requires `monitoring.bundled.enabled: true`. The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC.
+When `prometheusURL` is blank and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`. That address exists only when `monitoring.bundled.enabled: true`.
+
+The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Enable it only if that access is acceptable:
+
+```yaml
+monitoring:
+  bundled:
+    enabled: true
+```
+
+Stats cover the `server.stats.lookback` window (default `90d`), not an all-time total. For longer history, configure `remoteWrite` to Mimir or another Prometheus-compatible backend.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -276,9 +278,7 @@ This value takes precedence over the chart's in-cluster fallback. When it is emp
 | `server.stats.lookback` | string | Stats page query window. Default: `90d` |
 | `server.stats.queryTimeout` | duration | Prometheus query timeout. Default: `5s` |
 
-The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and
-is disabled by default. Enable it only when that cluster-wide access is
-acceptable:
+The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and is disabled by default. Enable it only when that cluster-wide access is acceptable:
 
 ```yaml
 monitoring:
