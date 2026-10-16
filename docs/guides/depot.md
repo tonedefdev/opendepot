@@ -7,21 +7,19 @@ tags:
 
 # Pull-Based Workflow: Using the Depot
 
-The Depot is a pull-based controller that discovers, downloads, and continuously tracks modules and providers from external sources. It handles the full lifecycle — from initial import through ongoing version tracking — so your registry stays current without manual intervention.
+The Depot is a pull-based controller. It discovers, downloads, and tracks modules and providers from external sources, so your registry stays current without manual imports.
 
-The Depot is well-suited to three scenarios:
+Use it for:
 
-- **Upstream provider mirroring** — sync major cloud providers (AWS, Azure, Google Cloud, and others) from the OpenTofu or Terraform Registry into your own storage backend, run Trivy scans automatically, and pick up new releases on a schedule
-- **Public module tracking** — follow upstream open-source modules by pointing to their GitHub repositories, pin or float versions with constraints, and run Trivy IaC scans on every synced archive
-- **Private module import** — pull from private GitHub repositories using GitHub App authentication; also the foundation for one-time registry migration (see [Migrating to OpenDepot](migration.md))
+- **Upstream provider mirroring:** sync providers from the OpenTofu or Terraform Registry into your storage backend, and pick up new releases on a schedule
+- **Public module tracking:** follow open-source modules by GitHub repository, and pin or float versions with constraints
+- **Private module import:** pull from private GitHub repositories with GitHub App authentication. This is also the starting point for [migrating to OpenDepot](migration.md).
 
 ---
 
 ## Syncing upstream providers
 
-When you self-host a registry, you take ownership of provider distribution. The Depot mirrors providers from the upstream registries so your teams never pull directly from an external source — and every version that enters your registry is scanned by Trivy before it becomes available.
-
-Providers mirrored by OpenDepot retain their **canonical identity** (e.g., `registry.opentofu.org/hashicorp/aws` or `registry.terraform.io/hashicorp/aws`). Configurations reference the canonical source, and OpenDepot is configured as the installation source via the Network Mirror Protocol. Set the upstream for each entry with `spec.providerConfigs[].upstreamRegistry` (defaults to `registry.opentofu.org`). See [Consuming Providers](../guides/providers.md) for `.tofurc` examples.
+Mirrored providers keep their **canonical identity** (for example `registry.opentofu.org/hashicorp/aws`). Configurations reference the canonical source, and OpenDepot serves it through the Network Mirror Protocol. Set the source with `spec.providerConfigs[].upstreamRegistry`, which defaults to `registry.opentofu.org`. See [Consuming Providers](../guides/providers.md) for `.tofurc` examples.
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -60,7 +58,7 @@ spec:
   pollingIntervalMinutes: 1440
 ```
 
-This Depot queries the upstream provider registry API for each provider (defaults to `registry.opentofu.org` when `upstreamRegistry` is omitted), filters releases to those matching the version constraint, and creates `Provider` and `Version` resources for each matching OS/architecture combination. The Version controller downloads each binary, uploads it to S3, and — when [scanning is enabled](../configuration/scanning.md) — runs a binary scan (`trivy rootfs`) before marking the version as synced. It also runs a source scan (`trivy fs` against the provider's `go.mod`) when the `go.mod` can be downloaded; otherwise the source scan is skipped.
+The Depot queries the upstream registry for each provider, filters releases by version constraint, and creates `Provider` and `Version` resources for each matching OS and architecture. When [scanning is enabled](../configuration/scanning.md), the Version controller runs a binary scan (`trivy rootfs`) on each binary. It also runs a source scan (`trivy fs` on the provider's `go.mod`) when the repository is resolvable. If the `go.mod` cannot be downloaded, no source scan is stored and the Version retries.
 
 To mirror from `registry.terraform.io` instead, set the `upstreamRegistry` field explicitly:
 
@@ -76,10 +74,10 @@ providerConfigs:
     versionConstraints: ">= 5.80.0"
 ```
 
-Setting `pollingIntervalMinutes: 1440` re-checks for new releases once per day. When a new upstream version matches your constraint, the Depot creates the corresponding resources automatically and the scanning and storage pipeline runs without any manual steps.
+With `pollingIntervalMinutes: 1440`, the Depot checks for new releases daily and creates matching resources automatically.
 
 !!! tip
-    Use a version constraint like `">= 5.80.0"` to track all current and future releases above a known-good baseline. Tighten it to `"~> 5.80"` if you want to stay on the 5.x line and exclude major version bumps until you are ready to adopt them.
+    `">= 5.80.0"` tracks every release above a known baseline. `"~> 5.80"` stays on the 5.x line and excludes major upgrades.
 
 !!! note
     Provider names default to the `hashicorp` namespace. To mirror a provider from a different registry namespace (e.g., `DataDog/datadog` or `integrations/github`), set the `namespace` field explicitly:
@@ -94,7 +92,7 @@ Setting `pollingIntervalMinutes: 1440` re-checks for new releases once per day. 
 
 ## Tracking public modules
 
-For open-source modules maintained by third parties, the Depot lets you define exactly which versions reach your registry. You point it at the upstream GitHub repository, set a version constraint, and let the Depot handle discovery, download, and IaC scanning.
+Point the Depot at an upstream GitHub repository and set a version constraint to control which module versions reach your registry.
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -127,7 +125,7 @@ spec:
   pollingIntervalMinutes: 360
 ```
 
-The Depot queries each repository for GitHub releases matching the version constraint, creates `Module` and `Version` resources, downloads the release archives, and uploads them to S3. When [module IaC scanning is enabled](../configuration/scanning.md#module-iac-scanning), the Version controller extracts each archive and runs `trivy fs` with config-class checks — catching HCL misconfigurations like open security groups, public S3 ACLs, or unencrypted storage before the module version becomes consumable.
+The Depot queries each repository's GitHub releases, filters them by constraint, creates `Module` and `Version` resources, and stores the archives. When [module IaC scanning](../configuration/scanning.md#module-iac-scanning) is enabled, the Version controller runs `trivy fs` with the misconfig scanner on each archive. This flags HCL issues such as open security groups, public S3 ACLs, or unencrypted storage.
 
 !!! note
     Module IaC scanning does not use the Trivy vulnerability database. To run it without the database PVC, CronJob, and cache volume, disable provider scanning:
@@ -138,13 +136,13 @@ The Depot queries each repository for GitHub releases matching the version const
     ```
     See [Vulnerability Scanning](../configuration/scanning.md) for the full configuration reference.
 
-Setting `pollingIntervalMinutes: 360` re-checks for new upstream releases every six hours. New versions that satisfy the constraint are picked up automatically — no Depot changes required.
+With `pollingIntervalMinutes: 360`, the Depot checks for new releases every six hours.
 
 ---
 
 ## Combined example
 
-The examples above focus on a single resource type for clarity. In practice, a single Depot can manage both modules and providers together:
+A single Depot can manage modules and providers together:
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -187,22 +185,20 @@ spec:
   pollingIntervalMinutes: 60
 ```
 
-This Depot will:
+This Depot:
 
-1. Query the `terraform-aws-modules/terraform-aws-eks` and `azure/terraform-azurerm-aks` GitHub repositories for releases
-2. Filter releases matching the version constraints and create `Module` resources
-3. Query the configured upstream registry for the `aws` provider and create a `Provider` resource for matching versions
-4. The Module and Provider controllers create `Version` resources for each discovered version and OS/architecture
-5. The Version controller fetches archives from GitHub (modules) or the configured upstream provider registry and uploads them to the S3 bucket
-6. Re-check for new releases every 60 minutes
+1. Queries the `terraform-aws-modules/terraform-aws-eks` and `azure/terraform-azurerm-aks` repositories for releases that match the constraints, and creates `Module` resources
+2. Queries the upstream registry for `aws` and creates a `Provider` resource
+3. Has the Module and Provider controllers create `Version` resources, which the Version controller fetches and stores
+4. Re-checks for new releases every 60 minutes
 
 ---
 
 ## Options
 
-**Polling interval:** Set `pollingIntervalMinutes` to have the Depot periodically re-query GitHub and the configured upstream provider registries for new releases. If omitted, the Depot reconciles once and does not poll.
+**Polling interval:** `pollingIntervalMinutes` sets how often the Depot re-queries GitHub and upstream registries. If omitted, the Depot reconciles once and does not poll.
 
-**Per-module storage override:** Any module can override the global storage config:
+**Per-module storage override:** A module can override the global storage config:
 
 ```yaml
 moduleConfigs:

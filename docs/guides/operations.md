@@ -145,13 +145,13 @@ The `<version-name>` follows the pattern `<provider>-<version-dashes>-<os>-<arch
 The controller bypasses the provider fast-path, re-downloads the artifact, runs the binary scan, and resets `forceSync` to `false` once reconciliation completes.
 
 !!! note
-    Restarting the Version controller does not re-download or re-scan provider binaries when the stored checksum still matches. Use `forceSync: true` on a specific `Version` resource to trigger a one-time re-download and re-scan.
+    On restart, a provider `Version` with a stored checksum that still matches storage skips the download. Stored scan findings are re-evaluated against the current ScanPolicy, but Trivy does not run again. Use `forceSync: true` on that `Version` for a one-time re-download and re-scan.
 
 ### Provider source repository
 
-For providers from `registry.opentofu.org`, OpenDepot automatically resolves the provider's GitHub repository for source scanning through `api.opentofu.org`. For providers from `registry.terraform.io`, it constructs `https://github.com/{namespace}/terraform-provider-{name}` because the Terraform Registry API does not expose equivalent source metadata.
+For providers from `registry.opentofu.org`, OpenDepot resolves the source repository through `api.opentofu.org`. For `registry.terraform.io`, it builds `https://github.com/{namespace}/terraform-provider-{name}`, because the Terraform Registry does not expose source metadata.
 
-For providers not published under the `hashicorp` organization, set the `namespace` field to match the registry namespace:
+For providers outside the `hashicorp` namespace, set `namespace`:
 
 ```yaml
 spec:
@@ -160,7 +160,7 @@ spec:
     namespace: integrations
 ```
 
-Use `sourceRepository` to pin a specific URL when registry metadata is unavailable, the heuristic does not match the provider repository, or the lookup returns the wrong repository:
+Set `sourceRepository` to pin the URL when the lookup returns the wrong repository or none is available:
 
 ```yaml
 spec:
@@ -172,7 +172,7 @@ spec:
 
 ### Authenticated source scanning
 
-For private provider source repositories or high-volume environments where unauthenticated GitHub requests hit API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the same `opendepot-github-application-secret` Secret that modules use, so no additional Secret is required if GitHub App auth is already configured in the namespace.
+For private source repositories, or to avoid GitHub API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the same `opendepot-github-application-secret` as modules, so no extra Secret is needed if GitHub App auth is configured in the namespace.
 
 ```yaml
 spec:
@@ -232,4 +232,4 @@ spec:
 
 When `presign.enabled` is `true`, the `/opendepot/providers/v1/download/{namespace}/{type}/{version}` endpoint responds with `307 Temporary Redirect` to the signed URL. If pre-signing fails and `fallbackToProxy` is `true` (the default), the server automatically falls back to streaming the binary itself. Set `fallbackToProxy: false` to make pre-signing strictly required. Storage initialization, checksum lookup, and presign failures then return `502 Bad Gateway`. A checksum mismatch returns `500 Internal Server Error`.
 
-Pre-signed URLs are supported on S3, GCS, and Azure Blob Storage. Filesystem storage always proxies. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for per-backend IAM requirements and field reference.
+Pre-signed URLs are supported on S3, GCS, and Azure Blob Storage. Filesystem storage cannot pre-sign, so with `fallbackToProxy: false` its downloads fail with `502`. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for IAM requirements and field reference.
