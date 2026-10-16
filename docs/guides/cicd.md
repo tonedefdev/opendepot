@@ -124,7 +124,7 @@ For full configuration details see [Client Credentials (Machine-to-Machine)](../
 
     SA fallback is appropriate when your pipeline must interact with the Kubernetes API directly for reasons beyond registry access and you have already ruled out the above options.
 
-When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. By default OIDC and bearer-token modes are mutually exclusive, which would require pipelines to use a separate credential mechanism. The ServiceAccount fallback removes this constraint.
+When your organization uses OIDC for human users, CI/CD pipelines still need to run `tofu init` and download providers from the registry. Without a fallback, pipelines need a separate credential mechanism. The ServiceAccount fallback removes this constraint.
 
 ### Enable SA Fallback in Your Helm Values
 
