@@ -924,7 +924,7 @@ Items in `spec.versions`.
 
 | Field | Type | Description |
 |---|---|---|
-| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules. Requires `storageConfig`. Optional `githubClientConfig` and `moduleConfig`. |
+| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules. Requires `storageConfig`. Optional `githubClientConfig`, `moduleConfig`, and `versionHistoryLimit`. `versionHistoryLimit` applies to each entry that does not set its own. |
 | `spec.moduleConfigs` | `[]ModuleConfig` | Modules to create and manage. |
 | `spec.providerConfigs` | `[]ProviderConfig` | Providers to create and manage. |
 | `spec.pollingIntervalMinutes` | `int` | Minutes between checks for new versions. Unset or `0` disables periodic polling. |

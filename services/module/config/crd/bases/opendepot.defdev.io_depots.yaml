@@ -289,6 +289,11 @@ spec:
                         - region
                         type: object
                     type: object
+                  versionHistoryLimit:
+                    description: |-
+                      The number of versions to keep for each Module and Provider managed by the Depot.
+                      A versionHistoryLimit set on a moduleConfigs or providerConfigs entry overrides this value.
+                    type: integer
                 required:
                 - storageConfig
                 type: object
