@@ -18,8 +18,7 @@ that apply to resources in a selected namespace.
     Creating policies in OpenDepot Workshop is provided for convenience, such
     as when you need to react to a threat immediately. Always copy the generated
     YAML and commit it to source control. OpenDepot Workshop assumes a GitOps
-    workflow, where Git is the audit trail; OpenDepot does not retain this
-    policy history today.
+    workflow, where Git is the audit trail.
 
 ## Policy overview
 
