@@ -39,7 +39,7 @@ The groups claim is **required** for interactive OIDC users. A valid JWT that do
 
 The one exception is [client credentials](../configuration/oidc/ci-cd.md#client-credentials) tokens. When `server.oidc.allowClientCredentials` is enabled, the server synthesizes a virtual group from the token's `sub` claim (`"client:<sub>"`), so a groups claim is not required in the JWT itself.
 
-Ensure your IdP connector in Dex is configured to emit a groups claim. Common connectors that do this by default include Microsoft (Entra ID) and GitHub (when `org` is set). See your IdP's Dex connector documentation for the correct scope or claim configuration.
+Confirm that your Dex connector emits the groups claim. Connector configuration varies; see the Dex connector documentation for your IdP.
 
 ## GroupBinding Resource
 
@@ -90,12 +90,12 @@ len(groups) > 0
     ```
     "client:ci-pipeline" in groups
     ```
-    The same path also applies to ROPC tokens from other Dex clients whose audience does not match the primary client ID. For those flows the `sub` may be a Dex-internal identifier rather than a human-readable name — inspect the JWT to confirm the exact value before writing the expression.
+    Inspect the JWT to confirm the `sub` value before writing the expression.
 
     See [Client Credentials (Machine-to-Machine)](../configuration/oidc/ci-cd.md#client-credentials) for full setup details.
 
 !!! warning
-    A `GroupBinding` with an unparsable expression fails closed. The server logs a `WARN` entry and denies the request with `403 Forbidden` instead of skipping to the next binding. Check server logs to diagnose expression errors.
+    A `GroupBinding` with an invalid or failing expression fails closed. The server logs an `ERROR` entry and denies the request with `403 Forbidden` instead of skipping to the next binding. Check server logs to diagnose expression errors.
 
 ### Module Resource Glob Patterns
 
@@ -114,22 +114,15 @@ An empty `moduleResources` or `providerResources` list denies access to all reso
 
 ## Configuring the Groups Claim Name
 
-By default the server reads the `groups` JWT claim. If your IdP uses a non-standard claim name, set `server.oidc.groupsClaim` in your Helm values:
+The server reads the `groups` JWT claim by default. If your IdP uses a different claim name, set `server.oidc.groupsClaim` in your Helm values:
 
 ```yaml
 server:
   oidc:
-    groupsClaim: "cognito:groups"  # default is "groups"
+    groupsClaim: "cognito:groups"
 ```
 
-This controls the `--oidc-groups-claim` server flag. Common non-standard names:
-
-| IdP | Claim name |
-|-----|-----------|
-| AWS Cognito | `cognito:groups` |
-| Okta (custom) | `roles` |
-| Entra ID (via Dex) | `groups` (standard) |
-| GitHub (via Dex) | `groups` (standard) |
+This sets the `--oidc-groups-claim` server flag.
 
 ## Example: Team-Based Access
 
@@ -184,11 +177,12 @@ The server emits structured JSON log entries for every authorization decision. T
 
 | Event | Level | Key Fields |
 |-------|-------|-----------|
-| JWT verified | `DEBUG` | `subject`, `groups_claim_name`, `groups` |
+| JWT verified | `DEBUG` | `subject`, `groups_claim`, `groups` |
+| Missing groups claim | `WARN` | `subject`, `groups_claim` |
 | GroupBinding matched | `INFO` | `subject`, `groups`, `binding_name`, `expression` |
-| No GroupBinding matched | `WARN` | `subject`, `groups` |
+| Expression invalid or failed | `ERROR` | `binding_name`, `expression`, `error` |
 | Resource access allowed | `INFO` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
-| Resource access denied (pattern) | `WARN` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
+| Resource access denied | `WARN` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
 | GroupBinding expression invalid | `WARN` | `binding_name`, `expression`, `error` |
 
 View server logs:
