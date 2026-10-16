@@ -62,7 +62,7 @@ hostname. Replace dots with underscores and convert the result to uppercase.
     tofu plan
     ```
 
-Tokens are short-lived and rotate automatically. This is the preferred option
+Provider-issued tokens are short-lived. This is the preferred option
 for CI/CD jobs when the cluster accepts the provider-issued token.
 
 ## CI/CD Example
