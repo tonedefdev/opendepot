@@ -96,6 +96,9 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			if moduleConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
 				moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
+				if depot.Spec.GlobalConfig.ModuleConfig != nil && depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit != nil {
+					moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit
+				}
 			}
 
 			if moduleConfig.RepoUrl == nil {
@@ -258,6 +261,9 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			if providerConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
 				providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
+				if depot.Spec.GlobalConfig.ProviderConfig != nil && depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit != nil {
+					providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit
+				}
 			}
 
 			providerName := ""

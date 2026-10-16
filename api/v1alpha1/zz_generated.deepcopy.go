@@ -266,6 +266,11 @@ func (in *GlobalConfig) DeepCopyInto(out *GlobalConfig) {
 		*out = new(ModuleConfig)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ProviderConfig != nil {
+		in, out := &in.ProviderConfig, &out.ProviderConfig
+		*out = new(ProviderConfig)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.StorageConfig != nil {
 		in, out := &in.StorageConfig, &out.StorageConfig
 		*out = new(StorageConfig)
