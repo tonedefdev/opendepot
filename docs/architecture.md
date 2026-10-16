@@ -102,8 +102,8 @@ version work items:
   `Module.spec.versions`.
 - The Provider controller creates a Version for each version and each requested
   operating system and architecture.
-- Both controllers track the latest version, garbage-collect removed versions,
-  and enforce `versionHistoryLimit` when configured.
+- Both controllers track the latest version and garbage-collect Versions removed
+  from `spec.versions`. `versionHistoryLimit` is stored on the spec but not enforced.
 
 A provider with two versions, two operating systems, and two architectures
 produces eight Version resources.

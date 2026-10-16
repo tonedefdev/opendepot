@@ -218,4 +218,4 @@ moduleConfigs:
         resourceGroup: opendepot-rg
 ```
 
-**Version history limit:** Set `versionHistoryLimit` on any module or provider config to cap how many versions the Depot retains in the registry. When the limit is reached, older versions are removed as newer ones are added.
+**Version history limit:** `versionHistoryLimit` is stored on the spec, but the controllers do not prune versions yet. To remove a version, delete its entry from `spec.versions`.
