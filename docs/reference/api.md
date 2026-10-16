@@ -714,6 +714,159 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 
 ## Kubernetes Resource Types
 
+All resources are in the `opendepot.defdev.io/v1alpha1` group. Fields marked *controller-managed* are written by OpenDepot, not by you.
+
+### Module
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.moduleConfig` | `ModuleConfig` | **Required.** Settings for the module and for each `Version` it creates. |
+| `spec.versions` | `[]ModuleVersion` | **Required.** Versions to sync. A leading `v` is trimmed. |
+| `spec.forceSync` | `bool` | Forces a re-sync. The controller resets it to `false`. Default `false`. |
+| `status.latestVersion` | `string` | *Controller-managed.* Latest available version. |
+| `status.synced` | `bool` | *Controller-managed.* Whether the module reached its desired state. |
+| `status.syncStatus` | `string` | *Controller-managed.* Reconciliation status. |
+| `status.fileName` | `string` | *Controller-managed.* Generated archive file name. |
+| `status.moduleVersionRefs` | `map[string]ModuleVersion` | *Controller-managed.* Versions the controller created. |
+
+### ModuleConfig
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Name used when naming `Version` resources. Defaults to the `Module` resource name. |
+| `provider` | `string` | Main OpenTofu provider the module requires (for example, `aws`). |
+| `repoOwner` | `string` | Owner of the GitHub source repository. |
+| `repoUrl` | `string` | Full URL of the GitHub source repository. |
+| `fileFormat` | `string` | `zip` produces `.zip` archives. Any other value produces `.tar.gz`. Inherited from `global.moduleConfig` when unset in a Depot. |
+| `immutable` | `bool` | When `true`, the archive checksum must match the stored `checksumSHA256` on every sync. Inherited from `global.moduleConfig` when unset in a Depot. |
+| `versionConstraints` | `string` | Comma-separated constraints such as `>= 1.0.0, < 2.0.0`. Used only by the Depot controller. |
+| `versionHistoryLimit` | `int` | Number of versions to keep. Unset or `<= 0` keeps all versions. |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings. See [GithubClientConfig](#githubclientconfig). |
+| `storageConfig` | `StorageConfig` | Storage backend for the archives. See [StorageConfig](#storageconfig). |
+
+### ModuleVersion
+
+Items in `spec.versions` and `status.moduleVersionRefs`.
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `string` | Semantic version to sync. A leading `v` is trimmed. |
+| `name` | `string` | *Controller-managed.* Name of the generated `Version` resource. |
+| `fileName` | `string` | *Controller-managed.* Archive file name. |
+| `synced` | `bool` | *Controller-managed.* Whether the `Version` has synced. |
+
+### Provider
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.providerConfig` | `ProviderConfig` | **Required.** Settings for the provider and for each `Version` it creates. |
+| `spec.versions` | `[]ProviderVersion` | **Required.** Versions to sync. A leading `v` is trimmed. |
+| `spec.forceSync` | `bool` | Forces a re-sync. The controller resets it to `false`. Default `false`. |
+| `status.latestVersion` | `string` | *Controller-managed.* Latest available version. |
+| `status.synced` | `bool` | *Controller-managed.* Whether the provider reached its desired state. |
+| `status.syncStatus` | `string` | *Controller-managed.* Reconciliation status. |
+| `status.resolvedSourceRepository` | `string` | *Controller-managed.* See [ProviderStatus fields](#providerstatus-fields). |
+
+### ProviderConfig
+
+The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described in [ProviderConfig fields](#providerconfig-fields).
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Provider name. Defaults to the `Provider` resource name. |
+| `operatingSystems` | `[]string` | Operating systems the provider supports, used as the `os` constraint. |
+| `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
+| `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
+| `versionHistoryLimit` | `int` | Number of versions to keep. Unset or `<= 0` keeps all versions. |
+| `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
+
+### ProviderVersion
+
+Items in `spec.versions`.
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `string` | Semantic version to sync. A leading `v` is trimmed. |
+| `architecture` | `string` | Architecture for this provider version. |
+| `operatingSystem` | `string` | Operating system for this provider version. |
+| `name` | `string` | *Controller-managed.* Provider name. |
+| `synced` | `bool` | *Controller-managed.* Whether the `Version` has synced. |
+
+### Version
+
+`Version` resources are created by the Module and Provider controllers. Edit the parent resource instead of creating them by hand.
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.type` | `string` | **Required.** `Module` or `Provider`. |
+| `spec.version` | `string` | **Required.** Semantic version. |
+| `spec.architecture` | `string` | Provider architecture. |
+| `spec.operatingSystem` | `string` | Provider operating system. |
+| `spec.fileName` | `string` | Archive file name. Controller-managed. |
+| `spec.forceSync` | `bool` | Forces this version to re-sync. |
+| `spec.moduleConfigRef` | `ModuleConfig` | Copy of the parent module's config. Set by the Module controller. |
+| `spec.providerConfigRef` | `ProviderConfig` | Copy of the parent provider's config. Set by the Provider controller. |
+| `status` | `VersionStatus` | Sync state, checksum, and scan results. See [VersionStatus fields](#versionstatus-fields). |
+
+### Depot
+
+| Field | Type | Description |
+|---|---|---|
+| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules. Requires `storageConfig`. Optional `githubClientConfig` and `moduleConfig`. |
+| `spec.moduleConfigs` | `[]ModuleConfig` | Modules to create and manage. |
+| `spec.providerConfigs` | `[]ProviderConfig` | Providers to create and manage. |
+| `spec.pollingIntervalMinutes` | `int` | Minutes between checks for new versions. Unset or `0` disables periodic polling. |
+| `status.modules` | `[]string` | *Controller-managed.* Names of the `Module` resources the Depot manages. |
+| `status.providers` | `[]string` | *Controller-managed.* Names of the `Provider` resources the Depot manages. |
+
+### GithubClientConfig
+
+| Field | Type | Description |
+|---|---|---|
+| `useAuthenticatedClient` | `bool` | Authenticates GitHub requests with a GitHub App to avoid rate limits. Requires a Secret named `opendepot-github-application-secret` in the resource's namespace with `githubAppID`, `githubInstallID`, and a base64 encoded `githubPrivateKey`. |
+
+### StorageConfig
+
+Each field selects a storage backend. `presign` configures pre-signed downloads.
+
+| Field | Type | Description |
+|---|---|---|
+| `s3` | `AmazonS3Config` | Amazon S3 bucket. |
+| `azureStorage` | `AzureStorageConfig` | Azure Storage account. |
+| `gcs` | `GoogleCloudStorageConfig` | Google Cloud Storage bucket. |
+| `fileSystem` | `FileSystemConfig` | Local filesystem path. |
+| `presign` | `PresignConfig` | Pre-signed download URLs. See [PresignConfig fields](#presignconfig-fields). |
+
+**AmazonS3Config**
+
+| Field | Type | Description |
+|---|---|---|
+| `bucket` | `string` | **Required.** Bucket name. |
+| `region` | `string` | **Required.** AWS region of the bucket. |
+| `key` | `string` | Key prefix (for example, `my/bucket/prefix`). The file name is generated. |
+
+**AzureStorageConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `accountName` | `string` | **Required.** Storage account name. |
+| `accountUrl` | `string` | **Required.** Storage account URL. |
+| `subscriptionID` | `string` | **Required.** Subscription that contains the account. |
+| `resourceGroup` | `string` | **Required.** Resource group that contains the account. |
+
+**GoogleCloudStorageConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `bucket` | `string` | **Required.** Bucket name. |
+
+**FileSystemConfig**
+
+| Field | Type | Description |
+|---|---|---|
+| `directoryPath` | `string` | Directory where archives are stored. |
+
 ### SecurityFinding
 
 Represents a single vulnerability finding from a Trivy scan.
