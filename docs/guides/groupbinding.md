@@ -183,7 +183,6 @@ The server emits structured JSON log entries for every authorization decision. T
 | Expression invalid or failed | `ERROR` | `binding_name`, `expression`, `error` |
 | Resource access allowed | `INFO` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
 | Resource access denied | `WARN` | `subject`, `binding_name`, `resource_type`, `resource_name`, `namespace` |
-| GroupBinding expression invalid | `WARN` | `binding_name`, `expression`, `error` |
 
 View server logs:
 

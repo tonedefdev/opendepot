@@ -9,11 +9,11 @@ tags:
 
 ## Registry Reads with Dex Client Credentials
 
-If your organization uses OIDC (Dex) for human users and you want CI/CD pipelines to authenticate **without** needing `kubectl` or a ServiceAccount, use the Dex client credentials grant instead. This is the recommended approach because it preserves separation of duties: OIDC stays read-only for registry access, while Kubernetes RBAC governs create, update, and delete permissions.
+If your organization uses OIDC (Dex) for humans, pipelines can authenticate with the Dex client credentials grant. This keeps OIDC read-only for registry access, while Kubernetes RBAC governs create, update, and delete.
 
-The examples below assume the recommended [server-proxied Dex](../configuration/oidc/proxy.md#proxy-dex-through-the-server) setup (`server.oidc.dexProxy.enabled: true`), so the Dex token endpoint shares the same host as the registry API. If Dex is exposed separately instead, substitute that host (e.g. `https://dex.defdev.io/dex/token`).
+The examples assume server-proxied Dex (`server.oidc.dexProxy.enabled: true`), so the token endpoint shares the registry host. If Dex is exposed separately, substitute its host (for example `https://dex.defdev.io/dex/token`).
 
-Enable client credentials support in your Helm values and register a dedicated Dex static client for the pipeline:
+Enable client credentials in your Helm values and register a dedicated Dex static client:
 
 ```yaml
 dex:
@@ -102,7 +102,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity in your configuration and lockfile. Token lifetime is set by Dex. Access is limited to the resources that a `GroupBinding` grants to the `client:<sub>` group. No `kubectl` access or cluster kubeconfig is required — only the Dex token endpoint must be reachable from the runner.
+This configures OpenTofu to install providers through the Network Mirror Protocol while keeping canonical `registry.opentofu.org` identity in your configuration and lockfile. Dex sets the token lifetime, and access is limited to what a `GroupBinding` grants `client:<sub>`. The runner needs only network access to the Dex token endpoint, not a kubeconfig.
 
 To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
 
@@ -224,11 +224,7 @@ jobs:
       - run: tofu init
 ```
 
-This configures OpenTofu to install providers from OpenDepot via the Network Mirror Protocol while preserving canonical `registry.opentofu.org` provider identity. The SA token from the `--duration=15m` command is short-lived. Its access is limited by the RBAC defined above. No Dex client credentials are needed.
-
-To use Terraform instead, rename the file to `.terraformrc` and replace `setup-opentofu` with `hashicorp/setup-terraform`. If your `Provider` resources use `upstreamRegistry: registry.terraform.io`, update the `include` and `exclude` patterns to `registry.terraform.io/*/*`.
-
-The pipeline's registry access is bounded by the RBAC above, regardless of how broad the runner's cloud IAM role is. If the runner's role already has suitable Kubernetes RBAC, you can use its token directly instead of creating an SA token. See [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md).
+This configures OpenTofu to install providers through the Network Mirror Protocol while keeping canonical `registry.opentofu.org` identity. For Terraform, see the note in the Dex section above. The `--duration=15m` token expires quickly, and RBAC limits what it can read, whatever the runner's cloud IAM role allows. If the runner's identity already has suitable Kubernetes RBAC, you can use its token instead. See [Managed Cluster Tokens](../authentication/managed-cluster-tokens.md).
 
 ## Push-Based Workflows
 
