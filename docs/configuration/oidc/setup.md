@@ -59,8 +59,9 @@ management details.
 ## Step 2: Enable OIDC on the Server
 
 Create the OpenDepot client Secret. Dex loads the `OPENDEPOT_DEX_CLIENT_SECRET`
-key from it. The chart requires `server.oidc.clientSecretName` to be
-`opendepot-dex-client-secret`, because `dex.envFrom` reads that name:
+key from it. Any Secret name works, but set the same name in
+`server.oidc.clientSecretName` and in a `dex.envFrom` `secretRef`. The examples
+use `opendepot-dex-client-secret`, which is the default `dex.envFrom` entry:
 
 ```bash
 SECRET=$(openssl rand -hex 32)

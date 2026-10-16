@@ -19,14 +19,13 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
 
 v0.11.1 is a chart-only patch. The application version remains `0.11.0`.
 
-The chart now fails to render when Dex and OIDC are enabled and
-`server.oidc.clientSecretName` is not `opendepot-dex-client-secret`. Dex
-reads that Secret name through `dex.envFrom`. Before this release, a different
-name rendered successfully, and Dex started without the client secret.
+When Dex and OIDC are enabled, the chart fails to render unless
+`server.oidc.clientSecretName` is set and matches a `secretRef` name in
+`dex.envFrom`. Before this release, a mismatch rendered successfully, and Dex
+started without the client secret.
 
-If you set `server.oidc.clientSecretName` to another name, rename the Secret to
-`opendepot-dex-client-secret` and update the value. The Secret must contain the
-`OPENDEPOT_DEX_CLIENT_SECRET` key.
+Use any Secret name, but set the same name in both `server.oidc.clientSecretName`
+and `dex.envFrom`. The Secret must contain the `OPENDEPOT_DEX_CLIENT_SECRET` key.
 
 ## v0.11.0
 
