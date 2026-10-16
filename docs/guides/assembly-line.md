@@ -24,9 +24,6 @@ Assembly Line turns a visual canvas into a portable OpenTofu root module:
 4. Choose `count` or `for_each` when a module should produce multiple instances.
 5. Export the validated `main.tf` and `variables.tf` files.
 
-The canvas is local to your browser. OpenDepot does not save it as a server-side
-resource, so you can experiment freely and export only when the graph is ready.
-
 ## Build a Root Module
 
 Add module, provider, and variable nodes to the canvas. Module and provider nodes select a specific onboarded release. When exported, module releases use pessimistic constraints and provider releases remain exact. Module inputs and provider configuration fields are rendered only when they are set on the canvas; defaults owned by the child module or provider remain in the child configuration.
@@ -95,10 +92,9 @@ Values can come from several places:
 
 ![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png)
 
-Enter literal values directly in an input field. To reference a root variable or
-module output, choose **Use input** and select a source from the menu. When a
-source is repeated or contains a collection, the form provides instance
-selectors and key or index controls.
+To reference a root variable or module output, choose **Use input** and select a
+source. Repeated or collection sources add instance selectors and key or index
+controls.
 
 ![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-input-repeated-values.png)
 
@@ -125,10 +121,6 @@ projected property type.
 ![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png)
 
 ![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png)
-
-The form keeps the expression visible on the canvas, so you can review how
-each module is connected without opening every field. Defaults owned by the
-child module remain there unless you explicitly configure the input.
 
 ## Repeat Modules with `count` or `for_each`
 
@@ -226,7 +218,7 @@ OpenDepot's provider registry generally mirrors both `registry.opentofu.org` and
 - The `/assembly` provider palette in the UI filters out any Provider whose upstream registry is not `registry.opentofu.org`, so Terraform-origin providers never appear as candidates.
 - Export resolution enforces the same rule authoritatively on the server: a canvas that references a non-OpenTofu Provider fails with a `provider_registry_unsupported` diagnostic, regardless of what the browser submitted.
 
-Provider schema extraction itself is unaffected by this restriction — the version controller extracts a configuration schema for every provider version using its configured `upstreamRegistry`, so both origins remain fully usable outside Assembly Line.
+When Assembly Line is enabled, the Version controller extracts a configuration schema for each provider version, regardless of upstream registry. Providers from both origins remain usable outside Assembly Line.
 
 ### Generated provider source
 
