@@ -309,7 +309,7 @@ The `scanning` section controls Trivy-based vulnerability scanning for modules a
 | `scanning.cacheMountPath` | string | Mount path inside the version-controller container for the Trivy DB cache. Default: `/var/cache/trivy` |
 | `scanning.offline` | bool | Pass `--offline-scan` to Trivy, preventing network calls during scans. Only applies to provider scanning. Default: `true` |
 | `scanning.blockOnCritical` | bool | Halt reconciliation when CRITICAL findings are present (modules or providers). Default: `false` |
-| `scanning.blockOnHigh` | bool | Halt reconciliation when HIGH findings are present (modules or providers). Default: `false` |
+| `scanning.blockOnHigh` | bool | Halt reconciliation when HIGH or CRITICAL findings are present (modules or providers). Default: `false` |
 | `scanning.cache.storageClassName` | string | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades. Default: `""` |
 | `scanning.cache.accessMode` | string | Access mode for the Trivy cache PVC. Default: `ReadWriteMany` |
 | `scanning.cache.size` | string | Size of the Trivy DB cache PVC. Default: `1Gi` |

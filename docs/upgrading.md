@@ -36,6 +36,14 @@ v0.11.0 updates the chart and application version to `0.11.0`. Download
 statistics now use Prometheus instead of Valkey, and the Stats page queries
 Prometheus over a 90-day lookback by default.
 
+### Vulnerability Blocking Thresholds
+
+`scanning.blockOnHigh` now blocks HIGH **and** CRITICAL findings. In `0.10.x`,
+it blocked only HIGH, so CRITICAL findings did not block reconciliation. Before
+upgrading, review any `Version` that has CRITICAL findings. This release may
+block reconciliation for those versions. Add a `ScanPolicy` `exemptions`
+entry to allow a specific finding.
+
 ### Prometheus Statistics
 
 Prometheus replaces Valkey as the statistics backend. The chart can optionally
