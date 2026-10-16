@@ -115,8 +115,8 @@ The Version controller performs the artifact work:
 - Downloads module archives from GitHub or provider binaries from the configured
   upstream registry.
 - Assigns stable UUID7 storage filenames and computes SHA256 checksums.
-- Runs module IaC scans and provider binary/source scans when Trivy scanning is
-  enabled.
+- Runs module IaC scans when `scanning.enabled` is true, and provider binary and
+  source scans when `scanning.providerScanning` is also true.
 - Generates provider `SHA256SUMS` signatures when provider GPG signing is
   configured.
 - Uploads artifacts to the configured storage backend and updates Version

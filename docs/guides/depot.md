@@ -130,10 +130,11 @@ spec:
 The Depot queries each repository for GitHub releases matching the version constraint, creates `Module` and `Version` resources, downloads the release archives, and uploads them to S3. When [module IaC scanning is enabled](../configuration/scanning.md#module-iac-scanning), the Version controller extracts each archive and runs `trivy fs` with config-class checks — catching HCL misconfigurations like open security groups, public S3 ACLs, or unencrypted storage before the module version becomes consumable.
 
 !!! note
-    Module IaC scanning does not require the Trivy vulnerability database PVC or CronJob. Config rules are bundled in the Trivy binary, so you can enable module scanning with a minimal scanning configuration:
+    Module IaC scanning does not use the Trivy vulnerability database. To run it without the database PVC, CronJob, and cache volume, disable provider scanning:
     ```yaml
     scanning:
       enabled: true
+      providerScanning: false
     ```
     See [Vulnerability Scanning](../configuration/scanning.md) for the full configuration reference.
 
