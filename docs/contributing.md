@@ -7,19 +7,19 @@ tags:
 
 Thank you for your interest in contributing to OpenDepot! Please read our [CONTRIBUTING.md](https://github.com/tonedefdev/opendepot/blob/main/CONTRIBUTING.md) on GitHub for guidelines on opening issues, submitting pull requests, and the development workflow.
 
-Pull requests also run the e2e workflow, which builds the service images and scans them with Trivy before the controller tests execute. A PR fails if the scanner reports critical or high severity vulnerabilities in a built image.
+Pull requests that change service code run the e2e workflow. It builds the service images and fails on fixable `CRITICAL` or `HIGH` findings from `trivy-action` (`.github/workflows/e2e.yaml`). Suppressions for that scan go in `.trivyignore.yaml`.
 
 ## Security Scanning
 
-The security review runs two Trivy scans against every pull request:
+The `security-review` agent (`.github/agents/security-review.agent.md`) runs these scans manually:
 
-- `trivy image` — scans each built service image for OS package and Go module CVEs.
-- `trivy config` — scans the Helm chart templates for Kubernetes misconfigurations.
+- `trivy image --severity CRITICAL,HIGH` against each service image and the Valkey subchart image.
+- `trivy config --severity CRITICAL,HIGH chart/opendepot/` for Kubernetes misconfigurations.
 
-OpenDepot bundles Trivy v0.74.0 in the version-controller image built with `INCLUDE_TRIVY=true`. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Add any suppression to both the repository root and `chart/opendepot/.trivyignore`, and include the tracking issue URL as a comment.
+The version-controller image bundles Trivy, built from the `TRIVY_COMMIT` in `services/version/Dockerfile`. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Include the issue URL as a comment in the ignore file. Chart-level suppressions go in `chart/opendepot/.trivyignore`.
 
 !!! note
-    `.trivyignore` suppressions are scoped to the repository and apply only to findings in the embedded Trivy binary. CVEs in the controller's own dependencies must be resolved, not suppressed.
+    Resolve CVEs in the controller's own dependencies. Do not suppress them.
 
 ## Local OIDC E2E Testing
 
