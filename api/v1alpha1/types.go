@@ -57,7 +57,7 @@ type DepotStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.globalConfig",description="The global configuration applied to all modules managed by this Depot"
+// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.global",description="The global configuration applied to all modules managed by this Depot"
 
 // Depot is the Schema for the depots API.
 type Depot struct {
