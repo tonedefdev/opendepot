@@ -851,7 +851,7 @@ All resources are in the `opendepot.defdev.io/v1alpha1` group. Fields marked *co
 | `fileFormat` | `string` | `zip` produces `.zip` archives. Any other value produces `.tar.gz`. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `immutable` | `bool` | When `true`, the archive checksum must match the stored `checksumSHA256` on every sync. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `>= 1.0.0, < 2.0.0`. Used only by the Depot controller. |
-| `versionHistoryLimit` | `int` | Stored on the spec. Not enforced by the current controllers. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset or `<= 0` keeps all versions. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the archives. See [StorageConfig](#storageconfig). |
 
@@ -889,7 +889,7 @@ The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described
 | `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
-| `versionHistoryLimit` | `int` | Stored on the spec. Not enforced by the current controllers. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset or `<= 0` keeps all versions. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
 
 ### ProviderVersion
@@ -984,7 +984,7 @@ Represents a single vulnerability finding from a Trivy scan.
 
 | Field | Type | Description |
 |---|---|---|
-| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability, or a Trivy rule ID (e.g. `aws-0057`) for module IaC findings |
+| `vulnerabilityID` | `string` | CVE or GHSA identifier for the vulnerability, or a Trivy rule ID (e.g. `AWS-0057`) for module IaC findings |
 | `pkgName` | `string` | Name of the package containing the vulnerability |
 | `installedVersion` | `string` | Version of the package currently in use |
 | `fixedVersion` | `string` | Minimum version that resolves the vulnerability, if known |
@@ -1013,7 +1013,7 @@ Holds Trivy source scan results. Used for both provider `go.mod` dependency scan
 | Field | Type | Description |
 |---|---|---|
 | `scannedAt` | `string` | RFC3339 timestamp at which the scan completed |
-| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `aws-0057`). |
+| `findings` | `[]SecurityFinding` | Findings produced by the scan. For provider `Version` resources these are `go.mod` dependency vulnerabilities (CVE identifiers). For module `Version` resources these are HCL misconfigurations (`vulnerabilityID` contains a Trivy rule ID such as `AWS-0057`). |
 
 ### ScanPolicy
 
@@ -1074,7 +1074,7 @@ Declares a set of scan findings that must not block reconciliation. A finding is
 
 | Field | Type | Description |
 |---|---|---|
-| `vulnerabilityIDs` | `[]string` | Vulnerability or misconfiguration identifiers this exemption covers, e.g. `CVE-2024-1234` or `aws-0057`. `["*"]` matches every identifier. Omitted covers every identifier. |
+| `vulnerabilityIDs` | `[]string` | Vulnerability or misconfiguration identifiers this exemption covers, e.g. `CVE-2024-1234` or `AWS-0057`. `["*"]` matches every identifier. Omitted covers every identifier. |
 | `pkgNames` | `[]string` | Package names this exemption covers, e.g. `stdlib` or `golang.org/x/net`. `["*"]` matches every package. Omitted covers every package. |
 | `scanTypes` | `[]string` | Scan types this exemption applies to: `binary`, `source`, `module`. Omitted covers every scan type. |
 | `severities` | `[]string` | Severities this exemption covers. Matching is exact and case-insensitive. `["*"]` matches every severity. Omitted covers every severity. |

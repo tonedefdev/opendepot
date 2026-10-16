@@ -214,4 +214,4 @@ moduleConfigs:
         resourceGroup: opendepot-rg
 ```
 
-**Version history limit:** `versionHistoryLimit` is stored on the spec, but the controllers do not prune versions yet. To remove a version, delete its entry from `spec.versions`.
+**Version history limit:** set `versionHistoryLimit` on each `moduleConfigs` or `providerConfigs` entry. `global` does not apply it. The Depot rewrites each generated resource's `spec.versions` on every poll, so the controller trims the list again on each sync.

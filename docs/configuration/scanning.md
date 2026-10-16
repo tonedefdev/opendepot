@@ -40,10 +40,10 @@ For each module version, the Version controller runs an IaC scan on the extracte
 
 - **IaC scan** — extracts the module archive (`.zip` or `.tar.gz`) to a temporary directory and runs `trivy fs --scanners misconfig`. This detects HCL misconfigurations — for example, S3 buckets with public ACLs, security groups open to `0.0.0.0/0`, or unencrypted storage resources.
 
-Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains a Trivy rule ID (e.g. `aws-0057`) rather than a CVE identifier.
+Findings are stored in `Version.status.sourceScan` and use the same `SecurityFinding` struct as provider scans. The `vulnerabilityID` field contains Trivy's rule ID (e.g. `AWS-0057`) rather than a CVE identifier.
 
 !!! tip
-    Current Trivy releases use lowercase provider rule IDs (`aws-0057`, `azu-0012`, `gcp-0003`), not the deprecated `AVD-AWS-0057` format. To exempt a rule in a `ScanPolicy` (see [Policy Enforcement](#policy-enforcement)), copy the ID from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version`. Matching is exact.
+    Rule IDs use Trivy's uppercase form (for example `AWS-0057`), not the `AVD-AWS-0057` form. To exempt a rule in a `ScanPolicy` (see [Policy Enforcement](#policy-enforcement)), copy the ID from `status.sourceScan.findings[].vulnerabilityID` on an affected `Version`. Matching is case-insensitive.
 
 See [Vulnerability Scanning Runbooks](../guides/operations.md#vulnerability-scanning-runbooks) for examples of reading scan results.
 
@@ -136,7 +136,7 @@ spec:
         - source
     - reason: Encryption at rest is handled by the platform-managed CMK, not the module.
       vulnerabilityIDs:
-        - aws-0057
+        - AWS-0057
       scanTypes:
         - module
       expires: "2026-12-31T00:00:00Z"
