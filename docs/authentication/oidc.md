@@ -63,15 +63,12 @@ dex:
           - https://<ui-host>/auth/callback
 ```
 
-The UI requires an HTTPS issuer in production. Its discovered authorization,
-token, and JWKS endpoints must share the configured issuer origin unless an
-explicit `ui.oidc.authzUrl` browser override is used. Insecure HTTP endpoints
-are enabled only when `global.developmentMode: true`.
-
-The UI also requires `NEXT_PUBLIC_BASE_URL` to use HTTPS in production. Set
-`global.developmentMode: true` only for local development when an HTTP base URL
-is unavoidable. OIDC state, nonce, and session cookies are `HttpOnly` and use
-`SameSite=Lax`; session cookies are marked `Secure` for normal deployments.
+The UI requires an HTTPS issuer and an HTTPS `ui.baseUrl` when
+`ui.oidc.enabled: true`. The chart fails to render otherwise. Discovered
+authorization, token, and JWKS endpoints must share the issuer origin unless an
+explicit `ui.oidc.authzUrl` browser override is set. Insecure HTTP is allowed only
+when `global.developmentMode: true`. OIDC state and nonce cookies are `HttpOnly` and
+`SameSite=Lax`. Session cookies are `Secure` when the base URL uses HTTPS.
 
 !!! note
     Without the Server's UI client ID configured, the Stats page and browse
@@ -82,13 +79,14 @@ is unavoidable. OIDC state, nonce, and session cookies are `HttpOnly` and use
 
 After OIDC authentication, the Server extracts the JWT `groups` claim and
 matches it against [GroupBinding](../guides/groupbinding.md) expressions. The
-`groups` claim is required. Requests with no claim, or with a claim that matches
-no GroupBinding, receive `403 Forbidden`.
+`groups` claim is required. Requests with no claim receive `403 Forbidden`.
+For the module and provider APIs, a claim that matches no GroupBinding also
+returns `403 Forbidden`. Browse endpoints return public resources only instead.
 
 !!! warning
-    If no GroupBinding resources exist in the Server namespace, all
-    OIDC-authenticated users are denied. Deploy at least one GroupBinding before
-    enabling OIDC in production.
+    With no GroupBinding resources in the Server namespace, module and provider
+    API requests from OIDC users are denied. Deploy at least one GroupBinding
+    before enabling OIDC in production.
 
 See [Fine-Grained Access Control with GroupBinding](../guides/groupbinding.md) for
 expression syntax and setup instructions.
@@ -113,7 +111,5 @@ for setup details and required RBAC.
 |-------|-------|-----|
 | `missing Authorization header` | `.tofurc` has no credentials block | Add a `credentials "host" { token = "..." }` block |
 | `unauthorized` | JWT expired or invalid | Run `tofu login` again |
-| Server pod is `CrashLoopBackOff` | Issuer URL is missing or misconfigured | Verify `server.oidc.issuerUrl` and inspect pod logs |
-| Browser opens to an in-cluster hostname | Issuer URL was left blank | Set both `dex.config.issuer` and `server.oidc.issuerUrl` to the external Dex URL |
 | Browser redirects to localhost but fails | Dex redirect URI is not registered | Add the expected localhost ports to `redirectURIs` |
 | Stats shows zeroes for UI-authenticated users | UI client ID was not propagated to the Server | Enable `ui.oidc` and set a non-empty `ui.oidc.clientId` |
