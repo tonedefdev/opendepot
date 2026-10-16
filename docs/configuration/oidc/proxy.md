@@ -31,7 +31,7 @@ server:
     enabled: true
     issuerUrl: https://opendepot.example.com/dex
     clientId: opendepot
-    clientSecret: $STRONG_RANDOM_VALUE
+    clientSecretName: opendepot-dex-client-secret
     dexProxy:
       enabled: true
 ```
@@ -45,10 +45,10 @@ code, and client credentials flows through the existing ingress.
     `server.oidc.tokenUrl` are usually unnecessary. `login.v1` uses the URLs
     from Dex's external discovery document.
 
-!!! warning "dex.enabled=true is required"
-    The proxy works only with the bundled Dex subchart. It has no effect, and
-    Helm rendering fails, when `server.oidc.issuerUrl` points to an external
-    shared Dex instance while `dex.enabled: true` is not configured correctly.
+!!! warning "Required settings"
+    The chart fails to render when `dexProxy.enabled` is `true` and either
+    `dex.enabled` is `false` or `server.oidc.issuerUrl` is blank. The proxy
+    only works with the bundled Dex subchart.
 
 ## Split-Network OIDC
 
@@ -65,8 +65,7 @@ server:
     tokenUrl: https://dex.example.com/dex/token
 ```
 
-When either value is blank, the URL comes from the Dex discovery document. Both
-values must be valid `http` or `https` URLs.
+When either value is blank, the URL comes from the Dex discovery document.
 
 !!! note "Local Kind testing"
     The local Kind Make targets use the server-proxied mode because it requires
