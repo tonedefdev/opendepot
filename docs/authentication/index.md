@@ -57,10 +57,10 @@ users or pipelines already have.
 | Best for | Production CI/CD | Development | Enterprise production | OIDC deployments that require direct cluster API access |
 
 !!! warning
-    OIDC and bearer-token modes are mutually exclusive by default. Set
-    `server.oidc.enabled: true` and `server.useBearerToken: false` when switching
-    to OIDC. For CI/CD alternatives, see [Managed Cluster Tokens](managed-cluster-tokens.md)
-    and [OIDC ServiceAccount fallback](oidc.md#cicd-with-serviceaccount-fallback).
+    Enabling OIDC does not disable bearer-token authentication. The flag only applies to
+    requests that OIDC does not authenticate. For CI/CD alternatives, see
+    [Managed Cluster Tokens](managed-cluster-tokens.md) and
+    [OIDC ServiceAccount fallback](oidc.md#cicd-with-serviceaccount-fallback).
 
 ## Access Control
 
