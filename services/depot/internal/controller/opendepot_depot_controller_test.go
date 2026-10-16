@@ -17,7 +17,11 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,6 +34,30 @@ import (
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/registry"
 )
+
+// githubReleasesTransport answers GitHub release listing requests with the given tags.
+type githubReleasesTransport struct {
+	tags []string
+}
+
+func (t githubReleasesTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	releases := make([]map[string]string, 0, len(t.tags))
+	for _, tag := range t.tags {
+		releases = append(releases, map[string]string{"tag_name": tag})
+	}
+
+	body, err := json.Marshal(releases)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Request:    req,
+	}, nil
+}
 
 var _ = Describe("Depot Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -167,6 +195,49 @@ var _ = Describe("Depot Controller", func() {
 			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.0.0"}, {Version: "3.2.4"}}))
 			DeferCleanup(func() {
 				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("keeps only the newest module versions allowed by the global version history limit", func() {
+			moduleName := "limited-module"
+			originalTransport := http.DefaultTransport
+			http.DefaultTransport = githubReleasesTransport{tags: []string{"v3.2.4", "v1.0.0", "v3.0.0", "v2.0.0"}}
+			DeferCleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			historyLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &historyLimit,
+			}
+			current.Spec.ModuleConfigs = []opendepotv1alpha1.ModuleConfig{{
+				Name:               &moduleName,
+				Provider:           "null",
+				RepoOwner:          "tonedefdev",
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			module := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: moduleName, Namespace: "default"}, module)).To(Succeed())
+			versions := make([]string, 0, len(module.Spec.Versions))
+			for _, v := range module.Spec.Versions {
+				versions = append(versions, v.Version)
+			}
+			Expect(versions).To(Equal([]string{"3.0.0", "3.2.4"}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, module)
 			})
 		})
 	})
