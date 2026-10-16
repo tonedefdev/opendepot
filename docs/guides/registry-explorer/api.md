@@ -88,3 +88,70 @@ GET /opendepot/ui/v1/depots/graph
 Returns visible `Depot`, `Module`, and `Provider` resources with edges connecting
 each depot to the resources it manages. OpenDepot Workshop uses this endpoint
 to render the Depots page.
+
+## Module Contract
+
+```http
+GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}/contract
+```
+
+Returns the Assembly Line input contract for a module version. Only `module` is
+supported. See the [API Reference](../../reference/api.md#module-contract) for
+query parameters and responses.
+
+## Provider Configuration Schema
+
+```http
+GET /opendepot/ui/v1/resources/{namespace}/provider/{name}/provider-schema
+```
+
+Returns the provider configuration schema for a version. Available only when
+Assembly Line is enabled. See the
+[API Reference](../../reference/api.md#provider-configuration-schema).
+
+## Assembly Line Export
+
+```http
+POST /opendepot/ui/v1/assembly/export
+```
+
+Validates a canvas and returns a root module as a ZIP archive, or as a stream of
+progress events when the request sends `Accept: application/x-ndjson`. Available
+only when Assembly Line is enabled. See the
+[API Reference](../../reference/api.md#assembly-line-export) for the request
+schema and error codes.
+
+## List Depots
+
+```http
+GET /opendepot/ui/v1/depots
+```
+
+Returns visible `Depot` resources. For the connected view, use the
+[Depot Relationship Graph](#depot-relationship-graph). See the
+[API Reference](../../reference/api.md#list-depots).
+
+## Registry Stats
+
+```http
+GET /opendepot/ui/v1/stats
+```
+
+Returns the aggregate data behind the Stats page. See the
+[API Reference](../../reference/api.md#registry-stats).
+
+## Scan Policies
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/opendepot/ui/v1/scan-policies/catalog` | Authorized namespaces and onboarded targets |
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}` | List policies in a namespace |
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Get one policy |
+| `GET` | `/opendepot/ui/v1/scan-policies/{namespace}/capabilities` | Write support for the namespace |
+| `POST` | `/opendepot/ui/v1/scan-policies/{namespace}/preview` | Validate without saving |
+| `POST` | `/opendepot/ui/v1/scan-policies/{namespace}` | Create a policy |
+| `PUT` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Replace a policy (requires `If-Match`) |
+| `DELETE` | `/opendepot/ui/v1/scan-policies/{namespace}/{name}` | Delete a policy (requires `If-Match`) |
+
+Write routes require policy management to be enabled and anonymous access to be
+off. See the [API Reference](../../reference/api.md#scanpolicy).
