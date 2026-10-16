@@ -122,7 +122,7 @@ scanning:
     Enforcement halts only the affected `Version`. Other versions continue to reconcile.
 
 !!! warning "`blockOnHigh` blocks at HIGH **or above**"
-    `blockOnHigh: true` also blocks CRITICAL findings.
+    `blockOnHigh: true` also blocks CRITICAL findings. Before 0.11.0, it blocked only HIGH. See the [upgrade notes](../upgrading.md).
 
 A blocked `Version` keeps its `status.sourceScan` and `status.binaryScan` so that exemptions can be written against its findings. As a result, **anyone with `get` on `Version` resources in a namespace can read the known vulnerabilities of stored artifacts**, blocked or not. Factor this into your [RBAC](../reference/rbac/index.md) design.
 
