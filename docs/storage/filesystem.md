@@ -28,9 +28,8 @@ The Helm values are:
 | `storage.filesystem.size` | `10Gi` | PVC size |
 
 !!! note
-    Set the CRD `directoryPath` to the same value as
-    `storage.filesystem.mountPath`. This pairing is required for filesystem
-    downloads to pass the Server path guard.
+    The CRD `directoryPath` must be the same as or inside `storage.filesystem.mountPath`.
+    Module downloads outside that root are rejected.
 
 ## Local Development with kind
 
@@ -43,16 +42,14 @@ helm install opendepot opendepot/opendepot \
 ```
 
 With `hostPath`, the chart adds an init container that runs as root to set
-ownership to UID `65532`, the non-root user used by the application containers.
-This is intended for local development only and is not recommended for
-production.
+ownership of the mount path to UID `65532`, the non-root user used by the
+application containers. Use this for local development only.
 
 ## Download Path Enforcement
 
-The Server requires every filesystem download path to resolve inside the
-configured mount directory. Requests outside this root return HTTP 403. The
-chart passes `storage.filesystem.mountPath` to the Server automatically through
-the `--filesystem-mount-path` flag.
+The Server rejects module download paths that resolve outside the configured
+mount directory with HTTP 403. The chart passes `storage.filesystem.mountPath` to
+the Server through the `--filesystem-mount-path` flag.
 
 ## Production with a PVC
 

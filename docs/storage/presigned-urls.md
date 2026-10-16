@@ -34,7 +34,7 @@ storageConfig:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Redirect downloads to the storage backend |
 | `ttl` | duration | `15m` | URL validity, such as `"15m"` or `"1h"` |
-| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails; set to `false` to require signing |
+| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails. When `false`, a signing failure returns `502 Bad Gateway`. |
 
 ## Backend Permissions
 
