@@ -851,7 +851,7 @@ All resources are in the `opendepot.defdev.io/v1alpha1` group. Fields marked *co
 | `fileFormat` | `string` | `zip` produces `.zip` archives. Any other value produces `.tar.gz`. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `immutable` | `bool` | When `true`, the archive checksum must match the stored `checksumSHA256` on every sync. Inherited from `global.moduleConfig` when unset in a Depot. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `>= 1.0.0, < 2.0.0`. Used only by the Depot controller. |
-| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.moduleConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the archives. See [StorageConfig](#storageconfig). |
 
@@ -889,7 +889,7 @@ The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described
 | `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
-| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.moduleConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
 
 ### ProviderVersion
@@ -924,7 +924,7 @@ Items in `spec.versions`.
 
 | Field | Type | Description |
 |---|---|---|
-| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules. Requires `storageConfig`. Optional `githubClientConfig`, `moduleConfig`, and `versionHistoryLimit`. `versionHistoryLimit` applies to each entry that does not set its own. |
+| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules and providers. Requires `storageConfig`. Optional `githubClientConfig`, `moduleConfig`, `providerConfig`, and `versionHistoryLimit`. `versionHistoryLimit` applies to each entry that sets neither its own value nor a kind-specific `moduleConfig` or `providerConfig` value. |
 | `spec.moduleConfigs` | `[]ModuleConfig` | Modules to create and manage. |
 | `spec.providerConfigs` | `[]ProviderConfig` | Providers to create and manage. |
 | `spec.pollingIntervalMinutes` | `int` | Minutes between checks for new versions. Unset or `0` disables periodic polling. |

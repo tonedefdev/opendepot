@@ -214,4 +214,10 @@ moduleConfigs:
         resourceGroup: opendepot-rg
 ```
 
-**Version history limit:** set `versionHistoryLimit` on a `moduleConfigs` or `providerConfigs` entry, or on `spec.global` to apply one limit to every entry that does not set its own. The Depot keeps the newest N matching versions and writes only those to each generated resource's `spec.versions`. The Module and Provider controllers then delete the `Version` resources that were removed. Trimmed versions do not return on later polls.
+**Version history limit:** the first value set wins, in this order:
+
+1. `versionHistoryLimit` on the `moduleConfigs` or `providerConfigs` entry.
+2. `spec.global.moduleConfig.versionHistoryLimit` for modules, or `spec.global.providerConfig.versionHistoryLimit` for providers.
+3. `spec.global.versionHistoryLimit` for both kinds.
+
+The Depot keeps the newest N matching versions and writes only those to each generated resource's `spec.versions`. The Module and Provider controllers then delete the `Version` resources that were removed. Trimmed versions do not return on later polls.

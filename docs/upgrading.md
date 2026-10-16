@@ -15,6 +15,17 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## Unreleased
+
+The Depot CRD adds `spec.global.providerConfig` and `spec.global.versionHistoryLimit`.
+Depots trim `spec.versions` to the newest N matching versions, so trimmed versions no longer return on later polls.
+
+Helm does not update CRDs in the `crds/` directory on `helm upgrade`. Apply the new Depot CRD before you upgrade:
+
+```bash
+kubectl apply -f chart/opendepot/crds/opendepot.defdev.io_depots.yaml
+```
+
 ## v0.11.1
 
 v0.11.1 is a chart-only patch. The application version remains `0.11.0`.
