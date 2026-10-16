@@ -120,8 +120,8 @@ server:
     # clientId must match the id field of the Dex static client configured below.
     clientId: "opendepot"
     # clientSecretName is the name of an existing Kubernetes Secret that holds
-    # the OPENDEPOT_DEX_CLIENT_SECRET key. Must be "opendepot-dex-client-secret"
-    # when Dex and OIDC are enabled, because dex.envFrom reads that name.
+    # the OPENDEPOT_DEX_CLIENT_SECRET key. When Dex and OIDC are enabled, it is
+    # required and must match a secretRef name in dex.envFrom.
     clientSecretName: ""
     # groupsClaim is the JWT claim name containing the OIDC groups.
     # Only used when GroupBinding resources are deployed. Defaults to "groups".
