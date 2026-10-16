@@ -7,9 +7,9 @@ tags:
 
 # Consuming Providers
 
-OpenDepot implements the **Provider Network Mirror Protocol** (shared by OpenTofu and Terraform) so your configurations can reference providers by their canonical upstream identity (e.g., `hashicorp/aws` or `registry.opentofu.org/hashicorp/aws` or `registry.terraform.io/hashicorp/aws`) while installing provider binaries from OpenDepot. The lockfile preserves the canonical identity, so your IaC stays portable across teams and environments.
+OpenDepot implements the **Provider Network Mirror Protocol**, which OpenTofu and Terraform share. Configurations reference providers by their canonical identity (for example, `hashicorp/aws`), and the CLI installs binaries from OpenDepot. The lockfile keeps the canonical identity, so configurations stay portable.
 
-OpenDepot supports providers from both `registry.opentofu.org` and `registry.terraform.io`. You configure the origin per `Provider` resource via `spec.providerConfig.upstreamRegistry`, which controls upstream discovery, archive acquisition, and the canonical provider identity exposed to clients. When omitted, the field defaults to `registry.opentofu.org`, reflecting OpenDepot's OpenTofu preference.
+OpenDepot supports providers from `registry.opentofu.org` and `registry.terraform.io`. Set the origin per `Provider` with `spec.providerConfig.upstreamRegistry`. It defaults to `registry.opentofu.org`.
 
 ## Default workflow: Network Mirror
 
@@ -30,13 +30,13 @@ terraform {
 }
 ```
 
-The `source` field uses the format `<provider-namespace>/<provider-type>` (or the fully-qualified form like `registry.opentofu.org/<provider-namespace>/<provider-type>` or `registry.terraform.io/<provider-namespace>/<provider-type>`). This matches the upstream identity configured in the `Provider` resource's `spec.providerConfig.upstreamRegistry` field, not your OpenDepot hostname.
+The `source` field uses `<provider-namespace>/<provider-type>`, or the fully-qualified form `<upstream-registry>/<provider-namespace>/<provider-type>`. It names the upstream identity, not your OpenDepot hostname.
 
 **CLI configuration: namespace-scoped mirror URL**
 
-Because the canonical source does not reference OpenDepot directly, you configure OpenDepot as the **installation source** in your CLI configuration file (`.tofurc` for OpenTofu, `.terraformrc` for Terraform) using a `provider_installation` block.
+Configure OpenDepot as the installation source in `.tofurc` (OpenTofu) or `.terraformrc` (Terraform) with a `provider_installation` block.
 
-The `network_mirror.include` and `direct.exclude` patterns must use the **same canonical hostname** as the `upstreamRegistry` field in your `Provider` resources. For example, if your Provider resource sets `upstreamRegistry: registry.terraform.io`, use `include = ["registry.terraform.io/*/*"]` and `exclude = ["registry.terraform.io/*/*"]` in your CLI configuration.
+The `network_mirror.include` and `direct.exclude` patterns must use the same hostname as the `upstreamRegistry` on your `Provider` resources. For example, `upstreamRegistry: registry.terraform.io` requires `registry.terraform.io/*/*` in both patterns.
 
 === "OpenTofu (registry.opentofu.org)"
 
@@ -149,17 +149,17 @@ The `network_mirror.include` and `direct.exclude` patterns must use the **same c
 
 **Key details**
 
-- **Hostname versus namespace**: Credentials are matched by the OpenDepot hostname (and port, if non-default). The mirror URL is namespace-scoped — `/opendepot/providers/mirror/v1/<kubernetes-namespace>/` — and the CLI authenticates metadata requests using the credentials associated with the hostname.
-- **Canonical identity in lockfile**: The `.terraform.lock.hcl` records the canonical upstream identity (e.g., `registry.opentofu.org/hashicorp/aws` or `registry.terraform.io/hashicorp/aws`), not an OpenDepot-specific hostname. This preserves portability — teams can switch between OpenDepot instances or upstream without rewriting source declarations.
-- **Mirror-only installation**: The `direct.exclude` entry is critical. Without it, the CLI may fall back to the upstream registry if a mirrored provider lacks a version you request, bypassing OpenDepot's scanning and access controls.
-- **One installation serving both origins**: A single default cluster-scoped OpenDepot installation can serve providers from both `registry.opentofu.org` and `registry.terraform.io` by placing them in separate Kubernetes namespaces. If the same canonical provider namespace/type is mirrored from both origins (e.g., `hashicorp/aws` from both registries), place them in separate Kubernetes namespaces to avoid Version resource-name collisions. When `rbac.scopeToNamespace: true` restricts controllers to `global.namespace`, serving origins from multiple namespaces requires broader cluster scope or separate namespace-scoped installations.
+- **Credentials and namespace**: Credentials match the OpenDepot hostname, including the port if it is non-default. The mirror URL is scoped to a Kubernetes namespace (`/opendepot/providers/mirror/v1/<kubernetes-namespace>/`).
+- **Lockfile identity**: `.terraform.lock.hcl` records the canonical upstream identity, not the OpenDepot hostname.
+- **Mirror-only installs**: `direct.exclude` is required. Without it, the CLI can fall back to the upstream registry for a version the mirror lacks, bypassing OpenDepot's scanning and access controls.
+- **Both origins**: Providers from `registry.opentofu.org` and `registry.terraform.io` can share one cluster-scoped installation. If the same provider namespace and type is mirrored from both registries, place them in separate Kubernetes namespaces. Otherwise their Version resource names collide. With `rbac.scopeToNamespace: true`, controllers only watch `global.namespace`, so multi-namespace serving needs broader cluster scope or separate namespace-scoped installations.
 
 !!! note
     The mirror metadata endpoints (`index.json` and the per-version files) check the caller's access. Archive downloads are served by OpenDepot or redirected to a presigned URL, depending on storage configuration. See [Pre-signed URL Redirects](../storage/presigned-urls.md).
 
 ## Advanced: Direct OpenDepot provider identity
 
-For private or internal providers not mirrored from an upstream registry, OpenDepot still supports the **Provider Registry Protocol** with direct OpenDepot identity. In this mode, the `source` field references your OpenDepot hostname and Kubernetes namespace directly:
+For private or internal providers that are not mirrored from an upstream registry, use the **Provider Registry Protocol** with direct OpenDepot identity. The `source` names your OpenDepot hostname and Kubernetes namespace:
 
 ```hcl
 terraform {
@@ -172,9 +172,9 @@ terraform {
 }
 ```
 
-The source format is `<registry-host>/<namespace>/<name>`, where `<namespace>` is the Kubernetes namespace where the `Provider` resource lives and `<name>` matches `spec.providerConfig.name` (or the `Provider` resource name if `name` is omitted).
+The source format is `<registry-host>/<namespace>/<name>`. `<namespace>` is the Kubernetes namespace of the `Provider` resource. `<name>` is `spec.providerConfig.name`, or the `Provider` resource name if `name` is omitted.
 
-Service discovery at `/.well-known/terraform.json` advertises `providers.v1`, so the CLI resolves the endpoint without extra configuration. Use this `host` block only if discovery does not resolve:
+Discovery at `/.well-known/terraform.json` advertises `providers.v1`, so the CLI needs no extra configuration. Use this `host` block only if discovery fails:
 
 !!! note "Host mapping fallback"
     ```hcl
@@ -185,12 +185,8 @@ Service discovery at `/.well-known/terraform.json` advertises `providers.v1`, so
     }
     ```
 
-Authenticate with a `credentials "opendepot.defdev.io"` block, as shown in the mirror examples. Use direct identity only for private or internal providers. For canonical providers from `registry.opentofu.org` or `registry.terraform.io`, use the Network Mirror workflow above.
+Authenticate with a `credentials "opendepot.defdev.io"` block, as in the mirror examples. Use direct identity only for private or internal providers. Use the Network Mirror workflow for providers from `registry.opentofu.org` or `registry.terraform.io`.
 
 ## Next Steps for Admins
 
-For provider publishing and lifecycle operations (adding versions, force re-sync, source repository overrides), use [Registry Operations](operations.md).
-
-For scan configuration and policy controls, see [Vulnerability Scanning](../configuration/scanning.md).
-
-For pre-signed redirects and storage backends, see [Pre-signed URL Redirects](../storage/presigned-urls.md).
+For publishing and lifecycle operations, see [Registry Operations](operations.md). For scanning, see [Vulnerability Scanning](../configuration/scanning.md). For redirects and storage, see [Pre-signed URL Redirects](../storage/presigned-urls.md).
