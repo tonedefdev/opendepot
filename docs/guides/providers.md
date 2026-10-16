@@ -155,7 +155,7 @@ The `network_mirror.include` and `direct.exclude` patterns must use the **same c
 - **One installation serving both origins**: A single default cluster-scoped OpenDepot installation can serve providers from both `registry.opentofu.org` and `registry.terraform.io` by placing them in separate Kubernetes namespaces. If the same canonical provider namespace/type is mirrored from both origins (e.g., `hashicorp/aws` from both registries), place them in separate Kubernetes namespaces to avoid Version resource-name collisions. When `rbac.scopeToNamespace: true` restricts controllers to `global.namespace`, serving origins from multiple namespaces requires broader cluster scope or separate namespace-scoped installations.
 
 !!! note
-    Provider archive downloads (the binary, `SHA256SUMS`, and `SHA256SUMS.sig`) do not require client authentication when using anonymous mirror access. The CLI fetches these URLs after receiving the archive metadata from the metadata endpoint. When authentication is enabled, the metadata endpoint is protected, but archive URLs themselves are either unauthenticated or presigned depending on your storage backend configuration. See [Pre-signed URL Redirects](../storage/presigned-urls.md) for presigned URL behavior.
+    The mirror metadata endpoints (`index.json` and the per-version files) check the caller's access. Archive downloads are served by OpenDepot or redirected to a presigned URL, depending on storage configuration. See [Pre-signed URL Redirects](../storage/presigned-urls.md).
 
 ## Advanced: Direct OpenDepot provider identity
 
@@ -174,21 +174,18 @@ terraform {
 
 The source format is `<registry-host>/<namespace>/<name>`, where `<namespace>` is the Kubernetes namespace where the `Provider` resource lives and `<name>` matches `spec.providerConfig.name` (or the `Provider` resource name if `name` is omitted).
 
-Configure the `.tofurc` with a `host` block pointing to the `providers.v1` service:
+Service discovery at `/.well-known/terraform.json` advertises `providers.v1`, so the CLI resolves the endpoint without extra configuration. Use this `host` block only if discovery does not resolve:
 
-```hcl
-credentials "opendepot.defdev.io" {
-  token = "<oidc-access-token>"
-}
+!!! note "Host mapping fallback"
+    ```hcl
+    host "opendepot.defdev.io" {
+      services = {
+        "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
+      }
+    }
+    ```
 
-host "opendepot.defdev.io" {
-  services = {
-    "providers.v1" = "https://opendepot.defdev.io/opendepot/providers/v1/"
-  }
-}
-```
-
-This approach is recommended **only** for private or internal providers not sourced from an upstream registry. For canonical providers from `registry.opentofu.org` or `registry.terraform.io`, use the Network Mirror workflow above.
+Authenticate with a `credentials "opendepot.defdev.io"` block, as shown in the mirror examples. Use direct identity only for private or internal providers. For canonical providers from `registry.opentofu.org` or `registry.terraform.io`, use the Network Mirror workflow above.
 
 ## Next Steps for Admins
 
