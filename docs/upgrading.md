@@ -47,9 +47,8 @@ entry to allow a specific finding.
 ### Prometheus Statistics
 
 Prometheus replaces Valkey as the statistics backend. The chart can optionally
-install a minimal kube-prometheus-stack. The bundled stack is disabled by
-default because Prometheus Operator requires cluster-wide RBAC. Enable it
-explicitly when that access is acceptable:
+install a minimal kube-prometheus-stack. It is disabled by default. Enable it
+explicitly:
 
 ```yaml
 monitoring:
@@ -66,11 +65,11 @@ Service. Set `server.metrics.serviceMonitor.additionalLabels` if the existing
 operator requires matching labels, or disable the ServiceMonitor when another
 scrape configuration is already in place. The URL must be absolute.
 
-When `server.stats.prometheusURL` is empty, the server uses the bundled-service
-address only when `monitoring.enabled=true`; that fallback requires
-`monitoring.bundled.enabled=true`. To retain time series beyond the local
+When `server.stats.prometheusURL` is empty and `monitoring.enabled` is `true`,
+the server uses the bundled Prometheus service address. That service exists only
+when `monitoring.bundled.enabled` is `true`. To keep time series beyond the local
 90-day window, configure `monitoring.prometheus.prometheusSpec.remoteWrite` for
-Mimir or another Prometheus-compatible long-term storage system.
+Mimir or another Prometheus-compatible system.
 
 ### Security and Configuration Changes
 
@@ -294,18 +293,14 @@ The version-controller ServiceAccount now requires `configmaps` (`create`, `get`
 
 No manual action is required for existing `Module` and `Version` resources — the version controller resolves and stores READMEs automatically on each Version's next reconcile, or immediately when `forceSync: true` is set.
 
-### Dependency Updates
-
-The UI's `vitest` dependency was bumped to `^3.2.6`, with `vite` and `undici` pinned via `resolutions`, resolving HIGH/CRITICAL npm advisories. This affects the UI's build and test tooling only — no runtime or Helm values changes are required.
-
 ## v0.6.0
 
 v0.6.0 replaces the SQLite download-stats backend with a bundled Valkey instance.
 
 ### Breaking Changes
 
-- **`--stats-db-path` is removed.** The server flag no longer exists. Any custom Helm values overrides that reference `server.stats.*` must be removed — the chart will reject unknown values.
-- **`server.stats` values block is removed.** Remove `server.stats.emptyDir`, `server.stats.persistence.*`, or any `server.stats` key from your `values.yaml` before upgrading.
+- **`--stats-db-path` is removed.** The server flag no longer exists.
+- **`server.stats` values block is removed.** Remove `server.stats.emptyDir`, `server.stats.persistence.*`, or any other old `server.stats` key from your `values.yaml`. The chart does not validate values against a schema, so these keys are ignored rather than rejected.
 - **Stats history is not migrated.** Valkey starts with a clean slate — download counts accumulated in the previous SQLite database are not carried over. Historic data can be discarded or archived manually before upgrading.
 
 ### Upgrade Steps
