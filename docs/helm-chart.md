@@ -37,7 +37,7 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 | `server.useBearerToken` | bool | Use bearer token auth instead of kubeconfig. Default: `true` |
 | `server.policyManagement.enabled` | bool | Enable server-side ScanPolicy create, update, and delete routes. Reads remain available when false; writes are disabled by default. Default: `false` |
 | `server.image.repository` | string | Server image repository. Default: `ghcr.io/tonedefdev/opendepot/server` |
-| `server.service.type` | string | Kubernetes Service type. Default: `LoadBalancer` |
+| `server.service.type` | string | Kubernetes Service type. Default: `ClusterIP` |
 | `server.service.port` | int | Service port. Default: `80` |
 | `server.service.targetPort` | int | Container port. Default: `8080` |
 | `server.tls.enabled` | bool | Enable TLS on the server. Default: `false` |
@@ -171,7 +171,7 @@ directly mounted Kubernetes ServiceAccount token.
 
 ## Assembly Line
 
-Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. Default images do not include OpenTofu, so enabling Assembly Line requires `server.image.tag` and `version.image.tag` set to a `-assembly` tag. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
+Assembly Line is disabled by default and requires OpenTofu. Default images do not include OpenTofu, so set `server.image.tag` and `version.image.tag` to a `-assembly` tag when enabling it. `ui.baseUrl` must be an external HTTP(S) URL. Its host and port appear in generated module source addresses and the OpenTofu Provider Network Mirror URL. See [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -288,13 +288,9 @@ monitoring:
 
 The Stats page uses the configured lookback window, not an all-time total. For time series longer than local retention, configure `remoteWrite` to Mimir or another Prometheus-compatible backend and use Grafana to query the retained history.
 
-### Source-built controller dependencies
+### Source-built image dependencies
 
-The `-assembly` server and Version controller images build the pinned OpenTofu source commit
-used for initialization and schema extraction. The default images do not include OpenTofu. The version-controller image built with `INCLUDE_TRIVY=true` also builds
-Trivy from a pinned source commit, and the `-assembly` version-controller image includes both Trivy and OpenTofu. The chart release metadata is the source of
-the default image tag; release `0.11.0` uses chart and application version
-`0.11.0`.
+Images are built from pinned source commits (`TRIVY_COMMIT` and `TOFU_COMMIT` in the Dockerfiles). The standard Version image includes Trivy. The `-assembly` server and Version images include OpenTofu. The `-assembly` Version image also includes Trivy.
 
 See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 
@@ -304,8 +300,8 @@ The `scanning` section controls Trivy-based vulnerability scanning for modules a
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `scanning.enabled` | bool | Enable Trivy-based scanning. Requires a version-controller image that bundles Trivy, which the standard tag includes, and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `false` |
-| `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `false` |
+| `scanning.enabled` | bool | Enable Trivy-based scanning. Requires a version-controller image that bundles Trivy, which the standard tag includes, and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `true` |
+| `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `true` |
 | `scanning.cacheMountPath` | string | Mount path inside the version-controller container for the Trivy DB cache. Default: `/var/cache/trivy` |
 | `scanning.offline` | bool | Pass `--offline-scan` to Trivy, preventing network calls during scans. Only applies to provider scanning. Default: `true` |
 | `scanning.blockOnCritical` | bool | Halt reconciliation when CRITICAL findings are present (modules or providers). Default: `false` |
@@ -324,7 +320,7 @@ The optional policy-management API is intentionally separate from controller enf
 
 #### Tilt and monitoring scope
 
-The repository's Tilt profile is development-only: it enables `global.developmentMode`, local TLS/Dex, Trivy scanning, the UI, and the bundled Prometheus stack for an end-to-end environment. It does **not** enable `server.policyManagement.enabled`; turn that on only in a disposable cluster when testing the write surface. Do not copy the Tilt values file into production: it uses local filesystem storage, test OIDC settings, and Dex password authentication.
+The repository's Tilt profile (`tilt/values.yaml`) is for development only. It enables `global.developmentMode`, local TLS, Dex with password authentication, filesystem storage, Trivy scanning, the UI, the bundled Prometheus stack, and `server.policyManagement.enabled`. Do not copy these values into production.
 
-The bundled monitoring configuration is intentionally narrow. It scrapes OpenDepot application metrics with a single Prometheus and 90-day retention; Grafana, Alertmanager, node exporters, Kubernetes component monitors, and the Prometheus Operator ServiceMonitor are disabled by default in the chart values. Policy audit evidence comes from server/Kubernetes logs, not from Prometheus. Configure `monitoring.prometheus.prometheusSpec.remoteWrite` and a durable audit-log sink separately when longer retention or production alerting is required.
+The bundled monitoring stack scrapes OpenDepot metrics with one Prometheus and 90-day retention. Grafana, Alertmanager, node exporters, and Kubernetes component monitors are disabled. Policy audit evidence comes from server and Kubernetes logs, not Prometheus. For longer retention, configure `monitoring.prometheus.prometheusSpec.remoteWrite` and a durable audit-log sink.
 
