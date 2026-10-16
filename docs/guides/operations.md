@@ -149,41 +149,12 @@ The controller bypasses the provider fast-path, re-downloads the artifact, runs 
 
 ### Provider source repository
 
-For providers from `registry.opentofu.org`, OpenDepot resolves the source repository through `api.opentofu.org`. For `registry.terraform.io`, it builds `https://github.com/{namespace}/terraform-provider-{name}`, because the Terraform Registry does not expose source metadata.
-
-For providers outside the `hashicorp` namespace, set `namespace`:
-
-```yaml
-spec:
-  providerConfig:
-    name: github
-    namespace: integrations
-```
-
-Set `sourceRepository` to pin the URL when the lookup returns the wrong repository or none is available:
-
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    sourceRepository: "https://github.com/my-org/terraform-provider-myprovider"
-```
+For `registry.opentofu.org` providers, OpenDepot looks up the source repository through `api.opentofu.org`. For `registry.terraform.io` providers, it builds `https://github.com/{namespace}/terraform-provider-{name}`. Set `spec.providerConfig.namespace` when the provider is not published under `hashicorp`, or set `sourceRepository` to pin the URL. The resolution order and examples are in [Provider Source Repository Resolution](../configuration/scanning.md#provider-source-repository-resolution).
 
 ### Authenticated source scanning
 
-For private source repositories, or to avoid GitHub API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the same `opendepot-github-application-secret` as modules, so no extra Secret is needed if GitHub App auth is configured in the namespace.
+For private source repositories, or to avoid GitHub API rate limits, set `githubClientConfig.useAuthenticatedClient: true` on the `ProviderConfig`. The Version controller uses the `opendepot-github-application-secret` that modules use. See [Authenticated Source Scanning](../configuration/scanning.md#authenticated-source-scanning) and [GitHub Authentication](../configuration/github-auth.md).
 
-```yaml
-spec:
-  providerConfig:
-    name: myprovider
-    namespace: my-org
-    githubClientConfig:
-      useAuthenticatedClient: true
-```
-
-See [GitHub Authentication](../configuration/github-auth.md) for setup details.
 
 ## Vulnerability Scanning Runbooks
 
