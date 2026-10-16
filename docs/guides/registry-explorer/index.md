@@ -2,7 +2,7 @@
 tags:
   - guides
   - ui
-   - opendepot-workshop
+  - opendepot-workshop
 ---
 
 # OpenDepot Workshop
