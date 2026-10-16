@@ -24,6 +24,9 @@ When Dex and OIDC are enabled, the chart fails to render unless
 `dex.envFrom`. Before this release, a mismatch rendered successfully, and Dex
 started without the client secret.
 
+The Depot `GlobalConfig` printer column now reads `.spec.global`, the JSON key.
+Before this release, the column was always blank in `kubectl get depots`.
+
 Use any Secret name, but set the same name in both `server.oidc.clientSecretName`
 and `dex.envFrom`. The Secret must contain the `OPENDEPOT_DEX_CLIENT_SECRET` key.
 
