@@ -223,7 +223,16 @@ Install the `SecurityGroupBinding` and `ScanPolicy` CRDs before you enable polic
 
 To roll back, stop policy writes, remove or revert the affected `ScanPolicy` objects, and restore the previous global thresholds if you changed them. Then roll back the chart. Keep the `ScanPolicy` CRD installed until all policy objects are removed, because Helm does not remove CRDs on rollback. Findings stay on Versions, so reverting a policy does not erase scan evidence.
 
-Validate in a disposable namespace. Confirm that the global baseline blocks a finding. Apply an exact exemption, then confirm that the finding stays visible and reconciliation proceeds. Confirm that expiry restores blocking. Check priority shadowing, first-match binding order, and denial of cross-namespace and non-onboarded targets. Confirm that a stale `If-Match` returns `409 Conflict` without losing the draft. Test preview, create, update, and delete with authorized and unauthorized identities. Also verify the deployed chart's RBAC and OIDC identity configuration.
+Validate the rollout in a disposable namespace:
+
+- [ ] The global baseline blocks a finding.
+- [ ] An exact exemption keeps the finding visible and lets reconciliation proceed.
+- [ ] Expiry of that exemption restores blocking.
+- [ ] Priority shadowing and first-match binding order behave as configured.
+- [ ] Cross-namespace and non-onboarded targets are denied.
+- [ ] A stale `If-Match` update returns `409 Conflict` and keeps the unsaved draft.
+- [ ] Preview, create, update, and delete work for an authorized identity and are denied for an unauthorized identity.
+- [ ] The deployed chart's RBAC and OIDC identity configuration match what you expect.
 
 ## Offline Mode
 
