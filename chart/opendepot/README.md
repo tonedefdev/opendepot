@@ -215,8 +215,7 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | `server.oidc.enabled` | `false` | Enable OIDC JWT validation |
 | `server.oidc.issuerUrl` | `""` | OIDC issuer URL. When blank and `dex.enabled=true`, the chart auto-derives the in-cluster Dex URL |
 | `server.oidc.clientId` | `opendepot` | Dex client ID. Must match the `id` of the Dex `staticClient` |
-| `server.oidc.clientSecretName` | `""` | Name of an existing `Secret` containing a `clientSecret` key. When blank, the chart creates the Secret from `server.oidc.clientSecret` |
-| `server.oidc.clientSecret` | `""` | Client secret written to a managed Secret. Do not commit in plain text — use an external secret operator in production |
+| `server.oidc.clientSecretName` | `""` | Name of an existing `Secret` containing the `OPENDEPOT_DEX_CLIENT_SECRET` key. The chart does not create it. When Dex and OIDC are enabled, must be `opendepot-dex-client-secret` |
 | `server.oidc.groupsClaim` | `""` | JWT claim name for groups. Defaults to `groups`; set to `cognito:groups`, `roles`, etc. for non-standard IdPs |
 | `server.oidc.allowServiceAccountFallback` | `false` | When `true`, Kubernetes ServiceAccount tokens are accepted alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on K8s RBAC directly |
 | `server.oidc.allowClientCredentials` | `false` | When `true`, Dex client credentials tokens are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against GroupBinding resources |

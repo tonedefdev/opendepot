@@ -58,15 +58,14 @@ management details.
 
 ## Step 2: Enable OIDC on the Server
 
-Create the OpenDepot client Secret. Dex loads `OPENDEPOT_DEX_CLIENT_SECRET` from
-it, and the chart requires `server.oidc.clientSecretName` to be set. Include
-both keys with the same value:
+Create the OpenDepot client Secret. Dex loads the `OPENDEPOT_DEX_CLIENT_SECRET`
+key from it. The chart requires `server.oidc.clientSecretName` to be
+`opendepot-dex-client-secret`, because `dex.envFrom` reads that name:
 
 ```bash
 SECRET=$(openssl rand -hex 32)
 kubectl create secret generic opendepot-dex-client-secret \
   -n opendepot-system \
-  --from-literal=clientSecret="$SECRET" \
   --from-literal=OPENDEPOT_DEX_CLIENT_SECRET="$SECRET"
 ```
 

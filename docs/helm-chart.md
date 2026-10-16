@@ -66,7 +66,7 @@ The `server.oidc` section enables OIDC JWT validation for production-ready singl
 | `server.oidc.enabled` | bool | When true, enables OIDC JWT validation and advertises the `login.v1` service discovery endpoint. Default: `false` |
 | `server.oidc.issuerUrl` | string | OIDC issuer URL (e.g., `https://opendepot.example.com/dex`). When blank and `dex.enabled: true`, auto-derives the in-cluster Dex service URL. |
 | `server.oidc.clientId` | string | OIDC client ID. Must match the Dex static client `id`. Default: `"opendepot"` |
-| `server.oidc.clientSecretName` | string | Name of an existing Secret with a `clientSecret` key. The chart does not create this Secret. Required when `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`. |
+| `server.oidc.clientSecretName` | string | Name of an existing Secret with the `OPENDEPOT_DEX_CLIENT_SECRET` key. The chart does not create this Secret. When `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the value must be `opendepot-dex-client-secret`, or the render fails. |
 | `server.oidc.groupsClaim` | string | JWT claim name containing the user's groups, used for [GroupBinding](guides/groupbinding.md) evaluation. When blank, defaults to `groups`. Set to `cognito:groups`, `roles`, etc. for non-standard IdPs. |
 | `server.oidc.allowServiceAccountFallback` | bool | When true, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer-token path using the SA's own RBAC. GroupBinding is bypassed for SA tokens. Requires `server.oidc.enabled: true`. Default: `false` |
 | `server.oidc.allowClientCredentials` | bool | When true, Dex tokens whose audience does not match the primary client ID are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against `GroupBinding` resources. Requires a Dex `staticClient` with `grantTypes: ["client_credentials"]`. Default: `false` |
@@ -82,13 +82,13 @@ server:
     enabled: true
     issuerUrl: https://opendepot.example.com/dex
     clientId: opendepot
-    clientSecretName: my-oidc-client-secret  # Existing Secret with a clientSecret key
+    clientSecretName: opendepot-dex-client-secret  # Existing Secret with the OPENDEPOT_DEX_CLIENT_SECRET key
     dexProxy:
       enabled: true
 ```
 
 !!! warning
-    When `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the Helm render fails if `server.oidc.clientSecretName` is blank. Create the Secret before installing.
+    When `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the Helm render fails unless `server.oidc.clientSecretName` is `opendepot-dex-client-secret`. Create the Secret before installing.
 
 ## Dex Configuration
 
