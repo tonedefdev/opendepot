@@ -19,9 +19,9 @@ discovery response. OpenTofu uses that block to authenticate with `tofu login`
 without distributing kubeconfig or ServiceAccount credentials.
 
 !!! note
-    OIDC and bearer-token modes are mutually exclusive by default. Set
-    `server.oidc.enabled: true` and `server.useBearerToken: false` when
-    switching to OIDC.
+    OIDC tokens are validated before `server.useBearerToken` is read, so enabling
+    OIDC does not require changing that value. The flag only controls how requests
+    that are not authenticated through OIDC supply Kubernetes credentials.
 
 ## Configuration Workflow
 
@@ -32,14 +32,14 @@ without distributing kubeconfig or ServiceAccount credentials.
     ---
 
     Enable Dex and OIDC on the server, apply the Helm upgrade, verify service
-discovery, and authenticate with `tofu login`.
+    discovery, and authenticate with `tofu login`.
 
 - :material-transit-connection-variant: &nbsp;[__Proxy and Deployment Modes__](proxy.md)
 
     ---
 
-    Configure the recommended server-proxied Dex setup, split-network URLs, or a
-    shared external Dex deployment.
+    Configure the server-proxied Dex setup, split-network URLs, or a shared
+    external Dex deployment.
 
 - :material-connection: &nbsp;[__Connectors and Secrets__](connectors.md)
 
