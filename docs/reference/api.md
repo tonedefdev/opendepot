@@ -821,7 +821,7 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 }
 ```
 
-`totalStorageBytes` sums `VersionStatus.archiveSizeBytes` across visible versions and is `0` when no sizes are recorded. `totalDownloads` and `mostDownloaded` come from Prometheus over the configured lookback window. Both stay `0` or empty until a matching metric is scraped. Download counts are filtered by the caller's visibility, so unauthenticated callers do not see private names in `mostDownloaded`.
+`totalStorageBytes` sums `VersionStatus.archiveSizeBytes` across visible versions and is `0` when no sizes are recorded. `totalDownloads` and `mostDownloaded` come from Prometheus over the configured lookback window and count only resources in the caller's visibility set. Both stay `0` or empty until a matching metric is scraped. Download counts are filtered by the caller's visibility, so unauthenticated callers do not see private names in `mostDownloaded`.
 
 ## Kubernetes Resource Types
 
@@ -1034,6 +1034,8 @@ The server also exposes the optional policy-management API for UI clients:
 
 `POST`, `PUT`, and `DELETE` return `404` until `server.policyManagement.enabled` is `true`. Anonymous callers can read policies but get `403` on mutations. In OIDC mode, access is default-deny and uses the effective `SecurityGroupBinding`. `GroupBinding` and Registry visibility do not grant policy access. Unauthorized namespace or item reads return `404`. A disallowed mutation in an authorized namespace returns `403`. Kubeconfig and bearer-token requests use Kubernetes RBAC. Status codes: `400` validation, `401` authentication, `403` authorization, `409` Kubernetes conflict.
 
+The server logs each successful create, update, and delete with the operation, namespace, policy name, and authenticated subject. Kubernetes audit logging remains the authoritative record of the underlying CRD writes.
+
 The server logs every successful create, update, and delete with the operation, namespace, policy name, and subject. For a durable record of the CRD write, configure the Kubernetes API server audit policy. UI access and a successful preview do not authorize writes.
 
 **ScanPolicySpec fields:**
@@ -1192,7 +1194,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `totalProviders` | `int` | Number of visible `Provider` resources |
 | `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
 | `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
-| `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window; `0` until a matching metric has been scraped |
+| `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window, counted only for resources in the caller's visibility set; `0` until a matching metric has been scraped |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
