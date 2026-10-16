@@ -17,7 +17,7 @@ spec:
   - additionalPrinterColumns:
     - description: The global configuration applied to all modules managed by this
         Depot
-      jsonPath: .spec.globalConfig
+      jsonPath: .spec.global
       name: GlobalConfig
       type: string
     name: v1alpha1
