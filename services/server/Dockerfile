@@ -2,7 +2,7 @@
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.6 AS builder
+FROM golang:1.26.9 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -41,20 +41,27 @@ COPY services/server/ services/server/
 # Build
 RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
 
-# Supply the same patched OpenTofu binary used by the version controller; only copied into the final image when INCLUDE_TOFU=true.
-FROM golang:1.27.1 AS tofu-source
-ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
+# OpenTofu release binary, verified against the upstream release checksum; only copied into the final image when INCLUDE_TOFU=true.
+FROM golang:1.27.2 AS tofu-source
+ARG TARGETARCH
+ARG TOFU_VERSION=1.13.1
+ARG TOFU_SHA256_AMD64=8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80
+ARG TOFU_SHA256_ARM64=b9614df40575cc3fc10a8a25025b7245d961da279f715ea3efff4ddae8e6938a
 RUN apt-get update \
-		&& apt-get install -y --no-install-recommends ca-certificates curl \
-		&& rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-	curl -fsSL -o /tmp/opentofu.tar.gz "https://github.com/opentofu/opentofu/archive/${TOFU_COMMIT}.tar.gz"; \
-	mkdir /tmp/opentofu; \
-	tar --strip-components=1 -xzf /tmp/opentofu.tar.gz -C /tmp/opentofu; \
-	cd /tmp/opentofu; \
-	sed -i -E 's/(golang.org\/x\/mod[[:space:]]+)v[0-9.]+/\1v0.40.0/; s/(google.golang.org\/grpc[[:space:]]+)v[0-9.]+/\1v1.83.2/' go.mod; \
-	GOWORK=off go mod tidy; \
-	GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
+    arch="${TARGETARCH:-amd64}"; \
+    case "${arch}" in \
+        amd64) sha="${TOFU_SHA256_AMD64}" ;; \
+        arm64) sha="${TOFU_SHA256_ARM64}" ;; \
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/tofu.zip "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.zip"; \
+    echo "${sha}  /tmp/tofu.zip" | sha256sum -c -; \
+    unzip -q /tmp/tofu.zip tofu -d /usr/local/bin; \
+    chmod 0755 /usr/local/bin/tofu
+
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

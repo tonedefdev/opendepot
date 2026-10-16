@@ -3,7 +3,7 @@ ARG INCLUDE_TRIVY=false
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.6 AS builder
+FROM golang:1.26.9 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -43,33 +43,48 @@ COPY services/version/internal/ services/version/internal/
 # Build
 RUN cd services/version && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/version-controller cmd/main.go
 
-# trivy-source: built from an immutable upstream commit; only copied into the final image when INCLUDE_TRIVY=true
-FROM golang:1.27.1 AS trivy-source
-ARG TRIVY_COMMIT=8f815546c7b57dc11229b0098463dff0cfc9ed2c
+# trivy-source: Trivy release binary, verified against the upstream release checksum; only copied into the final image when INCLUDE_TRIVY=true
+FROM golang:1.27.2 AS trivy-source
+ARG TARGETARCH
+ARG TRIVY_VERSION=0.76.0
+ARG TRIVY_SHA256_AMD64=e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7
+ARG TRIVY_SHA256_ARM64=aab21e677a7b7071fc79f1711480840754c18a1b9d9cefa7ccd06af63a0e8f4c
 RUN set -eux; \
   apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*; \
-  curl -fsSL -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/archive/${TRIVY_COMMIT}.tar.gz"; \
-  mkdir /tmp/trivy; \
-  tar --strip-components=1 -xzf /tmp/trivy.tar.gz -C /tmp/trivy; \
-  cd /tmp/trivy; \
-  CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/trivy ./cmd/trivy
+  arch="${TARGETARCH:-amd64}"; \
+  case "${arch}" in \
+    amd64) asset=64bit; sha="${TRIVY_SHA256_AMD64}" ;; \
+    arm64) asset=ARM64; sha="${TRIVY_SHA256_ARM64}" ;; \
+    *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${asset}.tar.gz"; \
+  echo "${sha}  /tmp/trivy.tar.gz" | sha256sum -c -; \
+  tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
 
-# tofu-source: supplies the statically linked patched tofu binary used to extract provider schemas; only copied into the final image when INCLUDE_TOFU=true.
-FROM golang:1.27.1 AS tofu-source
-ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
+
+# OpenTofu release binary, verified against the upstream release checksum; only copied into the final image when INCLUDE_TOFU=true.
+FROM golang:1.27.2 AS tofu-source
+ARG TARGETARCH
+ARG TOFU_VERSION=1.13.1
+ARG TOFU_SHA256_AMD64=8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80
+ARG TOFU_SHA256_ARM64=b9614df40575cc3fc10a8a25025b7245d961da279f715ea3efff4ddae8e6938a
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-    curl -fsSL -o /tmp/opentofu.tar.gz "https://github.com/opentofu/opentofu/archive/${TOFU_COMMIT}.tar.gz"; \
-    mkdir /tmp/opentofu; \
-    tar --strip-components=1 -xzf /tmp/opentofu.tar.gz -C /tmp/opentofu; \
-    cd /tmp/opentofu; \
-    sed -i -E 's/(golang.org\/x\/mod[[:space:]]+)v[0-9.]+/\1v0.40.0/; s/(google.golang.org\/grpc[[:space:]]+)v[0-9.]+/\1v1.83.2/' go.mod; \
-    GOWORK=off go mod tidy; \
-    GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
+    arch="${TARGETARCH:-amd64}"; \
+    case "${arch}" in \
+        amd64) sha="${TOFU_SHA256_AMD64}" ;; \
+        arm64) sha="${TOFU_SHA256_ARM64}" ;; \
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/tofu.zip "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.zip"; \
+    echo "${sha}  /tmp/tofu.zip" | sha256sum -c -; \
+    unzip -q /tmp/tofu.zip tofu -d /usr/local/bin; \
+    chmod 0755 /usr/local/bin/tofu
+
 
 # final image without Trivy or OpenTofu binaries
 FROM gcr.io/distroless/static:nonroot AS final-false-false

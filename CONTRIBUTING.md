@@ -31,7 +31,7 @@ Thank you for your interest in contributing to OpenDepot! This guide covers the 
 
 | Tool | Minimum version | Notes |
 |------|----------------|-------|
-| Go | 1.25 | All service modules target `go 1.25.5` |
+| Go | 1.26 | All service modules target `go 1.26.0` |
 | Docker | 17.03+ | Used to build controller images |
 | [kind](https://kind.sigs.k8s.io/) | v0.23+ | Local Kubernetes cluster |
 | [ctlptl](https://github.com/tilt-dev/ctlptl) | v0.9+ | Manages the persistent development cluster and registry |
