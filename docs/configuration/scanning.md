@@ -20,7 +20,7 @@ OpenDepot integrates [Trivy](https://trivy.dev/) to scan both provider artifacts
 For each provider version, the Version controller performs two scans:
 
 - **Binary scan** — runs `trivy rootfs` against the provider binary from the upstream archive. Results are stored in `Version.status.binaryScan` per OS and architecture. The binary is written with `0500` permissions (owner read and execute).
-- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If `go.mod` cannot be fetched (for example, the repository has none), nothing is stored and the next reconcile retries. A Trivy run that finds nothing stores `findings: []`, which means scanned with no findings.
+- **Source scan** — fetches `go.mod` from the provider's GitHub repository and runs `trivy fs`. Results are stored in `Version.status.sourceScan` and deduplicated across OS and architecture variants, which share the same source. If `go.mod` cannot be fetched, no source result is stored, the binary result still is, and the next reconcile retries. A Trivy run that finds nothing stores `findings: []`, which means scanned with no findings.
 
 !!! note
     `status.binaryScan` is empty for `Version` resources synced before scanning was enabled. The controller does not re-scan on restart, to avoid re-downloading large provider binaries. To re-download and re-scan once, set `forceSync: true`:
@@ -83,28 +83,14 @@ helm upgrade opendepot opendepot/opendepot \
 
 ## Customizing Provider Scanning
 
-To customize full provider binary and source scanning:
-
-```yaml
-scanning:
-  enabled: true
-  providerScanning: true
-  blockOnCritical: false
-  blockOnHigh: false
-  cache:
-    storageClassName: "efs-sc"   # must support ReadWriteMany in multi-node clusters
-    accessMode: ReadWriteMany
-    size: 1Gi
-```
-
-Apply via Helm upgrade:
+To use a specific StorageClass for the Trivy cache, set `scanning.cache.*`. The example below uses a ReadWriteMany class, which multi-node clusters need:
 
 ```bash
 helm upgrade opendepot opendepot/opendepot \
   --namespace opendepot-system \
-  --set scanning.enabled=true \
-  --set scanning.providerScanning=true \
-  --set scanning.cache.storageClassName=efs-sc
+  --set scanning.cache.storageClassName=efs-sc \
+  --set scanning.cache.accessMode=ReadWriteMany \
+  --set scanning.cache.size=1Gi
 ```
 
 ## Policy Enforcement
@@ -175,7 +161,7 @@ When more than one `ScanPolicy` matches a `Version`, only the single highest-`pr
 
 **Matching is exact, never a glob or regex:**
 
-`vulnerabilityIDs`, `pkgNames`, `severities`, and `scanTypes` only support exact string matches, plus the single literal `"*"` meaning "match everything". There is deliberately no glob, prefix, or regex support — partial matching risks silently over-exempting findings, and regex-based matching risks ReDoS on attacker-influenced strings such as package names.
+`vulnerabilityIDs`, `pkgNames`, `severities`, and `scanTypes` compare case-insensitively for exact equality. The only wildcard is the single literal `"*"`, which matches everything. There is deliberately no glob, prefix, or regex support, because partial matching risks silently over-exempting findings and regex matching risks ReDoS on attacker-influenced strings such as package names.
 
 **Exempted findings stay visible, they are not hidden:**
 
@@ -245,7 +231,7 @@ Set `scanning.offline: false` only if you want Trivy to download the database at
 
 ## Trivy DB Updater CronJob
 
-The `trivy-db-updater` CronJob runs `trivy image --download-db-only` on a schedule to refresh the local vulnerability database cache. It is only created when `scanning.providerScanning: true`. By default it runs daily at 02:00 UTC.
+The `trivy-db-updater` CronJob runs `trivy image --download-db-only` to refresh the local vulnerability database cache. It is created only when `scanning.providerScanning: true`. The default schedule is `0 2 * * *`, interpreted in the kube-controller-manager time zone.
 
 ```yaml
 scanning:
@@ -264,9 +250,9 @@ When performing a source scan, the Version controller resolves the provider's Gi
 2. **OpenTofu registry lookup** — for providers with `upstreamRegistry: registry.opentofu.org`, queries `api.opentofu.org` for the registered VCS URL.
 3. **Heuristic fallback** — for Terraform Registry providers, or when the OpenTofu lookup fails, constructs `https://github.com/{namespace}/terraform-provider-{name}` from the configured namespace and name.
 
-Step 3 always produces a URL. If that URL is wrong, the `go.mod` fetch fails, the source scan is skipped, and the binary scan still runs.
+Step 3 always produces a URL. If that URL is wrong and `go.mod` cannot be fetched, no source scan is stored, the binary scan still runs, and the Version retries on the next reconcile.
 
-The resolved URL is written to `Provider.status.resolvedSourceRepository` after the first successful scan. Once set, subsequent reconciliations do not overwrite it. To inspect the effective repository URL in use:
+The resolved URL is written to `Provider.status.resolvedSourceRepository` when a Version reconcile completes. Once set, it is not overwritten. To inspect the effective URL:
 
 ```bash
 kubectl get provider <name> -n <namespace> \
