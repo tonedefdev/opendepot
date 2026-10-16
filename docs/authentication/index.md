@@ -49,7 +49,7 @@ users or pipelines already have.
 
 | Feature | Managed Cluster Token | Kubeconfig File | OIDC (Dex) | OIDC + ServiceAccount Fallback |
 |---------|------------------------|-----------------|------------|--------------------------------|
-| Token lifetime | Short-lived, auto-rotating | Long-lived, manual rotation | Short-lived, typically one hour | Mixed: ServiceAccount token and JWT |
+| Token lifetime | Short-lived, auto-rotating | Long-lived, manual rotation | Short-lived, set by Dex | Mixed: ServiceAccount token and JWT |
 | Security | High | Good | Highest | High |
 | Setup complexity | Low | Low | Medium | Medium |
 | Credential distribution | Environment variable or shell | Credentials file | No distribution through SSO | No distribution for human users |
