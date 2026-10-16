@@ -103,7 +103,7 @@ version work items:
 - The Provider controller creates a Version for each version and each requested
   operating system and architecture.
 - Both controllers track the latest version and garbage-collect Versions removed
-  from `spec.versions`. `versionHistoryLimit` is stored on the spec but not enforced.
+  from `spec.versions`. When `versionHistoryLimit` is set, the Module and Provider controllers trim `spec.versions` to the newest N versions, and the removed Versions are garbage-collected.
 
 A provider with two versions, two operating systems, and two architectures
 produces eight Version resources.

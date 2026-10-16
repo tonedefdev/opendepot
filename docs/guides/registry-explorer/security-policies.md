@@ -81,7 +81,7 @@ include a reason. Leave its expiry empty for an indefinite exemption.
 Each exemption can be narrowed with these fields:
 
 - **Vulnerability IDs** — enter one or more vulnerability identifiers, such as
-  `CVE-2026-0001` or `aws-0057`. Use `*` to match any vulnerability ID.
+  `CVE-2026-0001` or `AWS-0057`. Use `*` to match any vulnerability ID.
 - **Package names** — enter one or more package names, such as `stdlib` or
   `golang.org/x/net`. Use `*` to match any package.
 - **Severities** — select the finding severity or leave the filter at `All`.

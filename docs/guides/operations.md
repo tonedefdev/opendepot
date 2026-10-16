@@ -61,7 +61,7 @@ GitHub Actions Example (Append on Release):
       -p "[{\"op\":\"add\",\"path\":\"/spec/versions/-\",\"value\":{\"version\":\"${VERSION}\"}}]"
 ```
 
-Removing a version: remove the entry from `spec.versions` and re-apply. The Module controller garbage-collects the removed `Version` resources. `versionHistoryLimit` is stored but not enforced yet, so older versions are not pruned automatically.
+Removing a version: remove the entry from `spec.versions` and re-apply. The controller garbage-collects the removed `Version` resources. With `versionHistoryLimit` set, the controller also trims `spec.versions` to the newest N entries and garbage-collects the rest.
 
 ### Force re-sync
 
