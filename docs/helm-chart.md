@@ -6,7 +6,7 @@ tags:
 
 # Helm Chart
 
-The OpenDepot Helm chart is published to a GitHub Pages Helm repository:
+The OpenDepot Helm chart is published to a GitHub Pages Helm repository. The repository index is served at `https://opendepot.defdev.io/index.yaml`. Add the repository by its base URL:
 
 ```bash
 helm repo add opendepot https://opendepot.defdev.io
