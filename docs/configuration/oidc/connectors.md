@@ -143,11 +143,11 @@ This keeps secret values out of Helm values files and in-cluster ConfigMaps.
 
 ## Security Notes
 
-- Use HTTPS for the Dex issuer in production. HTTP is accepted only for
-  `127.0.0.1` and in-cluster addresses.
+- Use an HTTPS Dex issuer in production. The server accepts `http` or `https`
+  issuer URLs.
 - JWT validation is local after the server fetches and caches Dex's JWKS.
-- JWTs are short-lived, typically one hour. Users can run `tofu login` again to
-  refresh them.
+- Token lifetime is set by Dex. Users can run `tofu login` again to get a new
+  token.
 - Do not enable `dex.config.enablePasswordDB` or `staticPasswords` in production.
-- Dex v2.45.0 or later is required when static-password test users need groups
-  claims for GroupBinding expressions.
+- The local test environment pins Dex v2.45.0 (`make oidc-deploy`). Static-password
+  test users use that version for groups claims in GroupBinding expressions.
