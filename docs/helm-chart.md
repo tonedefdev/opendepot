@@ -290,7 +290,7 @@ The Stats page uses the configured lookback window, not an all-time total. For t
 
 ### Source-built image dependencies
 
-Images are built from pinned source commits (`TRIVY_COMMIT` and `TOFU_COMMIT` in the Dockerfiles). The standard Version image includes Trivy. The `-assembly` server and Version images include OpenTofu. The `-assembly` Version image also includes Trivy.
+Trivy and OpenTofu are pinned release versions (`TRIVY_VERSION` and `TOFU_VERSION` in the Dockerfiles), verified against their published SHA256 checksums at build time. The standard Version image includes Trivy. The `-assembly` server and Version images include OpenTofu. The `-assembly` Version image also includes Trivy.
 
 See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 

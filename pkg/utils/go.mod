@@ -1,10 +1,10 @@
 module github.com/tonedefdev/opendepot/pkg/utils
 
-go 1.25.5
+go 1.26.0
 
 require (
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
-	golang.org/x/mod v0.40.0
+	golang.org/x/mod v0.41.0
 )
 
 require (
@@ -17,8 +17,8 @@ require (
 	github.com/onsi/gomega v1.40.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	k8s.io/apimachinery v0.35.4 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect

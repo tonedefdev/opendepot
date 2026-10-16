@@ -16,7 +16,7 @@ The `security-review` agent (`.github/agents/security-review.agent.md`) runs the
 - `trivy image --severity CRITICAL,HIGH` against each service image and the Valkey subchart image.
 - `trivy config --severity CRITICAL,HIGH chart/opendepot/` for Kubernetes misconfigurations.
 
-The version-controller image bundles Trivy, built from the `TRIVY_COMMIT` in `services/version/Dockerfile`. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Include the issue URL as a comment in the ignore file. Chart-level suppressions go in `chart/opendepot/.trivyignore`.
+The version-controller image bundles Trivy, downloaded from the `TRIVY_VERSION` release in `services/version/Dockerfile` and verified against its published SHA256 checksum. Upstream binaries are never built from source. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Include the issue URL as a comment in the ignore file. Chart-level suppressions go in `chart/opendepot/.trivyignore`.
 
 !!! note
     Resolve CVEs in the controller's own dependencies. Do not suppress them.
