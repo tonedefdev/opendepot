@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	toml "github.com/pelletier/go-toml/v2"
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"sigs.k8s.io/yaml"
 )
@@ -36,6 +37,8 @@ const (
 	FindingInvalidModel = "opendepot-agentspec-008"
 	// FindingUnknownKey is reported as a warning for top-level frontmatter keys outside KnownKeys.
 	FindingUnknownKey = "opendepot-agentspec-009"
+	// FindingMissingInstructions is reported when a TOML agent has no developer_instructions string.
+	FindingMissingInstructions = "opendepot-agentspec-010"
 
 	// MaxNameLength is the maximum length of a name.
 	MaxNameLength = 64
@@ -47,17 +50,18 @@ const (
 	skillFileName   = "SKILL.md"
 	agentFileSuffix = ".agent.md"
 	agentFileExt    = ".md"
+	agentFileTOML   = ".toml"
 )
 
-// FindAgentEntry returns the path of the entry file for the agent called name inside dir. Both
-// the Copilot layout (<name>.agent.md) and the Claude layout (<name>.md) are accepted. An error
-// is returned when neither file exists or when both exist, because the entry would be ambiguous.
+// FindAgentEntry returns the path of the entry file for the agent called name inside dir. The Copilot
+// layout (<name>.agent.md), the Claude layout (<name>.md), and the Codex layout (<name>.toml) are accepted.
+// An error is returned when no file exists or when more than one exists, because the entry would be ambiguous.
 func FindAgentEntry(dir string, name string) (string, error) {
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
 		return "", fmt.Errorf("invalid agent name %q", name)
 	}
 
-	candidates := []string{name + agentFileSuffix, name + agentFileExt}
+	candidates := []string{name + agentFileSuffix, name + agentFileExt, name + agentFileTOML}
 	var found []string
 
 	for _, candidate := range candidates {
@@ -70,11 +74,16 @@ func FindAgentEntry(dir string, name string) (string, error) {
 
 	switch len(found) {
 	case 0:
-		return "", fmt.Errorf("no agent entry file for %q: expected %s or %s", name, candidates[0], candidates[1])
+		return "", fmt.Errorf("no agent entry file for %q: expected one of %s", name, strings.Join(candidates, ", "))
 	case 1:
 		return found[0], nil
 	default:
-		return "", fmt.Errorf("ambiguous agent entry for %q: both %s and %s exist", name, candidates[0], candidates[1])
+		names := make([]string, len(found))
+		for i, path := range found {
+			names[i] = filepath.Base(path)
+		}
+
+		return "", fmt.Errorf("ambiguous agent entry for %q: %s all exist", name, strings.Join(names, ", "))
 	}
 }
 
@@ -183,6 +192,13 @@ func knownKeysFor(agent bool, platform string) (map[string]struct{}, error) {
 	return keys, nil
 }
 
+// codexAgentKeys are the top-level keys of a Codex custom agent TOML file. Codex does not read a tools key
+// from an agent file, so tools is not in this set and produces an unknown-key warning.
+var codexAgentKeys = keySet(
+	"name", "description", "developer_instructions", "model", "model_reasoning_effort",
+	"model_reasoning_summary", "model_verbosity", "features", "skills",
+)
+
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Result is the parsed contents of a SKILL.md or agent .md file.
@@ -269,6 +285,10 @@ func ParseAgentForReader(path string, r io.Reader, platform string) (*Result, er
 // parse validates the file at path. When dirName is empty, a SKILL.md must match its containing directory.
 // Top-level keys outside known produce a warning. The platform is named in that warning when it is set.
 func parse(path string, r io.Reader, dirName string, agent bool, known map[string]struct{}, platform string) (*Result, error) {
+	if strings.EqualFold(filepath.Ext(path), agentFileTOML) {
+		return parseCodexAgent(path, r, platform)
+	}
+
 	result := &Result{}
 	base := filepath.Base(path)
 	expectedName := strings.TrimSuffix(base, filepath.Ext(base))
@@ -318,6 +338,54 @@ func parse(path string, r io.Reader, dirName string, agent bool, known map[strin
 			}
 
 			result.add(path, FindingUnknownKey, severityWarning, message)
+		}
+	}
+
+	return result, result.err()
+}
+
+// parseCodexAgent validates a Codex custom agent TOML file. The file is the whole definition, so the
+// developer_instructions string is the body. A TOML file can only be a Codex agent, so platform must be empty or codex.
+func parseCodexAgent(path string, r io.Reader, platform string) (*Result, error) {
+	result := &Result{}
+	base := filepath.Base(path)
+
+	if platform != "" && platform != PlatformCodex {
+		return result, fmt.Errorf("%s is a Codex TOML agent and cannot be validated for platform %q", base, platform)
+	}
+
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return result, fmt.Errorf("read %s: %w", base, err)
+	}
+
+	var fm map[string]any
+
+	if err := toml.Unmarshal(content, &fm); err != nil {
+		result.add(path, FindingInvalidFrontmatter, severityError, fmt.Sprintf("file is not valid TOML: %v", err))
+
+		return result, result.err()
+	}
+
+	if fm == nil {
+		fm = map[string]any{}
+	}
+
+	result.Frontmatter = fm
+	validateName(result, path, "", fm, true)
+	validateDescription(result, path, fm)
+	validateModel(result, path, fm)
+
+	instructions, ok := fm["developer_instructions"].(string)
+	if !ok || strings.TrimSpace(instructions) == "" {
+		result.add(path, FindingMissingInstructions, severityError, "developer_instructions is required and must be a non-empty string")
+	} else {
+		result.Body = instructions
+	}
+
+	for key := range fm {
+		if _, ok := codexAgentKeys[key]; !ok {
+			result.add(path, FindingUnknownKey, severityWarning, fmt.Sprintf("unknown key %q for platform %q", key, PlatformCodex))
 		}
 	}
 

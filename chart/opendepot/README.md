@@ -286,7 +286,7 @@ Provider binary and source scanning (`scanning.providerScanning`) requires an ad
 | `scanning.blockOnHigh` | `false` | Block reconciliation when HIGH vulnerabilities are found |
 | `scanning.cache.storageClassName` | `""` | `StorageClass` for the Trivy DB PVC. Must support `ReadWriteMany` for multi-node clusters |
 | `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for the Trivy DB PVC. Use `ReadWriteOnce` for single-node environments |
-| `scanning.cache.size` | `1Gi` | Size of the Trivy DB cache PVC |
+| `scanning.cache.size` | `5Gi` | Size of the Trivy DB cache PVC. The vulnerability DB and its extracted copy need more than 1Gi |
 | `scanning.dbUpdater.schedule` | `0 2 * * *` | Cron schedule for the Trivy DB update job |
 | `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Image for the DB updater CronJob |
 | `scanning.dbUpdater.image.tag` | `0.70.0` | Tag for the DB updater image |

@@ -17,8 +17,8 @@ func TestLockRoundTrip(t *testing.T) {
 			Signature:   "sha256:1111",
 			Hashes:      []string{"h1:abc=", "zh:def"},
 			Installed: []lockInstalled{
-				{Target: "copilot", Path: ".github/skills/lint", Hash: "h1:abc="},
-				{Target: "claude", Path: ".claude/skills/lint", Hash: "h1:abc="},
+				{Target: "copilot", Path: "/Users/example/.copilot/skills/lint", Hash: "h1:abc="},
+				{Target: "claude", Path: "/Users/example/.claude/skills/lint", Hash: "h1:abc="},
 			},
 		}},
 		Agents: []lockEntry{{

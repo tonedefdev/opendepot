@@ -135,7 +135,7 @@ func (f *fakeRegistry) signFiles(t *testing.T, when time.Time, force bool) {
 	f.armored = armoredPublicKey(t, f.advertised)
 	config := &packet.Config{Time: func() time.Time { return when }}
 	for filename, hash := range f.shasums {
-		line := []byte(fmt.Sprintf("%s  %s\n", hash, filename))
+		line := fmt.Appendf(nil, "%s  %s\n", hash, filename)
 		if prev, ok := f.sums[filename]; ok && !force && bytes.Equal(prev, line) {
 			continue
 		}

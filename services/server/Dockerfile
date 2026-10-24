@@ -63,11 +63,37 @@ RUN set -eux; \
 	unzip -o "${archive}" tofu -d /usr/local/bin; \
 	chmod 0755 /usr/local/bin/tofu
 
+# CLI binaries for download from /opendepot/cli/v1; built with GOWORK=off because the CLI is dropped from the server workspace above
+FROM golang:1.26.9 AS cli-builder
+ARG CLI_VERSION=dev
+
+WORKDIR /workspace
+COPY api/v1alpha1/ api/v1alpha1/
+COPY pkg/agentspec/ pkg/agentspec/
+COPY pkg/archive/ pkg/archive/
+COPY cli/ cli/
+
+RUN set -eux; \
+	cd cli; \
+	mkdir -p /out; \
+	for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+		goos="${target%/*}"; \
+		goarch="${target#*/}"; \
+		ext=""; \
+		if [ "${goos}" = "windows" ]; then ext=".exe"; fi; \
+		GOWORK=off CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+			go build -trimpath -ldflags "-s -w -X main.buildVersion=${CLI_VERSION}" \
+			-o "/out/opendepot_${goos}_${goarch}${ext}" .; \
+	done; \
+	cd /out; \
+	sha256sum opendepot_* > SHA256SUMS
+
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-false
 WORKDIR /
 COPY --from=builder /workspace/server .
+COPY --from=cli-builder /out/ /opt/opendepot/cli/
 USER 65532:65532
 
 ENTRYPOINT ["/server"]
@@ -77,6 +103,7 @@ FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659ecea
 WORKDIR /
 COPY --from=builder /workspace/server .
 COPY --from=tofu-release /usr/local/bin/tofu /usr/local/bin/tofu
+COPY --from=cli-builder /out/ /opt/opendepot/cli/
 USER 65532:65532
 
 ENTRYPOINT ["/server"]

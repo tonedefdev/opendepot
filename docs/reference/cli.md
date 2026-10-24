@@ -2,6 +2,30 @@
 
 The `opendepot` CLI installs skills and agents from OpenDepot registries into a project. It resolves each entry against the registry, verifies the signature and hashes, and writes the files into the project's install targets. The lock file records exactly what was installed so that `verify` can check it later without network access.
 
+## Download the binary
+
+The registry server serves prebuilt `opendepot` binaries, so users can install the CLI without a Go toolchain. The UI exposes them on the **Download CLI** page, and the same files are available directly from the server at the following public paths:
+
+| Path | Returns |
+|------|---------|
+| `/opendepot/cli/v1/{os}/{arch}` | The binary for one platform. |
+| `/opendepot/cli/v1/SHA256SUMS` | SHA-256 checksums for every binary. |
+
+Supported platforms are `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, and `windows/amd64`. Windows binaries end in `.exe`. Any other platform returns 404.
+
+Verify a download against the checksums before you install it:
+
+```bash
+curl -fLO https://<registry-host>/opendepot/cli/v1/linux/amd64
+curl -fLO https://<registry-host>/opendepot/cli/v1/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+chmod +x opendepot_linux_amd64
+sudo mv opendepot_linux_amd64 /usr/local/bin/opendepot
+opendepot --version
+```
+
+The server image bundles the binaries at `/opt/opendepot/cli/`. The image build sets the version with `--build-arg CLI_VERSION=<version>`, which defaults to `dev`. The server reads that directory from the `-cli-dist-dir` flag. If the directory has no binary for a platform, that platform returns 404, so local development without bundled binaries still works. The binaries are not GPG-signed. Use the checksum file to verify them.
+
 ## Commands
 
 | Command | Purpose |
@@ -58,11 +82,25 @@ Each block label is the local name of the entry. Names must be unique within the
 
 ### Install targets
 
+The `copilot` and `claude` targets install into folders in your home directory, so they are shared by every project on the machine:
+
 | Target | Skill | Agent |
 |--------|-------|-------|
-| `copilot` | `.github/skills/{name}/` | `.github/agents/{name}.agent.md` |
-| `claude` | `.claude/skills/{name}/` | `.claude/agents/{name}.md` |
+| `copilot` | `~/.copilot/skills/{name}/` | `~/.copilot/agents/{name}.agent.md` |
+| `claude` | `~/.claude/skills/{name}/` | `~/.claude/agents/{name}.md` |
+| `codex` | `~/.agents/skills/{name}/` | `~/.codex/agents/{name}.toml` |
 | `agents-md` | A block in `AGENTS.md` | A block in `AGENTS.md` |
+
+Agent files are copied as published. Claude agents use the `.md` format, and Copilot agents keep the `.agent.md` suffix.
+
+Each agent format installs only to the targets that read it:
+
+- A Codex TOML agent (`{name}.toml`) installs only to `codex`, or to a custom `path`. It is never written to `AGENTS.md`, because that target would store the raw TOML in Markdown.
+- A Markdown agent (`{name}.agent.md` or `{name}.md`) installs to `copilot`, `claude`, and `agents-md`. It never installs to `codex`.
+
+If an agent has no target that accepts its format, the install fails before anything is written. Add `codex` to `targets` for a TOML agent, or add `copilot` or `claude` for a Markdown agent.
+
+To install into a project instead, set `path` on the entry, for example `path = ".github/skills/release-notes"`. A custom path is relative to the project and replaces `targets` for that entry.
 
 The `agents-md` target writes each entry into `AGENTS.md` between markers:
 
@@ -76,7 +114,7 @@ The CLI refuses to overwrite a block that was edited by hand unless you pass `--
 
 ## opendepot.lock.hcl
 
-`apply` writes `opendepot.lock.hcl` next to `opendepot.hcl`. Commit this file. It records what was installed:
+`apply` writes `opendepot.lock.hcl` next to `opendepot.hcl`. It records what was installed:
 
 ```hcl
 agent_skill "registry.example.com/my-org/release-notes" {
@@ -87,7 +125,7 @@ agent_skill "registry.example.com/my-org/release-notes" {
   hashes         = ["h1:...", "zh:..."]
 
   installed "copilot" {
-    path = ".github/skills/release-notes"
+    path = "/Users/you/.copilot/skills/release-notes"
     hash = "h1:..."
   }
 }
@@ -101,6 +139,8 @@ agent_skill "registry.example.com/my-org/release-notes" {
 | `signature_hash` | The hash of the signed `SHA256SUMS` file. |
 | `hashes` | The `h1:` directory hash and the `zh:` archive hash of the package. |
 | `installed` | One block per install target, labeled with the target name. Each records the `path` and the `h1:` `hash` of the installed content. |
+
+Commit this file. Paths for the `copilot` and `claude` targets are absolute home-directory paths, so the lock file is specific to the machine that last ran `apply`. Teammates on other machines get different paths after they run `apply`. Use `path` on an entry when the install must live in the repository.
 
 Use `opendepot verify` in CI to confirm that the installed files match the lock file.
 

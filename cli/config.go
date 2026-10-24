@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,7 +16,7 @@ const configFileName = "opendepot.hcl"
 
 var (
 	fingerprintPattern = regexp.MustCompile(`^[0-9A-F]{40}$`)
-	validTargets       = map[string]bool{targetCopilot: true, targetClaude: true, targetAgentsMD: true}
+	validTargets       = map[string]bool{targetCopilot: true, targetClaude: true, targetCodex: true, targetAgentsMD: true}
 )
 
 type entryKind string
@@ -177,6 +178,8 @@ type installTarget struct {
 }
 
 // installTargets resolves where an entry is installed. A custom path replaces the default targets.
+// The copilot, claude, and codex targets are user-level folders under the home directory. Agent targets
+// are filtered by entry format once the archive is staged. See agentTargetAccepts.
 func (p *project) installTargets(e entry) ([]installTarget, error) {
 	if e.path != "" {
 		return []installTarget{{label: targetCustom, path: e.path}}, nil
@@ -184,21 +187,40 @@ func (p *project) installTargets(e entry) ([]installTarget, error) {
 
 	var targets []installTarget
 	for _, t := range p.targets {
-		switch t {
-		case targetCopilot:
-			if e.kind == kindSkill {
-				targets = append(targets, installTarget{label: t, path: filepath.Join(".github", "skills", e.name)})
-			} else {
-				targets = append(targets, installTarget{label: t, path: filepath.Join(".github", "agents", e.name+".agent.md")})
-			}
-		case targetClaude:
-			if e.kind == kindSkill {
-				targets = append(targets, installTarget{label: t, path: filepath.Join(".claude", "skills", e.name)})
-			} else {
-				targets = append(targets, installTarget{label: t, path: filepath.Join(".claude", "agents", e.name+".md")})
-			}
-		case targetAgentsMD:
+		if t == targetAgentsMD {
 			targets = append(targets, installTarget{label: t, path: agentsMDFile})
+
+			continue
+		}
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home directory for %s target: %w", t, err)
+		}
+
+		switch t {
+		case targetCopilot, targetClaude:
+			root := copilotHomeDir
+			if t == targetClaude {
+				root = claudeHomeDir
+			}
+
+			if e.kind == kindSkill {
+				targets = append(targets, installTarget{label: t, path: filepath.Join(home, root, "skills", e.name)})
+			} else {
+				file := e.name + ".agent.md"
+				if t == targetClaude {
+					file = e.name + ".md"
+				}
+
+				targets = append(targets, installTarget{label: t, path: filepath.Join(home, root, "agents", file)})
+			}
+		case targetCodex:
+			if e.kind == kindSkill {
+				targets = append(targets, installTarget{label: t, path: filepath.Join(home, agentsHomeDir, "skills", e.name)})
+			} else {
+				targets = append(targets, installTarget{label: t, path: filepath.Join(home, codexHomeDir, "agents", e.name+".toml")})
+			}
 		}
 	}
 

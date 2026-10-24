@@ -124,7 +124,7 @@ func TestPlanFlagsLocallyEditedFileWithoutOverwriting(t *testing.T) {
 		}
 	}
 
-	installed := filepath.Join(dir, copilot, "SKILL.md")
+	installed := filepath.Join(copilot, "SKILL.md")
 	const edited = "---\nname: lint\ndescription: Hand edited\n---\nHand edit\n"
 	if err := os.WriteFile(installed, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestPlanReportsStaleRemovals(t *testing.T) {
 		t.Fatalf("plan did not report the removed entry:\n%s", buf.String())
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, ".github", "agents")); err != nil {
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".copilot", "agents")); err != nil {
 		t.Fatalf("plan removed the agent install: %v", err)
 	}
 }

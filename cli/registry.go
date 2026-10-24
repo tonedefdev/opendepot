@@ -15,9 +15,17 @@ import (
 const (
 	targetCopilot  = "copilot"
 	targetClaude   = "claude"
+	targetCodex    = "codex"
 	targetAgentsMD = "agents-md"
 	targetCustom   = "path"
 	agentsMDFile   = "AGENTS.md"
+
+	// The home-directory folders that the user-level targets install into. Codex skills live under
+	// agentsHomeDir and Codex agents under codexHomeDir.
+	copilotHomeDir = ".copilot"
+	claudeHomeDir  = ".claude"
+	codexHomeDir   = ".codex"
+	agentsHomeDir  = ".agents"
 
 	maxArchiveBytes  = 256 << 20
 	maxMetadataBytes = 16 << 20

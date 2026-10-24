@@ -54,13 +54,34 @@ func (s *stagedEntry) bodyPath() string {
 }
 
 func (a *app) path(rel string) string {
+	if filepath.IsAbs(rel) {
+		return rel
+	}
+
 	return filepath.Join(a.dir, rel)
 }
 
-// ensureNoSymlinks refuses rel when an existing component below the project directory is a symlink,
-// so reads, writes, and removals cannot be redirected outside the project tree.
+// ensureNoSymlinks refuses rel when an existing component below the project directory (or below the
+// home directory for user-level targets) is a symlink, so reads, writes, and removals cannot be
+// redirected outside the install tree.
 func (a *app) ensureNoSymlinks(rel string) error {
-	cur := a.dir
+	base := a.dir
+	if filepath.IsAbs(rel) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+
+		inHome, err := filepath.Rel(home, filepath.Clean(rel))
+		if err != nil || !filepath.IsLocal(inHome) {
+			return fmt.Errorf("path %s is outside the home directory", rel)
+		}
+
+		base = home
+		rel = inHome
+	}
+
+	cur := base
 	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/") {
 		cur = filepath.Join(cur, part)
 		info, err := os.Lstat(cur)
@@ -87,11 +108,67 @@ func (a *app) confirm(question string) bool {
 	return answer == "y" || answer == "yes"
 }
 
-// safeRelPath reports whether a lock-recorded path is a relative path inside the project that
-// is safe to write or remove.
-func safeRelPath(p string) bool {
+// safeInstallPath reports whether a lock-recorded or resolved install path is safe to write or
+// remove. Relative paths must stay inside the project. Absolute paths are only accepted for the
+// user-level layouts <home>/.copilot|.claude/{skills,agents}/<name>, <home>/.agents/skills/<name>, and
+// <home>/.codex/agents/<name>.toml, so a lock file cannot point removals at arbitrary locations.
+func safeInstallPath(p string) bool {
 	clean := filepath.Clean(p)
-	return filepath.IsLocal(clean) && clean != "." && clean != agentsMDFile
+	if !filepath.IsAbs(clean) {
+		return filepath.IsLocal(clean) && clean != "." && clean != agentsMDFile
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	rel, err := filepath.Rel(home, clean)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 3 {
+		return false
+	}
+
+	switch parts[0] {
+	case copilotHomeDir, claudeHomeDir:
+		return parts[1] == "skills" || parts[1] == "agents"
+	case agentsHomeDir:
+		return parts[1] == "skills"
+	case codexHomeDir:
+		return parts[1] == "agents" && strings.HasSuffix(parts[2], ".toml")
+	}
+
+	return false
+}
+
+// filterAgentTargets keeps the targets that accept an agent entry's format.
+func filterAgentTargets(targets []installTarget, toml bool) []installTarget {
+	var kept []installTarget
+	for _, t := range targets {
+		if agentTargetAccepts(t.label, toml) {
+			kept = append(kept, t)
+		}
+	}
+
+	return kept
+}
+
+// agentTargetAccepts reports whether an agent entry of the given format can install to the target. A TOML entry
+// is a Codex agent, so it installs only to codex. A Markdown entry never installs to codex, and agents-md would
+// write the raw Markdown body into AGENTS.md. A custom path copies the entry file verbatim and accepts any format.
+func agentTargetAccepts(label string, toml bool) bool {
+	switch label {
+	case targetCustom:
+		return true
+	case targetCodex:
+		return toml
+	default:
+		return !toml
+	}
 }
 
 func readOptional(path string) ([]byte, error) {
@@ -284,8 +361,14 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 	}
 
 	if staged.kind == kindAgent {
-		if _, err := agentspec.FindAgentEntry(root, src.name); err != nil {
+		entryPath, err := agentspec.FindAgentEntry(root, src.name)
+		if err != nil {
 			return nil, err
+		}
+
+		staged.targets = filterAgentTargets(targets, filepath.Ext(entryPath) == ".toml")
+		if len(staged.targets) == 0 {
+			return nil, fmt.Errorf("no install target accepts this agent: a TOML agent installs only to codex, and a Markdown agent installs to copilot, claude, or agents-md; add a matching target or a path on the entry")
 		}
 	}
 
@@ -430,7 +513,7 @@ func (a *app) applyProject(ctx context.Context, opts applyOptions) error {
 					continue
 				}
 
-				if !safeRelPath(in.Path) {
+				if !safeInstallPath(in.Path) {
 					return fmt.Errorf("lock file records unsafe path %q", in.Path)
 				}
 
@@ -461,7 +544,7 @@ func (a *app) applyProject(ctx context.Context, opts applyOptions) error {
 				continue
 			}
 
-			if !safeRelPath(t.path) {
+			if !safeInstallPath(t.path) {
 				return fmt.Errorf("%s: unsafe install path %q", s.source, t.path)
 			}
 		}
@@ -635,7 +718,7 @@ func (a *app) verifyProject() error {
 				continue
 			}
 
-			if !safeRelPath(in.Path) {
+			if !safeInstallPath(in.Path) {
 				failures = append(failures, fmt.Sprintf("%s: unsafe path %q in lock file", e.Source, in.Path))
 				continue
 			}
