@@ -13,3 +13,18 @@ export function cliBinaryName(os: string, arch: string): string {
 export function isCLIPlatform(os: string, arch: string): boolean {
   return CLI_PLATFORMS.some((platform) => platform.os === os && platform.arch === arch);
 }
+
+export type CLIOS = (typeof CLI_PLATFORMS)[number]["os"];
+
+export const CLI_OS_NAMES: Record<CLIOS, string> = {
+  darwin: "macOS",
+  linux: "Linux",
+  windows: "Windows",
+};
+
+export function detectCLIOS(userAgent: string): CLIOS | null {
+  if (/windows/i.test(userAgent)) return "windows";
+  if (/mac os x|macintosh/i.test(userAgent)) return "darwin";
+  if (/linux|x11/i.test(userAgent)) return "linux";
+  return null;
+}

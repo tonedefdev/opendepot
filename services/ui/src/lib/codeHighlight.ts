@@ -3,6 +3,7 @@ import "prismjs/components/prism-clike";
 import "prismjs/components/prism-javascript";
 import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-bash";
+import "prismjs/components/prism-powershell";
 import "prismjs/components/prism-go";
 import "prismjs/components/prism-python";
 import "prismjs/components/prism-hcl";
@@ -22,9 +23,11 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   yml: "yaml",
   terraform: "hcl",
   tf: "hcl",
+  ps1: "powershell",
+  pwsh: "powershell",
 };
 
-const SUPPORTED_LANGUAGES = new Set(["bash", "go", "python", "typescript", "javascript", "yaml", "hcl"]);
+const SUPPORTED_LANGUAGES = new Set(["bash", "powershell", "go", "python", "typescript", "javascript", "yaml", "hcl"]);
 
 // Maps a fenced-code language name to a supported grammar, or null when it is not highlighted.
 export function resolvePrismLanguage(language: string): string | null {
