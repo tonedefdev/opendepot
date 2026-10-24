@@ -14,6 +14,13 @@ interface SourceRefChipProps {
   linked?: boolean;
 }
 
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+// A ref pinned to a full commit SHA is shortened for display. The link still uses the full value.
+function displayRef(ref: string): string {
+  return FULL_SHA_PATTERN.test(ref) ? ref.slice(0, 7) : ref;
+}
+
 // Links are only built for GitHub repositories, so any other host shows plain text.
 function githubBaseUrl(repoUrl?: string): string | null {
   if (!repoUrl) {
@@ -53,10 +60,10 @@ export default function SourceRefChip({ sourceRef, sourceCommit, sourcePath, rep
       <CallSplitIcon sx={{ fontSize: 14 }} />
       {base ? (
         <Link href={`${base}/tree/${sourceRef}${treePath}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={linkSx}>
-          {sourceRef}
+          {displayRef(sourceRef)}
         </Link>
       ) : (
-        <span>{sourceRef}</span>
+        <span>{displayRef(sourceRef)}</span>
       )}
       {shortCommit && (
         <>
