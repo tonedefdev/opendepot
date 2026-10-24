@@ -53,24 +53,13 @@ export default function ResourceCard({ resource }: Props) {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        ...(resource.kind === "provider"
-          ? {
-              "&:hover": {
-                borderColor: "rgba(4,125,241,0.5)",
-                boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.4)",
-                ...theme.applyStyles("light", {
-                  boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.08)",
-                }),
-              },
-            }
-          : {}),
-        ...(isAgentKind
-          ? {
-              "&:hover": {
-                borderColor: `color-mix(in srgb, ${accent} 50%, transparent)`,
-              },
-            }
-          : {}),
+        "&:hover": {
+          borderColor: `color-mix(in srgb, ${accent} 50%, transparent)`,
+          boxShadow: `0 0 0 1px color-mix(in srgb, ${accent} 15%, transparent), 0 4px 16px rgba(0,0,0,0.4)`,
+          ...theme.applyStyles("light", {
+            boxShadow: `0 0 0 1px color-mix(in srgb, ${accent} 15%, transparent), 0 4px 16px rgba(0,0,0,0.08)`,
+          }),
+        },
       })}
     >
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
