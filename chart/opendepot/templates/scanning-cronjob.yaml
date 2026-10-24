@@ -28,6 +28,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
+            fsGroup: 65532
           containers:
           - name: trivy-db-updater
             image: "{{ .Values.scanning.dbUpdater.image.repository }}:{{ .Values.scanning.dbUpdater.image.tag }}"

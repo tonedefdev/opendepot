@@ -314,7 +314,7 @@ scanning:
     # CronJob alongside the version controller on separate nodes. Use ReadWriteOnce for Kind.
     accessMode: ReadWriteMany
     # Size of the Trivy DB cache PVC
-    size: 1Gi
+    size: 5Gi
   # CronJob that runs 'trivy image --download-db-only' on a schedule to keep the offline DB current.
   # Only created when providerScanning is true.
   dbUpdater:
@@ -391,19 +391,19 @@ dex:
     staticClients:
       - id: opendepot
         name: OpenDepot
-        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        public: true
         redirectURIs:
-          - http://localhost:10000
-          - http://localhost:10001
-          - http://localhost:10002
-          - http://localhost:10003
-          - http://localhost:10004
-          - http://localhost:10005
-          - http://localhost:10006
-          - http://localhost:10007
-          - http://localhost:10008
-          - http://localhost:10009
-          - http://localhost:10010
+          - http://localhost:10000/login
+          - http://localhost:10001/login
+          - http://localhost:10002/login
+          - http://localhost:10003/login
+          - http://localhost:10004/login
+          - http://localhost:10005/login
+          - http://localhost:10006/login
+          - http://localhost:10007/login
+          - http://localhost:10008/login
+          - http://localhost:10009/login
+          - http://localhost:10010/login
     # When ui.oidc.enabled=true, add the UI client here and include
     # trustedPeers pointing to the server client ID (e.g. "opendepot").
     # This ensures Dex includes the server's audience in UI-issued tokens

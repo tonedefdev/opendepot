@@ -73,7 +73,7 @@ Exchanges an authorization code (authz_code flow) or device code (device_code fl
 
 ```
 POST https://opendepot.example.com/dex/token
-grant_type=authorization_code&code=<AUTH_CODE>&client_id=<CLIENT_ID>&redirect_uri=http://localhost:10000
+grant_type=authorization_code&code=<AUTH_CODE>&client_id=<CLIENT_ID>&redirect_uri=http://localhost:10000/login
 ```
 
 **Request (device_code grant):**

@@ -3,6 +3,7 @@ module github.com/tonedefdev/opendepot/pkg/agentspec
 go 1.26.0
 
 require (
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	sigs.k8s.io/yaml v1.6.0
 )

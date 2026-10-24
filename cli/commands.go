@@ -30,6 +30,7 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "opendepot",
 		Short:         "Install and verify OpenDepot skills and agents",
+		Version:       buildVersion,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

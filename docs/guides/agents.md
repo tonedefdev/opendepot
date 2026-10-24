@@ -6,7 +6,7 @@ This guide covers how to publish a Depot that serves skill and agent sources, ho
 
 ## Publishing a Depot with skill and agent sources
 
-A Depot publishes skills and agents through the `skillConfigs` and `agentConfigs` fields. Each entry references a Git repository that holds a `SKILL.md` file (for skills) or an agent file (for agents). An agent file is accepted as either `{name}.agent.md`, the Copilot layout, or `{name}.md`, the Claude layout. A source directory that contains both files for the same agent is rejected as ambiguous. The agent's `name` in its frontmatter is display metadata. It may be any non-empty string up to 64 characters. The file name is the registry identifier, so the `name` in the Agent configuration must match the file name without the `.agent.md` or `.md` suffix. For example, `code-reviewer` matches `code-reviewer.agent.md`.
+A Depot publishes skills and agents through the `skillConfigs` and `agentConfigs` fields. Each entry references a Git repository that holds a `SKILL.md` file (for skills) or an agent file (for agents). An agent file is accepted as `{name}.agent.md`, the Copilot layout, `{name}.md`, the Claude layout, or `{name}.toml`, the Codex layout. A source directory that contains both files for the same agent is rejected as ambiguous. The agent's `name` in its frontmatter is display metadata. It may be any non-empty string up to 64 characters. The file name is the registry identifier, so the `name` in the Agent configuration must match the file name without the `.agent.md`, `.md`, or `.toml` suffix. For example, `code-reviewer` matches `code-reviewer.agent.md`.
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -138,6 +138,17 @@ The shared base key set for skills is `name`, `description`, `license`, `compati
 | `pi` | `disable-model-invocation` | None |
 
 The OpenCode agent key set is inferred and has not been verified against OpenCode vendor documentation. The table describes the scanner's current behavior.
+
+### Codex TOML agents
+
+A Codex agent is a standalone TOML file, `{name}.toml`, instead of Markdown with frontmatter. The file is the whole definition, and it is copied to `~/.codex/agents/` unchanged. It must set:
+
+- `name` and `description`, both non-empty strings. Missing or invalid values are HIGH findings.
+- `developer_instructions`, a non-empty string. This is the agent's body. A missing or blank value is a HIGH finding, opendepot-agentspec-010.
+
+Optional keys are `model`, `model_reasoning_effort`, `model_reasoning_summary`, `model_verbosity`, `features`, and `skills`. Any other top-level key produces a LOW warning. Codex does not read a `tools` key, so `tools` in a TOML agent produces that warning.
+
+A TOML file can only be a Codex agent. Set `platform` to `codex` or leave it unset. Any other platform is an error.
 
 The CRD enum rejects unsupported `platform` values at admission. If an unsupported value reaches the controller anyway, it returns an error and blocks the Version.
 

@@ -30,6 +30,7 @@ require (
 require (
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
 replace github.com/tonedefdev/opendepot/pkg/agentspec => ../../pkg/agentspec

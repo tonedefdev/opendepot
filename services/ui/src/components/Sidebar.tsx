@@ -32,6 +32,7 @@ import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturi
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
 import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
+import TerminalOutlinedIcon from "@mui/icons-material/TerminalOutlined";
 import ExtensionOutlinedIcon from "@mui/icons-material/ExtensionOutlined";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import ViewModuleOutlinedIcon from "@mui/icons-material/ViewModuleOutlined";
@@ -483,6 +484,23 @@ export default function Sidebar({
           <Divider sx={{ mx: 2, my: 1 }} />
           <ListItem disablePadding>
             <ListItemButton
+              component={Link}
+              href="/cli"
+              selected={pathname.startsWith("/cli")}
+              sx={{
+                mx: 1,
+                borderRadius: "6px",
+                py: 0.5,
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
+              }}
+            >
+              <TerminalOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText primary="Download CLI" primaryTypographyProps={{ fontSize: "0.8125rem" }} />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton
               component="a"
               href="https://tonedefdev.github.io/opendepot"
               target="_blank"
@@ -862,6 +880,21 @@ export default function Sidebar({
         </Tooltip>
       )}
       <Divider sx={{ width: "80%", my: 0.5 }} />
+      <Tooltip title="Download CLI" placement="right">
+        <IconButton
+          component={Link}
+          href="/cli"
+          aria-label="Download CLI"
+          sx={{
+            color: pathname.startsWith("/cli") ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: pathname.startsWith("/cli") ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
+          }}
+        >
+          <TerminalOutlinedIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Documentation" placement="right">
         <IconButton
           component="a"

@@ -82,3 +82,27 @@ func TestVerifyProjectRefusesSymlinkedLockFile(t *testing.T) {
 		t.Fatalf("verifyProject() error = %v, want symlink refusal", err)
 	}
 }
+
+func TestInstallEntryRefusesSymlinkedHomeInstallRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, ".copilot")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	a := &app{dir: t.TempDir()}
+	target := installTarget{path: filepath.Join(home, ".copilot", "skills", "review")}
+	if err := a.installEntry(&stagedEntry{}, target); err == nil {
+		t.Fatal("installEntry() succeeded through a symlinked home install root, want error")
+	}
+
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(entries) != 0 {
+		t.Fatalf("installEntry() wrote %d entries outside the home install root", len(entries))
+	}
+}

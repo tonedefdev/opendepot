@@ -17,6 +17,21 @@ const (
 	agentDoc = "---\nname: reviewer\ndescription: Reviews things\n---\nReview body\n"
 )
 
+// TestMain points HOME at a throwaway directory for the whole package so that no test can
+// write user-level install targets into the developer's real home directory.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "opendepot-test-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
+
 func testApp(reg *fakeRegistry, dir string) *app {
 	return &app{
 		in:         bufio.NewReader(strings.NewReader("")),
@@ -93,17 +108,25 @@ agent_skill "lint" {
 	}
 }
 
-// assertNoWrites fails if any install target, AGENTS.md, or the lock file exists in dir.
+// assertNoWrites fails if any install target, AGENTS.md, or the lock file exists in dir or the home install roots.
 func assertNoWrites(t *testing.T, dir string) {
 	t.Helper()
-	for _, p := range []string{".github", ".claude", agentsMDFile, lockFileName} {
-		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
+	home := os.Getenv("HOME")
+	for _, p := range []string{
+		filepath.Join(home, ".copilot"),
+		filepath.Join(home, ".claude"),
+		filepath.Join(dir, agentsMDFile),
+		filepath.Join(dir, lockFileName),
+	} {
+		if _, err := os.Stat(p); err == nil {
 			t.Fatalf("%s was written despite a failed verification", p)
 		}
 	}
 }
 
 func TestInitInstallsAllTargetsAndIsIdempotent(t *testing.T) {
+	isolateHome(t)
+	home := os.Getenv("HOME")
 	reg := newFakeRegistry(t)
 	publishStandard(t, reg)
 	dir := t.TempDir()
@@ -116,12 +139,12 @@ func TestInitInstallsAllTargetsAndIsIdempotent(t *testing.T) {
 	}
 
 	for _, p := range []string{
-		".github/skills/lint/SKILL.md",
+		".copilot/skills/lint/SKILL.md",
 		".claude/skills/lint/SKILL.md",
-		".github/agents/reviewer.agent.md",
+		".copilot/agents/reviewer.agent.md",
 		".claude/agents/reviewer.md",
 	} {
-		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+		if _, err := os.Stat(filepath.Join(home, p)); err != nil {
 			t.Fatalf("missing install target %s: %v", p, err)
 		}
 	}
@@ -148,7 +171,7 @@ func TestInitInstallsAllTargetsAndIsIdempotent(t *testing.T) {
 		t.Fatalf("verify after apply: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, ".claude/agents/reviewer.md"), []byte("edited"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".claude/agents/reviewer.md"), []byte("edited"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -158,6 +181,7 @@ func TestInitInstallsAllTargetsAndIsIdempotent(t *testing.T) {
 }
 
 func TestTamperedArchiveFailsBeforeWrites(t *testing.T) {
+	isolateHome(t)
 	reg := newFakeRegistry(t)
 	publishStandard(t, reg)
 	reg.files["reviewer-1.0.0.tar.gz"] = []byte("tampered bytes")
@@ -173,6 +197,7 @@ func TestTamperedArchiveFailsBeforeWrites(t *testing.T) {
 }
 
 func TestTamperedSumsFailsSignature(t *testing.T) {
+	isolateHome(t)
 	reg := newFakeRegistry(t)
 	publishStandard(t, reg)
 	reg.tamperSums()
@@ -250,6 +275,7 @@ func TestResignedLockedVersionFailsSignatureHash(t *testing.T) {
 }
 
 func TestSigningKeyPinMismatchFailsWithoutPrompt(t *testing.T) {
+	isolateHome(t)
 	reg := newFakeRegistry(t)
 	publishStandard(t, reg)
 	other := newTestKey(t, "Other Signer")
@@ -327,14 +353,38 @@ func TestYankedSkippedUnlessAllowed(t *testing.T) {
 }
 
 func TestPathValidationRejectsUnsafeLockPaths(t *testing.T) {
-	for _, p := range []string{"", ".", "AGENTS.md", "../escape", "/abs/path"} {
-		if safeRelPath(p) {
-			t.Fatalf("safeRelPath(%q) = true, want false", p)
+	isolateHome(t)
+	home := os.Getenv("HOME")
+
+	for _, p := range []string{
+		"", ".", "AGENTS.md", "../escape", "/abs/path",
+		filepath.Join(home, ".copilot"),
+		filepath.Join(home, ".copilot", "skills"),
+		filepath.Join(home, ".copilot", "skills", "lint", "nested"),
+		filepath.Join(home, ".ssh", "authorized_keys"),
+		filepath.Join(home, ".claude", "settings.json"),
+		filepath.Join(home, ".codex", "config.toml"),
+		filepath.Join(home, ".codex", "agents", "reviewer.md"),
+		filepath.Join(home, ".agents", "AGENTS.md"),
+		filepath.Join(home, "..", "escape"),
+	} {
+		if safeInstallPath(p) {
+			t.Fatalf("safeInstallPath(%q) = true, want false", p)
 		}
 	}
 
-	if !safeRelPath(".github/skills/lint") {
-		t.Fatal("expected a normal install path to be safe")
+	for _, p := range []string{
+		".github/skills/lint",
+		filepath.Join(home, ".copilot", "skills", "lint"),
+		filepath.Join(home, ".copilot", "agents", "reviewer.agent.md"),
+		filepath.Join(home, ".claude", "skills", "lint"),
+		filepath.Join(home, ".claude", "agents", "reviewer.md"),
+		filepath.Join(home, ".agents", "skills", "lint"),
+		filepath.Join(home, ".codex", "agents", "reviewer.toml"),
+	} {
+		if !safeInstallPath(p) {
+			t.Fatalf("safeInstallPath(%q) = false, want true", p)
+		}
 	}
 }
 
@@ -354,12 +404,12 @@ func TestInitHTTPE2EInstallsSkillTargetsAndWritesLockMetadata(t *testing.T) {
 	}
 
 	for _, p := range []string{
-		".github/skills/lint/SKILL.md",
-		".github/skills/lint/rules.txt",
+		".copilot/skills/lint/SKILL.md",
+		".copilot/skills/lint/rules.txt",
 		".claude/skills/lint/SKILL.md",
 		".claude/skills/lint/rules.txt",
 	} {
-		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), p)); err != nil {
 			t.Fatalf("missing install target %s: %v", p, err)
 		}
 	}
@@ -393,11 +443,12 @@ func TestInitHTTPE2ENoopRerunLeavesInstalledFilesAndLockUntouched(t *testing.T) 
 		t.Fatalf("first apply: %v", err)
 	}
 
+	home := os.Getenv("HOME")
 	paths := []string{
-		filepath.Join(dir, ".github/skills/lint/SKILL.md"),
-		filepath.Join(dir, ".github/skills/lint/rules.txt"),
-		filepath.Join(dir, ".claude/skills/lint/SKILL.md"),
-		filepath.Join(dir, ".claude/skills/lint/rules.txt"),
+		filepath.Join(home, ".copilot/skills/lint/SKILL.md"),
+		filepath.Join(home, ".copilot/skills/lint/rules.txt"),
+		filepath.Join(home, ".claude/skills/lint/SKILL.md"),
+		filepath.Join(home, ".claude/skills/lint/rules.txt"),
 		filepath.Join(dir, lockFileName),
 	}
 	before := map[string]time.Time{}
@@ -499,11 +550,12 @@ Lint body v1.1
 		t.Fatalf("upgrade apply: %v", err)
 	}
 
+	home := os.Getenv("HOME")
 	for _, p := range []string{
-		".github/skills/lint/rules.txt",
+		".copilot/skills/lint/rules.txt",
 		".claude/skills/lint/rules.txt",
 	} {
-		if _, err := os.Stat(filepath.Join(dir, p)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(home, p)); !os.IsNotExist(err) {
 			t.Fatalf("expected stale file %s to be removed, stat err = %v", p, err)
 		}
 	}
@@ -583,12 +635,13 @@ func TestInitAndVerifyHTTPE2ETamperingFailures(t *testing.T) {
 			t.Fatalf("apply: %v", err)
 		}
 
-		if err := os.WriteFile(filepath.Join(dir, ".claude/skills/lint/SKILL.md"), []byte("edited"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude/skills/lint/SKILL.md"), []byte("edited"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
 		err := a.verifyProject()
-		if err == nil || !strings.Contains(err.Error(), ".claude/skills/lint has been modified") {
+		wantMsg := filepath.Join(os.Getenv("HOME"), ".claude/skills/lint") + " has been modified"
+		if err == nil || !strings.Contains(err.Error(), wantMsg) {
 			t.Fatalf("expected verify failure for modified install, got %v", err)
 		}
 	})
