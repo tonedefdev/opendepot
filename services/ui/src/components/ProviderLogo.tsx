@@ -110,8 +110,17 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   terraform: { type: "icon", icon: SiTerraform, color: "#7B42BC" },
 };
 
+function providerLogoKey(provider: string): string {
+  return provider.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// True when ProviderLogo renders a real brand logo instead of the generic letter badge.
+export function hasProviderLogo(provider: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_PROVIDERS, providerLogoKey(provider));
+}
+
 export default function ProviderLogo({ provider, size = 28 }: Props) {
-  const key = provider.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const key = providerLogoKey(provider);
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const entry = key === "aws" && resolvedMode === "light" ? KNOWN_PROVIDERS.awsLight : KNOWN_PROVIDERS[key];
