@@ -390,6 +390,7 @@ function uniqueInstanceName(base: string, existing: Set<string>): string {
 
 function AssemblyCanvasInner({ modules, providers }: Props) {
   const [resourceMenuOpen, setResourceMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(true);
   const [mobileMapOpen, setMobileMapOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<RawNodeData>([]);
   const [query, setQuery] = useState("");
@@ -1305,7 +1306,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           flexShrink: 0,
           borderRight: "1px solid",
           borderColor: "divider",
-          display: { xs: resourceMenuOpen ? "flex" : "none", sm: "flex" },
+          display: { xs: resourceMenuOpen ? "flex" : "none", sm: desktopMenuOpen ? "flex" : "none" },
           flexDirection: "column",
           position: { xs: "absolute", sm: "static" },
           inset: { xs: "0 auto 0 0", sm: "auto" },
@@ -1477,6 +1478,26 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           }}
         >
           {resourceMenuOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+        </IconButton>
+        <IconButton
+          aria-label={desktopMenuOpen ? "Collapse Assembly Line menu" : "Expand Assembly Line menu"}
+          onClick={(event) => {
+            event.stopPropagation();
+            setDesktopMenuOpen((open) => !open);
+          }}
+          sx={{
+            display: { xs: "none", sm: "flex" },
+            position: "absolute",
+            top: "50%",
+            left: desktopMenuOpen ? -21 : 0,
+            transform: "translateY(-50%)",
+            zIndex: 11,
+            bgcolor: "transparent",
+            borderRadius: "50%",
+            "&:hover": { bgcolor: "action.hover" },
+          }}
+        >
+          {desktopMenuOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
         </IconButton>
         <ReactFlow
           nodes={renderNodes}
