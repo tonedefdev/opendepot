@@ -41,7 +41,7 @@ export default function StatCard({ label, value, sub, icon, accentColor, loading
               width: { xs: 32, lg: 36 },
               height: { xs: 32, lg: 36 },
               borderRadius: 1.5,
-              bgcolor: `${accentColor}18`,
+              bgcolor: `color-mix(in srgb, ${accentColor} 9%, transparent)`,
               color: accentColor,
               flexShrink: 0,
               "& svg": { fontSize: { xs: "1.1rem", md: "0.95rem", lg: "1.25rem" } },

@@ -41,6 +41,8 @@ export interface BrowseResource {
   sourceCommit?: string;
   sourcePath?: string;
   jevRiskLevel?: JevRiskLevel;
+  blocked?: boolean;
+  blockReasons?: string[];
 }
 
 export interface BrowseResourceList {
@@ -77,6 +79,8 @@ export interface BrowseVersionSummary {
   schemaMessage?: string;
   commit?: string;
   branchPhase?: string;
+  blocked?: boolean;
+  blockReasons?: string[];
 }
 
 export interface SecurityFinding {
@@ -820,6 +824,8 @@ export interface BrowseGraphDepot {
   pollingIntervalMinutes?: number;
   managedModuleNames?: string[];
   managedProviderNames?: string[];
+  managedSkillNames?: string[];
+  managedAgentNames?: string[];
 }
 
 export interface BrowseGraphModule {
@@ -844,6 +850,16 @@ export interface BrowseGraphProvider {
   synced: boolean;
 }
 
+export interface BrowseGraphAgent {
+  id: string;
+  kind: "skill" | "agent";
+  namespace: string;
+  name: string;
+  synced: boolean;
+  syncStatus?: string;
+  latestVersion?: string;
+}
+
 export interface BrowseGraphEdge {
   id: string;
   source: string;
@@ -854,12 +870,16 @@ export interface BrowseGraphSummary {
   totalDepots: number;
   totalModules: number;
   totalProviders: number;
+  totalSkills: number;
+  totalAgents: number;
 }
 
 export interface BrowseDepotGraph {
   depots: BrowseGraphDepot[];
   modules: BrowseGraphModule[];
   providers: BrowseGraphProvider[];
+  skills: BrowseGraphAgent[];
+  agents: BrowseGraphAgent[];
   edges: BrowseGraphEdge[];
   summary: BrowseGraphSummary;
   generatedAt: string;
@@ -902,17 +922,31 @@ export interface PopularResource {
   lastDownloadedAt?: string;
 }
 
+export interface MostDownloadedStats {
+  modules: PopularResource[];
+  providers: PopularResource[];
+  skills: PopularResource[];
+  agents: PopularResource[];
+}
+
 export interface BrowseStats {
   totalModules: number;
+  modulesSynced: number;
   totalProviders: number;
+  providersSynced: number;
+  totalSkills: number;
+  skillsSynced: number;
+  totalAgents: number;
+  agentsSynced: number;
   totalVersions: number;
+  versionsSynced: number;
   totalStorageBytes: number;
   totalDownloads: number;
   downloadWindow: string;
   syncHealth: SyncHealthStats;
   securityPosture: SecurityPostureStats;
   storageDistribution: StorageBackendStat[];
-  mostDownloaded: PopularResource[];
+  mostDownloaded: MostDownloadedStats;
 }
 
 export async function getStats(namespace?: string, token?: string): Promise<BrowseStats> {

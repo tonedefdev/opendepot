@@ -22,8 +22,8 @@ import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import WidgetsIcon from "@mui/icons-material/Widgets";
-import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { MODULE_COLOR } from "@/lib/kindColors";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
@@ -168,7 +168,6 @@ export default function InputsModal({
 }: Props) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const ModuleIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
@@ -252,7 +251,7 @@ export default function InputsModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <ModuleIcon sx={{ fontSize: 20, color: "#03deb8" }} />
+            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: MODULE_COLOR }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             module.{instanceName} — Inputs

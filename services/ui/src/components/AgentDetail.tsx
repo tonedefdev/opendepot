@@ -4,12 +4,16 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import { useColorScheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import DescriptionIcon from "@mui/icons-material/Description";
+import TuneIcon from "@mui/icons-material/Tune";
+import { SiClaude, SiGithubcopilot, SiOpenai } from "react-icons/si";
 import { load } from "js-yaml";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
@@ -116,12 +120,34 @@ export function AgentMetadataChips({ metadata }: AgentMetadataChipsProps) {
   );
 }
 
+// Values accepted by the CLI's opendepot.hcl targets list.
+export type SnippetTarget = "copilot" | "claude" | "codex" | "agentsmd";
+
+const DEFAULT_SNIPPET_TARGETS: readonly SnippetTarget[] = ["claude"];
+
+function GenericTargetIcon({ size }: { size?: number }) {
+  return <TuneIcon sx={{ fontSize: size }} />;
+}
+
+// Display order for the target buttons. OpenAI uses the codex target and Generic uses the agentsmd target.
+const SNIPPET_TARGET_OPTIONS: ReadonlyArray<{
+  target: SnippetTarget;
+  label: string;
+  Icon: React.ComponentType<{ size?: number }>;
+}> = [
+  { target: "claude", label: "Claude", Icon: SiClaude },
+  { target: "copilot", label: "Copilot", Icon: SiGithubcopilot },
+  { target: "codex", label: "OpenAI", Icon: SiOpenai },
+  { target: "agentsmd", label: "Generic", Icon: GenericTargetIcon },
+];
+
 interface AgentConfigSnippetProps {
   kind: string;
   namespace: string;
   name: string;
   registryHost: string;
   latestVersion?: string;
+  targets?: readonly SnippetTarget[];
 }
 
 // Escapes content for an HCL quoted string so values cannot break the block or open template interpolation.
@@ -136,16 +162,19 @@ function escapeHclString(value: string): string {
 }
 
 // Matches the opendepot.hcl block shape: skills use agent_skill, agents use agent.
-export function buildAgentConfigSnippet({ kind, namespace, name, registryHost, latestVersion }: AgentConfigSnippetProps): string {
+export function buildAgentConfigSnippet({ kind, namespace, name, registryHost, latestVersion, targets }: AgentConfigSnippetProps): string {
   const blockType = kind === "skill" ? "agent_skill" : "agent";
   const version = latestVersion ? escapeHclString(latestVersion.replace(/^v/, "")) : "";
   const versionLine = version ? `\n  version = "${version}"` : "";
   const escapedName = escapeHclString(name);
   const escapedNamespace = escapeHclString(namespace);
   const escapedRegistryHost = escapeHclString(registryHost);
+  const selected = targets?.length ? targets : DEFAULT_SNIPPET_TARGETS;
+  const orderedTargets = SNIPPET_TARGET_OPTIONS.map((option) => option.target).filter((target) => selected.includes(target));
+  const targetsList = orderedTargets.map((target) => `"${target}"`).join(", ");
 
   return `opendepot {
-  targets = ["copilot", "claude"]
+  targets = [${targetsList}]
 }
 
 ${blockType} "${escapedName}" {
@@ -155,41 +184,61 @@ ${blockType} "${escapedName}" {
 }
 
 export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
-  const snippet = buildAgentConfigSnippet(props);
+  const [selectedTargets, setSelectedTargets] = React.useState<SnippetTarget[]>([...DEFAULT_SNIPPET_TARGETS]);
+  const snippet = buildAgentConfigSnippet({ ...props, targets: selectedTargets });
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
   const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
 
   return (
-    <Box sx={{ position: "relative" }}>
-      <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
-        <CopyButton value={snippet} />
+    <Box>
+      <ToggleButtonGroup
+        size="small"
+        value={selectedTargets}
+        aria-label="Target platforms"
+        onChange={(_event, value: SnippetTarget[]) => {
+          // Keep at least one target so the generated targets list is never empty.
+          if (value.length > 0) setSelectedTargets(value);
+        }}
+        sx={{ mb: 1.5, flexWrap: "wrap" }}
+      >
+        {SNIPPET_TARGET_OPTIONS.map(({ target, label, Icon }) => (
+          <ToggleButton key={target} value={target} sx={{ textTransform: "none", gap: 1, px: 2 }}>
+            <Icon size={16} />
+            {label}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+      <Box sx={{ position: "relative" }}>
+        <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
+          <CopyButton value={snippet} />
+        </Box>
+        <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={snippet} language={"hcl" as Language}>
+          {({ style, tokens, getLineProps, getTokenProps }) => (
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                p: 2,
+                pr: 5,
+                borderRadius: 1,
+                overflowX: "auto",
+                fontFamily: "monospace",
+                fontSize: "0.8125rem",
+                lineHeight: 1.6,
+                ...style,
+                ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
+              }}
+            >
+              {tokens.map((line, i) => (
+                <div key={i} {...getLineProps({ line })}>
+                  {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
+                </div>
+              ))}
+            </Box>
+          )}
+        </Highlight>
       </Box>
-      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={snippet} language={"hcl" as Language}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <Box
-            component="pre"
-            sx={{
-              m: 0,
-              p: 2,
-              pr: 5,
-              borderRadius: 1,
-              overflowX: "auto",
-              fontFamily: "monospace",
-              fontSize: "0.8125rem",
-              lineHeight: 1.6,
-              ...style,
-              ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-            }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
     </Box>
   );
 }
@@ -282,6 +331,10 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
     const compute = () => {
       const styles = window.getComputedStyle(pre);
       const inner = pre.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+      if (!Number.isFinite(inner) || inner <= 0) {
+        setCode(frontmatter);
+        return;
+      }
       const fits = (text: string) => {
         probe.textContent = text;
         return probe.getBoundingClientRect().width <= inner;

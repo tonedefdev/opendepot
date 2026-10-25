@@ -257,6 +257,46 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
 	}
 
+	// List visible Skills and Agents using the same visibility rules as the depots graph.
+	skillNodes, err := browseGraphAgentNodes(r.Context(), cs, namespace, nsPublic, binding, allAccess, "skill")
+	if err != nil {
+		logger.Error("stats: failed to list skills", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	agentNodes, err := browseGraphAgentNodes(r.Context(), cs, namespace, nsPublic, binding, allAccess, "agent")
+	if err != nil {
+		logger.Error("stats: failed to list agents", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, s := range skillNodes {
+		visibleResources[s.Namespace+"/skill/"+s.Name] = struct{}{}
+	}
+
+	for _, a := range agentNodes {
+		visibleResources[a.Namespace+"/agent/"+a.Name] = struct{}{}
+	}
+
+	skillsSynced := countSyncedAgentNodes(skillNodes)
+	agentsSynced := countSyncedAgentNodes(agentNodes)
+
+	modulesSynced := 0
+	for _, m := range moduleList.Items {
+		if m.Status.Synced {
+			modulesSynced++
+		}
+	}
+
+	providersSynced := 0
+	for _, p := range providerList.Items {
+		if p.Status.Synced {
+			providersSynced++
+		}
+	}
+
 	// Query download stats from Prometheus over the configured lookback.
 	downloadStats, err := downloadStatsSnapshot(r.Context())
 	if err != nil {
@@ -264,12 +304,19 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalDownloads := totalDownloadsForStats(downloadStats, namespace, visibleResources)
-	mostDownloaded := mostDownloadedForStats(downloadStats, namespace, 10, visibleResources)
+	mostDownloaded := mostDownloadedByKind(downloadStats, namespace, 10, visibleResources)
 
 	stats := BrowseStats{
 		TotalModules:        len(moduleList.Items),
+		ModulesSynced:       modulesSynced,
 		TotalProviders:      len(providerList.Items),
+		ProvidersSynced:     providersSynced,
+		TotalSkills:         len(skillNodes),
+		SkillsSynced:        skillsSynced,
+		TotalAgents:         len(agentNodes),
+		AgentsSynced:        agentsSynced,
 		TotalVersions:       len(versionList.Items),
+		VersionsSynced:      syncHealth.SyncedVersions,
 		TotalStorageBytes:   totalStorageBytes,
 		TotalDownloads:      totalDownloads,
 		DownloadWindow:      prometheusStats.window,
@@ -280,6 +327,17 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(stats)
+}
+
+// countSyncedAgentNodes returns how many Skill or Agent nodes report Synced.
+func countSyncedAgentNodes(nodes []BrowseGraphAgent) int {
+	synced := 0
+	for _, n := range nodes {
+		if n.Synced {
+			synced++
+		}
+	}
+	return synced
 }
 
 // storageBackendName returns a display name for the active storage backend in sc.

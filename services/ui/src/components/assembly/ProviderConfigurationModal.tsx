@@ -20,7 +20,8 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
 import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { PROVIDER_COLOR } from "@/lib/kindColors";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
@@ -137,7 +138,7 @@ export default function ProviderConfigurationModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <SettingsInputComponentIcon sx={{ fontSize: 20, color: "warning.main" }} />
+            <DepotKindIcon kind="provider" sx={{ fontSize: 20, color: PROVIDER_COLOR }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             provider.{localName}{alias ? `.${alias}` : ""} — Configuration

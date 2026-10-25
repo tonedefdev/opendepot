@@ -51,16 +51,24 @@ func TestBuildAgentVersionsResponse(t *testing.T) {
 	}
 
 	response := buildAgentVersionsResponse(agentTestSkillKind(), "my-skill", entries, versions)
-	if len(response.Versions) != 2 {
-		t.Fatalf("buildAgentVersionsResponse() returned %d versions, want 2: %+v", len(response.Versions), response.Versions)
+	if len(response.Versions) != 3 {
+		t.Fatalf("buildAgentVersionsResponse() returned %d versions, want 3: %+v", len(response.Versions), response.Versions)
 	}
 
-	if response.Versions[0].Version != "1.0.0" || response.Versions[0].Yanked {
-		t.Fatalf("versions[0] = %+v, want 1.0.0 not yanked", response.Versions[0])
+	if response.Versions[0].Version != "1.0.0" || response.Versions[0].Yanked || response.Versions[0].Blocked {
+		t.Fatalf("versions[0] = %+v, want 1.0.0 not yanked or blocked", response.Versions[0])
 	}
 
 	if response.Versions[1].Version != "1.1.0" || !response.Versions[1].Yanked {
 		t.Fatalf("versions[1] = %+v, want 1.1.0 yanked", response.Versions[1])
+	}
+
+	if response.Versions[2].Version != "1.2.0" || !response.Versions[2].Blocked {
+		t.Fatalf("versions[2] = %+v, want 1.2.0 blocked", response.Versions[2])
+	}
+
+	if agentVersionServable(&blocked, agentTestSkillKind(), "my-skill") {
+		t.Fatal("blocked Version must not be servable")
 	}
 }
 

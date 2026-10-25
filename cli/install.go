@@ -180,11 +180,29 @@ func readOptional(path string) ([]byte, error) {
 	return content, err
 }
 
+// sourceError names the source entry that failed. Its detail goes on the lines below, indented.
+type sourceError struct {
+	source string
+	err    error
+}
+
+func (e *sourceError) Error() string {
+	return e.source + "\n  " + strings.ReplaceAll(e.err.Error(), "\n", "\n  ")
+}
+
+func (e *sourceError) Unwrap() error {
+	return e.err
+}
+
 func chooseVersion(e entry, versions []agentVersion, prev *lockEntry, opts applyOptions) (string, error) {
 	if prev != nil && !opts.upgrade && prev.Constraints == e.constraint {
 		for _, v := range versions {
 			if v.Version != prev.Version {
 				continue
+			}
+
+			if v.Blocked {
+				return "", &blockedVersionError{version: v.Version, reasons: v.BlockReasons, locked: true}
 			}
 
 			if v.Yanked && !opts.allowYanked {
@@ -236,7 +254,7 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 	}
 
 	if meta.Assessment != nil && meta.Assessment.Blocked {
-		return nil, fmt.Errorf("version %s is blocked by a Jev policy: %s", chosen, strings.Join(meta.Assessment.BlockReasons, "; "))
+		return nil, &blockedVersionError{version: chosen, reasons: meta.Assessment.BlockReasons}
 	}
 
 	if err := checkProtocols(meta.Protocols); err != nil {
@@ -471,7 +489,7 @@ func (a *app) applyProject(ctx context.Context, opts applyOptions) error {
 
 		s, err := a.stage(ctx, regs, tmp, e, targets, prevEntry, opts)
 		if err != nil {
-			return fmt.Errorf("%s: %w", e.source, err)
+			return &sourceError{source: e.source, err: err}
 		}
 
 		if s.assessment != nil {

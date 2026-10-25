@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentBody, AgentDefinition, buildAgentConfigSnippet, splitFrontmatter } from "./AgentDetail";
+import { AgentBody, AgentConfigSnippet, AgentDefinition, buildAgentConfigSnippet, splitFrontmatter } from "./AgentDetail";
 
 afterEach(() => {
   cleanup();
@@ -20,7 +20,7 @@ describe("buildAgentConfigSnippet", () => {
     });
 
     expect(snippet).toBe(`opendepot {
-  targets = ["copilot", "claude"]
+  targets = ["claude"]
 }
 
 agent "gh-actions-debug" {
@@ -39,7 +39,7 @@ agent "gh-actions-debug" {
     });
 
     expect(snippet).toBe(`opendepot {
-  targets = ["copilot", "claude"]
+  targets = ["claude"]
 }
 
 agent_skill "ui-demo" {
@@ -71,6 +71,78 @@ agent_skill "ui-demo" {
     });
 
     expect(snippet).toContain('source = "registry.example.com\\\\/acme/reviewer"');
+  });
+
+  it("maps the selected targets to the CLI target names in a stable order", () => {
+    const snippet = buildAgentConfigSnippet({
+      kind: "skill",
+      namespace: "acme",
+      name: "code-review",
+      registryHost: "registry.example.com",
+      targets: ["agentsmd", "codex"],
+    });
+
+    expect(snippet).toContain('targets = ["codex", "agentsmd"]');
+  });
+
+  it("falls back to claude when no targets are selected", () => {
+    const snippet = buildAgentConfigSnippet({
+      kind: "skill",
+      namespace: "acme",
+      name: "code-review",
+      registryHost: "registry.example.com",
+      targets: [],
+    });
+
+    expect(snippet).toContain('targets = ["claude"]');
+  });
+});
+
+describe("AgentConfigSnippet target selector", () => {
+  const props = {
+    kind: "skill",
+    namespace: "acme",
+    name: "code-review",
+    registryHost: "registry.example.com",
+    latestVersion: "v1.2.0",
+  };
+
+  it("lists Claude first and defaults to Claude only", () => {
+    const { container } = render(<AgentConfigSnippet {...props} />);
+    const pre = () => container.querySelector("pre")?.textContent ?? "";
+
+    const labels = within(screen.getByRole("group", { name: "Target platforms" }))
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(labels).toEqual(["Claude", "Copilot", "OpenAI", "Generic"]);
+    expect(screen.getByRole("button", { name: "Claude" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Copilot" }).getAttribute("aria-pressed")).toBe("false");
+    expect(pre()).toContain('targets = ["claude"]');
+  });
+
+  it("toggles the snippet targets in display order", () => {
+    const { container } = render(<AgentConfigSnippet {...props} />);
+    const pre = () => container.querySelector("pre")?.textContent ?? "";
+
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI" }));
+    expect(pre()).toContain('targets = ["claude", "codex"]');
+
+    fireEvent.click(screen.getByRole("button", { name: "Copilot" }));
+    expect(pre()).toContain('targets = ["claude", "copilot", "codex"]');
+
+    fireEvent.click(screen.getByRole("button", { name: "Claude" }));
+    expect(pre()).toContain('targets = ["copilot", "codex"]');
+
+    fireEvent.click(screen.getByRole("button", { name: "Generic" }));
+    expect(pre()).toContain('targets = ["copilot", "codex", "agentsmd"]');
+  });
+
+  it("keeps at least one target selected", () => {
+    const { container } = render(<AgentConfigSnippet {...props} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Claude" }));
+    expect(container.querySelector("pre")?.textContent).toContain('targets = ["claude"]');
+    expect(screen.getByRole("button", { name: "Claude" }).getAttribute("aria-pressed")).toBe("true");
   });
 });
 

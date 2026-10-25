@@ -2191,8 +2191,8 @@ server:
 					Unknown                int `json:"unknown"`
 					TotalAffectedResources int `json:"totalAffectedResources"`
 				} `json:"securityPosture"`
-				StorageDistribution []any `json:"storageDistribution"`
-				MostDownloaded      []any `json:"mostDownloaded"`
+				StorageDistribution []any            `json:"storageDistribution"`
+				MostDownloaded      map[string][]any `json:"mostDownloaded"`
 			}
 			Expect(json.NewDecoder(resp.Body).Decode(&stats)).To(Succeed())
 
@@ -2361,14 +2361,16 @@ spec:
 				}
 
 				var stats struct {
-					TotalDownloads int           `json:"totalDownloads"`
-					MostDownloaded []interface{} `json:"mostDownloaded"`
+					TotalDownloads int `json:"totalDownloads"`
+					MostDownloaded struct {
+						Modules []interface{} `json:"modules"`
+					} `json:"mostDownloaded"`
 				}
 				if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
 					return 0, 0
 				}
 
-				return stats.TotalDownloads, len(stats.MostDownloaded)
+				return stats.TotalDownloads, len(stats.MostDownloaded.Modules)
 			}
 			Eventually(func() int {
 				totalDownloads, _ := readStats()

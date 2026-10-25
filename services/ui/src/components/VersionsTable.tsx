@@ -129,7 +129,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
           if (
             refreshNonce > 0 &&
             json.totalCount > 0 &&
-            json.items.every((v) => v.synced && !/failed|error/i.test(v.syncStatus ?? ""))
+            json.items.every((v) => v.blocked || (v.synced && !/failed|error/i.test(v.syncStatus ?? "")))
           ) {
             onAllSynced?.();
           }
@@ -318,21 +318,24 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
               items.map((v, idx) => (
                 <TableRow key={`${v.version}-${v.os ?? ""}-${v.arch ?? ""}-${idx}`} hover>
                   <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
-                    {v.version ? displayVersion(v.version) : "—"}
-                    {v.branchPhase && (
-                      <Chip size="small" variant="outlined" label={v.branchPhase} sx={{ ml: 1, fontFamily: "inherit" }} />
-                    )}
+                    <span>{v.version ? displayVersion(v.version) : "—"}</span>
                   </TableCell>
                   <TableCell sx={{ verticalAlign: "top" }}>
                     <Box display="flex" alignItems="center" gap={0.5}>
-                      {/failed|error/i.test(v.syncStatus) ? (
+                      {v.blocked || /failed|error/i.test(v.syncStatus) ? (
                         <ErrorIcon sx={{ fontSize: 12, color: "error.main" }} />
                       ) : v.synced ? (
                         <CheckCircleIcon sx={{ fontSize: 12, color: "success.main" }} />
                       ) : (
                         <SyncProblemIcon sx={{ fontSize: 12, color: "warning.main" }} />
                       )}
-                      <Typography variant="caption">{v.syncStatus}</Typography>
+                      {v.blocked ? (
+                        <Tooltip title={(v.blockReasons ?? []).join("; ") || "Blocked by Jev"}>
+                          <Typography variant="caption" color="error.main">Blocked by Jev</Typography>
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="caption">{v.syncStatus}</Typography>
+                      )}
                     </Box>
                   </TableCell>
                   <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>

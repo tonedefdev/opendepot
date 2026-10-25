@@ -317,6 +317,10 @@ func TestBlockedVersionIsNotInstalled(t *testing.T) {
 		t.Fatalf("expected blocked version to fail apply, got %v", err)
 	}
 
+	if !strings.Contains(err.Error(), "/lint\n  version 1.0.0 is blocked by a Jev policy\n  - risk score 0.8 above 0.5") {
+		t.Fatalf("blocked error not displayed with source and indented reasons: %q", err.Error())
+	}
+
 	if _, statErr := os.Stat(filepath.Join(dir, lockFileName)); !os.IsNotExist(statErr) {
 		t.Fatalf("blocked version wrote a lock file: %v", statErr)
 	}

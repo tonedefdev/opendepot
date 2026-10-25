@@ -615,7 +615,7 @@ func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFi
 		logger.Error("browse: failed to load "+kind+" download stats", "error", err)
 	}
 
-	riskLevels := browseAgentRiskLevels(cs, r, kind)
+	jevStates := browseAgentJevStates(cs, r, kind)
 
 	var items []BrowseResource
 	for _, a := range list.Items {
@@ -630,36 +630,49 @@ func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFi
 		}
 
 		card := agentToCard(kind, a, pub)
-		card.JevRiskLevel = riskLevels[browseAgentRiskKey(ns, kind, a.Metadata.Name, opendepotUtils.SanitizeVersion(card.LatestVersion))]
+		state := jevStates[browseAgentRiskKey(ns, kind, a.Metadata.Name, opendepotUtils.SanitizeVersion(card.LatestVersion))]
+		card.JevRiskLevel = state.riskLevel
+		card.Blocked = state.blocked
+		card.BlockReasons = state.blockReasons
 		enrichResourceWithDownloads(&card, dlStats)
 		items = append(items, card)
 	}
 	return items, nil
 }
 
-// browseAgentRiskLevels maps each assessed Skill or Agent Version to its Jev risk level, keyed by
-// browseAgentRiskKey. A failed Version list is logged and yields an empty map so the cards still render
-// without a risk chip.
-func browseAgentRiskLevels(cs *kubernetes.Clientset, r *http.Request, kind string) map[string]string {
+// browseAgentJevState is the Jev state of a Skill or Agent Version shown on its browse card.
+type browseAgentJevState struct {
+	riskLevel    string
+	blocked      bool
+	blockReasons []string
+	evaluatedAt  time.Time
+}
+
+// browseAgentJevStates maps each assessed Skill or Agent Version to its Jev state, keyed by
+// browseAgentRiskKey. Unversioned Versions are included so a blocked branch Version without a version still
+// surfaces on its card, and the newest assessment wins when several share a key. A failed Version list is
+// logged and yields an empty map so the cards still render without Jev state.
+func browseAgentJevStates(cs *kubernetes.Clientset, r *http.Request, kind string) map[string]browseAgentJevState {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
 		Resource("versions").
 		DoRaw(r.Context())
 	if err != nil {
-		logger.Error("browse: failed to list versions for "+kind+" risk levels", "error", err)
+		logger.Error("browse: failed to list versions for "+kind+" jev state", "error", err)
 		return nil
 	}
 
 	var list opendepotv1alpha1.VersionList
 	if err := json.Unmarshal(raw, &list); err != nil {
-		logger.Error("browse: failed to unmarshal versions for "+kind+" risk levels", "error", err)
+		logger.Error("browse: failed to unmarshal versions for "+kind+" jev state", "error", err)
 		return nil
 	}
 
-	levels := make(map[string]string)
+	states := make(map[string]browseAgentJevState)
 	for _, v := range list.Items {
-		if v.Status.JevAssessment == nil || v.Status.JevAssessment.RiskLevel == "" {
+		assessment := v.Status.JevAssessment
+		if assessment == nil || (assessment.RiskLevel == "" && !assessment.Blocked) {
 			continue
 		}
 
@@ -667,11 +680,25 @@ func browseAgentRiskLevels(cs *kubernetes.Clientset, r *http.Request, kind strin
 			continue
 		}
 
+		evaluatedAt, err := time.Parse(time.RFC3339Nano, assessment.EvaluatedAt)
+		if err != nil {
+			evaluatedAt = time.Time{}
+		}
+
 		key := browseAgentRiskKey(v.Namespace, kind, *v.Spec.AgentSourceRef.Name, opendepotUtils.SanitizeVersion(v.Spec.Version))
-		levels[key] = v.Status.JevAssessment.RiskLevel
+		if existing, ok := states[key]; ok && !evaluatedAt.After(existing.evaluatedAt) {
+			continue
+		}
+
+		states[key] = browseAgentJevState{
+			riskLevel:    assessment.RiskLevel,
+			blocked:      assessment.Blocked,
+			blockReasons: assessment.BlockReasons,
+			evaluatedAt:  evaluatedAt,
+		}
 	}
 
-	return levels
+	return states
 }
 
 // browseAgentRiskKey identifies a Skill or Agent Version for risk level lookups.
@@ -688,8 +715,28 @@ func browseAgentResource(kind string) string {
 	return "skills"
 }
 
-// browseListAgentVersions returns the Version resources belonging to the named Skill or Agent.
+// branchPhaseRejected is the BranchPhase of a branch Version that was rejected and will not be retried.
+const branchPhaseRejected = "Rejected"
+
+// browseListAgentVersions returns the Version resources belonging to the named Skill or Agent
+// that have an assigned version.
 func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string) ([]opendepotv1alpha1.Version, error) {
+	return browseListAgentVersionsWhere(cs, r, namespace, kind, name, func(v *opendepotv1alpha1.Version) bool {
+		return v.Spec.Version != ""
+	})
+}
+
+// browseListAgentVersionRows returns the Version resources belonging to the named Skill or Agent
+// that have an assigned version, plus branch Versions that were blocked or rejected before one
+// was assigned, so the browse view can show why they were not published.
+func browseListAgentVersionRows(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string) ([]opendepotv1alpha1.Version, error) {
+	return browseListAgentVersionsWhere(cs, r, namespace, kind, name, func(v *opendepotv1alpha1.Version) bool {
+		return v.Spec.Version != "" || agentVersionBlocked(v) || v.Status.BranchPhase == branchPhaseRejected
+	})
+}
+
+// browseListAgentVersionsWhere lists the Versions of the named Skill or Agent that match keep.
+func browseListAgentVersionsWhere(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string, keep func(*opendepotv1alpha1.Version) bool) ([]opendepotv1alpha1.Version, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -707,7 +754,7 @@ func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespac
 
 	var result []opendepotv1alpha1.Version
 	for _, v := range list.Items {
-		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil || v.Spec.Version == "" {
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil {
 			continue
 		}
 
@@ -715,10 +762,26 @@ func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespac
 			continue
 		}
 
+		if !keep(&v) {
+			continue
+		}
+
 		result = append(result, v)
 	}
 
 	return result, nil
+}
+
+// agentVersionsWithVersion returns the Versions that have an assigned version string.
+func agentVersionsWithVersion(versions []opendepotv1alpha1.Version) []opendepotv1alpha1.Version {
+	result := make([]opendepotv1alpha1.Version, 0, len(versions))
+	for _, v := range versions {
+		if v.Spec.Version != "" {
+			result = append(result, v)
+		}
+	}
+
+	return result
 }
 
 // agentToCard converts a Skill or Agent to a BrowseResource card.
@@ -792,6 +855,31 @@ func agentLatestVersion(versions []opendepotv1alpha1.Version, latestVersionStr s
 	return nil
 }
 
+// agentLatestAssessedVersion returns the Version whose Jev assessment was evaluated most recently,
+// or nil when no Version has one.
+func agentLatestAssessedVersion(versions []opendepotv1alpha1.Version) *opendepotv1alpha1.Version {
+	var latest *opendepotv1alpha1.Version
+	var latestAt time.Time
+	for i := range versions {
+		assessment := versions[i].Status.JevAssessment
+		if assessment == nil {
+			continue
+		}
+
+		evaluatedAt, err := time.Parse(time.RFC3339Nano, assessment.EvaluatedAt)
+		if err != nil {
+			evaluatedAt = time.Time{}
+		}
+
+		if latest == nil || evaluatedAt.After(latestAt) {
+			latest = &versions[i]
+			latestAt = evaluatedAt
+		}
+	}
+
+	return latest
+}
+
 // browseAgentKind maps the browse kind segment to the agentKind used by the registry.
 func browseAgentKind(kind string) agentKind {
 	if kind == "agent" {
@@ -814,6 +902,11 @@ func agentVersionSummaries(kind agentKind, name string, versions []opendepotv1al
 			SyncStatus:  v.Status.SyncStatus,
 			Commit:      agentVersionCommit(&v),
 			BranchPhase: v.Status.BranchPhase,
+		}
+
+		if agentVersionBlocked(&v) {
+			s.Blocked = true
+			s.BlockReasons = v.Status.JevAssessment.BlockReasons
 		}
 
 		if agentVersionServable(&v, kind, name) {
@@ -1200,15 +1293,16 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		card := agentToCard(kind, a, pub)
 
-		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		rows, err := browseListAgentVersionRows(cs, r, namespace, kind, name)
 		if err != nil {
 			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		versions := agentVersionsWithVersion(rows)
 
 		detail := BrowseResourceDetail{BrowseResource: card}
-		detail.Versions = agentVersionSummaries(browseAgentKind(kind), name, versions)
+		detail.Versions = agentVersionSummaries(browseAgentKind(kind), name, rows)
 		detail.JevThresholds = a.Spec.AgentSourceConfig.JevPolicy
 		detail.StorageConfig = storageConfigToBrowse(a.Spec.AgentSourceConfig.StorageConfig)
 		detail.RepoOwner = a.Spec.AgentSourceConfig.RepoOwner
@@ -1224,7 +1318,6 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.DefinitionContent, detail.DefinitionFileName = browseAgentDefinition(cs, r, namespace, versions, latestVersionStr)
 		if latest := agentLatestVersion(versions, latestVersionStr); latest != nil {
 			detail.AgentMetadata = latest.Status.AgentMetadata
-			detail.JevAssessment = latest.Status.JevAssessment
 			if latest.Status.SourceScan != nil {
 				detail.SourceScanFindings = latest.Status.SourceScan.Findings
 			}
@@ -1232,6 +1325,11 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 			if card.SourceRef != "" {
 				detail.SourceCommit = agentVersionCommit(latest)
 			}
+		}
+
+		// The newest Jev assessment can belong to a blocked or rejected attempt, which has no version yet.
+		if assessed := agentLatestAssessedVersion(rows); assessed != nil {
+			detail.JevAssessment = assessed.Status.JevAssessment
 		}
 
 		json.NewEncoder(w).Encode(detail)
@@ -2235,14 +2333,14 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		rows, err := browseListAgentVersionRows(cs, r, namespace, kind, name)
 		if err != nil {
 			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 
-		summaries := agentVersionSummaries(browseAgentKind(kind), name, versions)
+		summaries := agentVersionSummaries(browseAgentKind(kind), name, rows)
 		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, kind, name)
 		sort.SliceStable(summaries, func(i, j int) bool {
 			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
@@ -2634,6 +2732,50 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// browseGraphAgentNodes lists Skill or Agent resources as depot graph nodes.
+func browseGraphAgentNodes(ctx context.Context, cs *kubernetes.Clientset, ns string, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess bool, kind string) ([]BrowseGraphAgent, error) {
+	resource := browseAgentResource(kind)
+	req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource(resource)
+	if ns != "" {
+		req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource(resource)
+	}
+
+	raw, err := req.DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", resource, err)
+	}
+
+	var list struct {
+		Items []agentCardObject `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s list: %w", resource, err)
+	}
+
+	nodes := make([]BrowseGraphAgent, 0, len(list.Items))
+	for _, a := range list.Items {
+		pub := nsPublic[a.Metadata.Namespace] && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			continue
+		}
+
+		node := BrowseGraphAgent{
+			ID:         fmt.Sprintf("%s/%s/%s", kind, a.Metadata.Namespace, a.Metadata.Name),
+			Kind:       kind,
+			Namespace:  a.Metadata.Namespace,
+			Name:       a.Metadata.Name,
+			Synced:     a.Status.Synced,
+			SyncStatus: a.Status.SyncStatus,
+		}
+		if a.Status.LatestVersion != nil {
+			node.LatestVersion = *a.Status.LatestVersion
+		}
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
+}
+
 // handleBrowseDepotsGraph builds and returns the depot relationship graph.
 // GET /opendepot/ui/v1/depots/graph
 func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
@@ -2771,10 +2913,26 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	skillNodes, err := browseGraphAgentNodes(r.Context(), cs, ns, nsPublic, binding, allAccess, "skill")
+	if err != nil {
+		logger.Error("browse: graph: failed to list skills", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	agentNodes, err := browseGraphAgentNodes(r.Context(), cs, ns, nsPublic, binding, allAccess, "agent")
+	if err != nil {
+		logger.Error("browse: graph: failed to list agents", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	graph := BrowseDepotGraph{
 		Depots:      []BrowseGraphDepot{},
 		Modules:     []BrowseGraphModule{},
 		Providers:   []BrowseGraphProvider{},
+		Skills:      skillNodes,
+		Agents:      agentNodes,
 		Edges:       []BrowseGraphEdge{},
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -2793,6 +2951,8 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			Name:                 d.Name,
 			ManagedModuleNames:   d.Status.Modules,
 			ManagedProviderNames: d.Status.Providers,
+			ManagedSkillNames:    d.Status.Skills,
+			ManagedAgentNames:    d.Status.Agents,
 		}
 
 		node.PollingIntervalMinutes = d.Spec.PollingIntervalMinutes
@@ -2888,6 +3048,8 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		TotalDepots:    len(graph.Depots),
 		TotalModules:   len(graph.Modules),
 		TotalProviders: len(graph.Providers),
+		TotalSkills:    len(graph.Skills),
+		TotalAgents:    len(graph.Agents),
 	}
 
 	json.NewEncoder(w).Encode(graph)

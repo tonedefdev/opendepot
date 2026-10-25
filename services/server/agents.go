@@ -93,19 +93,30 @@ func agentVersionBlocked(version *opendepotv1alpha1.Version) bool {
 	return version.Status.JevAssessment != nil && version.Status.JevAssessment.Blocked
 }
 
-// agentVersionServable reports whether a Version may be listed or served for the named Skill or Agent.
-// It must be synced, unblocked, of the kind's type, and sourced from the named Skill or Agent.
-func agentVersionServable(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
-	return version.Status.Synced &&
-		!agentVersionBlocked(version) &&
-		version.Spec.Type == kind.versionType &&
+// agentVersionMatches reports whether a Version is of the kind's type and sourced from the named Skill or Agent.
+func agentVersionMatches(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return version.Spec.Type == kind.versionType &&
 		version.Spec.AgentSourceRef != nil &&
 		version.Spec.AgentSourceRef.Name != nil &&
 		*version.Spec.AgentSourceRef.Name == name
 }
 
-// buildAgentVersionsResponse lists the servable Versions of a Skill or Agent.
+// agentVersionServable reports whether a Version may be served for the named Skill or Agent.
+// It must be synced, unblocked, of the kind's type, and sourced from the named Skill or Agent.
+func agentVersionServable(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return version.Status.Synced && !agentVersionBlocked(version) && agentVersionMatches(version, kind, name)
+}
+
+// agentVersionListable reports whether a Version appears in the versions list for the named Skill or Agent.
+// Blocked Versions are listed, with their Jev reasons, so clients can explain why they are unavailable.
+// They are never served. A blocked Version is unsynced, so it is listed on its block instead of its sync state.
+func agentVersionListable(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return (version.Status.Synced || agentVersionBlocked(version)) && agentVersionMatches(version, kind, name)
+}
+
+// buildAgentVersionsResponse lists the Versions of a Skill or Agent that are servable or blocked.
 // Yanked Versions are included with Yanked set so clients can skip them on resolution.
+// Blocked Versions are included with Blocked and BlockReasons set so clients do not treat them as missing.
 func buildAgentVersionsResponse(kind agentKind, name string, entries []struct {
 	Version string `json:"version"`
 	Synced  bool   `json:"synced"`
@@ -118,14 +129,21 @@ func buildAgentVersionsResponse(kind agentKind, name string, entries []struct {
 
 		version, ok := versions[agentVersionResourceName(kind.prefix, name, entry.Version)]
 
-		if !ok || !agentVersionServable(&version, kind, name) || trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(entry.Version) {
+		if !ok || !agentVersionListable(&version, kind, name) || trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(entry.Version) {
 			continue
 		}
 
-		response.Versions = append(response.Versions, AgentVersionSummary{
+		summary := AgentVersionSummary{
 			Version: entry.Version,
 			Yanked:  version.Spec.Yanked,
-		})
+		}
+
+		if agentVersionBlocked(&version) {
+			summary.Blocked = true
+			summary.BlockReasons = version.Status.JevAssessment.BlockReasons
+		}
+
+		response.Versions = append(response.Versions, summary)
 	}
 
 	return response

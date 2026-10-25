@@ -113,6 +113,19 @@ export default function CliDownloadSurface() {
         </List>
       </SectionCard>
 
+      <SectionCard icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Verify">
+        <Typography variant="body2" color="text.secondary">
+          Check your download against the{" "}
+          <Link href="/api/cli/SHA256SUMS" underline="hover">
+            SHA256SUMS
+          </Link>{" "}
+          file. Run this in {shellName} from the folder that contains your download and SHA256SUMS:
+        </Typography>
+        <Box sx={{ mt: 1.5 }}>
+          <HighlightedCodeBlock code={buildCLIVerifyCommand(os)} language={language} />
+        </Box>
+      </SectionCard>
+
       <SectionCard icon={<TerminalOutlinedIcon fontSize="small" />} title="Install">
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Pick your operating system. The script downloads the binary for your architecture, verifies it against
@@ -141,19 +154,6 @@ export default function CliDownloadSurface() {
         </ToggleButtonGroup>
         <Box sx={{ mb: 0.75, color: "text.secondary", fontSize: "0.75rem", fontWeight: 600 }}>Run in {shellName}</Box>
         <HighlightedCodeBlock code={script} language={language} />
-      </SectionCard>
-
-      <SectionCard icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Verify">
-        <Typography variant="body2" color="text.secondary">
-          Check your download against the{" "}
-          <Link href="/api/cli/SHA256SUMS" underline="hover">
-            SHA256SUMS
-          </Link>{" "}
-          file. Run this in {shellName} from the folder that contains your download and SHA256SUMS:
-        </Typography>
-        <Box sx={{ mt: 1.5 }}>
-          <HighlightedCodeBlock code={buildCLIVerifyCommand(os)} language={language} />
-        </Box>
       </SectionCard>
     </Container>
   );

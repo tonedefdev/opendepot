@@ -78,32 +78,59 @@ func queryMostDownloaded(ctx context.Context, namespace string, limit int) ([]Po
 		return nil, err
 	}
 
-	return mostDownloadedForStats(stats, namespace, limit, nil), nil
+	return mostDownloadedForStats(stats, namespace, "", limit, nil), nil
 }
 
-func mostDownloadedForStats(stats map[string]resourceDownloadStats, namespace string, limit int, visible map[string]struct{}) []PopularResource {
+func mostDownloadedByKind(stats map[string]resourceDownloadStats, namespace string, limit int, visible map[string]struct{}) MostDownloadedStats {
+	return MostDownloadedStats{
+		Modules:   mostDownloadedForStats(stats, namespace, "module", limit, visible),
+		Providers: mostDownloadedForStats(stats, namespace, "provider", limit, visible),
+		Skills:    mostDownloadedForStats(stats, namespace, "skill", limit, visible),
+		Agents:    mostDownloadedForStats(stats, namespace, "agent", limit, visible),
+	}
+}
+
+// mostDownloadedForStats ranks resources by total downloads across their versions. An empty kind
+// includes every kind. Each resource reports its most downloaded version, and resources with no
+// downloads are omitted.
+func mostDownloadedForStats(stats map[string]resourceDownloadStats, namespace, kind string, limit int, visible map[string]struct{}) []PopularResource {
+	type topVersion struct {
+		count   int64
+		version string
+	}
+
 	byResource := make(map[string]PopularResource)
+	topVersions := make(map[string]topVersion)
 	for key, value := range stats {
-		ns, kind, name, version, ok := splitVersionKey(key)
-		if !ok || namespace != "" && namespace != ns || !resourceIsVisible(visible, ns, kind, name) {
+		ns, resourceKind, name, version, ok := splitVersionKey(key)
+		if !ok || namespace != "" && namespace != ns || kind != "" && !strings.EqualFold(kind, resourceKind) || !resourceIsVisible(visible, ns, resourceKind, name) {
 			continue
 		}
 
-		resourceKey := ns + "/" + kind + "/" + name
+		resourceKey := ns + "/" + resourceKind + "/" + name
 		resource := byResource[resourceKey]
 		resource.Namespace = ns
-		resource.Kind = kind
+		resource.Kind = resourceKind
 		resource.Name = name
-		resource.Version = version
 		resource.DownloadCount += value.Count
 		if value.LastAt > resource.LastDownloadedAt {
 			resource.LastDownloadedAt = value.LastAt
 		}
 		byResource[resourceKey] = resource
+
+		current, seen := topVersions[resourceKey]
+		if !seen || value.Count > current.count || value.Count == current.count && compareVersionDesc(version, current.version) {
+			topVersions[resourceKey] = topVersion{count: value.Count, version: version}
+		}
 	}
 
 	result := make([]PopularResource, 0, len(byResource))
-	for _, resource := range byResource {
+	for resourceKey, resource := range byResource {
+		if resource.DownloadCount == 0 {
+			continue
+		}
+
+		resource.Version = topVersions[resourceKey].version
 		result = append(result, resource)
 	}
 

@@ -693,7 +693,7 @@ spec:
 			"-n", namespace,
 			"--subresource=status",
 			"--type=merge",
-			"-p", `{"status":{"branchPhase":"Assigned","synced":true,"syncStatus":"Successfully synced version"}}`,
+			"-p", `{"status":{"branchPhase":"Assigned","synced":true,"syncStatus":"Successfully synced and assigned version"}}`,
 		)
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to patch the Version status.branchPhase")

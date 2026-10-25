@@ -17,11 +17,14 @@ type AgentVersionsResponse struct {
 	Versions []AgentVersionSummary `json:"versions"`
 }
 
-// AgentVersionSummary describes a single synced Skill or Agent Version. Yanked Versions
-// stay listed and are skipped by version constraint resolution on the client.
+// AgentVersionSummary describes a single Skill or Agent Version. Yanked Versions stay listed
+// and are skipped by version constraint resolution on the client. Blocked Versions stay listed
+// with their Jev block reasons but are never served by the download endpoint.
 type AgentVersionSummary struct {
-	Version string `json:"version"`
-	Yanked  bool   `json:"yanked"`
+	Version      string   `json:"version"`
+	Yanked       bool     `json:"yanked"`
+	Blocked      bool     `json:"blocked"`
+	BlockReasons []string `json:"blockReasons,omitempty"`
 }
 
 // AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.
@@ -161,6 +164,10 @@ type BrowseResource struct {
 	SourcePath   string `json:"sourcePath,omitempty"`
 	// JevRiskLevel is the Jev risk level of the latest Skill or Agent Version, when it has been assessed.
 	JevRiskLevel string `json:"jevRiskLevel,omitempty"`
+	// Blocked reports that Jev blocked the latest Skill or Agent Version, so the card shows a "Blocked by Jev" status.
+	Blocked bool `json:"blocked,omitempty"`
+	// BlockReasons explains why Jev blocked the latest Skill or Agent Version.
+	BlockReasons []string `json:"blockReasons,omitempty"`
 	// Provider-specific fields.
 	ProviderNamespace string             `json:"providerNamespace,omitempty"`
 	UpstreamRegistry  string             `json:"upstreamRegistry,omitempty"`
@@ -222,6 +229,11 @@ type BrowseVersionSummary struct {
 	Commit string `json:"commit,omitempty"`
 	// BranchPhase is the lifecycle phase of this branch Version. Only set for branch Versions.
 	BranchPhase string `json:"branchPhase,omitempty"`
+	// Blocked is true for a branch Version that Jev blocked or the branch lifecycle rejected
+	// before a version was assigned. Such a Version has no Version string and is never served.
+	Blocked bool `json:"blocked,omitempty"`
+	// BlockReasons explains why the Version was blocked. Only set when Blocked is true.
+	BlockReasons []string `json:"blockReasons,omitempty"`
 }
 
 // BrowseVersionList is the paginated response for the version listing endpoint.
@@ -334,6 +346,8 @@ type BrowseGraphDepot struct {
 	PollingIntervalMinutes *int     `json:"pollingIntervalMinutes,omitempty"`
 	ManagedModuleNames     []string `json:"managedModuleNames,omitempty"`
 	ManagedProviderNames   []string `json:"managedProviderNames,omitempty"`
+	ManagedSkillNames      []string `json:"managedSkillNames,omitempty"`
+	ManagedAgentNames      []string `json:"managedAgentNames,omitempty"`
 }
 
 // BrowseGraphModule is a module node in the depots relationship graph.
@@ -360,6 +374,18 @@ type BrowseGraphProvider struct {
 	Synced            bool   `json:"synced"`
 }
 
+// BrowseGraphAgent is a skill or agent node in the depots relationship graph.
+// Kind is "skill" or "agent".
+type BrowseGraphAgent struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Namespace     string `json:"namespace"`
+	Name          string `json:"name"`
+	Synced        bool   `json:"synced"`
+	SyncStatus    string `json:"syncStatus,omitempty"`
+	LatestVersion string `json:"latestVersion,omitempty"`
+}
+
 // BrowseGraphEdge is a directed edge in the depots relationship graph.
 // Source and Target are node IDs.
 type BrowseGraphEdge struct {
@@ -373,6 +399,8 @@ type BrowseGraphSummary struct {
 	TotalDepots    int `json:"totalDepots"`
 	TotalModules   int `json:"totalModules"`
 	TotalProviders int `json:"totalProviders"`
+	TotalSkills    int `json:"totalSkills"`
+	TotalAgents    int `json:"totalAgents"`
 }
 
 // BrowseDepotGraph is the full graph payload for the depot relationship view.
@@ -380,6 +408,8 @@ type BrowseDepotGraph struct {
 	Depots      []BrowseGraphDepot    `json:"depots"`
 	Modules     []BrowseGraphModule   `json:"modules"`
 	Providers   []BrowseGraphProvider `json:"providers"`
+	Skills      []BrowseGraphAgent    `json:"skills"`
+	Agents      []BrowseGraphAgent    `json:"agents"`
 	Edges       []BrowseGraphEdge     `json:"edges"`
 	Summary     BrowseGraphSummary    `json:"summary"`
 	GeneratedAt string                `json:"generatedAt"`
@@ -388,15 +418,30 @@ type BrowseDepotGraph struct {
 // BrowseStats is the aggregate stats payload returned by the stats endpoint.
 type BrowseStats struct {
 	TotalModules        int                  `json:"totalModules"`
+	ModulesSynced       int                  `json:"modulesSynced"`
 	TotalProviders      int                  `json:"totalProviders"`
+	ProvidersSynced     int                  `json:"providersSynced"`
+	TotalSkills         int                  `json:"totalSkills"`
+	SkillsSynced        int                  `json:"skillsSynced"`
+	TotalAgents         int                  `json:"totalAgents"`
+	AgentsSynced        int                  `json:"agentsSynced"`
 	TotalVersions       int                  `json:"totalVersions"`
+	VersionsSynced      int                  `json:"versionsSynced"`
 	TotalStorageBytes   int64                `json:"totalStorageBytes"`
 	TotalDownloads      int64                `json:"totalDownloads"`
 	DownloadWindow      string               `json:"downloadWindow"`
 	SyncHealth          SyncHealthStats      `json:"syncHealth"`
 	SecurityPosture     SecurityPostureStats `json:"securityPosture"`
 	StorageDistribution []StorageBackendStat `json:"storageDistribution"`
-	MostDownloaded      []PopularResource    `json:"mostDownloaded"`
+	MostDownloaded      MostDownloadedStats  `json:"mostDownloaded"`
+}
+
+// MostDownloadedStats ranks the most downloaded resources separately for each kind.
+type MostDownloadedStats struct {
+	Modules   []PopularResource `json:"modules"`
+	Providers []PopularResource `json:"providers"`
+	Skills    []PopularResource `json:"skills"`
+	Agents    []PopularResource `json:"agents"`
 }
 
 // SyncHealthStats breaks down version sync health.

@@ -20,8 +20,8 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import CloseIcon from "@mui/icons-material/Close";
-import WidgetsIcon from "@mui/icons-material/Widgets";
-import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { MODULE_COLOR } from "@/lib/kindColors";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { useColorScheme } from "@mui/material/styles";
@@ -142,7 +142,6 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
   const [identityTruncated, setIdentityTruncated] = useState(false);
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const WidgetIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
   const errorCount = Object.keys(fieldErrors).length;
   const configuredProviderCount = requiredProviders.filter(
     (provider) => providerBindings[provider.localName]?.providerNodeId,
@@ -217,7 +216,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     >
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <WidgetIcon sx={{ fontSize: 16, opacity: 0.7, color: "#03deb8" }} />
+          <DepotKindIcon kind="module" sx={{ fontSize: 16, color: MODULE_COLOR }} />
           <Typography variant="caption" color="text.secondary">
             module.
           </Typography>

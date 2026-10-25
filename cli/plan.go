@@ -56,13 +56,13 @@ func (a *app) printPlan(staged []*stagedEntry, prev *lockFile, existing []byte, 
 			}
 
 			if err != nil {
-				return fmt.Errorf("%s: %w", s.source, err)
+				return &sourceError{source: s.source, err: err}
 			}
 
 			if s.kind == kindSkill && t.label != targetAgentsMD && row.sym != planSame {
 				row.files, err = a.skillChanges(s, t)
 				if err != nil {
-					return fmt.Errorf("%s: %w", s.source, err)
+					return &sourceError{source: s.source, err: err}
 				}
 			}
 

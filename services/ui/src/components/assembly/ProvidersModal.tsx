@@ -12,9 +12,8 @@ import InputLabel from "@mui/material/InputLabel";
 import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import CloseIcon from "@mui/icons-material/Close";
-import WidgetsIcon from "@mui/icons-material/Widgets";
-import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
-import { useColorScheme } from "@mui/material/styles";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { MODULE_COLOR } from "@/lib/kindColors";
 import type { ContractRequiredProvider } from "@/lib/api";
 import type { ProviderBinding, ProviderOption } from "./types";
 
@@ -42,9 +41,6 @@ export default function ProvidersModal({
   providerBindings,
   onProviderBindingChange,
 }: Props) {
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const ModuleIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
   const reactId = React.useId();
   const configuredCount = requiredProviders.filter(
     (provider) => providerBindings[provider.localName]?.providerNodeId,
@@ -55,7 +51,7 @@ export default function ProvidersModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <ModuleIcon sx={{ fontSize: 20, color: "#03deb8" }} />
+            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: MODULE_COLOR }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             module.{instanceName} — Providers

@@ -188,7 +188,16 @@ When the registry has a newer version than the lock file, the plan shows it with
 
 ## Blocked versions
 
-A version that a Jev policy blocks is not installed. The registry returns it as not found, and the CLI also refuses to stage a blocked version if the download metadata marks it as blocked. The error lists the policy reasons. Jev scores are shown during `apply` and `plan` and are not written to the lock file.
+A version that a Jev policy blocks is not installed. The registry lists it with `blocked: true` and the Jev block reasons, so the CLI does not treat it as missing. Resolution skips a blocked version and picks the highest unblocked match. When the only match is blocked, the CLI explains why in the same label-column layout it uses for Jev assessments. It names the source and version, the Jev status, each policy reason, and what to do next:
+
+```text
+✖ registry.example.com/opendepot-system/anti-ui-slop@1.0.0
+  Status       blocked by a Jev policy · not installable
+  Reason       overall risk score 0.80 in part 1 is above the policy limit of 0.50
+  Next         installs are refused until the policy allows this version
+```
+
+A locked version that becomes blocked gets the same output, with a `Next` line that says the lock file pins the version and to re-run with `-upgrade`. When no version satisfies the constraint, the error lists the published versions, marked `(yanked)` or `(blocked)` where they apply. Jev scores are shown during `apply` and `plan` and are not written to the lock file.
 
 ## Example workflow
 

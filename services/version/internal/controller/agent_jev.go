@@ -139,15 +139,20 @@ func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
 		policy.MaxRiskScore != nil)
 }
 
-// jevPublishedStatus returns the SyncStatus of a Skill or Agent Version that is published. When Jev recorded an
-// error that no threshold gates, the error stays visible in SyncStatus and the message says why the Version was
-// published.
-func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment) string {
-	if jevAssessment == nil || jevAssessment.Error == "" {
-		return "Successfully synced version"
+// jevPublishedStatus returns the SyncStatus of a Skill or Agent Version that is published. assigned is true when the
+// Version was assigned a semver from a branch. When Jev recorded an error that no threshold gates, the error stays
+// visible in SyncStatus and the message says why the Version was published.
+func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment, assigned bool) string {
+	status := "Successfully synced version"
+	if assigned {
+		status = "Successfully synced and assigned version"
 	}
 
-	return fmt.Sprintf("Successfully synced version; Jev assessment did not complete: %s. Version was published because no Jev thresholds are set", jevAssessment.Error)
+	if jevAssessment == nil || jevAssessment.Error == "" {
+		return status
+	}
+
+	return fmt.Sprintf("%s; Jev assessment did not complete: %s. Version was published because no Jev thresholds are set", status, jevAssessment.Error)
 }
 
 // readJevToken reads the Jev token from the Secret referenced by the source. The token is never logged
@@ -485,7 +490,7 @@ func (r *VersionReconciler) runAgentJev(
 	}
 
 	if int(retries) > r.JevMaxRetries {
-		msg := fmt.Sprintf("jev assessment incomplete: automatic retries exhausted after %d attempts; set forceSync or change the spec to run again", retries)
+		msg := fmt.Sprintf("Jev could not finish checking this version after %d attempts; set forceSync or change the spec to run again", retries)
 		assessment := jevNewAssessment(retries, 0)
 		assessment.Error = msg
 		assessment.Blocked = true
@@ -512,20 +517,20 @@ func (r *VersionReconciler) runAgentJev(
 		if errors.Is(err, errJevChunkIO) {
 			r.Log.Error(err, "Jev split could not read the extracted content", "version", version.Name)
 
-			return jevIncomplete(retries+1, 0, "jev assessment incomplete: the extracted content could not be read")
+			return jevIncomplete(retries+1, 0, "Jev could not check this version because the extracted content could not be read")
 		}
 
 		assessment := jevNewAssessment(retries, 0)
 		assessment.Blocked = true
-		assessment.BlockReasons = []string{fmt.Sprintf("jev assessment incomplete: split the content: %s", err)}
+		assessment.BlockReasons = []string{fmt.Sprintf("Jev could not check this version because the content could not be split: %s", err)}
 
 		return assessment, nil
 	}
 
 	if layout.over {
-		reasons := []string{fmt.Sprintf("jev assessment incomplete: the content needs at least %d parts of up to %d bytes, above the limit of %d per Version; no Jev calls were made", layout.count, jev.MaxStateBytes, jevMaxChunks)}
+		reasons := []string{fmt.Sprintf("Jev could not check this version: the content needs %d parts of up to %d bytes, but the limit is %d per Version; no Jev calls were made", layout.count, jev.MaxStateBytes, jevMaxChunks)}
 		if layout.skippedCount > 0 {
-			reasons = append(reasons, fmt.Sprintf("jev assessment incomplete: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content", layout.skippedCount))
+			reasons = append(reasons, fmt.Sprintf("Jev could not check this version: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content", layout.skippedCount))
 		}
 
 		assessment := jevNewAssessment(retries, layout.count)
@@ -541,7 +546,7 @@ func (r *VersionReconciler) runAgentJev(
 		assessment.SkippedFiles = jevSkippedFiles(layout)
 		assessment.SkippedFileCount = int32(layout.skippedCount)
 		assessment.Blocked = true
-		assessment.BlockReasons = []string{fmt.Sprintf("jev assessment incomplete: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content; no Jev calls were made", layout.skippedCount)}
+		assessment.BlockReasons = []string{fmt.Sprintf("Jev could not check this version: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content; no Jev calls were made", layout.skippedCount)}
 
 		return assessment, nil
 	}
@@ -552,7 +557,7 @@ func (r *VersionReconciler) runAgentJev(
 		if err != nil {
 			r.Log.Error(err, "Jev evidence view could not read the extracted content", "version", version.Name)
 
-			return jevIncomplete(retries+1, len(layout.parts), "jev assessment incomplete: the extracted content could not be read")
+			return jevIncomplete(retries+1, len(layout.parts), "Jev could not check this version because the extracted content could not be read")
 		}
 
 		if found {
@@ -675,7 +680,7 @@ func (r *VersionReconciler) runAgentJev(
 			assessment.RetryCount = retries + 1
 		}
 
-		msg := fmt.Sprintf("jev assessment incomplete: part %s failed: %s", outcomes[firstFailure].result.label, outcomes[firstFailure].errText)
+		msg := fmt.Sprintf("Jev could not check part %s: %s", outcomes[firstFailure].result.label, outcomes[firstFailure].errText)
 		assessment.Error = msg
 		assessment.Blocked = true
 		assessment.BlockReasons = append([]string{msg}, gateReasons...)

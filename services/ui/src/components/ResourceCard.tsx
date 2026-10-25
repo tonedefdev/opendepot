@@ -18,8 +18,9 @@ import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
 import ProviderLogo from "./ProviderLogo";
 import SourceRefChip from "./SourceRefChip";
+import { DepotKindIcon, isDepotKind } from "./DepotKindIcon";
 import type { BrowseResource } from "@/lib/api";
-import { kindColor } from "@/lib/kindColors";
+import { KIND_CHIP_TEXT, KIND_CHIP_COLORS, kindChipColor, kindColor } from "@/lib/kindColors";
 import { RISK_COLORS } from "@/lib/jevSeverity";
 
 // Resource-kind hues are fixed brand colors from kindColors, so they must NOT
@@ -38,6 +39,7 @@ export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
   const accent = kindColor(resource.kind);
   const isAgentKind = resource.kind === "skill" || resource.kind === "agent";
+  const isBlocked = isAgentKind && !!resource.blocked;
   const nameRef = React.useRef<HTMLDivElement>(null);
   const [nameTruncated, setNameTruncated] = React.useState(false);
 
@@ -103,31 +105,26 @@ export default function ResourceCard({ resource }: Props) {
             <Chip
               size="small"
               label={resource.kind}
-              variant="outlined"
-              sx={(theme) => ({
+              icon={isDepotKind(resource.kind) ? <DepotKindIcon kind={resource.kind} sx={{ fontSize: 14 }} /> : undefined}
+              sx={{
                 textTransform: "capitalize",
-                color: accent,
-                borderColor: accent,
-                ...theme.applyStyles("light", {
-                  color: "#fff",
-                  bgcolor: accent,
-                }),
-              })}
+                color: KIND_CHIP_TEXT,
+                bgcolor: kindChipColor(resource.kind),
+                "& .MuiChip-icon": { color: "inherit !important" },
+              }}
             />
             {resource.latestVersion && (
               <Chip
                 size="small"
                 label={displayVersion(resource.latestVersion)}
-                sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
-              />
-            )}
-            {resource.sourceRef && (
-              <SourceRefChip
-                sourceRef={resource.sourceRef}
-                sourceCommit={resource.sourceCommit}
-                sourcePath={resource.sourcePath}
-                repoUrl={resource.repoUrl}
-                linked={false}
+                icon={<DepotKindIcon kind="version" sx={{ fontSize: 14 }} />}
+                sx={{
+                  fontFamily: "monospace",
+                  fontSize: "0.72rem",
+                  color: KIND_CHIP_TEXT,
+                  bgcolor: KIND_CHIP_COLORS.version,
+                  "& .MuiChip-icon": { color: "inherit !important" },
+                }}
               />
             )}
             {isAgentKind && resource.jevRiskLevel && (
@@ -139,11 +136,20 @@ export default function ResourceCard({ resource }: Props) {
                 sx={{ fontSize: "0.72rem" }}
               />
             )}
+            {resource.sourceRef && (
+              <SourceRefChip
+                sourceRef={resource.sourceRef}
+                sourceCommit={resource.sourceCommit}
+                sourcePath={resource.sourcePath}
+                repoUrl={resource.repoUrl}
+                linked={false}
+              />
+            )}
           </Box>
 
           {/* Sync status */}
           <Box display="flex" alignItems="center" gap={0.5} mb={1}>
-            {/failed|error/i.test(resource.syncStatus) ? (
+            {isBlocked || /failed|error/i.test(resource.syncStatus) ? (
               <ErrorIcon sx={{ fontSize: 13, color: "error.main" }} />
             ) : resource.synced ? (
               <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
@@ -155,9 +161,17 @@ export default function ResourceCard({ resource }: Props) {
                 <WarningAmberIcon sx={{ fontSize: 13, color: "warning.main" }} />
               </Tooltip>
             )}
-            <Typography variant="caption" color="text.secondary">
-              {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}
-            </Typography>
+            {isBlocked ? (
+              <Tooltip title={(resource.blockReasons ?? []).join("; ") || "Blocked by Jev"}>
+                <Typography variant="caption" color="error.main">
+                  Blocked by Jev
+                </Typography>
+              </Tooltip>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}
+              </Typography>
+            )}
           </Box>
 
           {/* Scan counts */}

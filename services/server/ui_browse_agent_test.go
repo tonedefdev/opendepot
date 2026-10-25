@@ -356,6 +356,71 @@ func TestBrowseAgentVersionsSkipVersionsWithoutSpecVersion(t *testing.T) {
 	}
 }
 
+func TestBrowseAgentVersionsListsBlockedAndRejectedBranchVersions(t *testing.T) {
+	const name = "reviewer"
+	labels := map[string]string{labelPublic: "true"}
+	blocked := browseAgentTestVersion("agent", name)
+	blocked.Name = "agent-reviewer-blocked"
+	blocked.Spec.Version = ""
+	blocked.Status.Synced = false
+	blocked.Status.SyncStatus = "JevBlocked: part 3 is rated Critical risk, which always blocks"
+	blocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{
+		Blocked:      true,
+		BlockReasons: []string{"part 3 is rated Critical risk, which always blocks"},
+	}
+	rejected := browseAgentTestVersion("agent", name)
+	rejected.Name = "agent-reviewer-rejected"
+	rejected.Spec.Version = ""
+	rejected.Status.Synced = false
+	rejected.Status.BranchPhase = branchPhaseRejected
+	pending := browseAgentTestVersion("agent", name)
+	pending.Name = "agent-reviewer-pending"
+	pending.Spec.Version = ""
+	versions := []opendepotv1alpha1.Version{browseAgentTestVersion("agent", name), blocked, rejected, pending}
+	api := browseAgentTestServer(t, "agent", name, labels, browseAgentTestObject("agent", name, labels, nil), versions, nil)
+	browseAgentTestSetup(t, api, false, false)
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name+"/versions", nil)
+	response := httptest.NewRecorder()
+	browseAgentTestRouter().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var list BrowseVersionList
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal versions: %v", err)
+	}
+
+	if list.TotalCount != 3 {
+		t.Fatalf("TotalCount = %d, want 3 (assigned, blocked, rejected; pending hidden)", list.TotalCount)
+	}
+
+	byName := make(map[string]BrowseVersionSummary, len(list.Items))
+	for _, s := range list.Items {
+		byName[s.Name] = s
+	}
+
+	if _, ok := byName[pending.Name]; ok {
+		t.Fatalf("pending Version %s listed, want hidden", pending.Name)
+	}
+
+	b := byName[blocked.Name]
+	if !b.Blocked || len(b.BlockReasons) != 1 || b.BlockReasons[0] != "part 3 is rated Critical risk, which always blocks" {
+		t.Fatalf("blocked row = %+v, want Blocked with reason", b)
+	}
+
+	if b.FileName != nil || b.Checksum != nil {
+		t.Fatalf("blocked row exposes download metadata: %+v", b)
+	}
+
+	r := byName[rejected.Name]
+	if r.Blocked || r.BranchPhase != branchPhaseRejected {
+		t.Fatalf("rejected row = %+v, want BranchPhase Rejected without Blocked", r)
+	}
+}
+
 func TestAgentVersionSummariesOmitDownloadMetadataForNonServableVersions(t *testing.T) {
 	const name = "reviewer"
 	cases := []struct {
@@ -711,6 +776,139 @@ func TestBrowseAgentCardsCarryLatestJevRiskLevel(t *testing.T) {
 
 			if items[0].JevRiskLevel != tc.want {
 				t.Fatalf("JevRiskLevel = %q, want %q", items[0].JevRiskLevel, tc.want)
+			}
+		})
+	}
+}
+
+func TestBrowseAgentDetailShowsNewestJevAssessmentWithoutServableVersion(t *testing.T) {
+	const name = "csv-summarizer"
+	labels := map[string]string{labelPublic: "true"}
+	older := browseAgentTestVersion("skill", name)
+	older.Name = "skill-csv-summarizer-older"
+	older.Spec.Version = ""
+	older.Status.Synced = false
+	older.Status.BranchPhase = branchPhaseRejected
+	older.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{
+		Blocked:      true,
+		RiskLevel:    "High",
+		EvaluatedAt:  "2026-10-23T10:00:00Z",
+		BlockReasons: []string{"older attempt"},
+	}
+	newer := browseAgentTestVersion("skill", name)
+	newer.Name = "skill-csv-summarizer-newer"
+	newer.Spec.Version = ""
+	newer.Status.Synced = false
+	newer.Status.BranchPhase = branchPhaseRejected
+	newer.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{
+		Blocked:      true,
+		RiskLevel:    "Critical",
+		EvaluatedAt:  "2026-10-24T10:00:00Z",
+		BlockReasons: []string{"part 3 is rated Critical risk, which always blocks"},
+	}
+	api := browseAgentTestServer(t, "skill", name, labels, browseAgentTestObject("skill", name, labels, nil), []opendepotv1alpha1.Version{older, newer}, nil)
+	browseAgentTestSetup(t, api, false, false)
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/skill/"+name, nil)
+	response := httptest.NewRecorder()
+	browseAgentTestRouter().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var detail BrowseResourceDetail
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal detail: %v", err)
+	}
+
+	if detail.JevAssessment == nil {
+		t.Fatalf("JevAssessment = nil, want the newest blocked attempt's assessment")
+	}
+
+	if detail.JevAssessment.RiskLevel != "Critical" || !detail.JevAssessment.Blocked {
+		t.Fatalf("JevAssessment = %+v, want blocked Critical from the newest attempt", detail.JevAssessment)
+	}
+}
+
+func TestBrowseAgentCardsCarryBlockedState(t *testing.T) {
+	const name = "reviewer"
+	reasons := []string{"part 1 is rated Critical risk, which always blocks; strongest signal is prompt injection (0.97)"}
+
+	versionedBlocked := browseAgentTestVersion("skill", name)
+	versionedBlocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "Critical", Blocked: true, BlockReasons: reasons, EvaluatedAt: "2026-10-24T22:00:00Z"}
+
+	unversionedBlocked := browseAgentTestVersion("skill", name)
+	unversionedBlocked.Name = name + "-branch"
+	unversionedBlocked.Spec.Version = ""
+	unversionedBlocked.Status.BranchPhase = branchPhaseRejected
+	unversionedBlocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "Critical", Blocked: true, BlockReasons: reasons, EvaluatedAt: "2026-10-24T22:00:00Z"}
+
+	assessedUnblocked := browseAgentTestVersion("agent", name)
+	assessedUnblocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{RiskLevel: "Low", EvaluatedAt: "2026-10-24T22:00:00Z"}
+
+	cases := []struct {
+		name          string
+		kind          string
+		latestVersion string
+		versions      []opendepotv1alpha1.Version
+		wantBlocked   bool
+		wantReasons   []string
+	}{
+		{name: "blocked latest version sets blocked and reasons", kind: "skill", latestVersion: "1.0.0", versions: []opendepotv1alpha1.Version{versionedBlocked}, wantBlocked: true, wantReasons: reasons},
+		{name: "blocked unversioned branch version sets blocked on an unversioned card", kind: "skill", latestVersion: "", versions: []opendepotv1alpha1.Version{unversionedBlocked}, wantBlocked: true, wantReasons: reasons},
+		{name: "unblocked assessment is not blocked", kind: "agent", latestVersion: "1.0.0", versions: []opendepotv1alpha1.Version{assessedUnblocked}, wantBlocked: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			card := map[string]any{
+				"metadata": map[string]any{"name": name, "namespace": browseAgentTestNamespace},
+				"status":   map[string]any{"synced": true, "latestVersion": tc.latestVersion},
+			}
+			skills, err := json.Marshal(map[string]any{"items": []any{card}})
+			if err != nil {
+				t.Fatalf("marshal %s list: %v", tc.kind, err)
+			}
+			versions, err := json.Marshal(opendepotv1alpha1.VersionList{Items: tc.versions})
+			if err != nil {
+				t.Fatalf("marshal versions: %v", err)
+			}
+
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/apis/opendepot.defdev.io/v1alpha1/" + browseAgentResource(tc.kind):
+					_, _ = w.Write(skills)
+				case "/apis/opendepot.defdev.io/v1alpha1/versions":
+					_, _ = w.Write(versions)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(api.Close)
+
+			cs, err := kubernetes.NewForConfig(&rest.Config{Host: api.URL})
+			if err != nil {
+				t.Fatalf("new clientset: %v", err)
+			}
+
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources", nil)
+			items, err := browseCollectAgentResources(cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind)
+			if err != nil {
+				t.Fatalf("browseCollectAgentResources: %v", err)
+			}
+
+			if len(items) != 1 {
+				t.Fatalf("len(items) = %d, want 1", len(items))
+			}
+
+			if items[0].Blocked != tc.wantBlocked {
+				t.Fatalf("Blocked = %v, want %v", items[0].Blocked, tc.wantBlocked)
+			}
+
+			if len(items[0].BlockReasons) != len(tc.wantReasons) {
+				t.Fatalf("BlockReasons = %v, want %v", items[0].BlockReasons, tc.wantReasons)
 			}
 		})
 	}

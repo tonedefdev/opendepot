@@ -32,7 +32,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { keyframes, styled } from "@mui/system";
 import CopyButton from "@/components/CopyButton";
 import type { BrowseScanFindings, BrowseVersionSummary, SecurityFinding } from "@/lib/api";
-import { unknownSeverityChipSx } from "./severityStyles";
+import { severityChipSx } from "./severityStyles";
 
 const spin = keyframes`
   from { transform: rotate(0deg); }
@@ -99,7 +99,7 @@ function findingResolution(f: SecurityFinding): string {
 
 function findingResolutionContent(f: SecurityFinding): React.ReactNode {
   if (f.exempted) {
-    return <Chip size="small" color="secondary" label={`Exempted by ${f.exemptedBy || "ScanPolicy"}`} sx={{ color: "#fff" }} />;
+    return <Chip size="small" color="secondary" label={`Exempted by ${f.exemptedBy || "ScanPolicy"}`} sx={severityChipSx("exempted")} />;
   }
   return findingResolution(f);
 }
@@ -406,7 +406,7 @@ function FindingsTable({
                               ? "success"
                               : "default"
                     }
-                    sx={findingSeverity(f) === "UNKNOWN" ? unknownSeverityChipSx : { color: "#fff" }}
+                    sx={severityChipSx(findingSeverity(f))}
                   />
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingTitle(f)}</TableCell>

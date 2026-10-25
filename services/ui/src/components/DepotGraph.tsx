@@ -22,25 +22,26 @@ import "reactflow/dist/style.css";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import { DepotKindIcon, type DepotKind } from "@/components/DepotKindIcon";
+import { AGENT_COLOR, DEPOT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR } from "@/lib/kindColors";
 import type {
   BrowseDepotGraph,
   BrowseGraphDepot,
   BrowseGraphModule,
   BrowseGraphProvider,
+  BrowseGraphAgent,
   BrowseStorageConfig,
 } from "@/lib/api";
 import DepotNodePanel from "./DepotNodePanel";
 import { TOGGLE_NODE_MAP_EVENT } from "./MobileMapButton";
 
 // ── Brand palette ─────────────────────────────────────────────────────────
-const DEPOT_BORDER = "#04cfd0";
-const DEPOT_BG = "rgba(4,207,208,0.10)";
-const MODULE_BORDER = "#03deb8";
+const DEPOT_BG = `color-mix(in srgb, ${DEPOT_COLOR} 10%, transparent)`;
 const MODULE_BG = "rgba(3,222,184,0.08)";
-const PROVIDER_BORDER = "#047df1";
 const PROVIDER_BG = "rgba(4,125,241,0.08)";
-const VERSION_BORDER = "#8b949e";
 const VERSION_BG = "rgba(139,148,158,0.12)";
+const SKILL_BG = "rgba(240,136,62,0.08)";
+const AGENT_BG = "rgba(163,113,247,0.08)";
 
 // ── Layout constants ───────────────────────────────────────────────────────
 const LANE_X = { depot: 40, resource: 420, version: 780 };
@@ -58,7 +59,7 @@ const MIN_READABLE_ZOOM = 0.8;
 const VIEWPORT_INSET = 40;
 
 // ── Node types ─────────────────────────────────────────────────────────────
-type NodeKind = "depot" | "module" | "provider" | "version" | "versionOverflow";
+type NodeKind = "depot" | "module" | "provider" | "skill" | "agent" | "version" | "versionOverflow";
 
 interface NodeData {
   kind: NodeKind;
@@ -127,11 +128,13 @@ function compareVersionDesc(a: string, b: string): number {
 
 function nodeStyle(kind: NodeKind): React.CSSProperties {
   const map: Record<NodeKind, { border: string; bg: string }> = {
-    depot: { border: DEPOT_BORDER, bg: DEPOT_BG },
-    module: { border: MODULE_BORDER, bg: MODULE_BG },
-    provider: { border: PROVIDER_BORDER, bg: PROVIDER_BG },
-    version: { border: VERSION_BORDER, bg: VERSION_BG },
-    versionOverflow: { border: VERSION_BORDER, bg: VERSION_BG },
+    depot: { border: DEPOT_COLOR, bg: DEPOT_BG },
+    module: { border: MODULE_COLOR, bg: MODULE_BG },
+    provider: { border: PROVIDER_COLOR, bg: PROVIDER_BG },
+    skill: { border: SKILL_COLOR, bg: SKILL_BG },
+    agent: { border: AGENT_COLOR, bg: AGENT_BG },
+    version: { border: VERSION_COLOR, bg: VERSION_BG },
+    versionOverflow: { border: VERSION_COLOR, bg: VERSION_BG },
   };
   const { border, bg } = map[kind];
   return {
@@ -153,6 +156,66 @@ function nodeStyle(kind: NodeKind): React.CSSProperties {
   };
 }
 
+// A Skill or Agent Version as drawn on the graph.
+export interface AgentVersionMeta {
+  version: string;
+  commit?: string;
+  fileName?: string;
+  checksum?: string;
+  lastScanned?: string;
+}
+
+type AgentNodeKind = "skill" | "agent";
+
+type AgentVersionItem = { label: string; fileName?: string; checksum?: string; lastScanned?: string };
+
+export function agentVersionKey(kind: AgentNodeKind, namespace: string, name: string): string {
+  return `${kind}/${namespace}/${name}`;
+}
+
+// Versions published without a version string are labeled by their short commit.
+// Without a version list, the Skill or Agent's latest version is the only entry.
+export function agentVersionItems(
+  kind: AgentNodeKind,
+  item: BrowseGraphAgent,
+  metaByKey: Record<string, AgentVersionMeta[]>,
+): AgentVersionItem[] {
+  const meta = metaByKey[agentVersionKey(kind, item.namespace, item.name)];
+  if (meta === undefined) {
+    return item.latestVersion ? [{ label: item.latestVersion }] : [];
+  }
+
+  const byLabel = new Map<string, AgentVersionItem>();
+  meta.forEach((entry) => {
+    const label = entry.version || entry.commit?.slice(0, 7) || "";
+    if (label && !byLabel.has(label)) {
+      byLabel.set(label, { label, fileName: entry.fileName, checksum: entry.checksum, lastScanned: entry.lastScanned });
+    }
+  });
+  return Array.from(byLabel.values()).sort((a, b) => compareVersionDesc(a.label, b.label));
+}
+
+function NodeTitle({
+  kind,
+  color,
+  weight = 600,
+  children,
+}: {
+  kind: DepotKind;
+  color: string;
+  weight?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <DepotKindIcon kind={kind} sx={{ fontSize: 16, color, flexShrink: 0 }} />
+      <span style={{ fontWeight: weight, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+        {children}
+      </span>
+    </span>
+  );
+}
+
 function VersionFlowNode({ data }: { data: NodeData }) {
   const primaryText = data.displayName ?? data.latestVersion ?? "No version";
   const secondaryText = data.displayName ? (data.latestVersion ?? data.name) : data.name;
@@ -160,9 +223,9 @@ function VersionFlowNode({ data }: { data: NodeData }) {
   return (
     <div style={nodeStyle("version")}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
-      <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <NodeTitle kind="version" color={VERSION_COLOR}>
         {primaryText}
-      </span>
+      </NodeTitle>
       <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {secondaryText}
       </span>
@@ -175,9 +238,9 @@ function DepotFlowNode({ data }: { data: NodeData }) {
     <div style={nodeStyle("depot")}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 8, height: 8 }} />
-      <span style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <NodeTitle kind="depot" color={DEPOT_COLOR} weight={700}>
         {data.name}
-      </span>
+      </NodeTitle>
       <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.storageBackend ? ` · ${data.storageBackend}` : ""}
@@ -191,9 +254,9 @@ function ModuleFlowNode({ data }: { data: NodeData }) {
     <div style={nodeStyle("module")}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 8, height: 8 }} />
-      <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <NodeTitle kind="module" color={MODULE_COLOR}>
         {data.name}
-      </span>
+      </NodeTitle>
       <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.provider ? ` · ${data.provider}` : ""}
@@ -208,12 +271,32 @@ function ProviderFlowNode({ data }: { data: NodeData }) {
     <div style={nodeStyle("provider")}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 8, height: 8 }} />
-      <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <NodeTitle kind="provider" color={PROVIDER_COLOR}>
         {data.name}
-      </span>
+      </NodeTitle>
       <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {data.namespace}
         {data.providerNamespace ? `/${data.providerNamespace}` : ""}
+        {!data.synced ? " · ⚠ unsynced" : ""}
+      </span>
+    </div>
+  );
+}
+
+function CatalogFlowNode({ data }: { data: NodeData }) {
+  return (
+    <div style={nodeStyle(data.kind)}>
+      <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 8, height: 8 }} />
+      <NodeTitle
+        kind={data.kind === "agent" ? "agent" : "skill"}
+        color={data.kind === "agent" ? AGENT_COLOR : SKILL_COLOR}
+      >
+        {data.name}
+      </NodeTitle>
+      <span style={{ fontSize: 11, color: "var(--mui-palette-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {data.namespace}
+        {data.latestVersion ? ` · ${data.latestVersion}` : ""}
         {!data.synced ? " · ⚠ unsynced" : ""}
       </span>
     </div>
@@ -254,6 +337,8 @@ const nodeTypes = {
   depotNode: DepotFlowNode,
   moduleNode: ModuleFlowNode,
   providerNode: ProviderFlowNode,
+  skillNode: CatalogFlowNode,
+  agentNode: CatalogFlowNode,
   versionNode: VersionFlowNode,
   versionOverflowNode: VersionOverflowFlowNode,
 };
@@ -266,6 +351,7 @@ function buildGraph(
   providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>,
   moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>,
+  agentVersionMetaByKey: Record<string, AgentVersionMeta[]>,
   expandedResources: Set<string>,
 ): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const nodes: Node<NodeData>[] = [];
@@ -347,6 +433,33 @@ function buildGraph(
         synced: p.synced,
         providerNamespace: p.providerNamespace,
         upstreamRegistry: p.upstreamRegistry,
+      },
+    });
+  });
+
+  const agentItems = [
+    ...graph.skills.map((s: BrowseGraphAgent) => ({ item: s, type: "skillNode", kind: "skill" as const })),
+    ...graph.agents.map((a: BrowseGraphAgent) => ({ item: a, type: "agentNode", kind: "agent" as const })),
+  ];
+  agentItems.forEach(({ item, type, kind }) => {
+    const versionCount = agentVersionItems(kind, item, agentVersionMetaByKey).length;
+    const visibleCount =
+      versionCount > VERSION_PAGE_SIZE && !expandedResources.has(item.id)
+        ? VERSION_PAGE_SIZE
+        : versionCount;
+    const slotCount = versionCount > VERSION_PAGE_SIZE ? visibleCount + 1 : visibleCount;
+    const versionStackHeight = NODE_HEIGHT + Math.max(0, slotCount - 1) * VERSION_GAP;
+    resourceNodes.push({
+      id: item.id,
+      type,
+      stride: Math.max(RESOURCE_GAP, versionStackHeight + 20),
+      data: {
+        kind,
+        namespace: item.namespace,
+        name: item.name,
+        label: item.name,
+        synced: isEffectivelySynced(item.synced, item.syncStatus),
+        latestVersion: item.latestVersion,
       },
     });
   });
@@ -540,6 +653,77 @@ function buildGraph(
     }
   });
 
+  // Add one version node per Skill and Agent version.
+  agentItems.forEach(({ item, kind }) => {
+    const items = agentVersionItems(kind, item, agentVersionMetaByKey);
+    if (items.length === 0) {
+      return;
+    }
+    const baseY = resourceYById.get(item.id);
+    if (baseY === undefined) {
+      return;
+    }
+
+    const isExpanded = expandedResources.has(item.id);
+    const visibleItems =
+      items.length > VERSION_PAGE_SIZE && !isExpanded
+        ? items.slice(0, VERSION_PAGE_SIZE)
+        : items;
+
+    visibleItems.forEach((version, index) => {
+      const versionNodeId = `version/${kind}/${item.namespace}/${item.name}/${version.label}`;
+      nodes.push({
+        id: versionNodeId,
+        type: "versionNode",
+        position: { x: LANE_X.version, y: baseY + index * VERSION_GAP },
+        data: {
+          kind: "version",
+          namespace: item.namespace,
+          name: item.name,
+          label: version.label,
+          latestVersion: version.label,
+          fileName: version.fileName,
+          checksum: version.checksum,
+          lastScanned: version.lastScanned,
+        },
+      });
+
+      edges.push({
+        id: `edge-${item.id}-${versionNodeId}`,
+        source: item.id,
+        target: versionNodeId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#8b949e", width: 14, height: 14 },
+        style: { stroke: "#8b949e", strokeWidth: 1.6, strokeDasharray: "4 3" },
+        type: "smoothstep",
+      });
+    });
+
+    if (items.length > VERSION_PAGE_SIZE) {
+      const overflowNodeId = `versionOverflow/${item.id}`;
+      nodes.push({
+        id: overflowNodeId,
+        type: "versionOverflowNode",
+        position: { x: LANE_X.version, y: baseY + visibleItems.length * VERSION_GAP },
+        data: {
+          kind: "versionOverflow",
+          namespace: item.namespace,
+          name: item.name,
+          label: isExpanded ? "collapse" : `+${items.length - VERSION_PAGE_SIZE} more versions`,
+          resourceId: item.id,
+          isExpanded,
+          hiddenCount: items.length - VERSION_PAGE_SIZE,
+        },
+      });
+      edges.push({
+        id: `edge-${item.id}-${overflowNodeId}`,
+        source: item.id,
+        target: overflowNodeId,
+        style: { stroke: "#8b949e", strokeWidth: 1, strokeDasharray: "3 4", opacity: 0.5 },
+        type: "smoothstep",
+      });
+    }
+  });
+
   // Build edges from graph data
   const relationshipEdges: Edge[] = [];
   graph.edges.forEach((e) => {
@@ -585,6 +769,36 @@ function buildGraph(
           type: "smoothstep",
         });
       }
+
+      for (const skillName of depot.managedSkillNames ?? []) {
+        const skill = graph.skills.find((s) => s.namespace === depot.namespace && s.name === skillName);
+        if (!skill) {
+          continue;
+        }
+        relationshipEdges.push({
+          id: `edge-${depot.id}-${skill.id}`,
+          source: depot.id,
+          target: skill.id,
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#8b949e", width: 14, height: 14 },
+          style: { stroke: "#8b949e", strokeWidth: 1.6 },
+          type: "smoothstep",
+        });
+      }
+
+      for (const agentName of depot.managedAgentNames ?? []) {
+        const agent = graph.agents.find((a) => a.namespace === depot.namespace && a.name === agentName);
+        if (!agent) {
+          continue;
+        }
+        relationshipEdges.push({
+          id: `edge-${depot.id}-${agent.id}`,
+          source: depot.id,
+          target: agent.id,
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#8b949e", width: 14, height: 14 },
+          style: { stroke: "#8b949e", strokeWidth: 1.6 },
+          type: "smoothstep",
+        });
+      }
     }
   }
 
@@ -606,6 +820,7 @@ interface DepotGraphProps {
   providerVersionMetaByKey?: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
   moduleVersionMetaByKey?: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
   moduleDetailByKey?: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
+  agentVersionMetaByKey?: Record<string, AgentVersionMeta[]>;
 }
 
 type SelectedNode = {
@@ -654,7 +869,7 @@ function InitialViewport() {
   return null;
 }
 
-export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVersionsByKey = {}, providerVersionMetaByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {} }: DepotGraphProps) {
+export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVersionsByKey = {}, providerVersionMetaByKey = {}, moduleVersionMetaByKey = {}, moduleDetailByKey = {}, agentVersionMetaByKey = {} }: DepotGraphProps) {
   const [selected, setSelected] = useState<SelectedNode>(null);
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set());
   const [mobileMapOpen, setMobileMapOpen] = useState(false);
@@ -666,8 +881,8 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
   }, []);
 
   const { nodes, edges } = useMemo(
-    () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, expandedResources),
-    [graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, expandedResources],
+    () => buildGraph(graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, agentVersionMetaByKey, expandedResources),
+    [graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey, moduleVersionMetaByKey, moduleDetailByKey, agentVersionMetaByKey, expandedResources],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
@@ -701,7 +916,7 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
     });
   }, []);
 
-  if (graph.depots.length === 0 && graph.modules.length === 0 && graph.providers.length === 0) {
+  if (graph.depots.length === 0 && graph.modules.length === 0 && graph.providers.length === 0 && graph.skills.length === 0 && graph.agents.length === 0) {
     return (
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400 }}>
         <Typography color="text.secondary">No depot relationships to display.</Typography>
@@ -742,10 +957,12 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
               }}
               nodeColor={(n) => {
                 const d = n.data as NodeData;
-                if (d.kind === "depot") return DEPOT_BORDER;
-                if (d.kind === "module") return MODULE_BORDER;
-                if (d.kind === "provider") return PROVIDER_BORDER;
-                return VERSION_BORDER;
+                if (d.kind === "depot") return DEPOT_COLOR;
+                if (d.kind === "module") return MODULE_COLOR;
+                if (d.kind === "provider") return PROVIDER_COLOR;
+                if (d.kind === "skill") return SKILL_COLOR;
+                if (d.kind === "agent") return AGENT_COLOR;
+                return VERSION_COLOR;
               }}
             />
           </Box>
