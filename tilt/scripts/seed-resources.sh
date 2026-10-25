@@ -127,7 +127,7 @@ spec:
     name: code-review
     repoOwner: tonedefdev
     repoUrl: https://github.com/tonedefdev/opendepot
-    path: .github/agents
+    path: .github/agents/code-review.agent.md
     platform: copilot
     versionConstraints: "~> 0.9.0"
     storageConfig:

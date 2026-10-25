@@ -12,7 +12,8 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { PROVIDER_COLOR } from "@/lib/kindColors";
 import Link from "next/link";
 import type { ProviderSchemaBlock } from "@/lib/api";
 import ProviderConfigurationModal from "./ProviderConfigurationModal";
@@ -49,7 +50,7 @@ function ProviderNode({ data }: NodeProps<ProviderNodeData>) {
     <Box sx={{ width: 300, borderRadius: 2, border: "1px solid", borderColor: data.error || data.localNameError || data.aliasError || (data.diagnostics?.length ?? 0) > 0 ? "error.main" : "transparent", bgcolor: "background.paper", boxShadow: 3, overflow: "hidden" }}>
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <SettingsInputComponentIcon sx={{ fontSize: 16, color: "warning.main" }} />
+          <DepotKindIcon kind="provider" sx={{ fontSize: 16, color: PROVIDER_COLOR }} />
           <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
             provider.{data.localName}.
           </Typography>

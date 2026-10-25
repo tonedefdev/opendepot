@@ -164,6 +164,9 @@ func collectRegistryMetrics(ctx context.Context, cs *kubernetes.Clientset) (regi
 			backend = storageBackendName(version.Spec.ProviderConfigRef.StorageConfig)
 			downloadsTotal.WithLabelValues(version.Namespace, kind, *version.Spec.ProviderConfigRef.Name, version.Spec.Version, serverInstance).Add(0)
 		}
+		if agentName := version.Labels["opendepot.defdev.io/"+kind]; (kind == "skill" || kind == "agent") && agentName != "" {
+			downloadsTotal.WithLabelValues(version.Namespace, kind, agentName, version.Spec.Version, serverInstance).Add(0)
+		}
 		if version.Status.ArchiveSizeBytes != nil {
 			metrics.storage[metricKey{namespace: version.Namespace, kind: kind, name: version.Name, version: version.Spec.Version, backend: backend}] = *version.Status.ArchiveSizeBytes
 		}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, kindColor } from "./kindColors";
+import { AGENT_COLOR, DEPOT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR, kindColor } from "./kindColors";
 
 describe("kindColor", () => {
   it("gives each kind a distinct color", () => {
@@ -14,10 +14,12 @@ describe("kindColor", () => {
     expect(kindColor("provider")).toBe(PROVIDER_COLOR);
     expect(kindColor("skill")).toBe(SKILL_COLOR);
     expect(kindColor("AGENT")).toBe(AGENT_COLOR);
+    expect(kindColor("depot")).toBe(DEPOT_COLOR);
+    expect(kindColor("version")).toBe(VERSION_COLOR);
   });
 
   it("falls back to the module color for unknown kinds", () => {
     expect(kindColor("")).toBe(MODULE_COLOR);
-    expect(kindColor("Depot")).toBe(MODULE_COLOR);
+    expect(kindColor("Unknown")).toBe(MODULE_COLOR);
   });
 });

@@ -247,6 +247,30 @@ func aggregateJevParts(parts []jevPartResult) (jev.Result, int) {
 	}, len(scored)
 }
 
+// jevTopSignal returns the name and value of the highest probability Jev reported for one part.
+func jevTopSignal(r jev.Result) (string, float64) {
+	signals := []struct {
+		name  string
+		value float64
+	}{
+		{"scope mismatch", r.ScopeMismatchProbability},
+		{"prompt injection", r.PromptInjectionProbability},
+		{"data exfiltration", r.DataExfiltrationProbability},
+		{"destructive actions", r.DestructiveActionsProbability},
+		{"hidden instructions", r.HiddenInstructionsProbability},
+		{"remote execution", r.RemoteExecutionProbability},
+	}
+
+	top := signals[0]
+	for _, s := range signals[1:] {
+		if s.value > top.value {
+			top = s
+		}
+	}
+
+	return top.name, top.value
+}
+
 // evaluateJevPartsGate applies the policy to each part and returns one reason per breached threshold. Each reason
 // names the part with the worst value, and ties go to the lowest label. A Critical part always blocks. A minConfidence
 // breach blocks and sets needsReview. The parts must already be normalized.
@@ -258,7 +282,8 @@ func evaluateJevPartsGate(policy *opendepotv1alpha1.JevPolicy, parts []jevPartRe
 
 	for _, p := range scored {
 		if strings.EqualFold(p.result.RiskLevel, "Critical") {
-			reasons = append(reasons, fmt.Sprintf("risk level Critical (chunk %s) is always blocked", p.label))
+			signal, value := jevTopSignal(p.result)
+			reasons = append(reasons, fmt.Sprintf("part %s is rated Critical risk, which always blocks; strongest signal is %s (%.2f)", p.label, signal, value))
 			break
 		}
 	}
@@ -270,63 +295,63 @@ func evaluateJevPartsGate(policy *opendepotv1alpha1.JevPolicy, parts []jevPartRe
 	if policy.MinSafeProbability != nil {
 		w := jevPartMin(scored, func(r jev.Result) float64 { return r.SafeProbability })
 		if w.result.SafeProbability < *policy.MinSafeProbability {
-			reasons = append(reasons, fmt.Sprintf("safe probability %.3f (chunk %s) is below minSafeProbability %.3f", w.result.SafeProbability, w.label, *policy.MinSafeProbability))
+			reasons = append(reasons, fmt.Sprintf("safety score %.2f in part %s is below the policy minimum of %.2f", w.result.SafeProbability, w.label, *policy.MinSafeProbability))
 		}
 	}
 
 	if policy.MaxInjectionProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.PromptInjectionProbability })
 		if w.result.PromptInjectionProbability > *policy.MaxInjectionProbability {
-			reasons = append(reasons, fmt.Sprintf("prompt injection probability %.3f (chunk %s) exceeds maxInjectionProbability %.3f", w.result.PromptInjectionProbability, w.label, *policy.MaxInjectionProbability))
+			reasons = append(reasons, fmt.Sprintf("prompt injection risk %.2f in part %s is above the policy limit of %.2f", w.result.PromptInjectionProbability, w.label, *policy.MaxInjectionProbability))
 		}
 	}
 
 	if policy.MaxExfiltrationProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.DataExfiltrationProbability })
 		if w.result.DataExfiltrationProbability > *policy.MaxExfiltrationProbability {
-			reasons = append(reasons, fmt.Sprintf("data exfiltration probability %.3f (chunk %s) exceeds maxExfiltrationProbability %.3f", w.result.DataExfiltrationProbability, w.label, *policy.MaxExfiltrationProbability))
+			reasons = append(reasons, fmt.Sprintf("data exfiltration risk %.2f in part %s is above the policy limit of %.2f", w.result.DataExfiltrationProbability, w.label, *policy.MaxExfiltrationProbability))
 		}
 	}
 
 	if policy.MaxDestructiveProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.DestructiveActionsProbability })
 		if w.result.DestructiveActionsProbability > *policy.MaxDestructiveProbability {
-			reasons = append(reasons, fmt.Sprintf("destructive actions probability %.3f (chunk %s) exceeds maxDestructiveProbability %.3f", w.result.DestructiveActionsProbability, w.label, *policy.MaxDestructiveProbability))
+			reasons = append(reasons, fmt.Sprintf("destructive actions risk %.2f in part %s is above the policy limit of %.2f", w.result.DestructiveActionsProbability, w.label, *policy.MaxDestructiveProbability))
 		}
 	}
 
 	if policy.MaxHiddenInstructionsProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.HiddenInstructionsProbability })
 		if w.result.HiddenInstructionsProbability > *policy.MaxHiddenInstructionsProbability {
-			reasons = append(reasons, fmt.Sprintf("hidden instructions probability %.3f (chunk %s) exceeds maxHiddenInstructionsProbability %.3f", w.result.HiddenInstructionsProbability, w.label, *policy.MaxHiddenInstructionsProbability))
+			reasons = append(reasons, fmt.Sprintf("hidden instructions risk %.2f in part %s is above the policy limit of %.2f", w.result.HiddenInstructionsProbability, w.label, *policy.MaxHiddenInstructionsProbability))
 		}
 	}
 
 	if policy.MaxScopeMismatchProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.ScopeMismatchProbability })
 		if w.result.ScopeMismatchProbability > *policy.MaxScopeMismatchProbability {
-			reasons = append(reasons, fmt.Sprintf("scope mismatch probability %.3f (chunk %s) exceeds maxScopeMismatchProbability %.3f", w.result.ScopeMismatchProbability, w.label, *policy.MaxScopeMismatchProbability))
+			reasons = append(reasons, fmt.Sprintf("scope mismatch risk %.2f in part %s is above the policy limit of %.2f", w.result.ScopeMismatchProbability, w.label, *policy.MaxScopeMismatchProbability))
 		}
 	}
 
 	if policy.MaxRemoteExecutionProbability != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.RemoteExecutionProbability })
 		if w.result.RemoteExecutionProbability > *policy.MaxRemoteExecutionProbability {
-			reasons = append(reasons, fmt.Sprintf("remote execution probability %.3f (chunk %s) exceeds maxRemoteExecutionProbability %.3f", w.result.RemoteExecutionProbability, w.label, *policy.MaxRemoteExecutionProbability))
+			reasons = append(reasons, fmt.Sprintf("remote execution risk %.2f in part %s is above the policy limit of %.2f", w.result.RemoteExecutionProbability, w.label, *policy.MaxRemoteExecutionProbability))
 		}
 	}
 
 	if policy.MaxRiskScore != nil {
 		w := jevPartMax(scored, func(r jev.Result) float64 { return r.RiskScore })
 		if w.result.RiskScore > *policy.MaxRiskScore {
-			reasons = append(reasons, fmt.Sprintf("risk score %.3f (chunk %s) exceeds maxRiskScore %.3f", w.result.RiskScore, w.label, *policy.MaxRiskScore))
+			reasons = append(reasons, fmt.Sprintf("overall risk score %.2f in part %s is above the policy limit of %.2f", w.result.RiskScore, w.label, *policy.MaxRiskScore))
 		}
 	}
 
 	if policy.MinConfidence != nil {
 		w := jevPartMin(scored, func(r jev.Result) float64 { return r.RiskConfidence })
 		if w.result.RiskConfidence < *policy.MinConfidence {
-			reasons = append(reasons, fmt.Sprintf("risk confidence %.3f (chunk %s) is below minConfidence %.3f", w.result.RiskConfidence, w.label, *policy.MinConfidence))
+			reasons = append(reasons, fmt.Sprintf("Jev's confidence in part %s is %.2f, below the policy minimum of %.2f", w.label, w.result.RiskConfidence, *policy.MinConfidence))
 			needsReview = true
 		}
 	}

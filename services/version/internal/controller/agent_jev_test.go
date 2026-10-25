@@ -220,13 +220,21 @@ func jevChunkStatus(assessment *opendepotv1alpha1.JevAssessment, label string) s
 }
 
 func TestJevPublishedStatus(t *testing.T) {
-	if got := jevPublishedStatus(nil); got != "Successfully synced version" {
+	if got := jevPublishedStatus(nil, false); got != "Successfully synced version" {
 		t.Fatalf("status without an assessment = %q", got)
 	}
 
+	if got := jevPublishedStatus(nil, true); got != "Successfully synced and assigned version" {
+		t.Fatalf("assigned status without an assessment = %q", got)
+	}
+
 	withError := &opendepotv1alpha1.JevAssessment{Error: "jev assessment incomplete"}
-	if got := jevPublishedStatus(withError); !strings.Contains(got, "Jev assessment did not complete") {
+	if got := jevPublishedStatus(withError, false); !strings.Contains(got, "Jev assessment did not complete") {
 		t.Fatalf("status with an error = %q", got)
+	}
+
+	if got := jevPublishedStatus(withError, true); !strings.HasPrefix(got, "Successfully synced and assigned version; Jev assessment did not complete") {
+		t.Fatalf("assigned status with an error = %q", got)
 	}
 }
 
@@ -300,7 +308,7 @@ func TestRunAgentJevFailsClosedOnServiceFailureWithoutThresholds(t *testing.T) {
 	version := newJevTestVersion(nil, &opendepotv1alpha1.JevAssessment{Error: "old", ChunkCount: 1, RetryCount: 2})
 
 	assessment, err := reconciler.runAgentJev(context.Background(), version, jevLoadContent(t, map[string]string{"SKILL.md": jevEntry}))
-	if err == nil || !assessment.Blocked || !strings.Contains(assessment.Error, "part 1 failed") {
+	if err == nil || !assessment.Blocked || !strings.Contains(assessment.Error, "Jev could not check part 1:") {
 		t.Fatalf("assessment = %+v, err = %v; want a blocked failure naming part 1", assessment, err)
 	}
 
@@ -320,7 +328,7 @@ func TestRunAgentJevServiceUnavailableBlocksWithoutThresholds(t *testing.T) {
 	reconciler := newJevTestReconciler(t, endpoint)
 
 	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevLoadContent(t, map[string]string{"SKILL.md": jevEntry}))
-	if err == nil || !assessment.Blocked || !strings.Contains(assessment.Error, "part 1 failed") {
+	if err == nil || !assessment.Blocked || !strings.Contains(assessment.Error, "Jev could not check part 1:") {
 		t.Fatalf("assessment = %+v, err = %v; want a blocked 503 naming part 1", assessment, err)
 	}
 }
@@ -374,7 +382,7 @@ func TestRunAgentJevSplitFailureIsContentOutcome(t *testing.T) {
 		t.Fatalf("assessment = %+v, err = %v; want a blocked Content outcome with retryCount 2 and no error", assessment, err)
 	}
 
-	if len(assessment.BlockReasons) != 1 || !strings.HasPrefix(assessment.BlockReasons[0], "jev assessment incomplete:") {
+	if len(assessment.BlockReasons) != 1 || !strings.HasPrefix(assessment.BlockReasons[0], "Jev could not ") {
 		t.Fatalf("BlockReasons = %v; want one incomplete reason", assessment.BlockReasons)
 	}
 
@@ -980,7 +988,7 @@ func TestRunAgentJevPartFailureDoesNotStopOthers(t *testing.T) {
 		t.Fatalf("AssessedChunks = %d, want 2", assessment.AssessedChunks)
 	}
 
-	if !strings.Contains(assessment.Error, "part 3 failed") {
+	if !strings.Contains(assessment.Error, "Jev could not check part 3:") {
 		t.Fatalf("Error = %q, want it to name part 3", assessment.Error)
 	}
 }

@@ -85,6 +85,6 @@ full response schema.
 GET /opendepot/ui/v1/depots/graph
 ```
 
-Returns visible `Depot`, `Module`, and `Provider` resources with edges connecting
-each depot to the resources it manages. OpenDepot Workshop uses this endpoint
+Returns visible `Depot`, `Module`, `Provider`, `Skill`, and `Agent` resources with
+edges connecting each depot to the resources it manages. OpenDepot Workshop uses this endpoint
 to render the Depots page.

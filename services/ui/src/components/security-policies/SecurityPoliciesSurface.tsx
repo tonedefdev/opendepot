@@ -70,6 +70,7 @@ import PageHeader from "@/components/PageHeader";
 import CopyButton from "@/components/CopyButton";
 import ResourceListControls, { PAGE_SIZE_OPTIONS } from "@/components/ResourceListControls";
 import StatCard from "@/components/StatCard";
+import { severityChipSx } from "@/components/severityStyles";
 
 (typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
 dayjs.extend(utc);
@@ -496,13 +497,13 @@ function PolicyCard({ policy, darkMode }: { policy: ScanPolicy; darkMode: boolea
             </Box>
             <Tooltip title="Severity threshold">
               {threshold
-                ? <Chip label={threshold} size="small" color={thresholdColors[threshold]} sx={threshold === "NONE" ? undefined : { color: "#fff" }} />
+                ? <Chip label={threshold} size="small" color={thresholdColors[threshold]} sx={threshold === "NONE" ? undefined : severityChipSx(threshold)} />
                 : <Chip label="Baseline" size="small" variant="outlined" />}
             </Tooltip>
           </Stack>
           <Stack direction="row" gap={0.75} flexWrap="wrap">
             <Chip size="small" variant="outlined" label={plural(policy.status?.matchedVersions ?? 0, "matched version")} />
-            {exemptions > 0 && <Chip size="small" color="secondary" sx={{ color: "#fff" }} label={plural(exemptions, "exemption")} />}
+            {exemptions > 0 && <Chip size="small" color="secondary" sx={severityChipSx("exempted")} label={plural(exemptions, "exemption")} />}
             {policy.status?.supersededBy && <Chip size="small" color="warning" sx={{ color: darkMode ? "#fff" : undefined }} label={`Superseded by ${policy.status.supersededBy}`} />}
           </Stack>
         </CardContent>

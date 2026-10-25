@@ -147,8 +147,9 @@ func TestJevPartsGateCriticalBlocksAnyPosition(t *testing.T) {
 
 		idx := map[string]int{"first": 0, "middle": 1, "last": 2}[pos]
 		parts[idx].result.RiskLevel = "Critical"
+		parts[idx].result.ScopeMismatchProbability = 0.97
 		reasons, _ := evaluateJevPartsGate(nil, jevNormalizeParts(parts))
-		want := "risk level Critical (chunk " + parts[idx].label + ") is always blocked"
+		want := "part " + parts[idx].label + " is rated Critical risk, which always blocks; strongest signal is scope mismatch (0.97)"
 		if len(reasons) != 1 || reasons[0] != want {
 			t.Fatalf("%s: want %q, got %v", pos, want, reasons)
 		}
@@ -164,11 +165,11 @@ func TestJevPartsGateNamesWorstPart(t *testing.T) {
 
 	minSafe := 0.5
 	reasons, _ := evaluateJevPartsGate(&opendepotv1alpha1.JevPolicy{MinSafeProbability: &minSafe}, parts)
-	if len(reasons) != 1 || !strings.Contains(reasons[0], "(chunk 2)") {
-		t.Fatalf("want one reason naming chunk 2 (tie to lowest label), got %v", reasons)
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "in part 2 ") {
+		t.Fatalf("want one reason naming part 2 (tie to lowest label), got %v", reasons)
 	}
 
-	if !strings.Contains(reasons[0], "safe probability 0.200") {
+	if !strings.Contains(reasons[0], "safety score 0.20 in part 2 ") {
 		t.Fatalf("reason must show the worst value, got %q", reasons[0])
 	}
 }
@@ -215,7 +216,7 @@ func TestJevPartsGateMinConfidence(t *testing.T) {
 	}
 
 	reasons, review = evaluateJevPartsGate(policy, below)
-	if len(reasons) != 1 || !review || !strings.Contains(reasons[0], "(chunk 2)") {
+	if len(reasons) != 1 || !review || !strings.Contains(reasons[0], "in part 2 ") {
 		t.Fatalf("one part below minConfidence must block and set needsReview, got %v review=%v", reasons, review)
 	}
 

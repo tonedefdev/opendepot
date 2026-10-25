@@ -357,7 +357,7 @@ The Jev panel also shows an estimated input cost when a Version has `status.jevA
 
 Yank a Version by setting `spec.yanked: true` on the Version resource. Yanked Versions stay listed and downloadable, and the listing includes `yanked: true`. The CLI skips yanked Versions when it resolves a version constraint unless you pass `--allow-yanked`.
 
-A Version that Jev blocks is never listed or served, whatever the cause. A direct request for it returns `404`. Causes include a threshold breach, a `Critical` risk level, a Service failure, a content outcome, and Jev disabled on the controller while `jevSecretRef` is set.
+A Version that Jev blocks is listed with `blocked: true` and its `blockReasons`, so clients can explain why it is unavailable. It is never served, and a direct download request for it returns `404`. The CLI skips blocked Versions when it resolves a version constraint. Causes include a threshold breach, a `Critical` risk level, a Service failure, a content outcome, and Jev disabled on the controller while `jevSecretRef` is set.
 
 ## agents.v1 protocol
 

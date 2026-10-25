@@ -403,6 +403,8 @@ Returns a paginated, filtered list of visible `Module`, `Provider`, `Skill`, and
 
 `hasUnsyncedVersions` is present and `true` when at least one `Version` CR under the resource has `status.synced: false` or a `status.syncStatus` containing `"failed"` or `"error"` (case-insensitive). The field is omitted from the response when all versions are healthy.
 
+For `skill` and `agent` resources, the item includes `jevRiskLevel` and `blocked` from the Jev assessment of the Version that matches `latestVersion`. For a Skill or Agent with only an unversioned, blocked branch Version, `blocked` and `blockReasons` come from that Version. `blockReasons` is set only when `blocked` is `true`. Fields with no value are omitted.
+
 `scanCounts` reflects vulnerability findings from the **latest version only**. The field is omitted when no version has been scanned. `exempted` counts findings currently exempted by a [`ScanPolicy`](#scanpolicy) and is excluded from the `critical`/`high`/`medium`/`low`/`unknown` counters.
 
 ### Resource Detail
@@ -458,7 +460,7 @@ Returns full detail for a single resource including all versions and scan findin
 
 - `definitionContent` is the decoded definition file (`SKILL.md` or the agent file). It is read from [`VersionStatus.definitionConfigMapRef`](#versionstatus-fields).
 - `definitionFileName` is the source file name, such as `SKILL.md` or `code-reviewer.agent.md`.
-- `agentMetadata` is the frontmatter of the latest version. `jevAssessment` is the Jev result for the latest version, when one exists. `jevThresholds` is the source's `jevPolicy`.
+- `agentMetadata` is the frontmatter of the latest version. `jevAssessment` is the Jev result for the newest Version that Jev assessed, when one exists. That Version can be blocked or Rejected, so a Skill with no servable Version still shows its Jev result. `jevThresholds` is the source's `jevPolicy`.
 - `sourceRef`, `sourceCommit`, and `sourcePath` describe the source. `sourceRef` is set only for branch sources, and `sourceCommit` is set only when `sourceRef` is set. `sourceCommit` is the commit of the latest version.
 
 ### List Resource Versions
@@ -514,12 +516,14 @@ Returns a paginated, filtered list of versions for a single resource. Used by th
 
 `downloadCount` and `lastDownloadedAt` are omitted when no downloads have been recorded. `archiveSizeBytes` is omitted when `VersionStatus.archiveSizeBytes` has not been set by the version controller.
 
-For `skill` and `agent` resources, the list includes every Version, including branch Versions in the `Pending` and `Held` phases. Each item has these additional fields:
+For `skill` and `agent` resources, the list includes every Version that has a `version`. It also includes branch Versions that Jev blocked or that have the `Rejected` phase, even though they have no `version`. Pending and Held branch Versions without a `version` are not listed. Each item has these additional fields:
 
 | Field | Description |
 |-------|-------------|
 | `commit` | The commit SHA of the Version. Uses `VersionStatus.sourceCommit` and falls back to `VersionSpec.sourceCommit`. Omitted when neither is set. |
 | `branchPhase` | `VersionStatus.branchPhase`: `Pending`, `Held`, `Assigned`, or `Rejected`. Omitted for tag-sourced Versions. |
+| `blocked` | `true` when Jev blocked the Version. Omitted otherwise. |
+| `blockReasons` | The Jev block reasons. Only set when `blocked` is `true`. |
 
 `fileName`, `checksum`, and `archiveSizeBytes` are omitted for a Skill or Agent Version that is not servable, such as one that is unsynced or blocked.
 
@@ -615,7 +619,7 @@ Returns a flat list of all visible `Depot` resources with their storage backend,
 GET /opendepot/ui/v1/depots/graph
 ```
 
-Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with directed edges connecting each depot to its managed modules and providers. Used by the [Depots page](../guides/registry-explorer/depots.md) in OpenDepot Workshop to render the interactive relationship diagram.
+Returns a graph of all visible `Depot`, `Module`, `Provider`, `Skill`, and `Agent` resources with directed edges connecting each depot to its managed modules, providers, skills, and agents. Each node carries only its `latestVersion`; the Depots page loads each resource's versions from the [Resource Detail](#resource-detail) endpoint to draw version nodes. Used by the [Depots page](../guides/registry-explorer/depots.md) in OpenDepot Workshop to render the interactive relationship diagram.
 
 **Visibility:** same rules as [List Depots](#list-depots).
 
@@ -637,7 +641,9 @@ Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with 
       "storageBackend": "s3",
       "pollingIntervalMinutes": 30,
       "managedModuleNames": ["terraform-aws-vpc"],
-      "managedProviderNames": ["aws"]
+      "managedProviderNames": ["aws"],
+      "managedSkillNames": ["code-review"],
+      "managedAgentNames": ["code-review"]
     }
   ],
   "modules": [
@@ -660,14 +666,38 @@ Returns a graph of all visible `Depot`, `Module`, and `Provider` resources with 
       "synced": true
     }
   ],
+  "skills": [
+    {
+      "id": "opendepot-system/skill/code-review",
+      "kind": "skill",
+      "namespace": "opendepot-system",
+      "name": "code-review",
+      "synced": true,
+      "latestVersion": "0.9.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "opendepot-system/agent/code-review",
+      "kind": "agent",
+      "namespace": "opendepot-system",
+      "name": "code-review",
+      "synced": true,
+      "latestVersion": "0.9.0"
+    }
+  ],
   "edges": [
     { "id": "e-depot-mod-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/module/terraform-aws-vpc" },
-    { "id": "e-depot-prov-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/provider/aws" }
+    { "id": "e-depot-prov-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/provider/aws" },
+    { "id": "e-depot-skill-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/skill/code-review" },
+    { "id": "e-depot-agent-0", "source": "opendepot-system/platform-depot", "target": "opendepot-system/agent/code-review" }
   ],
   "summary": {
     "totalDepots": 1,
     "totalModules": 1,
-    "totalProviders": 1
+    "totalProviders": 1,
+    "totalSkills": 1,
+    "totalAgents": 1
   },
   "generatedAt": "2026-05-25T12:00:00Z"
 }
@@ -692,8 +722,15 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
 ```json
 {
   "totalModules": 12,
+  "modulesSynced": 11,
   "totalProviders": 3,
+  "providersSynced": 3,
+  "totalSkills": 14,
+  "skillsSynced": 12,
+  "totalAgents": 10,
+  "agentsSynced": 9,
   "totalVersions": 87,
+  "versionsSynced": 82,
   "totalStorageBytes": 5368709120,
   "totalDownloads": 24601,
   "syncHealth": {
@@ -713,20 +750,27 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
     { "backend": "s3", "count": 10 },
     { "backend": "filesystem", "count": 5 }
   ],
-  "mostDownloaded": [
-    {
-      "namespace": "opendepot-system",
-      "kind": "module",
-      "name": "terraform-aws-vpc",
-      "version": "3.19.0",
-      "downloadCount": 4821,
-      "lastDownloadedAt": "2026-05-25T14:32:00Z"
-    }
-  ]
+  "mostDownloaded": {
+    "modules": [
+      {
+        "namespace": "opendepot-system",
+        "kind": "module",
+        "name": "terraform-aws-vpc",
+        "version": "3.19.0",
+        "downloadCount": 4821,
+        "lastDownloadedAt": "2026-05-25T14:32:00Z"
+      }
+    ],
+    "providers": [],
+    "skills": [],
+    "agents": []
+  }
 }
 ```
 
-`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are queried from Prometheus over the configured lookback window; both are `0` / empty until a matching metric has been scraped. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+`totalStorageBytes` is the sum of `VersionStatus.archiveSizeBytes` across all visible versions; it is `0` when no archive sizes have been recorded. `totalDownloads` and `mostDownloaded` are queried from Prometheus over the configured lookback window; both are `0` / empty until a matching metric has been scraped. Skill and Agent downloads are included in `totalDownloads`. Download counts are cross-referenced against the caller's visibility set — private resource names do not appear in `mostDownloaded` for unauthenticated callers.
+
+`mostDownloaded` is split by kind so each list ranks only its own resources. Each list holds up to 10 resources, ranked by total downloads across all versions. Each entry reports the resource's most-downloaded version, with ties broken by the higher version. Resources with zero downloads are omitted, so an empty list means no visible downloads for that kind.
 
 ## Kubernetes Resource Types
 
@@ -1099,14 +1143,21 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | Field | Type | Description |
 |---|---|---|
 | `totalModules` | `int` | Number of visible `Module` resources |
+| `modulesSynced` | `int` | Number of visible `Module` resources with `status.synced` set to `true` |
 | `totalProviders` | `int` | Number of visible `Provider` resources |
+| `providersSynced` | `int` | Number of visible `Provider` resources with `status.synced` set to `true` |
+| `totalSkills` | `int` | Number of visible `Skill` resources |
+| `skillsSynced` | `int` | Number of visible `Skill` resources with `status.synced` set to `true` |
+| `totalAgents` | `int` | Number of visible `Agent` resources |
+| `agentsSynced` | `int` | Number of visible `Agent` resources with `status.synced` set to `true` |
 | `totalVersions` | `int` | Total number of `Version` resources across all visible modules and providers |
+| `versionsSynced` | `int` | Number of those `Version` resources counted as synced in `syncHealth.syncedVersions` |
 | `totalStorageBytes` | `int64` | Sum of `VersionStatus.archiveSizeBytes` across all visible versions; `0` when no archive sizes have been recorded |
 | `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window; `0` until a matching metric has been scraped |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
-| `mostDownloaded` | `[]PopularResource` | Top 10 most-downloaded resources, filtered to the caller's visibility set |
+| `mostDownloaded` | `MostDownloadedStats` | Top 10 most-downloaded resources per kind, as `modules`, `providers`, `skills`, and `agents` arrays. Filtered to the caller's visibility set; zero-download resources are omitted |
 
 ### SyncHealthStats
 

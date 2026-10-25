@@ -32,7 +32,8 @@ import JevPanel from "@/components/JevPanel";
 import { AgentConfigSnippet, AgentDefinition, AgentMetadataChips } from "@/components/AgentDetail";
 import { SectionCard } from "@/components/SectionCard";
 import SourceRefChip from "@/components/SourceRefChip";
-import { kindColor } from "@/lib/kindColors";
+import { DepotKindIcon, isDepotKind } from "@/components/DepotKindIcon";
+import { KIND_CHIP_TEXT, kindChipColor, kindColor } from "@/lib/kindColors";
 import { getContract, getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -147,11 +148,16 @@ export default async function ResourceDetailPage({ params }: PageProps) {
     !!detail.storageConfig?.resourceGroup;
   const sortedVersions = [...(detail.versions ?? [])].sort((a, b) => compareVersionDesc(a.version, b.version));
   const hasUnsyncedVersions = (detail.versions ?? []).some(
-    (v) => !v.synced || /failed|error/i.test(v.syncStatus ?? ""),
+    (v) => !v.blocked && (!v.synced || /failed|error/i.test(v.syncStatus ?? "")),
   );
   const isProviderKind = kind === "provider";
   const isAgentKind = kind === "skill" || kind === "agent";
   const accentColor = kindColor(kind);
+  const solidChipSx = {
+    color: KIND_CHIP_TEXT,
+    bgcolor: kindChipColor(kind),
+    "& .MuiChip-icon": { color: "inherit !important" },
+  };
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -184,16 +190,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           mb: 4,
           p: 3,
           borderRadius: 2,
-          border: isProviderKind
-            ? "1px solid rgba(4,125,241,0.25)"
-            : isAgentKind
-              ? `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`
-              : "1px solid rgba(4,207,208,0.2)",
-          background: isProviderKind
-            ? "linear-gradient(135deg, rgba(4,125,241,0.08) 0%, rgba(4,125,241,0.03) 100%)"
-            : isAgentKind
-              ? `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 8%, transparent) 0%, color-mix(in srgb, ${accentColor} 3%, transparent) 100%)`
-              : "linear-gradient(135deg, rgba(4,207,208,0.06) 0%, rgba(3,222,184,0.03) 100%)",
+          border: `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`,
+          background: `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 8%, transparent) 0%, color-mix(in srgb, ${accentColor} 3%, transparent) 100%)`,
         }}
       >
         {isProviderKind
@@ -212,42 +210,18 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             <Chip
               label={capitalizeKind}
               size="small"
-              variant="outlined"
-              sx={{
-                color: accentColor,
-                borderColor: accentColor,
-                '[data-mui-color-scheme="light"] &': {
-                  color: "#fff",
-                  bgcolor: accentColor,
-                },
-              }}
+              icon={isDepotKind(kind) ? <DepotKindIcon kind={kind} sx={{ fontSize: 14 }} /> : undefined}
+              sx={solidChipSx}
             />
-            {detail.provider && (
-              <Chip
-                label={detail.provider}
-                size="small"
-                variant="outlined"
-                color="primary"
-                sx={{
-                  fontFamily: "monospace",
-                  '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: "primary.main" },
-                }}
-              />
+            {detail.provider && kind !== "module" && (
+              <Chip label={detail.provider} size="small" sx={{ fontFamily: "monospace", ...solidChipSx }} />
             )}
             {detail.latestVersion && (
               <Chip
                 label={displayVersion(detail.latestVersion)}
                 size="small"
-                variant="outlined"
-                sx={{
-                  fontFamily: "monospace",
-                  color: accentColor,
-                  borderColor: accentColor,
-                  '[data-mui-color-scheme="light"] &': {
-                    color: "#fff",
-                    bgcolor: accentColor,
-                  },
-                }}
+                icon={<DepotKindIcon kind="version" sx={{ fontSize: 14 }} />}
+                sx={{ fontFamily: "monospace", ...solidChipSx, bgcolor: kindChipColor("version") }}
               />
             )}
             <Box display="flex" alignItems="center" gap={0.5}>
@@ -441,18 +415,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           <Box display="flex" gap={1} alignItems="center">
             <Chip
               label={`${detail.depotRef.namespace} / ${detail.depotRef.name}`}
-              variant="outlined"
               size="small"
-              sx={{
-                fontFamily: "monospace",
-                borderColor: "rgba(3,222,184,0.4)",
-                color: "#03deb8",
-                '[data-mui-color-scheme="light"] &': {
-                  color: "#fff",
-                  bgcolor: "primary.main",
-                  borderColor: "primary.main",
-                },
-              }}
+              sx={{ fontFamily: "monospace", color: KIND_CHIP_TEXT, bgcolor: kindChipColor("depot") }}
             />
           </Box>
         </SectionCard>

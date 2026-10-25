@@ -253,7 +253,12 @@ func (f *fakeRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		if parts[3] == "versions" && len(parts) == 4 {
 			var list []map[string]any
 			for _, v := range versions {
-				list = append(list, map[string]any{"version": v.version, "yanked": v.yanked})
+				entry := map[string]any{"version": v.version, "yanked": v.yanked, "blocked": v.blocked}
+				if v.blocked {
+					entry["blockReasons"] = []string{"risk score 0.8 above 0.5"}
+				}
+
+				list = append(list, entry)
 			}
 
 			writeJSON(w, map[string]any{"versions": list})
