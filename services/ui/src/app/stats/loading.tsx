@@ -15,17 +15,17 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { kindChipColor } from "@/lib/kindColors";
+import { NEUTRAL_COLOR, graphKindColor } from "@/lib/kindColors";
 
 const statCards = [
-  { label: "Modules", icon: <DepotKindIcon kind="module" fontSize="small" />, accentColor: kindChipColor("module") },
-  { label: "Providers", icon: <DepotKindIcon kind="provider" fontSize="small" />, accentColor: kindChipColor("provider") },
-  { label: "Skills", icon: <DepotKindIcon kind="skill" fontSize="small" />, accentColor: kindChipColor("skill") },
-  { label: "Agents", icon: <DepotKindIcon kind="agent" fontSize="small" />, accentColor: kindChipColor("agent") },
-  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: "#f778ba" },
-  { label: "Depots", icon: <DepotKindIcon kind="depot" fontSize="small" />, accentColor: kindChipColor("depot") },
-  { label: "Storage Used", icon: <StorageIcon fontSize="small" />, accentColor: "#e3b341" },
-  { label: "Downloads", icon: <DownloadIcon fontSize="small" />, accentColor: "#05b6de" },
+  { label: "Modules", icon: <DepotKindIcon kind="module" fontSize="small" />, accentColor: graphKindColor("module") },
+  { label: "Providers", icon: <DepotKindIcon kind="provider" fontSize="small" />, accentColor: graphKindColor("provider") },
+  { label: "Skills", icon: <DepotKindIcon kind="skill" fontSize="small" />, accentColor: graphKindColor("skill") },
+  { label: "Agents", icon: <DepotKindIcon kind="agent" fontSize="small" />, accentColor: graphKindColor("agent") },
+  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: graphKindColor("version") },
+  { label: "Depots", icon: <DepotKindIcon kind="depot" fontSize="small" /> },
+  { label: "Storage Used", icon: <StorageIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
+  { label: "Downloads", icon: <DownloadIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
 ];
 
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {

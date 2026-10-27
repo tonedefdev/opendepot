@@ -133,10 +133,23 @@ func (r *VersionReconciler) setBranchStatus(ctx context.Context, req ctrl.Reques
 	})
 }
 
+// branchJevExemptionReopens reports whether a Rejected branch Version blocked only by Jev has a live ScanPolicy
+// exemption for its stored digest. Such a Version is re-opened so the download and the digest check run again.
+// The exact archive digest is checked later, in the Step 5 overlay, so this check only decides whether to re-open.
+func (r *VersionReconciler) branchJevExemptionReopens(ctx context.Context, version *opendepotv1alpha1.Version) bool {
+	if !strings.HasPrefix(version.Status.SyncStatus, "JevBlocked:") || !jevExemptible(version.Status.JevAssessment) {
+		return false
+	}
+
+	resolved := r.resolveScanPolicy(ctx, version)
+
+	return resolved.JevExemptionFor(version.Status.JevAssessment.ContentDigest) != nil
+}
+
 // reconcileBranchPreflight runs the checks that decide whether a branch Version may be downloaded. It returns
 // done when the Version is terminal or waiting, in which case Reconcile returns the result without downloading.
 func (r *VersionReconciler) reconcileBranchPreflight(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (bool, ctrl.Result, error) {
-	if version.Status.BranchPhase == branchPhaseRejected && version.Spec.Version == "" {
+	if version.Status.BranchPhase == branchPhaseRejected && version.Spec.Version == "" && !r.branchJevExemptionReopens(ctx, version) {
 		return true, ctrl.Result{}, nil
 	}
 

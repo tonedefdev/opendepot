@@ -273,7 +273,8 @@ func jevTopSignal(r jev.Result) (string, float64) {
 
 // evaluateJevPartsGate applies the policy to each part and returns one reason per breached threshold. Each reason
 // names the part with the worst value, and ties go to the lowest label. A Critical part always blocks. A minConfidence
-// breach blocks and sets needsReview. The parts must already be normalized.
+// breach blocks and sets needsReview, and so does a Critical part, even when no policy is set. The parts must already
+// be normalized.
 func evaluateJevPartsGate(policy *opendepotv1alpha1.JevPolicy, parts []jevPartResult) (reasons []string, needsReview bool) {
 	scored := jevScoredByLabel(parts)
 	if len(scored) == 0 {
@@ -284,12 +285,13 @@ func evaluateJevPartsGate(policy *opendepotv1alpha1.JevPolicy, parts []jevPartRe
 		if strings.EqualFold(p.result.RiskLevel, "Critical") {
 			signal, value := jevTopSignal(p.result)
 			reasons = append(reasons, fmt.Sprintf("part %s is rated Critical risk, which always blocks; strongest signal is %s (%.2f)", p.label, signal, value))
+			needsReview = true
 			break
 		}
 	}
 
 	if policy == nil {
-		return reasons, false
+		return reasons, needsReview
 	}
 
 	if policy.MinSafeProbability != nil {

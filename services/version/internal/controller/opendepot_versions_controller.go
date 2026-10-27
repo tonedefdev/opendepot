@@ -43,6 +43,7 @@ import (
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
@@ -94,6 +95,8 @@ type VersionReconciler struct {
 	JevMaxRetries int
 	// BranchSourcingEnabled allows Skill and Agent Versions that pin a commit SHA (spec.sourceCommit) to be synced.
 	BranchSourcingEnabled bool
+	// Recorder emits Kubernetes Events for Jev exemption transitions. A nil Recorder disables Events.
+	Recorder events.EventRecorder
 	// APIReader reads sibling Versions straight from the API server, bypassing the cache, for the
 	// ordering, superseded, and semver uniqueness checks on branch Versions.
 	APIReader client.Reader
@@ -125,6 +128,7 @@ type VersionReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions/finalizers,verbs=update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get
@@ -290,7 +294,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if !bypassFastPath {
 						r.Log.V(5).Info("module fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
 
-						if result, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
+						if result, _, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
 							return ctrl.Result{}, err
 						} else if result.RequeueAfter > 0 {
 							return result, nil
@@ -434,7 +438,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					if !bypassFastPath {
 						r.Log.V(5).Info("provider fast-path hit: artifact exists with matching checksum; skipping download", "version", version.Name)
 
-						if result, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
+						if result, _, err := r.reconcileStoredScanPolicy(ctx, req, version); err != nil {
 							return ctrl.Result{}, err
 						} else if result.RequeueAfter > 0 {
 							return result, nil
@@ -702,6 +706,16 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		jevAssessment, jevErr := r.runAgentJev(ctx, version, content)
+		if jevAssessment != nil {
+			priorJevAssessment := version.Status.JevAssessment
+			jevAssessment = applyJevExemption(jevAssessment, resolvedPolicy, content.checksum)
+			r.recordJevExemptionChange(version, jevExemptionTransition(priorJevAssessment, jevAssessment), jevAssessment)
+			if jevAssessment.Exempted {
+				r.Log.Info("Jev block exempted by ScanPolicy", "version", version.Name, "policy", jevAssessment.ExemptedBy,
+					"digest", jevAssessment.ContentDigest, "reasons", len(jevAssessment.BlockReasons), "expires", jevExpiresText(jevAssessment))
+			}
+		}
+
 		retryKey := jevRetryKey(version, content)
 		if jevErr == nil {
 			r.jevRetries.clear(retryKey)
@@ -1038,13 +1052,16 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 	ctx context.Context,
 	req ctrl.Request,
 	version *opendepotv1alpha1.Version,
-) (ctrl.Result, error) {
+) (ctrl.Result, jevExemptionChange, error) {
 	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
-	if (!r.ScanningEnabled && !isAgent) || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil) {
-		return ctrl.Result{}, nil
+	hasJevAssessment := jevExemptible(version.Status.JevAssessment)
+	if (!r.ScanningEnabled && !isAgent) || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil && !hasJevAssessment) {
+		return ctrl.Result{}, jevExemptionChange{}, nil
 	}
 
 	resolved := r.resolveScanPolicy(ctx, version)
+	var change jevExemptionChange
+	var updatedJevAssessment *opendepotv1alpha1.JevAssessment
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		current := &opendepotv1alpha1.Version{}
 		if err := r.Get(ctx, req.NamespacedName, current); err != nil {
@@ -1107,6 +1124,27 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 			current.Status.SyncStatus = "Synced"
 		}
 
+		change = jevExemptionChange{}
+		updatedJevAssessment = nil
+		if assessment := current.Status.JevAssessment; jevExemptible(assessment) {
+			updated := applyJevExemption(assessment, resolved, storedContentDigest(current.Status.Checksum))
+			if !reflect.DeepEqual(updated, assessment) {
+				changed = true
+			}
+			current.Status.JevAssessment = updated
+			change = jevExemptionTransition(assessment, updated)
+			updatedJevAssessment = updated
+
+			if blocking == nil && updated.Blocked {
+				message := "JevBlocked: " + strings.Join(updated.BlockReasons, "; ")
+				if current.Status.Synced || current.Status.SyncStatus != message {
+					changed = true
+				}
+				current.Status.Synced = false
+				current.Status.SyncStatus = message
+			}
+		}
+
 		if !changed {
 			return nil
 		}
@@ -1116,16 +1154,18 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 		})
 	})
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconcile stored scan policy: %w", err)
+		return ctrl.Result{}, change, fmt.Errorf("reconcile stored scan policy: %w", err)
 	}
+
+	r.recordJevExemptionChange(version, change, updatedJevAssessment)
 
 	if resolved.NextExpiry != nil {
 		if requeueAfter := time.Until(*resolved.NextExpiry); requeueAfter > 0 {
-			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+			return ctrl.Result{RequeueAfter: requeueAfter}, change, nil
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, change, nil
 }
 
 // patchProviderResolvedRepo writes repoURL to the Provider's status.resolvedSourceRepository

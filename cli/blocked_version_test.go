@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -100,12 +101,44 @@ func TestPrintErrorUsesColumnsForBlockedSource(t *testing.T) {
 	}
 }
 
-func TestPrintErrorKeepsPlainErrorForOtherFailures(t *testing.T) {
+func TestPrintErrorUsesColumnsForOtherFailures(t *testing.T) {
 	var buf bytes.Buffer
 
 	printError(&buf, errors.New("boom"))
 
-	if got := buf.String(); got != "error: boom\n" {
-		t.Fatalf("got %q, want %q", got, "error: boom\n")
+	if got, want := buf.String(), "\n✖ Error\n  Error        boom\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestPrintErrorUsesSourceAndPreservesDetails(t *testing.T) {
+	var buf bytes.Buffer
+	source := "opendepot.localtest.me:8443/opendepot-system/anti-ui-slop"
+	detail := "list versions of anti-ui-slop: GET https://opendepot.localtest.me:8443/opendepot/agents/v1/opendepot-system/skills/anti-ui-slop/versions: 401 Unauthorized"
+
+	printError(&buf, &sourceError{source: source, err: errors.New(detail)})
+
+	out := buf.String()
+	for _, want := range []string{"✖ " + source, "  Error        list versions of anti-ui-slop: GET", "https://opendepot.localtest.me:8443/opendepot/agents/v1/opendepot-system/skills/anti-ui-slop/versions:", "401 Unauthorized"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected no ANSI escapes for non-terminal output, got %q", out)
+	}
+}
+
+func TestPrintErrorKeepsWrappedAndMultilineContext(t *testing.T) {
+	var buf bytes.Buffer
+	err := fmt.Errorf("planning failed: %w", &sourceError{source: "reg/ns/skill", err: errors.New("first detail\nsecond detail")})
+
+	printError(&buf, err)
+
+	for _, want := range []string{"✖ Error", "planning failed: reg/ns/skill", "first detail", "second detail"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, buf.String())
+		}
 	}
 }

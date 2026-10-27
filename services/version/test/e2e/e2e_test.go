@@ -2140,6 +2140,136 @@ spec:
 			}
 			Expect(total).To(BeNumerically("~", 1.0, 0.01))
 		})
+
+		It("should lift a Jev block for one archive digest and re-block when the exemption is removed", func() {
+			jevKey, err := utils.RequireJevAPIKey()
+			Expect(err).NotTo(HaveOccurred(), "%s must be set to run the Jev exemption variant", utils.JevAPIKeyEnvVar)
+
+			By("storing the Jev key in a Secret read from stdin")
+			cmd := exec.Command("kubectl", "create", "secret", "generic", branchJevSecretName,
+				"--namespace", namespace,
+				"--from-file", branchJevSecretKey+"=/dev/stdin",
+				"--dry-run=client", "-o", "yaml",
+			)
+			cmd.Stdin = strings.NewReader(jevKey)
+			manifest, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to render the Jev Secret")
+
+			apply := exec.Command("kubectl", "apply", "-f", "-")
+			apply.Stdin = strings.NewReader(manifest)
+			_, err = utils.Run(apply)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply the Jev Secret")
+
+			By("enabling Jev classification")
+			helmUpgrade("scanning.jev.enabled=true")
+
+			exemptSkillName := "csv-summarizer"
+			exemptCommit := "4ffbf9461ef0505f9ce76a0d3694a18ec33ea531"
+			exemptVersionName := branchVersionName(exemptSkillName, exemptCommit)
+			exemptPolicyName := "e2e-jev-exemption"
+
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "scanpolicy", exemptPolicyName,
+					"-n", namespace, "--ignore-not-found"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "skill", exemptSkillName,
+					"-n", namespace, "--ignore-not-found"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "version", exemptVersionName,
+					"-n", namespace, "--ignore-not-found"))
+			})
+
+			By("creating a branch-sourced Skill pinned to a public fixture commit whose Jev policy requires a safe probability no archive reaches")
+			applyManifest(fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Skill
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  agentSourceConfig:
+    githubClientConfig:
+      useAuthenticatedClient: true
+    name: %s
+    repoOwner: trailofbits
+    repoUrl: https://github.com/trailofbits/overtly-malicious-skills
+    path: skills/csv-summarizer
+    ref: %s
+    branchPolicy:
+      minVersionInterval: 0s
+    storageConfig:
+      fileSystem:
+        directoryPath: %s
+    jevSecretRef:
+      name: %s
+      key: %s
+    jevPolicy:
+      minSafeProbability: 1
+  versions:
+    - commit: %s
+      discoveredAt: %s
+      state: Pending
+`, exemptSkillName, namespace, exemptSkillName, exemptCommit, branchStorageDir,
+				branchJevSecretName, branchJevSecretKey, exemptCommit,
+				time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)))
+
+			By("waiting for the Jev assessment to block the Version and flag it for review")
+			Eventually(func(g Gomega) {
+				blocked, err := versionField(exemptVersionName, "{.status.jevAssessment.blocked}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(blocked).To(Equal("true"))
+
+				needsReview, err := versionField(exemptVersionName, "{.status.jevAssessment.needsReview}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(needsReview).To(Equal("true"))
+			}, 10*time.Minute, 10*time.Second).Should(Succeed())
+
+			digest := mustVersionField(exemptVersionName, "{.status.jevAssessment.contentDigest}")
+			Expect(digest).To(MatchRegexp(`^[0-9a-f]{64}$`))
+
+			exemptPolicy := func(exemptions string) string {
+				return fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  priority: 100
+  targetRefs:
+    - kind: Skill
+      name: %s%s
+`, exemptPolicyName, namespace, exemptSkillName, exemptions)
+			}
+
+			By("applying a ScanPolicy with a jevExemption for that digest and no expires")
+			applyManifest(exemptPolicy(fmt.Sprintf(`
+  jevExemptions:
+    - contentDigest: %s
+      reason: e2e Jev exemption`, digest)))
+
+			Eventually(func(g Gomega) {
+				synced, err := versionField(exemptVersionName, "{.status.synced}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(synced).To(Equal("true"))
+
+				exempted, err := versionField(exemptVersionName, "{.status.jevAssessment.exempted}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(exempted).To(Equal("true"))
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			Expect(mustVersionField(exemptVersionName, "{.status.jevAssessment.blocked}")).To(Equal("false"))
+
+			By("removing the jevExemption from the ScanPolicy")
+			applyManifest(exemptPolicy(""))
+
+			By("waiting for the Version to be re-blocked by the Jev policy")
+			Eventually(func(g Gomega) {
+				blocked, err := versionField(exemptVersionName, "{.status.jevAssessment.blocked}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(blocked).To(Equal("true"))
+
+				exempted, err := versionField(exemptVersionName, "{.status.jevAssessment.exempted}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(exempted).NotTo(Equal("true"))
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
+		})
 	})
 })
 

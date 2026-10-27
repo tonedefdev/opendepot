@@ -22,19 +22,28 @@ func main() {
 	}
 }
 
-// printError explains a Jev-blocked Version in columns and prints every other failure as an error line.
 func printError(w io.Writer, err error) {
 	var blocked *blockedVersionError
-	if !errors.As(err, &blocked) {
-		fmt.Fprintln(w, "error:", err)
+	if errors.As(err, &blocked) {
+		source := ""
+		var src *sourceError
+		if errors.As(err, &src) {
+			source = src.source
+		}
+
+		printBlockedVersion(w, source, blocked)
 		return
 	}
 
-	source := ""
-	var src *sourceError
-	if errors.As(err, &src) {
-		source = src.source
+	st := newStyler(w)
+	header := "Error"
+	detail := err.Error()
+	if src, ok := err.(*sourceError); ok {
+		header = src.source
+		detail = src.err.Error()
 	}
 
-	printBlockedVersion(w, source, blocked)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, st.paint(ansiBold+ansiRed, "✖ "+header))
+	writeBlockedRows(w, st, "Error", detail, ansiRed)
 }

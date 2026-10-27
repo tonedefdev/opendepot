@@ -33,7 +33,8 @@ import { AgentConfigSnippet, AgentDefinition, AgentMetadataChips } from "@/compo
 import { SectionCard } from "@/components/SectionCard";
 import SourceRefChip from "@/components/SourceRefChip";
 import { DepotKindIcon, isDepotKind } from "@/components/DepotKindIcon";
-import { KIND_CHIP_TEXT, kindChipColor, kindColor } from "@/lib/kindColors";
+import { BRAND_GRADIENT_WASH, BRAND_SURFACE_BORDER } from "@/lib/brand";
+import { kindChipSx, monoMetaChipSx } from "@/components/chipStyles";
 import { getContract, getResourceDetail, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
@@ -152,12 +153,6 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   );
   const isProviderKind = kind === "provider";
   const isAgentKind = kind === "skill" || kind === "agent";
-  const accentColor = kindColor(kind);
-  const solidChipSx = {
-    color: KIND_CHIP_TEXT,
-    bgcolor: kindChipColor(kind),
-    "& .MuiChip-icon": { color: "inherit !important" },
-  };
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -190,8 +185,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           mb: 4,
           p: 3,
           borderRadius: 2,
-          border: `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`,
-          background: `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 8%, transparent) 0%, color-mix(in srgb, ${accentColor} 3%, transparent) 100%)`,
+          border: `1px solid ${BRAND_SURFACE_BORDER}`,
+          background: BRAND_GRADIENT_WASH,
         }}
       >
         {isProviderKind
@@ -210,18 +205,26 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             <Chip
               label={capitalizeKind}
               size="small"
-              icon={isDepotKind(kind) ? <DepotKindIcon kind={kind} sx={{ fontSize: 14 }} /> : undefined}
-              sx={solidChipSx}
+              icon={isDepotKind(kind) ? <DepotKindIcon kind={kind} /> : undefined}
+              sx={kindChipSx(kind)}
             />
             {detail.provider && kind !== "module" && (
-              <Chip label={detail.provider} size="small" sx={{ fontFamily: "monospace", ...solidChipSx }} />
+              <Chip label={detail.provider} size="small" sx={monoMetaChipSx} />
             )}
             {detail.latestVersion && (
               <Chip
                 label={displayVersion(detail.latestVersion)}
                 size="small"
-                icon={<DepotKindIcon kind="version" sx={{ fontSize: 14 }} />}
-                sx={{ fontFamily: "monospace", ...solidChipSx, bgcolor: kindChipColor("version") }}
+                icon={<DepotKindIcon kind="version" />}
+                sx={monoMetaChipSx}
+              />
+            )}
+            {detail.sourceRef && (
+              <SourceRefChip
+                sourceRef={detail.sourceRef}
+                sourceCommit={detail.sourceCommit}
+                sourcePath={detail.sourcePath}
+                repoUrl={detail.repoUrl}
               />
             )}
             <Box display="flex" alignItems="center" gap={0.5}>
@@ -241,17 +244,6 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           {detail.scanCounts && (
             <Box display="flex" flexWrap="wrap" gap={0.5} mt={1.5}>
               <SeverityBadge counts={detail.scanCounts} />
-            </Box>
-          )}
-
-          {detail.sourceRef && (
-            <Box mt={1.5}>
-              <SourceRefChip
-                sourceRef={detail.sourceRef}
-                sourceCommit={detail.sourceCommit}
-                sourcePath={detail.sourcePath}
-                repoUrl={detail.repoUrl}
-              />
             </Box>
           )}
         </Box>
@@ -416,7 +408,8 @@ export default async function ResourceDetailPage({ params }: PageProps) {
             <Chip
               label={`${detail.depotRef.namespace} / ${detail.depotRef.name}`}
               size="small"
-              sx={{ fontFamily: "monospace", color: KIND_CHIP_TEXT, bgcolor: kindChipColor("depot") }}
+              icon={<DepotKindIcon kind="depot" />}
+              sx={monoMetaChipSx}
             />
           </Box>
         </SectionCard>

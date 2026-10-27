@@ -166,7 +166,102 @@ describe("JevPanel", () => {
 
     fireEvent.mouseOver(screen.getByText("Needs review"));
     const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip.textContent).toContain("confidence falls below the policy's minConfidence, and that low confidence also blocks the version");
+    expect(tooltip.textContent).toContain("It is set when the risk level is Critical");
+    expect(tooltip.textContent).toContain("confidence falls below the policy's minConfidence, which also blocks the version");
+    expect(tooltip.textContent).toContain("An exemption does not clear it");
+  });
+
+  it("shows the needs-review flag for a Critical assessment", () => {
+    renderPanel({ assessment: { ...assessment, riskLevel: "Critical", riskScore: 4, needsReview: true, blocked: true } });
+
+    expect(screen.getByText("Needs review")).not.toBeNull();
+    expect(screen.getByText("Risk: Critical")).not.toBeNull();
+  });
+
+  it("shows the content digest with a copy button", () => {
+    renderPanel({ assessment: { ...assessment, contentDigest: "sha256:abc123" } });
+
+    expect(screen.getByText("sha256:abc123")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Copy to clipboard" })).not.toBeNull();
+  });
+
+  it("omits the digest row when the assessment has no content digest", () => {
+    renderPanel({ assessment });
+
+    expect(screen.queryByText("Digest")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy to clipboard" })).toBeNull();
+  });
+
+  it("shows an exemption chip naming the policy and a tooltip with the reason and expiry", async () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        exempted: true,
+        exemptedBy: "platform-baseline",
+        exemptionReason: "Reviewed by security",
+        exemptionExpires: "2027-01-01T00:00:00Z",
+      },
+    });
+
+    fireEvent.mouseOver(screen.getByText("Exempted by platform-baseline"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("Reason: Reviewed by security");
+    expect(tooltip.textContent).toContain("Expires ");
+    expect(tooltip.textContent).not.toContain("No expiry");
+  });
+
+  it("says No expiry in the exemption tooltip when the exemption has no expires", async () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        exempted: true,
+        exemptedBy: "platform-baseline",
+        exemptionReason: "Vendor attested",
+      },
+    });
+
+    fireEvent.mouseOver(screen.getByText("Exempted by platform-baseline"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("Reason: Vendor attested");
+    expect(tooltip.textContent).toContain("No expiry");
+  });
+
+  it("shows exempted block reasons under their own label and not as active blocks", () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        exempted: true,
+        exemptedBy: "platform-baseline",
+        blockReasons: ["injection above limit"],
+      },
+    });
+
+    expect(screen.getByText("Exempted block reasons: injection above limit")).not.toBeNull();
+    expect(screen.queryByText(/Flags:/)).toBeNull();
+    expect(screen.queryByText(/Blocked by Jev/)).toBeNull();
+  });
+
+  it("does not show the exempted label or chip when the assessment is not exempted", () => {
+    renderPanel({ assessment: { ...assessment, blockReasons: ["scope mismatch"] } });
+
+    expect(screen.queryByText(/Exempted/)).toBeNull();
+    expect(screen.getByText("Flags: scope mismatch")).not.toBeNull();
+  });
+
+  it("does not list exempted block reasons inside a blocked banner", () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        blocked: true,
+        exempted: true,
+        exemptedBy: "platform-baseline",
+        blockReasons: ["injection above limit"],
+      },
+    });
+
+    expect(screen.getByText("Blocked by Jev")).not.toBeNull();
+    expect(screen.queryByText(/Blocked by Jev: injection above limit/)).toBeNull();
+    expect(screen.getByText("Exempted block reasons: injection above limit")).not.toBeNull();
   });
 });
 

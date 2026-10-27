@@ -906,8 +906,8 @@ spec:
                     minimum: 0
                     type: integer
                   blockReasons:
-                    description: The JevPolicy thresholds that were crossed when the
-                      Version is blocked.
+                    description: The Jev block reasons. When the assessment is exempted,
+                      this lists the reasons that were cleared.
                     items:
                       type: string
                     type: array
@@ -915,6 +915,7 @@ spec:
                     description: |-
                       Whether Jev blocks the Version: a threshold, a Critical risk level, a part below minConfidence,
                       content Jev could not read, Jev disabled on the controller, or an assessment that could not complete.
+                      False when a matching jevExemption cleared every block reason.
                     type: boolean
                   chunkCount:
                     description: |-
@@ -1000,6 +1001,11 @@ spec:
                       type: object
                     maxItems: 16
                     type: array
+                  contentDigest:
+                    description: The lowercase hex SHA-256 of the archive that Jev
+                      assessed. It equals hex(base64-decode(status.checksum)).
+                    pattern: ^[0-9a-f]{64}$
+                    type: string
                   destructiveProbability:
                     description: The probability that the Version directs destructive
                       or irreversible actions.
@@ -1012,6 +1018,23 @@ spec:
                   evaluatedAt:
                     description: The RFC3339 timestamp at which the assessment was
                       evaluated.
+                    type: string
+                  exempted:
+                    description: Whether a jevExemption cleared the block reasons
+                      for this assessment.
+                    type: boolean
+                  exemptedBy:
+                    description: The name of the ScanPolicy whose jevExemption cleared
+                      the block reasons.
+                    type: string
+                  exemptionExpires:
+                    description: The expiry of the jevExemption that cleared the block
+                      reasons. Nil means the exemption never expires.
+                    format: date-time
+                    type: string
+                  exemptionReason:
+                    description: The reason given by the jevExemption that cleared
+                      the block reasons.
                     type: string
                   exfiltrationProbability:
                     description: The probability that the Version directs data, files,
@@ -1038,6 +1061,8 @@ spec:
                     type: string
                   needsReview:
                     description: Whether the assessment requires a manual review.
+                      A Critical risk level sets it, and an exemption does not change
+                      it.
                     type: boolean
                   remoteExecutionProbability:
                     description: The probability that the Version directs the agent

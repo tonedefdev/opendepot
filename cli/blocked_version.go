@@ -49,13 +49,17 @@ func printBlockedVersion(w io.Writer, source string, e *blockedVersionError) {
 
 // writeBlockedRows writes text after a label column, wrapping long text onto aligned continuation lines.
 func writeBlockedRows(w io.Writer, st styler, label, text, color string) {
-	for i, line := range wrapText(text, blockedValueWidth) {
-		lab := ""
-		if i == 0 {
-			lab = label
-		}
+	first := true
+	for paragraph := range strings.SplitSeq(text, "\n") {
+		for _, line := range wrapText(paragraph, blockedValueWidth) {
+			lab := ""
+			if first {
+				lab = label
+				first = false
+			}
 
-		fmt.Fprintf(w, "  %-*s %s\n", blockedLabelWidth, lab, st.paint(color, line))
+			fmt.Fprintf(w, "  %-*s %s\n", blockedLabelWidth, lab, st.paint(color, line))
+		}
 	}
 }
 

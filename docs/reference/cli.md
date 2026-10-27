@@ -36,6 +36,8 @@ The server image bundles the binaries at `/opt/opendepot/cli/`. The image build 
 | `opendepot validate [path]` | Validate a `SKILL.md`, a skill directory, or an agent `.md` file. Defaults to the current directory when `path` is omitted. Frontmatter keys are checked against the union of all platform key sets. The command has no platform option. |
 | `opendepot verify` | Check the installed targets against `opendepot.lock.hcl` without network access. |
 
+Command failures are written to standard error in a distinct error section, with the source when available and the underlying details. Jev assessment output includes an `Error` row; `none reported` means the assessment did not report an error.
+
 ## Flags
 
 Flags apply to `opendepot apply` unless noted. `opendepot plan` accepts `--upgrade`, `--allow-yanked`, `--trust-new-key`, and `--force` with the same meaning, and it never prompts. A changed signing key appears as an error in the plan instead of a prompt.

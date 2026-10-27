@@ -19,6 +19,8 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"os"
@@ -26,12 +28,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -426,6 +430,7 @@ type jevReconcileFixture struct {
 	reconciler *VersionReconciler
 	key        types.NamespacedName
 	calls      *atomic.Int32
+	recorder   *events.FakeRecorder
 }
 
 // newJevReconcileFixture runs the full Reconcile path for a Skill Version. GitHub, Trivy, and Jev are stubbed, and the
@@ -481,6 +486,7 @@ func newJevReconcileFixture(t *testing.T, c jevReconcileCase) *jevReconcileFixtu
 		t.Fatalf("AddToScheme: %v", err)
 	}
 
+	recorder := events.NewFakeRecorder(20)
 	reconciler := &VersionReconciler{
 		Client:        fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithStatusSubresource(&opendepotv1alpha1.Version{}).Build(),
 		Scheme:        scheme,
@@ -490,6 +496,7 @@ func newJevReconcileFixture(t *testing.T, c jevReconcileCase) *jevReconcileFixtu
 		JevEnabled:    !c.disabled,
 		JevEndpoint:   endpoint,
 		JevMaxRetries: 3,
+		Recorder:      recorder,
 	}
 
 	key := types.NamespacedName{Name: version.Name, Namespace: version.Namespace}
@@ -497,7 +504,7 @@ func newJevReconcileFixture(t *testing.T, c jevReconcileCase) *jevReconcileFixtu
 		t.Fatalf("Reconcile adding finalizer: %v", err)
 	}
 
-	return &jevReconcileFixture{reconciler: reconciler, key: key, calls: calls}
+	return &jevReconcileFixture{reconciler: reconciler, key: key, calls: calls, recorder: recorder}
 }
 
 func (f *jevReconcileFixture) reconcile(t *testing.T) ctrl.Result {
@@ -1011,4 +1018,461 @@ func TestReconcileJevRefRequiredDoesNotRequeue(t *testing.T) {
 	}
 
 	wantJevCalls(t, f, 0)
+}
+
+// jevCriticalResponse rates the prompt-injection part Critical, so the Skill blocks with no policy. Destructive
+// actions and the risk score are set so a policy can also breach its thresholds.
+const jevCriticalResponse = `{
+  "model": "jev-1.13.0",
+  "answers": {
+    "safe": {"type": "noul", "noul": 0.02},
+    "prompt_injection": {"type": "noul", "noul": 0.9},
+    "data_exfiltration": {"type": "noul", "noul": 0.01},
+    "destructive_actions": {"type": "noul", "noul": 0.03},
+    "hidden_instructions": {"type": "noul", "noul": 0.04},
+    "scope_mismatch": {"type": "noul", "noul": 0.05},
+    "remote_execution": {"type": "noul", "noul": 0.06},
+    "risk": {
+      "type": "score",
+      "score": 4,
+      "legend": {"0": "Minimal", "1": "Low", "2": "Moderate", "3": "High", "4": "Critical"},
+      "probabilities": {"0": 0.01, "1": 0.01, "2": 0.02, "3": 0.06, "4": 0.9},
+      "confidence": 0.95
+    }
+  },
+  "usage": {"input_tokens": 1234, "output_tokens": 56}
+}`
+
+func jevCritical(string) (int, string) {
+	return http.StatusOK, jevCriticalResponse
+}
+
+// jevExemptPolicy returns a ScanPolicy in the test namespace that exempts one digest. It matches every Version.
+func jevExemptPolicy(name string, priority int, digest string, expires *metav1.Time) *opendepotv1alpha1.ScanPolicy {
+	return &opendepotv1alpha1.ScanPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: opendepotv1alpha1.ScanPolicySpec{
+			Priority: priority,
+			JevExemptions: []opendepotv1alpha1.JevExemption{{
+				ContentDigest: digest,
+				Reason:        "reviewed by security",
+				Expires:       expires,
+			}},
+		},
+	}
+}
+
+func (f *jevReconcileFixture) addPolicy(t *testing.T, policy *opendepotv1alpha1.ScanPolicy) {
+	t.Helper()
+
+	if err := f.reconciler.Create(context.Background(), policy); err != nil {
+		t.Fatalf("Create ScanPolicy %s: %v", policy.Name, err)
+	}
+}
+
+// learnJevDigest runs the first reconcile, which blocks the Critical Skill, and returns the digest its assessment
+// carries. The digest is the archive digest, so the test does not compute it.
+func (f *jevReconcileFixture) learnJevDigest(t *testing.T) string {
+	t.Helper()
+
+	f.reconcile(t)
+
+	digest := f.version(t).Status.JevAssessment.ContentDigest
+	if digest == "" {
+		t.Fatalf("ContentDigest is empty after the first reconcile")
+	}
+
+	return digest
+}
+
+// TestReconcileJevCriticalWithoutPolicyStaysBlocked covers D3: a Critical part with no policy stays blocked and sets
+// needsReview.
+func TestReconcileJevCriticalWithoutPolicyStaysBlocked(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+
+	f.reconcile(t)
+
+	stored := f.version(t)
+	wantJevBlocked(t, stored, 0)
+	if !stored.Status.JevAssessment.NeedsReview {
+		t.Fatalf("NeedsReview = false; want true for a Critical block")
+	}
+
+	if stored.Status.JevAssessment.Exempted {
+		t.Fatalf("Exempted = true with no policy; want false")
+	}
+}
+
+// TestReconcileJevCriticalExemptionUnblocks covers a matching exemption on a Critical-only block: the Version is synced
+// and the exemption fields name the policy.
+func TestReconcileJevCriticalExemptionUnblocks(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	digest := f.learnJevDigest(t)
+
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, digest, nil))
+	f.reconcile(t)
+
+	stored := f.version(t)
+	if !stored.Status.Synced {
+		t.Fatalf("Synced = false; want true after a matching exemption: %q", stored.Status.SyncStatus)
+	}
+
+	assessment := stored.Status.JevAssessment
+	if assessment.Blocked || !assessment.Exempted {
+		t.Fatalf("assessment = %+v; want exempted and unblocked", assessment)
+	}
+
+	if assessment.ExemptedBy != "release-exemptions" || assessment.ExemptionReason != "reviewed by security" || assessment.ExemptionExpires != nil {
+		t.Fatalf("exemption fields = by %q reason %q expires %v; want the policy, its reason and no expiry", assessment.ExemptedBy, assessment.ExemptionReason, assessment.ExemptionExpires)
+	}
+
+	if !strings.Contains(stored.Status.SyncStatus, "release-exemptions") {
+		t.Fatalf("SyncStatus = %q; want it to name the policy", stored.Status.SyncStatus)
+	}
+}
+
+// TestReconcileJevCriticalThresholdsExemptionKeepsReasons covers D2: a matching exemption on Critical plus threshold
+// reasons syncs the Version, keeps every block reason, and sets blocked to false.
+func TestReconcileJevCriticalThresholdsExemptionKeepsReasons(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{
+		stub:   jevCritical,
+		policy: &opendepotv1alpha1.JevPolicy{MaxDestructiveProbability: f64(0.01), MaxRiskScore: f64(3)},
+	})
+	digest := f.learnJevDigest(t)
+
+	before := f.version(t).Status.JevAssessment
+	if len(before.BlockReasons) < 3 {
+		t.Fatalf("BlockReasons = %v; want Critical plus two threshold reasons", before.BlockReasons)
+	}
+
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, digest, nil))
+	f.reconcile(t)
+
+	stored := f.version(t)
+	if !stored.Status.Synced || stored.Status.JevAssessment.Blocked {
+		t.Fatalf("Synced = %v, Blocked = %v; want synced and unblocked", stored.Status.Synced, stored.Status.JevAssessment.Blocked)
+	}
+
+	if len(stored.Status.JevAssessment.BlockReasons) != len(before.BlockReasons) {
+		t.Fatalf("BlockReasons = %v; want all %v kept", stored.Status.JevAssessment.BlockReasons, before.BlockReasons)
+	}
+}
+
+// TestReconcileJevTokenLimitExemptionUnblocks covers Q1: a part that hits the token limit is unblocked by a matching
+// exemption on a Critical Skill.
+func TestReconcileJevTokenLimitExemptionUnblocks(t *testing.T) {
+	body := []byte(strings.Repeat("a", 3*jevChunkBodyBudget-4096))
+	copy(body[3*jevChunkBodyBudget-8192:], "MARK-3")
+
+	reject := jevRejectMark("MARK-3", 1<<30)
+	f := newJevReconcileFixture(t, jevReconcileCase{
+		files: map[string]string{"SKILL.md": jevEntry, "big.txt": string(body)},
+		stub: func(state string) (int, string) {
+			if strings.Contains(state, "MARK-3") {
+				return reject(state)
+			}
+
+			return jevCritical(state)
+		},
+	})
+	digest := f.learnJevDigest(t)
+
+	if blocked := f.version(t).Status.JevAssessment; !strings.Contains(strings.Join(blocked.BlockReasons, " "), "cannot be split further") {
+		t.Fatalf("BlockReasons = %v; want the token-limit reason", blocked.BlockReasons)
+	}
+
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, digest, nil))
+	f.reconcile(t)
+
+	stored := f.version(t)
+	if !stored.Status.Synced || stored.Status.JevAssessment.Blocked {
+		t.Fatalf("Synced = %v, Blocked = %v; want synced and unblocked", stored.Status.Synced, stored.Status.JevAssessment.Blocked)
+	}
+}
+
+// TestReconcileJevExpiredExemptionStaysBlocked covers an expired entry: the Version stays blocked.
+func TestReconcileJevExpiredExemptionStaysBlocked(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	digest := f.learnJevDigest(t)
+
+	past := metav1.NewTime(time.Now().Add(-time.Hour))
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, digest, &past))
+	f.reconcile(t)
+
+	wantJevBlocked(t, f.version(t), 0)
+}
+
+// TestReconcileJevPriorityShadowingStaysBlocked covers priority: the winning policy has no exemption for the digest,
+// so a lower-priority policy that exempts it does not apply.
+func TestReconcileJevPriorityShadowingStaysBlocked(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	digest := f.learnJevDigest(t)
+
+	f.addPolicy(t, &opendepotv1alpha1.ScanPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "strict", Namespace: "default"},
+		Spec:       opendepotv1alpha1.ScanPolicySpec{Priority: 10},
+	})
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 1, digest, nil))
+	f.reconcile(t)
+
+	wantJevBlocked(t, f.version(t), 0)
+}
+
+// TestReconcileJevDigestMismatchStaysBlocked covers a digest mismatch: an exemption for a different archive does not
+// apply.
+func TestReconcileJevDigestMismatchStaysBlocked(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	f.learnJevDigest(t)
+
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, nil))
+	f.reconcile(t)
+
+	wantJevBlocked(t, f.version(t), 0)
+}
+
+// jevPublishedVersion returns a published, exempted Skill Version. Its checksum encodes checksumDigest, the archive
+// digest the stored path recomputes.
+func jevPublishedVersion(t *testing.T, checksumDigest, exemptedBy string) *opendepotv1alpha1.Version {
+	t.Helper()
+
+	raw, err := hex.DecodeString(checksumDigest)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
+
+	checksum := base64.StdEncoding.EncodeToString(raw)
+	version := newJevTestVersion(nil, &opendepotv1alpha1.JevAssessment{
+		ContentDigest:   jevExemptTestDigest,
+		Exempted:        true,
+		ExemptedBy:      exemptedBy,
+		ExemptionReason: "reviewed by security",
+		BlockReasons:    []string{"Critical risk level"},
+		NeedsReview:     true,
+	})
+	version.Name = "agent-1-0-0"
+	version.Spec.Version = "1.0.0"
+	version.Status.Synced = true
+	version.Status.SyncStatus = "Synced"
+	version.Status.Checksum = &checksum
+
+	return version
+}
+
+// newJevStoredFixture returns a reconciler whose client holds a published Version and the given ScanPolicies.
+func newJevStoredFixture(t *testing.T, version *opendepotv1alpha1.Version, policies ...client.Object) *jevReconcileFixture {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme core: %v", err)
+	}
+
+	if err := opendepotv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+
+	objects := append([]client.Object{version}, policies...)
+	recorder := events.NewFakeRecorder(20)
+	reconciler := &VersionReconciler{
+		Client:     fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithStatusSubresource(&opendepotv1alpha1.Version{}).Build(),
+		Scheme:     scheme,
+		Log:        logr.Discard(),
+		ScanAgents: true,
+		Recorder:   recorder,
+	}
+
+	return &jevReconcileFixture{reconciler: reconciler, key: types.NamespacedName{Name: version.Name, Namespace: version.Namespace}, recorder: recorder}
+}
+
+// reconcileStored runs the published fast path for the stored Version.
+func (f *jevReconcileFixture) reconcileStored(t *testing.T) (ctrl.Result, jevExemptionChange) {
+	t.Helper()
+
+	result, change, err := f.reconciler.reconcileStoredScanPolicy(context.Background(), ctrl.Request{NamespacedName: f.key}, f.version(t))
+	if err != nil {
+		t.Fatalf("reconcileStoredScanPolicy: %v", err)
+	}
+
+	return result, change
+}
+
+// TestReconcileStoredExemptionRemovedReblocks covers D7: removing the entry re-blocks a published exempted Version.
+func TestReconcileStoredExemptionRemovedReblocks(t *testing.T) {
+	policy := jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, nil)
+	f := newJevStoredFixture(t, jevPublishedVersion(t, jevExemptTestDigest, "release-exemptions"), policy)
+
+	if _, change := f.reconcileStored(t); change.Applied || change.Revoked {
+		t.Fatalf("change = %+v on an unchanged exemption; want none", change)
+	}
+
+	if err := f.reconciler.Delete(context.Background(), policy); err != nil {
+		t.Fatalf("Delete ScanPolicy: %v", err)
+	}
+
+	_, change := f.reconcileStored(t)
+	if !change.Revoked {
+		t.Fatalf("change = %+v; want Revoked", change)
+	}
+
+	stored := f.version(t)
+	if stored.Status.Synced || !strings.HasPrefix(stored.Status.SyncStatus, "JevBlocked:") {
+		t.Fatalf("Synced = %v, SyncStatus = %q; want unsynced JevBlocked", stored.Status.Synced, stored.Status.SyncStatus)
+	}
+
+	if !stored.Status.JevAssessment.Blocked {
+		t.Fatalf("JevAssessment = %+v; want blocked", stored.Status.JevAssessment)
+	}
+}
+
+// TestReconcileStoredExemptionExpiresReblocks covers an expiring entry: the stored path requeues at the expiry, and the
+// Version re-blocks on the next pass.
+func TestReconcileStoredExemptionExpiresReblocks(t *testing.T) {
+	expires := metav1.NewTime(time.Now().Add(time.Second))
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestDigest, "release-exemptions"),
+		jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, &expires),
+	)
+
+	result, change := f.reconcileStored(t)
+	if result.RequeueAfter <= 0 || change.Revoked {
+		t.Fatalf("result = %+v, change = %+v; want a requeue before the expiry and no revoke", result, change)
+	}
+
+	if !f.version(t).Status.Synced {
+		t.Fatalf("Synced = false before the expiry; want true")
+	}
+
+	time.Sleep(result.RequeueAfter + 100*time.Millisecond)
+
+	_, change = f.reconcileStored(t)
+	if !change.Revoked {
+		t.Fatalf("change = %+v after expiry; want Revoked", change)
+	}
+
+	if f.version(t).Status.Synced {
+		t.Fatalf("Synced = true after expiry; want false")
+	}
+}
+
+// TestReconcileStoredExemptedBySwitchStaysSynced covers a policy switch: another policy with the same digest takes over,
+// the Version stays synced, and exemptedBy is updated.
+func TestReconcileStoredExemptedBySwitchStaysSynced(t *testing.T) {
+	first := jevExemptPolicy("policy-a", 10, jevExemptTestDigest, nil)
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestDigest, "policy-a"),
+		first,
+		jevExemptPolicy("policy-b", 1, jevExemptTestDigest, nil),
+	)
+
+	if err := f.reconciler.Delete(context.Background(), first); err != nil {
+		t.Fatalf("Delete ScanPolicy: %v", err)
+	}
+
+	_, change := f.reconcileStored(t)
+	if change.Revoked || change.ExemptedBy != "policy-b" {
+		t.Fatalf("change = %+v; want no revoke and ExemptedBy policy-b", change)
+	}
+
+	stored := f.version(t)
+	if !stored.Status.Synced || stored.Status.JevAssessment.Blocked {
+		t.Fatalf("Synced = %v, Blocked = %v; want synced and unblocked", stored.Status.Synced, stored.Status.JevAssessment.Blocked)
+	}
+
+	if stored.Status.JevAssessment.ExemptedBy != "policy-b" {
+		t.Fatalf("ExemptedBy = %q; want policy-b", stored.Status.JevAssessment.ExemptedBy)
+	}
+}
+
+// TestReconcileStoredDigestMismatchReblocks covers a digest mismatch: the archive on the stored checksum differs from
+// the digest the exemption was granted for, so the Version re-blocks.
+func TestReconcileStoredDigestMismatchReblocks(t *testing.T) {
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestOther, "release-exemptions"),
+		jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, nil),
+	)
+
+	_, change := f.reconcileStored(t)
+	if !change.Revoked {
+		t.Fatalf("change = %+v; want Revoked on a digest mismatch", change)
+	}
+
+	if stored := f.version(t); stored.Status.Synced || !stored.Status.JevAssessment.Blocked {
+		t.Fatalf("Synced = %v, assessment = %+v; want blocked", stored.Status.Synced, stored.Status.JevAssessment)
+	}
+}
+
+// drainJevEvents returns the Events recorded since the last call, without blocking.
+func (f *jevReconcileFixture) drainJevEvents() []string {
+	var out []string
+	for {
+		select {
+		case event := <-f.recorder.Events:
+			out = append(out, event)
+		default:
+			return out
+		}
+	}
+}
+
+// TestReconcileJevExemptionEmitsEventsOnTransitions covers Step 6: one Applied Event when the exemption starts, none
+// while it stays applied, and one Revoked Event when the entry is removed.
+func TestReconcileJevExemptionEmitsEventsOnTransitions(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	digest := f.learnJevDigest(t)
+	f.drainJevEvents()
+
+	policy := jevExemptPolicy("release-exemptions", 0, digest, nil)
+	f.addPolicy(t, policy)
+	f.reconcile(t)
+
+	applied := f.drainJevEvents()
+	if len(applied) != 1 || !strings.Contains(applied[0], "Normal JevExemptionApplied") || !strings.Contains(applied[0], "release-exemptions") {
+		t.Fatalf("events = %q; want one Normal JevExemptionApplied naming the policy", applied)
+	}
+
+	if strings.Contains(applied[0], "reviewed by security") {
+		t.Fatalf("event = %q; want no exemption reason text in the message", applied[0])
+	}
+
+	f.reconcile(t)
+	if got := f.drainJevEvents(); len(got) != 0 {
+		t.Fatalf("events = %q on an unchanged exemption; want none", got)
+	}
+
+	if err := f.reconciler.Delete(context.Background(), policy); err != nil {
+		t.Fatalf("Delete ScanPolicy: %v", err)
+	}
+
+	f.reconcile(t)
+	revoked := f.drainJevEvents()
+	if len(revoked) != 1 || !strings.Contains(revoked[0], "Warning JevExemptionRevoked") || !strings.Contains(revoked[0], "release-exemptions") {
+		t.Fatalf("events = %q; want one Warning JevExemptionRevoked naming the policy", revoked)
+	}
+}
+
+// TestReconcileStoredExemptionEmitsRevokedEvent covers Step 6 on the published fast path.
+func TestReconcileStoredExemptionEmitsRevokedEvent(t *testing.T) {
+	policy := jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, nil)
+	f := newJevStoredFixture(t, jevPublishedVersion(t, jevExemptTestDigest, "release-exemptions"), policy)
+
+	f.reconcileStored(t)
+	if got := f.drainJevEvents(); len(got) != 0 {
+		t.Fatalf("events = %q on an unchanged exemption; want none", got)
+	}
+
+	if err := f.reconciler.Delete(context.Background(), policy); err != nil {
+		t.Fatalf("Delete ScanPolicy: %v", err)
+	}
+
+	f.reconcileStored(t)
+	revoked := f.drainJevEvents()
+	if len(revoked) != 1 || !strings.Contains(revoked[0], "Warning JevExemptionRevoked") {
+		t.Fatalf("events = %q; want one Warning JevExemptionRevoked", revoked)
+	}
+}
+
+// TestRecordJevExemptionChangeNilRecorder covers Step 6: a nil Recorder disables Events without panicking.
+func TestRecordJevExemptionChangeNilRecorder(t *testing.T) {
+	reconciler := &VersionReconciler{}
+	reconciler.recordJevExemptionChange(&opendepotv1alpha1.Version{}, jevExemptionChange{Applied: true}, &opendepotv1alpha1.JevAssessment{})
 }

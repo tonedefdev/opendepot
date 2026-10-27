@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/go-version"
@@ -49,7 +51,8 @@ type configFile struct {
 }
 
 type opendepotBlock struct {
-	Targets []string `hcl:"targets,optional"`
+	Targets  []string `hcl:"targets,optional"`
+	Registry *string  `hcl:"registry,optional"`
 }
 
 type entryBlock struct {
@@ -72,8 +75,9 @@ type entry struct {
 
 // project is the validated contents of opendepot.hcl.
 type project struct {
-	targets []string
-	entries []entry
+	targets  []string
+	registry string
+	entries  []entry
 }
 
 func loadConfig(path string) (*project, error) {
@@ -98,6 +102,15 @@ func loadConfig(path string) (*project, error) {
 		}
 
 		proj.targets = cfg.Opendepot.Targets
+
+		if cfg.Opendepot.Registry != nil {
+			host, err := validateRegistryHost(*cfg.Opendepot.Registry)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
+
+			proj.registry = host
+		}
 	}
 
 	seenNames := map[string]bool{}
@@ -135,6 +148,76 @@ func loadConfig(path string) (*project, error) {
 
 	return proj, nil
 }
+
+// loadOptionalProject returns the project at path, or nil when no opendepot.hcl exists.
+func loadOptionalProject(path string) (*project, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+
+	return loadConfig(path)
+}
+
+// validateRegistryHost checks that host is a bare registry host. It uses the same
+// host/namespace/name parsing as source addresses.
+func validateRegistryHost(host string) (string, error) {
+	if host == "" {
+		return "", fmt.Errorf("registry host must not be empty")
+	}
+
+	if _, err := parseSource(host + "/namespace/name"); err != nil {
+		return "", fmt.Errorf("registry %q must be a bare host name", host)
+	}
+
+	return host, nil
+}
+
+// resolveListRegistry picks the registry used by listing commands. The order is the explicit
+// --registry value, the project default registry, then the single host shared by all project
+// sources. proj may be nil when no opendepot.hcl exists. Ambiguous or missing hosts are errors.
+func resolveListRegistry(explicit string, proj *project) (string, error) {
+	if explicit != "" {
+		return validateRegistryHost(explicit)
+	}
+
+	if proj == nil {
+		return "", errNoRegistry
+	}
+
+	if proj.registry != "" {
+		return proj.registry, nil
+	}
+
+	hosts := map[string]bool{}
+	for _, e := range proj.entries {
+		src, err := parseSource(e.source)
+		if err != nil {
+			return "", err
+		}
+
+		hosts[src.host] = true
+	}
+
+	switch len(hosts) {
+	case 0:
+		return "", errNoRegistry
+	case 1:
+		for host := range hosts {
+			return host, nil
+		}
+	}
+
+	names := make([]string, 0, len(hosts))
+	for host := range hosts {
+		names = append(names, host)
+	}
+
+	sort.Strings(names)
+
+	return "", fmt.Errorf("project sources use multiple registry hosts (%s); pass --registry to choose one", strings.Join(names, ", "))
+}
+
+var errNoRegistry = errors.New("no registry could be determined: pass --registry, or set registry in the opendepot block of opendepot.hcl")
 
 func newEntry(kind entryKind, b entryBlock) (entry, error) {
 	if b.Name == "" {

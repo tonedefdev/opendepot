@@ -13,6 +13,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
 import ErrorIcon from "@mui/icons-material/Error";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import SecurityIcon from "@mui/icons-material/Security";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
@@ -20,11 +21,7 @@ import ProviderLogo from "./ProviderLogo";
 import SourceRefChip from "./SourceRefChip";
 import { DepotKindIcon, isDepotKind } from "./DepotKindIcon";
 import type { BrowseResource } from "@/lib/api";
-import { KIND_CHIP_TEXT, KIND_CHIP_COLORS, kindChipColor, kindColor } from "@/lib/kindColors";
-import { RISK_COLORS } from "@/lib/jevSeverity";
-
-// Resource-kind hues are fixed brand colors from kindColors, so they must NOT
-// swap with the primary/secondary palette between light and dark mode.
+import { kindChipSx, monoMetaChipSx, riskChipSx } from "./chipStyles";
 
 interface Props {
   resource: BrowseResource;
@@ -37,9 +34,20 @@ function displayVersion(v: string): string {
 
 export default function ResourceCard({ resource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
-  const accent = kindColor(resource.kind);
   const isAgentKind = resource.kind === "skill" || resource.kind === "agent";
   const isBlocked = isAgentKind && !!resource.blocked;
+  const syncFailed = /failed|error/i.test(resource.syncStatus);
+  // A healthy sync collapses to "Synced"; failures keep the controller's message because it explains the problem.
+  const syncLabel = isBlocked
+    ? "Blocked by Jev"
+    : resource.synced && !syncFailed
+      ? "Synced"
+      : resource.syncStatus || "Not synced";
+  const syncTooltip = isBlocked
+    ? (resource.blockReasons ?? []).join("; ") || "Blocked by Jev"
+    : resource.syncStatus && resource.syncStatus !== syncLabel
+      ? resource.syncStatus
+      : "";
   const nameRef = React.useRef<HTMLDivElement>(null);
   const [nameTruncated, setNameTruncated] = React.useState(false);
 
@@ -49,36 +57,33 @@ export default function ResourceCard({ resource }: Props) {
   }, [resource.name]);
 
   return (
-    <Card
-      data-testid="resource-card"
-      sx={(theme) => ({
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        "&:hover": {
-          borderColor: `color-mix(in srgb, ${accent} 50%, transparent)`,
-          boxShadow: `0 0 0 1px color-mix(in srgb, ${accent} 15%, transparent), 0 4px 16px rgba(0,0,0,0.4)`,
-          ...theme.applyStyles("light", {
-            boxShadow: `0 0 0 1px color-mix(in srgb, ${accent} 15%, transparent), 0 4px 16px rgba(0,0,0,0.08)`,
-          }),
-        },
-      })}
-    >
+    <Card data-testid="resource-card" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
         <CardContent sx={{ pb: "12px !important" }}>
-          {/* Header row: namespace + visibility */}
-          <Box display="flex" alignItems="center" gap={0.75} mb={0.75}>
-            {resource.public ? (
-              <PublicIcon sx={{ fontSize: 13, color: "info.main" }} />
-            ) : (
-              <LockIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+          {/* Header row: namespace + visibility on the left, Jev risk on the right */}
+          <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} mb={0.75} minHeight={22}>
+            <Box display="flex" alignItems="center" gap={0.75} minWidth={0}>
+              {resource.public ? (
+                <PublicIcon sx={{ fontSize: 13, color: "info.main" }} />
+              ) : (
+                <LockIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+              )}
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.72rem" }}
+              >
+                {resource.namespace}
+              </Typography>
+            </Box>
+            {isAgentKind && resource.jevRiskLevel && (
+              <Chip
+                size="small"
+                label={`Risk: ${resource.jevRiskLevel}`}
+                icon={<SecurityIcon />}
+                sx={{ ...riskChipSx(resource.jevRiskLevel), flexShrink: 0 }}
+              />
             )}
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.72rem" }}
-            >
-              {resource.namespace}
-            </Typography>
           </Box>
 
           {/* Name */}
@@ -95,8 +100,8 @@ export default function ResourceCard({ resource }: Props) {
             </Typography>
           </Tooltip>
 
-          {/* Provider logo + kind + version */}
-          <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
+          {/* Metadata: provider logo, kind, version, source ref. Neutral so the name and status lead. */}
+          <Box display="flex" alignItems="center" gap={0.75} mb={1.25} flexWrap="wrap">
             {resource.kind === "provider" ? (
               <ProviderLogo provider={resource.name} size={22} />
             ) : resource.provider ? (
@@ -105,35 +110,15 @@ export default function ResourceCard({ resource }: Props) {
             <Chip
               size="small"
               label={resource.kind}
-              icon={isDepotKind(resource.kind) ? <DepotKindIcon kind={resource.kind} sx={{ fontSize: 14 }} /> : undefined}
-              sx={{
-                textTransform: "capitalize",
-                color: KIND_CHIP_TEXT,
-                bgcolor: kindChipColor(resource.kind),
-                "& .MuiChip-icon": { color: "inherit !important" },
-              }}
+              icon={isDepotKind(resource.kind) ? <DepotKindIcon kind={resource.kind} /> : undefined}
+              sx={kindChipSx(resource.kind)}
             />
             {resource.latestVersion && (
               <Chip
                 size="small"
                 label={displayVersion(resource.latestVersion)}
-                icon={<DepotKindIcon kind="version" sx={{ fontSize: 14 }} />}
-                sx={{
-                  fontFamily: "monospace",
-                  fontSize: "0.72rem",
-                  color: KIND_CHIP_TEXT,
-                  bgcolor: KIND_CHIP_COLORS.version,
-                  "& .MuiChip-icon": { color: "inherit !important" },
-                }}
-              />
-            )}
-            {isAgentKind && resource.jevRiskLevel && (
-              <Chip
-                size="small"
-                variant="outlined"
-                color={RISK_COLORS[resource.jevRiskLevel] ?? "default"}
-                label={`Risk: ${resource.jevRiskLevel}`}
-                sx={{ fontSize: "0.72rem" }}
+                icon={<DepotKindIcon kind="version" />}
+                sx={monoMetaChipSx}
               />
             )}
             {resource.sourceRef && (
@@ -147,31 +132,32 @@ export default function ResourceCard({ resource }: Props) {
             )}
           </Box>
 
-          {/* Sync status */}
-          <Box display="flex" alignItems="center" gap={0.5} mb={1}>
-            {isBlocked || /failed|error/i.test(resource.syncStatus) ? (
-              <ErrorIcon sx={{ fontSize: 13, color: "error.main" }} />
-            ) : resource.synced ? (
-              <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
-            ) : (
-              <SyncProblemIcon sx={{ fontSize: 13, color: "warning.main" }} />
-            )}
-            {resource.hasUnsyncedVersions && (
-              <Tooltip title="Some versions are out of sync">
-                <WarningAmberIcon sx={{ fontSize: 13, color: "warning.main" }} />
-              </Tooltip>
-            )}
-            {isBlocked ? (
-              <Tooltip title={(resource.blockReasons ?? []).join("; ") || "Blocked by Jev"}>
-                <Typography variant="caption" color="error.main">
-                  Blocked by Jev
+          {/* Status: sync state. Color is reserved for this row. */}
+          <Box display="flex" alignItems="center" gap={1} mb={1} minHeight={22}>
+            <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
+              {isBlocked || syncFailed ? (
+                <ErrorIcon sx={{ fontSize: 13, color: "error.main" }} />
+              ) : resource.synced ? (
+                <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
+              ) : (
+                <SyncProblemIcon sx={{ fontSize: 13, color: "warning.main" }} />
+              )}
+              {resource.hasUnsyncedVersions && (
+                <Tooltip title="Some versions are out of sync">
+                  <WarningAmberIcon sx={{ fontSize: 13, color: "warning.main" }} />
+                </Tooltip>
+              )}
+              <Tooltip title={syncTooltip} placement="top" enterDelay={300} disableInteractive>
+                <Typography
+                  variant="caption"
+                  noWrap
+                  color={isBlocked ? "error.main" : "text.secondary"}
+                  data-testid="resource-card-sync-status"
+                >
+                  {syncLabel}
                 </Typography>
               </Tooltip>
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}
-              </Typography>
-            )}
+            </Box>
           </Box>
 
           {/* Scan counts */}

@@ -841,6 +841,7 @@ Every successful create, update, and delete is logged by the server with the ope
 | `targetRefs` | `[]ScanPolicyTargetRef` | An explicit list of `Module` or `Provider` resources this policy applies to. |
 | `severityThreshold` | `string` | The minimum severity that blocks reconciliation for the matched Versions: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `NONE`. Overrides the version controller's `--scan-block-on-critical`/`--scan-block-on-high` flags for matched Versions. `NONE` disables blocking entirely for the match. When omitted, the controller flags remain in effect as the baseline. |
 | `exemptions` | `[]ScanExemption` | The findings that must not block reconciliation for the matched Versions. |
+| `jevExemptions` | `[]JevExemption` | The Jev blocks that must not block reconciliation for the matched Versions. Each entry matches one exact archive by its `contentDigest`. Lists are keyed by `contentDigest`. See [JevExemption fields](#jevexemption-fields). |
 
 **ScanPolicyStatus fields:**
 
@@ -849,6 +850,8 @@ Every successful create, update, and delete is logged by the server with the ope
 | `matchedVersions` | `int` | The number of `Version` resources in this namespace currently matched by this policy. |
 | `activeExemptions` | `int` | The number of exemptions currently in effect. |
 | `expiredExemptions` | `int` | The number of exemptions whose `expires` has passed and no longer apply. |
+| `activeJevExemptions` | `int` | The number of Jev exemptions currently in effect. Entries without an `expires` count as active. Omitted when `0`. |
+| `expiredJevExemptions` | `int` | The number of Jev exemptions whose `expires` has passed and no longer apply. Omitted when `0`. |
 | `supersededBy` | `string` | The name of the higher priority `ScanPolicy` that shadows this policy for every `Version` it matches. Empty when this policy wins for at least one `Version`, or when it matches no Versions at all. |
 | `conditions` | `[]metav1.Condition` | Observed conditions. Reasons: `Active`, `NoMatchingVersions`, `Superseded`, `InvalidSelector`. |
 
@@ -876,6 +879,18 @@ Declares a set of scan findings that must not block reconciliation. A finding is
 | `expires` | `string` | RFC3339 timestamp at which this exemption stops applying. Once passed, the covered findings block again with no user action required. Omitted means the exemption never expires. |
 
 The server's preview route accepts the same complete object as create/update and returns the normalized policy without writing it. It rejects unknown JSON fields, invalid DNS-compatible names, unsupported thresholds or target kinds, missing exemption reasons, and a namespace that differs from the URL namespace. Preview is useful for validating a draft, but it does not reserve a name or evaluate authorization to perform a later write.
+
+### JevExemption fields
+
+Declares a Jev exemption. An entry clears every Jev block reason for one exact archive. Only the winning `ScanPolicy` for a `Version` supplies its `jevExemptions`. See [Jev exemptions with ScanPolicy](../configuration/scanning.md#jev-exemptions-with-scanpolicy).
+
+| Field | Type | Description |
+|---|---|---|
+| `contentDigest` | `string` | **Required.** The lowercase hex SHA-256 of the Version archive, copied from `status.jevAssessment.contentDigest`. Must match `^[0-9a-f]{64}$`. The exemption applies only while the archive has this digest. |
+| `reason` | `string` | **Required.** Justification for the exemption, so every exemption remains auditable. Must be non-empty. |
+| `expires` | `string` | RFC3339 timestamp at which this exemption stops applying. Once passed, the Version blocks again. Omitted means the exemption never expires and stays valid until the archive content changes. |
+
+The server rejects a `contentDigest` that is not 64 lowercase hex characters, a duplicate `contentDigest` in one policy, and a blank `reason`.
 
 ### ProviderConfig fields
 
@@ -1024,15 +1039,20 @@ For a branch Version, `version` is empty until the version controller assigns a 
 | Field | Type | Description |
 |---|---|---|
 | `evaluatedAt` | `string` | The time at which the assessment was evaluated. |
+| `contentDigest` | `string` | Optional. The lowercase hex SHA-256 of the archive that Jev assessed. It equals the hex form of `status.checksum`. Used as the `jevExemptions` key. A legacy assessment without a digest cannot match an exemption until one `forceSync`. |
 | `model` | `string` | Optional. The Jev model that produced the assessment. |
 | `safeProbability` | `float64` | Optional. The lowest part value. |
 | `injectionProbability`, `exfiltrationProbability`, `destructiveProbability`, `hiddenInstructionsProbability`, `scopeMismatchProbability`, `remoteExecutionProbability` | `float64` | Optional. The highest part value for each probability. |
 | `riskScore` | `float64` | Optional. The highest part value. |
 | `riskLevel` | `string` | Optional. The worst part value. One of `Minimal`, `Low`, `Moderate`, `High`, or `Critical`. |
 | `riskConfidence` | `float64` | Optional. The lowest part value. |
-| `needsReview` | `bool` | Set when a part's risk confidence is below `minConfidence`. |
-| `blocked` | `bool` | Set when Jev blocks the Version. |
-| `blockReasons` | `[]string` | Optional. The reasons the Version is blocked. |
+| `needsReview` | `bool` | Set when a part's risk confidence is below `minConfidence`, or when the risk level is `Critical` on a fully scored assessment. An exemption does not change it. |
+| `blocked` | `bool` | Whether Jev blocks the Version: a threshold, a `Critical` risk level, a part below `minConfidence`, content Jev could not read, Jev disabled on the controller, or an assessment that could not complete. `false` when a matching `jevExemptions` entry cleared every block reason. |
+| `blockReasons` | `[]string` | Optional. The Jev block reasons. When the assessment is exempted, this lists the reasons that were cleared. The field is kept when `blocked` is `false`. |
+| `exempted` | `bool` | Optional. Whether a `jevExemptions` entry cleared the block reasons for this assessment. Omitted when `false`. This does not mean the Version is synced. When the Jev call failed, `status.synced` stays `false` until a Jev run completes without an error. |
+| `exemptedBy` | `string` | Optional. The name of the `ScanPolicy` whose `jevExemptions` entry cleared the block reasons. |
+| `exemptionReason` | `string` | Optional. The `reason` given by the `jevExemptions` entry that cleared the block reasons. |
+| `exemptionExpires` | `string` | Optional. The `expires` of the `jevExemptions` entry that cleared the block reasons. Omitted when the entry never expires. |
 | `error` | `string` | Optional. A redacted error that prevented the assessment from completing, or why it is incomplete. |
 | `chunkCount` | `int32` | Optional. The planned number of parts. Above 16, no Jev call is made and the Version is blocked. |
 | `assessedChunks` | `int32` | Optional. The number of part entries that Jev scored. At most 16. |

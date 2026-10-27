@@ -1077,9 +1077,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             target: node.id,
             targetHandle: "in",
             animated: true,
-            style: { stroke: "#04cfd0" },
+            style: { stroke: "var(--mui-palette-primary-main)" },
             label: "count",
-            labelStyle: { fill: "#04cfd0", fontSize: 10 },
+            labelStyle: { fill: "var(--mui-palette-primary-main)", fontSize: 10 },
           });
         }
       }
@@ -1093,9 +1093,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           target: node.id,
           targetHandle: "in",
           animated: true,
-          style: { stroke: "#04cfd0" },
+          style: { stroke: "var(--mui-palette-primary-main)" },
           label: "for_each",
-          labelStyle: { fill: "#04cfd0", fontSize: 10 },
+          labelStyle: { fill: "var(--mui-palette-primary-main)", fontSize: 10 },
         });
       }
 
@@ -1520,14 +1520,23 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
               borderRadius: 6,
             }}
           />
-          <Box sx={{ display: { xs: mobileMapOpen ? "block" : "none", sm: "block" } }}>
+          <Box
+            sx={{
+              display: { xs: mobileMapOpen ? "block" : "none", sm: "block" },
+              // MiniMap paints nodes with SVG fill attributes, which cannot resolve theme CSS variables, so the
+              // colors are applied through per-type classes instead.
+              "& .od-minimap-variable": { fill: "var(--od-assembly-variable)" },
+              "& .od-minimap-module": { fill: "var(--od-assembly-module)" },
+              "& .od-minimap-provider": { fill: "var(--mui-palette-warning-main)" },
+            }}
+          >
             <MiniMap
               style={{
                 background: "var(--mui-palette-background-paper)",
                 border: "1px solid var(--mui-palette-divider)",
                 borderRadius: 6,
               }}
-              nodeColor={(n) => (n.type === "variable" ? "#04cfd0" : n.type === "provider" ? "#d29922" : "#03deb8")}
+              nodeClassName={(n) => `od-minimap-${n.type === "variable" || n.type === "provider" ? n.type : "module"}`}
             />
           </Box>
         </ReactFlow>

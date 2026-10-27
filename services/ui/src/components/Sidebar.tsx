@@ -42,7 +42,10 @@ import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import { TOGGLE_SIDEBAR_EVENT } from "@/components/MobileSidebarButton";
+import NeedsReviewDrawer from "@/components/NeedsReviewDrawer";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
@@ -184,6 +187,7 @@ export default function Sidebar({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [needsReviewOpen, setNeedsReviewOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   useEffect(() => {
@@ -213,6 +217,13 @@ export default function Sidebar({
     }
   }, []);
 
+  const openNeedsReview = () => {
+    if (isMobile) {
+      setMobileOpen(false);
+    }
+    setNeedsReviewOpen(true);
+  };
+
   const collapseSidebar = () => {
     if (isMobile) {
       setMobileOpen(false);
@@ -239,9 +250,9 @@ export default function Sidebar({
   // the CSS variable's channel so it automatically follows whichever color
   // scheme (and therefore which brand hue leads primary) is active.
   const primaryTintChannel = theme.vars?.palette.primary.mainChannel;
-  const selectedBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.12)` : "rgba(4,207,208,0.12)";
-  const selectedHoverBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.18)` : "rgba(4,207,208,0.18)";
-  const hoverTintBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.1)` : "rgba(4,207,208,0.1)";
+  const selectedBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.12)` : "rgba(3,222,184,0.12)";
+  const selectedHoverBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.18)` : "rgba(3,222,184,0.18)";
+  const hoverTintBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.1)` : "rgba(3,222,184,0.1)";
   const secondaryLightChannel = theme.vars?.palette.secondary.lightChannel;
   const secondaryTintBorder = secondaryLightChannel ? `rgba(${secondaryLightChannel} / 0.3)` : "rgba(3,222,184,0.3)";
 
@@ -269,7 +280,7 @@ export default function Sidebar({
           px: 2,
           py: 1.75,
           minHeight: 57,
-          background: "linear-gradient(135deg, #047df1 0%, #03deb8 100%)",
+          background: BRAND_GRADIENT,
           borderBottom: "none",
         }}
       >
@@ -457,29 +468,48 @@ export default function Sidebar({
             </ListItemButton>
           </ListItem>
           {securityPoliciesEnabled && (
-            <ListItem disablePadding>
-              <ListItemButton
-                component={Link}
-                href="/security-policies"
-                selected={pathname.startsWith("/security-policies")}
-                sx={{
-                  mx: 1,
-                  borderRadius: "6px",
-                  py: 0.5,
-                  "&.Mui-selected": { background: selectedBg, color: "primary.main" },
-                  "&.Mui-selected:hover": { background: selectedHoverBg },
-                }}
-              >
-                <PolicyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
-                <ListItemText
-                  primary="Security Policies"
-                  primaryTypographyProps={{
-                    fontSize: "0.8125rem",
-                    fontWeight: pathname.startsWith("/security-policies") ? 600 : 400,
+            <>
+              <ListItem disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href="/security-policies"
+                  selected={pathname.startsWith("/security-policies")}
+                  sx={{
+                    mx: 1,
+                    borderRadius: "6px",
+                    py: 0.5,
+                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                    "&.Mui-selected:hover": { background: selectedHoverBg },
                   }}
-                />
-              </ListItemButton>
-            </ListItem>
+                >
+                  <PolicyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary="Security Policies"
+                    primaryTypographyProps={{
+                      fontSize: "0.8125rem",
+                      fontWeight: pathname.startsWith("/security-policies") ? 600 : 400,
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={openNeedsReview}
+                  sx={{
+                    mx: 1,
+                    ml: 3,
+                    borderRadius: "6px",
+                    py: 0.5,
+                  }}
+                >
+                  <RateReviewOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary="Needs review"
+                    primaryTypographyProps={{ fontSize: "0.8125rem" }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            </>
           )}
           <Divider sx={{ mx: 2, my: 1 }} />
           <ListItem disablePadding>
@@ -879,6 +909,22 @@ export default function Sidebar({
           </IconButton>
         </Tooltip>
       )}
+      {securityPoliciesEnabled && (
+        <Tooltip title="Needs review" placement="right">
+          <IconButton
+            onClick={openNeedsReview}
+            aria-label="Needs review"
+            sx={{
+              color: needsReviewOpen ? "primary.main" : "text.secondary",
+              borderRadius: "6px",
+              bgcolor: needsReviewOpen ? selectedBg : "transparent",
+              "&:hover": { bgcolor: hoverTintBg },
+            }}
+          >
+            <RateReviewOutlinedIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Divider sx={{ width: "80%", my: 0.5 }} />
       <Tooltip title="Download CLI" placement="right">
         <IconButton
@@ -951,6 +997,7 @@ export default function Sidebar({
 
   return (
     <>
+      <NeedsReviewDrawer open={needsReviewOpen} onClose={() => setNeedsReviewOpen(false)} />
       {/* Temporary drawer for mobile */}
       <Drawer
         variant="temporary"

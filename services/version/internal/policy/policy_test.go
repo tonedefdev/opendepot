@@ -17,12 +17,19 @@ limitations under the License.
 package policy
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+)
+
+const (
+	digestA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	digestB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	digestC = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
 func providerVersion(name string, version string) *opendepotv1alpha1.Version {
@@ -598,5 +605,121 @@ func TestCountExemptions(t *testing.T) {
 	active, expired := CountExemptions(&policy, now)
 	if active != 2 || expired != 1 {
 		t.Errorf("CountExemptions = (%d, %d), want (2, 1)", active, expired)
+	}
+}
+
+func TestResolveJevExemptionsDropExpiredAndTrackNextExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-expiring", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "expired", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+		{ContentDigest: digestB, Reason: "later", Expires: &metav1.Time{Time: now.Add(48 * time.Hour)}},
+		{ContentDigest: digestC, Reason: "no expiry"},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if len(resolved.JevExemptions) != 2 {
+		t.Fatalf("expected 2 unexpired Jev exemptions, got %d", len(resolved.JevExemptions))
+	}
+
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(48*time.Hour)) {
+		t.Errorf("expected the Jev expiry as NextExpiry, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestResolveNoExpiryJevExemptionDoesNotSetNextExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-forever", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "no expiry"},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if len(resolved.JevExemptions) != 1 {
+		t.Fatalf("expected the no-expiry Jev exemption to be kept, got %d", len(resolved.JevExemptions))
+	}
+
+	if resolved.NextExpiry != nil {
+		t.Errorf("expected no NextExpiry for a no-expiry entry, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestResolveNextExpiryTakesEarliestAcrossLists(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("both-lists", 0)
+	policy.Spec.Exemptions = []opendepotv1alpha1.ScanExemption{
+		{VulnerabilityIDs: []string{"CVE-LATER"}, Reason: "later", Expires: &metav1.Time{Time: now.Add(10 * time.Hour)}},
+	}
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "sooner", Expires: &metav1.Time{Time: now.Add(2 * time.Hour)}},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(2*time.Hour)) {
+		t.Errorf("expected the earliest expiry across both lists, got %v", resolved.NextExpiry)
+	}
+
+	policy.Spec.JevExemptions[0].Expires = &metav1.Time{Time: now.Add(20 * time.Hour)}
+	resolved = Resolve(&policy, true, false, now)
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(10*time.Hour)) {
+		t.Errorf("expected the scanner exemption expiry when it is earliest, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestJevExemptionForMatchesExactDigest(t *testing.T) {
+	resolved := Resolved{
+		PolicyName: "jev-allow",
+		JevExemptions: []opendepotv1alpha1.JevExemption{
+			{ContentDigest: digestA, Reason: "reviewed"},
+		},
+	}
+
+	if got := resolved.JevExemptionFor(digestA); got == nil || got.Reason != "reviewed" {
+		t.Errorf("expected the exemption for the exact digest, got %v", got)
+	}
+
+	if got := resolved.JevExemptionFor(digestB); got != nil {
+		t.Errorf("expected no exemption for a different digest, got %+v", got)
+	}
+
+	if got := resolved.JevExemptionFor(strings.ToUpper(digestA)); got != nil {
+		t.Errorf("expected mixed case digest not to match, got %+v", got)
+	}
+
+	if got := resolved.JevExemptionFor(""); got != nil {
+		t.Errorf("expected empty digest not to match, got %+v", got)
+	}
+}
+
+func TestJevExemptionForRespectsPriorityShadowing(t *testing.T) {
+	high := policyNamed("high", 10)
+	low := policyNamed("low", 1)
+	low.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "only the lower policy holds this"},
+	}
+
+	winner, _ := Select([]opendepotv1alpha1.ScanPolicy{low, high}, providerVersion("demo", "1.0.0"))
+	if winner == nil || winner.Name != "high" {
+		t.Fatalf("expected the high priority policy to win, got %v", winner)
+	}
+
+	resolved := Resolve(winner, true, false, time.Now())
+	if got := resolved.JevExemptionFor(digestA); got != nil {
+		t.Errorf("expected the shadowed policy's Jev exemption not to apply, got %+v", got)
+	}
+}
+
+func TestCountJevExemptions(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-counted", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "no expiry"},
+		{ContentDigest: digestB, Reason: "future", Expires: &metav1.Time{Time: now.Add(time.Hour)}},
+		{ContentDigest: digestC, Reason: "past", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+	}
+
+	active, expired := CountJevExemptions(&policy, now)
+	if active != 2 || expired != 1 {
+		t.Errorf("CountJevExemptions = (%d, %d), want (2, 1)", active, expired)
 	}
 }

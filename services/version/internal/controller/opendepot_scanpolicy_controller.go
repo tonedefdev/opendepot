@@ -124,10 +124,13 @@ func (r *ScanPolicyReconciler) observe(
 	now time.Time,
 ) opendepotv1alpha1.ScanPolicyStatus {
 	active, expired := policy.CountExemptions(scanPolicy, now)
+	activeJev, expiredJev := policy.CountJevExemptions(scanPolicy, now)
 	status := opendepotv1alpha1.ScanPolicyStatus{
-		ActiveExemptions:  active,
-		ExpiredExemptions: expired,
-		Conditions:        scanPolicy.Status.Conditions,
+		ActiveExemptions:     active,
+		ExpiredExemptions:    expired,
+		ActiveJevExemptions:  activeJev,
+		ExpiredJevExemptions: expiredJev,
+		Conditions:           scanPolicy.Status.Conditions,
 	}
 
 	var wins int
@@ -193,15 +196,23 @@ func (r *ScanPolicyReconciler) observe(
 // reported exemption counts age out on their own. A zero result disables the requeue.
 func (r *ScanPolicyReconciler) nextExpiry(scanPolicy *opendepotv1alpha1.ScanPolicy, now time.Time) time.Duration {
 	var earliest *time.Time
-	for _, exemption := range scanPolicy.Spec.Exemptions {
-		if exemption.Expires == nil || !exemption.Expires.Time.After(now) {
-			continue
+	consider := func(expires *metav1.Time) {
+		if expires == nil || !expires.Time.After(now) {
+			return
 		}
 
-		if earliest == nil || exemption.Expires.Time.Before(*earliest) {
-			expiry := exemption.Expires.Time
+		if earliest == nil || expires.Time.Before(*earliest) {
+			expiry := expires.Time
 			earliest = &expiry
 		}
+	}
+
+	for _, exemption := range scanPolicy.Spec.Exemptions {
+		consider(exemption.Expires)
+	}
+
+	for _, exemption := range scanPolicy.Spec.JevExemptions {
+		consider(exemption.Expires)
 	}
 
 	if earliest == nil {

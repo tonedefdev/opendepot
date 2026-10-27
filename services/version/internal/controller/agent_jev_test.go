@@ -33,6 +33,7 @@ import (
 	"time"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -993,6 +994,66 @@ func TestRunAgentJevPartFailureDoesNotStopOthers(t *testing.T) {
 	}
 }
 
+// jevCriticalPartResponse is a scored Jev answer at the top of the risk legend, so its part is rated Critical.
+var jevCriticalPartResponse = strings.NewReplacer(
+	`"score": 0.75`, `"score": 4`,
+	`"probabilities": {"0": 0.6, "1": 0.25, "2": 0.1, "3": 0.04, "4": 0.01}`, `"probabilities": {"0": 0, "1": 0, "2": 0, "3": 0, "4": 1}`,
+).Replace(jevOKResponse)
+
+// TestRunAgentJevCriticalSetsNeedsReviewWithFailure covers D3: a Critical part sets needsReview even when another part fails.
+func TestRunAgentJevCriticalSetsNeedsReviewWithFailure(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, func(state string) (int, string) {
+		if strings.Contains(state, "MARK-1") {
+			return http.StatusServiceUnavailable, "unavailable"
+		}
+
+		return http.StatusOK, jevCriticalPartResponse
+	})
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevMarkedContent(t, 2, map[int]string{1: "MARK-1"}))
+	if err == nil || !assessment.Blocked {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked result with a service error", assessment, err)
+	}
+
+	if assessment.RiskLevel != "Critical" {
+		t.Fatalf("RiskLevel = %q, want Critical", assessment.RiskLevel)
+	}
+
+	if !assessment.NeedsReview {
+		t.Fatalf("NeedsReview = false, want true for a Critical part alongside a part failure")
+	}
+}
+
+// TestRunAgentJevCriticalSetsNeedsReviewWithTokenLimit covers D3: a Critical part sets needsReview when another part hits the token limit.
+func TestRunAgentJevCriticalSetsNeedsReviewWithTokenLimit(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, func(state string) (int, string) {
+		if strings.Contains(state, "MARK-2") {
+			return http.StatusBadRequest, "max_tokens_exceeded"
+		}
+
+		return http.StatusOK, jevCriticalPartResponse
+	})
+	reconciler := newJevTestReconciler(t, endpoint)
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), jevMarkedContent(t, 2, map[int]string{2: "MARK-2"}))
+	if err != nil || !assessment.Blocked {
+		t.Fatalf("assessment = %+v, err = %v; want a blocked content result", assessment, err)
+	}
+
+	if jevChunkStatus(assessment, "2bb") != jevPartTokenLimitExceeded {
+		t.Fatalf("part 2bb status = %q, want TokenLimitExceeded", jevChunkStatus(assessment, "2bb"))
+	}
+
+	if assessment.RiskLevel != "Critical" {
+		t.Fatalf("RiskLevel = %q, want Critical", assessment.RiskLevel)
+	}
+
+	if !assessment.NeedsReview {
+		t.Fatalf("NeedsReview = false, want true for a Critical part alongside a token-limit outcome")
+	}
+}
+
 // TestRunAgentJevDeadlineLeavesPartsUnsent covers Concurrency: an expired deadline leaves parts NotSent or Failed,
 // and every semaphore slot is released.
 func TestRunAgentJevDeadlineLeavesPartsUnsent(t *testing.T) {
@@ -1163,5 +1224,222 @@ func TestJevChunksIndexesAreOneBasedWithinCRDBounds(t *testing.T) {
 				t.Fatalf("%s: chunks[%d].Label = %q, want %q", name, i, c.Label, labels[i])
 			}
 		}
+	}
+}
+
+// jevExemptTestDigest and jevExemptTestOther are 64-character lowercase hex digests used by the exemption tests.
+var (
+	jevExemptTestDigest = strings.Repeat("a", 64)
+	jevExemptTestOther  = strings.Repeat("b", 64)
+)
+
+func jevExemptTestResolved(digest string, expires *metav1.Time) policy.Resolved {
+	return policy.Resolved{
+		PolicyName: "release-exemptions",
+		JevExemptions: []opendepotv1alpha1.JevExemption{{
+			ContentDigest: digest,
+			Reason:        "reviewed by security",
+			Expires:       expires,
+		}},
+	}
+}
+
+func TestApplyJevExemption(t *testing.T) {
+	future := metav1.NewTime(time.Now().Add(24 * time.Hour))
+	critical := func() *opendepotv1alpha1.JevAssessment {
+		return &opendepotv1alpha1.JevAssessment{
+			ContentDigest: jevExemptTestDigest,
+			Blocked:       true,
+			BlockReasons:  []string{"Critical risk level"},
+			NeedsReview:   true,
+		}
+	}
+
+	t.Run("critical only is unblocked and keeps needsReview", func(t *testing.T) {
+		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		if got.Blocked || !got.Exempted || !got.NeedsReview {
+			t.Fatalf("Blocked=%v Exempted=%v NeedsReview=%v, want false true true", got.Blocked, got.Exempted, got.NeedsReview)
+		}
+
+		if got.ExemptedBy != "release-exemptions" || got.ExemptionReason != "reviewed by security" || got.ExemptionExpires != nil {
+			t.Fatalf("exemption fields = %q %q %v", got.ExemptedBy, got.ExemptionReason, got.ExemptionExpires)
+		}
+
+		if len(got.BlockReasons) != 1 {
+			t.Fatalf("BlockReasons = %v, want the reason kept", got.BlockReasons)
+		}
+	})
+
+	t.Run("threshold reasons stay listed and are cleared", func(t *testing.T) {
+		assessment := &opendepotv1alpha1.JevAssessment{
+			ContentDigest: jevExemptTestDigest,
+			Blocked:       true,
+			BlockReasons:  []string{"Critical risk level", "destructive probability above limit", "risk score above limit"},
+		}
+
+		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		if got.Blocked || !got.Exempted || len(got.BlockReasons) != 3 {
+			t.Fatalf("Blocked=%v Exempted=%v BlockReasons=%v", got.Blocked, got.Exempted, got.BlockReasons)
+		}
+	})
+
+	t.Run("high threshold only is unblocked", func(t *testing.T) {
+		assessment := &opendepotv1alpha1.JevAssessment{
+			ContentDigest: jevExemptTestDigest,
+			Blocked:       true,
+			BlockReasons:  []string{"destructive probability above limit"},
+		}
+
+		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		if got.Blocked || !got.Exempted {
+			t.Fatalf("Blocked=%v Exempted=%v, want false true", got.Blocked, got.Exempted)
+		}
+	})
+
+	t.Run("coverage reasons are cleared", func(t *testing.T) {
+		coverage := map[string]*opendepotv1alpha1.JevAssessment{
+			"token limit":       {ContentDigest: jevExemptTestDigest, Blocked: true, BlockReasons: []string{"part 1: exceeds the token limit"}},
+			"part failure":      {ContentDigest: jevExemptTestDigest, Blocked: true, Error: "Jev could not check part 1: boom", BlockReasons: []string{"Jev could not check part 1: boom"}},
+			"skipped files":     {ContentDigest: jevExemptTestDigest, Blocked: true, SkippedFileCount: 2, BlockReasons: []string{"2 bundled file(s) were withheld"}},
+			"layout over":       {ContentDigest: jevExemptTestDigest, Blocked: true, BlockReasons: []string{"needs 17 parts"}},
+			"incomplete chunks": {ContentDigest: jevExemptTestDigest, Blocked: true, ChunkCount: 3, AssessedChunks: 2, BlockReasons: []string{"Jev could not check part 3"}},
+			"jev disabled":      {ContentDigest: jevExemptTestDigest, Blocked: true, BlockReasons: []string{jevDisabledError}},
+		}
+
+		for name, assessment := range coverage {
+			got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+			if got.Blocked || !got.Exempted {
+				t.Fatalf("%s: Blocked=%v Exempted=%v, want false true", name, got.Blocked, got.Exempted)
+			}
+		}
+	})
+
+	t.Run("digest checks fail closed", func(t *testing.T) {
+		tests := map[string]struct {
+			assessment *opendepotv1alpha1.JevAssessment
+			resolved   policy.Resolved
+			digest     string
+		}{
+			"policy digest does not match":    {critical(), jevExemptTestResolved(jevExemptTestOther, nil), jevExemptTestDigest},
+			"archive digest changed":          {critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestOther},
+			"legacy assessment has no digest": {&opendepotv1alpha1.JevAssessment{Blocked: true, BlockReasons: []string{"Critical risk level"}}, jevExemptTestResolved("", nil), ""},
+		}
+
+		for name, test := range tests {
+			got := applyJevExemption(test.assessment, test.resolved, test.digest)
+			if !got.Blocked || got.Exempted {
+				t.Fatalf("%s: Blocked=%v Exempted=%v, want true false", name, got.Blocked, got.Exempted)
+			}
+		}
+	})
+
+	t.Run("expiry is copied and no expiry stays nil", func(t *testing.T) {
+		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
+		if got.ExemptionExpires == nil || !got.ExemptionExpires.Equal(&future) {
+			t.Fatalf("ExemptionExpires = %v, want %v", got.ExemptionExpires, future)
+		}
+
+		noExpiry := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		if noExpiry.ExemptionExpires != nil {
+			t.Fatalf("ExemptionExpires = %v, want nil", noExpiry.ExemptionExpires)
+		}
+	})
+
+	t.Run("removed exemption re-blocks and clears the fields", func(t *testing.T) {
+		exempted := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
+		got := applyJevExemption(exempted, policy.Resolved{}, jevExemptTestDigest)
+		if !got.Blocked || got.Exempted || got.ExemptedBy != "" || got.ExemptionReason != "" || got.ExemptionExpires != nil {
+			t.Fatalf("re-blocked assessment = %+v", got)
+		}
+	})
+
+	t.Run("does not change the input", func(t *testing.T) {
+		assessment := critical()
+		exempted := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
+		if exempted == assessment || !assessment.Blocked || assessment.Exempted || assessment.ExemptionExpires != nil {
+			t.Fatalf("input changed: %+v", assessment)
+		}
+	})
+}
+
+func TestRunAgentJevStampsFreshDigest(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.checksum = jevExemptTestDigest
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), content)
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if assessment.ContentDigest != jevExemptTestDigest {
+		t.Fatalf("ContentDigest = %q, want %q", assessment.ContentDigest, jevExemptTestDigest)
+	}
+}
+
+func TestRunAgentJevStampsDisabledAssessment(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	reconciler.JevEnabled = false
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.checksum = jevExemptTestDigest
+
+	assessment, _ := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, nil), content)
+	if assessment == nil || assessment.ContentDigest != jevExemptTestDigest || !assessment.Blocked {
+		t.Fatalf("disabled assessment = %+v, want a stamped blocked assessment", assessment)
+	}
+}
+
+func TestRunAgentJevCachedAssessmentKeepsStoredDigest(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	cached := &opendepotv1alpha1.JevAssessment{
+		ContentDigest: jevExemptTestOther,
+		Blocked:       true,
+		BlockReasons:  []string{"Critical risk level"},
+	}
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.checksum = jevExemptTestDigest
+
+	assessment, err := reconciler.runAgentJev(context.Background(), newJevTestVersion(nil, cached), content)
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if assessment != cached || assessment.ContentDigest != jevExemptTestOther {
+		t.Fatalf("cached assessment digest = %q, want the stored %q", assessment.ContentDigest, jevExemptTestOther)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestJevPublishedStatusExempted(t *testing.T) {
+	expires := metav1.NewTime(time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC))
+	withExpiry := &opendepotv1alpha1.JevAssessment{
+		Exempted:         true,
+		ExemptedBy:       "release-exemptions",
+		ContentDigest:    jevExemptTestDigest,
+		BlockReasons:     []string{"Critical risk level", "risk score above limit"},
+		ExemptionExpires: &expires,
+	}
+
+	want := "Successfully synced version; Jev block exempted by ScanPolicy release-exemptions: 2 reason(s) cleared for digest aaaaaaaaaaaa; expires 2030-01-02T03:04:05Z"
+	if got := jevPublishedStatus(withExpiry, false); got != want {
+		t.Fatalf("status with expiry = %q, want %q", got, want)
+	}
+
+	noExpiry := &opendepotv1alpha1.JevAssessment{
+		Exempted:      true,
+		ExemptedBy:    "release-exemptions",
+		ContentDigest: jevExemptTestDigest,
+		BlockReasons:  []string{"Critical risk level"},
+	}
+
+	got := jevPublishedStatus(noExpiry, true)
+	if !strings.HasPrefix(got, "Successfully synced and assigned version; Jev block exempted by ScanPolicy release-exemptions: 1 reason(s) cleared") || !strings.HasSuffix(got, "expires never") {
+		t.Fatalf("assigned status without expiry = %q", got)
 	}
 }

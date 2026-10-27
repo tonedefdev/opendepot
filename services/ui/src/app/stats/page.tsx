@@ -30,7 +30,8 @@ import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import { severityChipSx } from "@/components/severityStyles";
-import { kindChipColor } from "@/lib/kindColors";
+import { NEUTRAL_COLOR, graphKindColor } from "@/lib/kindColors";
+import { metaChipSurfaceSx } from "@/components/chipStyles";
 
 // Format bytes into human-readable string.
 function formatBytes(bytes: number): string {
@@ -126,7 +127,7 @@ export default async function StatsPage() {
                 value={stats.totalModules}
                 sub={`${stats.modulesSynced} synced`}
                 icon={<DepotKindIcon kind="module" fontSize="small" />}
-                accentColor={kindChipColor("module")}
+                accentColor={graphKindColor("module")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -135,7 +136,7 @@ export default async function StatsPage() {
                 value={stats.totalProviders}
                 sub={`${stats.providersSynced} synced`}
                 icon={<DepotKindIcon kind="provider" fontSize="small" />}
-                accentColor={kindChipColor("provider")}
+                accentColor={graphKindColor("provider")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -144,7 +145,7 @@ export default async function StatsPage() {
                 value={stats.totalSkills}
                 sub={`${stats.skillsSynced} synced`}
                 icon={<DepotKindIcon kind="skill" fontSize="small" />}
-                accentColor={kindChipColor("skill")}
+                accentColor={graphKindColor("skill")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -153,7 +154,7 @@ export default async function StatsPage() {
                 value={stats.totalAgents}
                 sub={`${stats.agentsSynced} synced`}
                 icon={<DepotKindIcon kind="agent" fontSize="small" />}
-                accentColor={kindChipColor("agent")}
+                accentColor={graphKindColor("agent")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -162,7 +163,7 @@ export default async function StatsPage() {
                 value={stats.totalVersions}
                 sub={`${stats.versionsSynced} synced`}
                 icon={<DepotKindIcon kind="version" fontSize="small" />}
-                accentColor="#f778ba"
+                accentColor={graphKindColor("version")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -170,7 +171,6 @@ export default async function StatsPage() {
                 label="Depots"
                 value={totalDepots}
                 icon={<DepotKindIcon kind="depot" fontSize="small" />}
-                accentColor={kindChipColor("depot")}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -178,7 +178,7 @@ export default async function StatsPage() {
                 label="Storage Used"
                 value={formatBytes(stats.totalStorageBytes)}
                 icon={<StorageIcon fontSize="small" />}
-                accentColor="#e3b341"
+                accentColor={NEUTRAL_COLOR}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
@@ -186,7 +186,7 @@ export default async function StatsPage() {
                 label={`Downloads (${stats.downloadWindow})`}
                 value={stats.totalDownloads.toLocaleString()}
                 icon={<DownloadIcon fontSize="small" />}
-                accentColor="#05b6de"
+                accentColor={NEUTRAL_COLOR}
               />
             </Grid>
           </Grid>
@@ -222,7 +222,12 @@ export default async function StatsPage() {
                         <LinearProgress
                           variant="determinate"
                           value={syncTotal > 0 ? (count / syncTotal) * 100 : 0}
-                          sx={{ height: 8, borderRadius: 4, "& .MuiLinearProgress-bar": { bgcolor: colour } }}
+                          sx={{
+                            height: 8,
+                            borderRadius: 4,
+                            bgcolor: "action.selected",
+                            "& .MuiLinearProgress-bar": { bgcolor: colour, borderRadius: 4 },
+                          }}
                         />
                       </Box>
                     ))}
@@ -293,15 +298,15 @@ export default async function StatsPage() {
                         <Box
                           key={s.backend}
                           sx={{
+                            ...metaChipSurfaceSx,
+                            height: "auto",
                             display: "flex",
                             alignItems: "center",
                             gap: 1,
                             px: 1.5,
                             py: 0.75,
                             borderRadius: 2,
-                            border: "1px solid",
-                            borderColor: `${color}40`,
-                            bgcolor: `${color}0d`,
+                            color: "text.primary",
                           }}
                         >
                           <Box sx={{ color, display: "flex", alignItems: "center", fontSize: "1.25rem" }}>
@@ -316,8 +321,8 @@ export default async function StatsPage() {
                               px: 0.75,
                               py: 0.1,
                               borderRadius: 1,
-                              bgcolor: `${color}20`,
-                              color,
+                              bgcolor: "action.selected",
+                              color: "text.secondary",
                               fontSize: "0.75rem",
                               fontWeight: 700,
                               lineHeight: 1.5,

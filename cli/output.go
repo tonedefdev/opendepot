@@ -89,8 +89,10 @@ func (a *app) printAssessment(s *stagedEntry) {
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Review", reviewLine(st, as.NeedsReview))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Blocked", blockedLine(st, as))
 	fmt.Fprintf(a.out, "  %-12s %s\n", "Tokens", tokensLine(st, as.InputTokens))
-	if as.Error != "" {
-		fmt.Fprintf(a.out, "  %-12s %s\n", "Error", st.paint(ansiRed, as.Error))
+	if as.Error == "" {
+		writeBlockedRows(a.out, st, "Error", "none reported", ansiDim)
+	} else {
+		writeBlockedRows(a.out, st, "Error", as.Error, ansiRed)
 	}
 	fmt.Fprintln(a.out, st.paint(ansiYellow, "  ⚠ Skill or agent content was sent to TypeSafe for this assessment."))
 }

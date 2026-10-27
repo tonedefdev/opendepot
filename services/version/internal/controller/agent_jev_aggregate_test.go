@@ -308,3 +308,111 @@ func TestJevCompositeCriticalBlocksGate(t *testing.T) {
 		t.Fatalf("want a Critical block from the composite, got %v", reasons)
 	}
 }
+
+func TestJevPartsGateCriticalSetsNeedsReview(t *testing.T) {
+	critical := []jevPartResult{jevAggTestPart("1", "Critical", 0.9, 0.9, 0.9)}
+	tests := []struct {
+		name   string
+		policy *opendepotv1alpha1.JevPolicy
+	}{
+		{name: "nil policy", policy: nil},
+		{name: "policy without minConfidence", policy: &opendepotv1alpha1.JevPolicy{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reasons, review := evaluateJevPartsGate(tt.policy, critical)
+			if len(reasons) != 1 || !review {
+				t.Fatalf("Critical must block and set needsReview, got %v review=%v", reasons, review)
+			}
+		})
+	}
+}
+
+func TestJevPartsGateNonCriticalWithoutConfidenceBreachDoesNotSetNeedsReview(t *testing.T) {
+	high := []jevPartResult{jevAggTestPart("1", "High", 0.9, 0.9, 0.9)}
+	for _, policy := range []*opendepotv1alpha1.JevPolicy{nil, {}} {
+		reasons, review := evaluateJevPartsGate(policy, high)
+		if len(reasons) != 0 || review {
+			t.Fatalf("High without a minConfidence breach must not block or set needsReview, got %v review=%v", reasons, review)
+		}
+	}
+}
+
+func TestJevPartsGateReasonTextPinned(t *testing.T) {
+	half := 0.5
+	tests := []struct {
+		name   string
+		policy opendepotv1alpha1.JevPolicy
+		set    func(*jev.Result)
+		want   string
+	}{
+		{
+			name:   "minSafeProbability",
+			policy: opendepotv1alpha1.JevPolicy{MinSafeProbability: &half},
+			set:    func(r *jev.Result) { r.SafeProbability = 0.2 },
+			want:   "safety score 0.20 in part 1 is below the policy minimum of 0.50",
+		},
+		{
+			name:   "maxInjectionProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxInjectionProbability: &half},
+			set:    func(r *jev.Result) { r.PromptInjectionProbability = 0.9 },
+			want:   "prompt injection risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxExfiltrationProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxExfiltrationProbability: &half},
+			set:    func(r *jev.Result) { r.DataExfiltrationProbability = 0.9 },
+			want:   "data exfiltration risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxDestructiveProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxDestructiveProbability: &half},
+			set:    func(r *jev.Result) { r.DestructiveActionsProbability = 0.9 },
+			want:   "destructive actions risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxHiddenInstructionsProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxHiddenInstructionsProbability: &half},
+			set:    func(r *jev.Result) { r.HiddenInstructionsProbability = 0.9 },
+			want:   "hidden instructions risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxScopeMismatchProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxScopeMismatchProbability: &half},
+			set:    func(r *jev.Result) { r.ScopeMismatchProbability = 0.9 },
+			want:   "scope mismatch risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxRemoteExecutionProbability",
+			policy: opendepotv1alpha1.JevPolicy{MaxRemoteExecutionProbability: &half},
+			set:    func(r *jev.Result) { r.RemoteExecutionProbability = 0.9 },
+			want:   "remote execution risk 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "maxRiskScore",
+			policy: opendepotv1alpha1.JevPolicy{MaxRiskScore: &half},
+			set:    func(r *jev.Result) { r.RiskScore = 0.9 },
+			want:   "overall risk score 0.90 in part 1 is above the policy limit of 0.50",
+		},
+		{
+			name:   "minConfidence",
+			policy: opendepotv1alpha1.JevPolicy{MinConfidence: &half},
+			set:    func(r *jev.Result) { r.RiskConfidence = 0.1 },
+			want:   "Jev's confidence in part 1 is 0.10, below the policy minimum of 0.50",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			part := jevAggTestPart("1", "Low", 0.1, 0.9, 0.9)
+			tt.set(&part.result)
+
+			policy := tt.policy
+			reasons, _ := evaluateJevPartsGate(&policy, []jevPartResult{part})
+			if len(reasons) != 1 || reasons[0] != tt.want {
+				t.Fatalf("want %q, got %v", tt.want, reasons)
+			}
+		})
+	}
+}

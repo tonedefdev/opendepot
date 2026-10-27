@@ -15,6 +15,31 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
+## Unreleased
+
+### New CRDs and RBAC
+
+The `ScanPolicy` CRD gains `spec.jevExemptions` and the `activeJevExemptions` and `expiredJevExemptions` status counts. The `Version` CRD gains the `contentDigest` and exemption fields on `status.jevAssessment`. Helm does not update CRDs during `helm upgrade`, so apply the chart CRDs before you upgrade.
+
+The Version controller also needs a new RBAC rule that lets it create and patch Events in the `events.k8s.io` API group. The chart adds the rule. It records `JevExemptionApplied` and `JevExemptionRevoked` events.
+
+### Critical Jev assessments set needsReview
+
+A Jev assessment with a `Critical` risk level now sets `status.jevAssessment.needsReview` to `true`, in addition to blocking the Version. Before this change, `Critical` blocked the Version without setting the field. A completed assessment from before this change is reused unchanged, so its `needsReview` value does not change until the Version is assessed again. See [Thresholds](guides/agents.md#thresholds).
+
+### Upgrade Steps
+
+1. Apply the updated CRDs from the chart:
+    ```bash
+    kubectl apply -f chart/opendepot/crds/
+    ```
+2. Upgrade the chart:
+    ```bash
+    helm upgrade opendepot chart/opendepot \
+       -n opendepot-system \
+       -f my-values.yaml
+    ```
+
 ## v0.12.0
 
 v0.12.0 updates the chart and application version to `0.12.0`. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.

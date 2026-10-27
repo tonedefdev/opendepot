@@ -3,24 +3,25 @@ import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Skeleton from "@mui/material/Skeleton";
 import Typography from "@mui/material/Typography";
+import { ACCENT_COLOR } from "@/lib/kindColors";
 
 interface StatCardProps {
   label: string;
   value: string | number;
   sub?: string;
   icon: React.ReactNode;
-  accentColor: string;
+  // Tints the icon tile only. Defaults to the brand accent so a grid of cards reads as one set.
+  accentColor?: string;
   loading?: boolean;
 }
 
-export default function StatCard({ label, value, sub, icon, accentColor, loading = false }: StatCardProps) {
+export default function StatCard({ label, value, sub, icon, accentColor = ACCENT_COLOR, loading = false }: StatCardProps) {
   return (
     <Paper
       elevation={3}
       sx={{
         height: "100%",
         overflow: "hidden",
-        borderTop: `4px solid ${accentColor}`,
       }}
     >
       <Box sx={{ p: { xs: 1.5, sm: 2, lg: 2.5 } }}>
@@ -41,7 +42,8 @@ export default function StatCard({ label, value, sub, icon, accentColor, loading
               width: { xs: 32, lg: 36 },
               height: { xs: 32, lg: 36 },
               borderRadius: 1.5,
-              bgcolor: `color-mix(in srgb, ${accentColor} 9%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`,
+              bgcolor: `color-mix(in srgb, ${accentColor} 10%, transparent)`,
               color: accentColor,
               flexShrink: 0,
               "& svg": { fontSize: { xs: "1.1rem", md: "0.95rem", lg: "1.25rem" } },

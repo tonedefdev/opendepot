@@ -8,7 +8,8 @@ import TextField from "@mui/material/TextField";
 import DepotGraph, { agentVersionItems, type AgentVersionMeta } from "@/components/DepotGraph";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import type { BrowseDepotGraph, BrowseStorageConfig } from "@/lib/api";
-import { KIND_CHIP_COLORS, KIND_CHIP_TEXT } from "@/lib/kindColors";
+import { kindChipSx } from "./chipStyles";
+import { graphKindColor } from "@/lib/kindColors";
 
 
 type DepotOption = {
@@ -202,61 +203,23 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 					)}
 				</Box>
 
-				<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", "& .MuiChip-icon": { color: "inherit !important" } }}>
-				<Chip
-					label={`${filteredGraph.summary.totalDepots} depots`}
-					icon={<DepotKindIcon kind="depot" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.depot,
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalModules} modules`}
-					icon={<DepotKindIcon kind="module" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.module,
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalProviders} providers`}
-					icon={<DepotKindIcon kind="provider" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.provider,
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalSkills} skills`}
-					icon={<DepotKindIcon kind="skill" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.skill,
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalAgents} agents`}
-					icon={<DepotKindIcon kind="agent" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.agent,
-					}}
-				/>
-				<Chip
-					label={`${totalVersions} versions`}
-					icon={<DepotKindIcon kind="version" sx={{ fontSize: 16 }} />}
-					size="small"
-					sx={{
-						color: KIND_CHIP_TEXT,
-						bgcolor: KIND_CHIP_COLORS.version,
-					}}
-				/>
+				<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+					{([
+						{ kind: "depot", count: filteredGraph.summary.totalDepots, noun: "depot" },
+						{ kind: "module", count: filteredGraph.summary.totalModules, noun: "module" },
+						{ kind: "provider", count: filteredGraph.summary.totalProviders, noun: "provider" },
+						{ kind: "skill", count: filteredGraph.summary.totalSkills, noun: "skill" },
+						{ kind: "agent", count: filteredGraph.summary.totalAgents, noun: "agent" },
+						{ kind: "version", count: totalVersions, noun: "version" },
+					] as const).map(({ kind, count, noun }) => (
+						<Chip
+							key={kind}
+							label={`${count} ${count === 1 ? noun : `${noun}s`}`}
+							icon={<DepotKindIcon kind={kind} />}
+							size="small"
+							sx={{ ...(kindChipSx(kind, graphKindColor(kind)) as object), textTransform: "none" }}
+						/>
+					))}
 			</Box>
 			</Box>
 

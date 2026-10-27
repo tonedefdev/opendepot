@@ -1,39 +1,42 @@
-export const DEPOT_COLOR = "#04cfd0";
-export const MODULE_COLOR = "#03deb8";
-export const PROVIDER_COLOR = "#047df1";
-export const SKILL_COLOR = "#f0883e";
-export const AGENT_COLOR = "#a371f7";
-export const VERSION_COLOR = "#8b949e";
+// Kind accents resolve to mode-aware CSS variables defined in the theme's CssBaseline, so they work in
+// inline styles and color-mix() as well as sx.
+export const ACCENT_COLOR = "var(--od-accent)";
+export const NEUTRAL_COLOR = "var(--od-kind-version)";
+export const VERSION_COLOR = NEUTRAL_COLOR;
 
-export const KIND_CHIP_TEXT = "#ffffff";
-
-// Darker fills for solid chips so white text meets WCAG 4.5:1 (about 4.6:1 on each).
-export const KIND_CHIP_COLORS: Record<string, string> = {
-  depot: "#038282",
-  module: "#02836d",
-  provider: "#0473dd",
-  skill: "#bc570f",
-  agent: "#8c4df5",
-  version: "#6b7580",
-};
-
-export function kindChipColor(kind: string): string {
-  return KIND_CHIP_COLORS[kind.toLowerCase()] ?? KIND_CHIP_COLORS.module;
-}
+// Everywhere except Stats and Depots, every kind shares the accent and icons tell kinds apart.
+export const DEPOT_COLOR = ACCENT_COLOR;
+export const MODULE_COLOR = ACCENT_COLOR;
+export const PROVIDER_COLOR = ACCENT_COLOR;
+export const SKILL_COLOR = ACCENT_COLOR;
+export const AGENT_COLOR = ACCENT_COLOR;
 
 export function kindColor(kind: string): string {
+  const k = kind.toLowerCase();
+  return k === "version" || k === "versionoverflow" ? VERSION_COLOR : ACCENT_COLOR;
+}
+
+// Stats and Depots show every kind side by side, so they separate Terraform kinds (module, provider) from
+// AI kinds (skill, agent) and depots with the bridge color.
+const IAC_COLOR = "var(--od-kind-iac)";
+const AI_COLOR = "var(--od-kind-ai)";
+
+export function graphKindColor(kind: string): string {
   switch (kind.toLowerCase()) {
-    case "depot":
-      return DEPOT_COLOR;
+    case "module":
     case "provider":
-      return PROVIDER_COLOR;
+      return IAC_COLOR;
     case "skill":
-      return SKILL_COLOR;
     case "agent":
-      return AGENT_COLOR;
-    case "version":
-      return VERSION_COLOR;
+      return AI_COLOR;
+    case "depot":
+      return ACCENT_COLOR;
     default:
-      return MODULE_COLOR;
+      return VERSION_COLOR;
   }
+}
+
+// Low-opacity tint of a graph kind color for node and panel backgrounds.
+export function graphKindTint(kind: string, percent = 8): string {
+  return `color-mix(in srgb, ${graphKindColor(kind)} ${percent}%, transparent)`;
 }

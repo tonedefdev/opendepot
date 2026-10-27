@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -29,6 +31,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/jev"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
@@ -140,19 +143,150 @@ func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
 }
 
 // jevPublishedStatus returns the SyncStatus of a Skill or Agent Version that is published. assigned is true when the
-// Version was assigned a semver from a branch. When Jev recorded an error that no threshold gates, the error stays
-// visible in SyncStatus and the message says why the Version was published.
+// Version was assigned a semver from a branch. An exempted assessment names the policy, the digest and the expiry.
+// When Jev recorded an error that no threshold gates, the error stays visible in SyncStatus and the message says why
+// the Version was published.
 func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment, assigned bool) string {
 	status := "Successfully synced version"
 	if assigned {
 		status = "Successfully synced and assigned version"
 	}
 
-	if jevAssessment == nil || jevAssessment.Error == "" {
+	if jevAssessment == nil {
 		return status
 	}
 
+	if jevAssessment.Exempted {
+		status = fmt.Sprintf("%s; Jev block exempted by ScanPolicy %s: %d reason(s) cleared for digest %s; expires %s",
+			status, jevAssessment.ExemptedBy, len(jevAssessment.BlockReasons), jevAssessment.ContentDigest[:12], jevExpiresText(jevAssessment))
+	}
+
+	if jevAssessment.Error == "" {
+		return status
+	}
+
+	if jevAssessment.Exempted {
+		return fmt.Sprintf("%s; Jev assessment did not complete: %s", status, jevAssessment.Error)
+	}
+
 	return fmt.Sprintf("%s; Jev assessment did not complete: %s. Version was published because no Jev thresholds are set", status, jevAssessment.Error)
+}
+
+// jevExemptible reports whether every block reason on the assessment can be cleared by a Jev exemption. Every Jev
+// block reason is exemptible, so the check needs only a reason and a recorded digest. A legacy assessment with no
+// digest cannot be exempted until it has had one forceSync.
+func jevExemptible(assessment *opendepotv1alpha1.JevAssessment) bool {
+	return assessment != nil && len(assessment.BlockReasons) >= 1 && assessment.ContentDigest != ""
+}
+
+// applyJevExemption returns a copy of the assessment with the Jev exemption for digest applied. It never changes the
+// input, because the cached assessment points into the Version status. When the digest matches an exemption in the
+// resolved policy, Blocked is cleared and the reasons stay listed. Otherwise the exemption fields are cleared and the
+// assessment blocks again.
+func applyJevExemption(assessment *opendepotv1alpha1.JevAssessment, resolved policy.Resolved, digest string) *opendepotv1alpha1.JevAssessment {
+	if assessment == nil {
+		return nil
+	}
+
+	out := assessment.DeepCopy()
+	out.Exempted = false
+	out.ExemptedBy = ""
+	out.ExemptionReason = ""
+	out.ExemptionExpires = nil
+
+	if !jevExemptible(out) {
+		return out
+	}
+
+	out.Blocked = true
+	if out.ContentDigest != digest {
+		return out
+	}
+
+	entry := resolved.JevExemptionFor(digest)
+	if entry == nil {
+		return out
+	}
+
+	out.Blocked = false
+	out.Exempted = true
+	out.ExemptedBy = resolved.PolicyName
+	out.ExemptionReason = entry.Reason
+	if entry.Expires != nil {
+		expires := *entry.Expires
+		out.ExemptionExpires = &expires
+	}
+
+	return out
+}
+
+// jevExemptionChange reports whether an exemption was applied or revoked between two assessments of the same Version.
+type jevExemptionChange struct {
+	Applied    bool
+	Revoked    bool
+	ExemptedBy string
+}
+
+// jevExemptionTransition compares the Exempted state before and after an overlay so callers can emit events on
+// transitions only.
+func jevExemptionTransition(before, after *opendepotv1alpha1.JevAssessment) jevExemptionChange {
+	change := jevExemptionChange{}
+	if after == nil {
+		return change
+	}
+
+	wasExempted := before != nil && before.Exempted
+	change.Applied = !wasExempted && after.Exempted
+	change.Revoked = wasExempted && !after.Exempted
+	change.ExemptedBy = after.ExemptedBy
+	if change.Revoked {
+		change.ExemptedBy = before.ExemptedBy
+	}
+
+	return change
+}
+
+// recordJevExemptionChange emits a Kubernetes Event for an exemption applied or revoked on a Version. Events are
+// best effort and never include the Jev token or skill content.
+func (r *VersionReconciler) recordJevExemptionChange(version *opendepotv1alpha1.Version, change jevExemptionChange, assessment *opendepotv1alpha1.JevAssessment) {
+	if r.Recorder == nil || version == nil || assessment == nil {
+		return
+	}
+
+	if change.Applied {
+		r.Recorder.Eventf(version, nil, corev1.EventTypeNormal, "JevExemptionApplied", "Reconcile",
+			"Jev block exempted by ScanPolicy %s for digest %s, %d block reasons, expires %s",
+			change.ExemptedBy, assessment.ContentDigest, len(assessment.BlockReasons), jevExpiresText(assessment))
+	}
+
+	if change.Revoked {
+		r.Recorder.Eventf(version, nil, corev1.EventTypeWarning, "JevExemptionRevoked", "Reconcile",
+			"Jev exemption by ScanPolicy %s no longer applies, the Version is blocked again", change.ExemptedBy)
+	}
+}
+
+// storedContentDigest returns the hex SHA-256 of the archive recorded in status.checksum, which is stored as base64.
+// It returns an empty string when the checksum is missing or malformed, so the overlay fails closed.
+func storedContentDigest(checksum *string) string {
+	if checksum == nil {
+		return ""
+	}
+
+	sum, err := base64.StdEncoding.DecodeString(*checksum)
+	if err != nil {
+		return ""
+	}
+
+	return hex.EncodeToString(sum)
+}
+
+// jevExpiresText formats a Jev exemption expiry for logs and status messages.
+func jevExpiresText(assessment *opendepotv1alpha1.JevAssessment) string {
+	if assessment.ExemptionExpires == nil {
+		return "never"
+	}
+
+	return assessment.ExemptionExpires.UTC().Format(time.RFC3339)
 }
 
 // readJevToken reads the Jev token from the Secret referenced by the source. The token is never logged
@@ -435,8 +569,25 @@ func jevNotSentOutcomes(parts []jevChunkPart, errText string) []jevPartOutcome {
 // is not spent, so a failing Jev is retried a bounded number of times.
 //
 // It returns nil when Jev does not apply. An error is returned when the assessment is incomplete and the Version
-// must stay unsynced. A policy block is recorded on the assessment and returns no error.
+// must stay unsynced. A policy block is recorded on the assessment and returns no error. A fresh assessment is
+// stamped with the archive digest, so a ScanPolicy jevExemption can be bound to it.
 func (r *VersionReconciler) runAgentJev(
+	ctx context.Context,
+	version *opendepotv1alpha1.Version,
+	content *agentContent,
+) (*opendepotv1alpha1.JevAssessment, error) {
+	cached := version.Status.JevAssessment
+	assessment, err := r.runAgentJevAssessment(ctx, version, content)
+	if assessment != nil && assessment != cached {
+		assessment.ContentDigest = content.checksum
+	}
+
+	return assessment, err
+}
+
+// runAgentJevAssessment performs the Jev check described on runAgentJev. It returns the cached assessment as the same
+// pointer when it reuses it, so the caller can tell a fresh assessment from a reused one.
+func (r *VersionReconciler) runAgentJevAssessment(
 	ctx context.Context,
 	version *opendepotv1alpha1.Version,
 	content *agentContent,
@@ -640,6 +791,7 @@ func (r *VersionReconciler) runAgentJev(
 	}
 
 	assessment := jevNewAssessment(retries, len(layout.parts))
+	assessment.NeedsReview = needsReview
 	assessment.Chunks = jevChunks(planned)
 	assessment.AssessedChunks = int32(plannedScored)
 	assessment.InputTokens = jevInputTokens(outcomes)
@@ -702,7 +854,6 @@ func (r *VersionReconciler) runAgentJev(
 		return assessment, nil
 	}
 
-	assessment.NeedsReview = needsReview
 	if len(gateReasons) > 0 {
 		assessment.Blocked = true
 		assessment.BlockReasons = gateReasons
