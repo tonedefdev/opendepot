@@ -194,6 +194,36 @@ If the controller cannot list `ScanPolicy` resources (e.g. a transient API serve
 
 There is intentionally no global flag to disable `ScanPolicy` enforcement. Controlling who may create or edit `scanpolicies` in a namespace **is** the control over who may waive scan enforcement. The chart grants the version controller `get`, `list`, `watch` on `scanpolicies` and `get`, `patch`, `update` on `scanpolicies/status`, and deliberately does not ship any user-facing `Role` granting write access to `scanpolicies` — binding that permission to specific users or groups is a decision for your cluster administrators. See [Kubernetes RBAC](../reference/rbac/controller-permissions.md).
 
+### Jev exemptions with ScanPolicy
+
+A `ScanPolicy` can also clear a [Jev](../guides/agents.md#jev-assessment) block. Jev blocks come from the `jevPolicy` on an agent source, so a Jev exemption is not a finding exemption. It uses `jevExemptions`, and each entry matches one exact archive by its digest. The entry clears every Jev block reason for that archive.
+
+```yaml
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: baseline
+  namespace: opendepot-system
+spec:
+  priority: 0
+  jevExemptions:
+    - contentDigest: "0000000000000000000000000000000000000000000000000000000000000000"
+      reason: Reviewed by the security team. Blocked by a Critical verdict on a known false positive.
+      expires: "2026-12-31T00:00:00Z"
+```
+
+- **`contentDigest`** — required. The lowercase hex SHA-256 of the Version archive, copied from `status.jevAssessment.contentDigest`. It must be 64 lowercase hex characters. The server rejects uppercase hex and duplicate digests in one policy. See [Reading the digest](../guides/agents.md#reading-the-digest).
+- **`reason`** — required. The justification for the entry. It must not be blank.
+- **`expires`** — optional. An RFC3339 timestamp. Omitting it means the entry never expires for as long as the archive digest does not change. Set `expires` on every entry. When it passes, the Version blocks again and the entry must be renewed.
+
+**Failed Jev calls:** an entry clears every Jev block reason for its digest, including a failed Jev call or retries that are exhausted. The Version still stays unsynced until a Jev run completes without an error. Check `status.synced` on the Version.
+
+**Priority shadowing:** only the winning policy's `jevExemptions` apply, the same as finding `exemptions`. Entries in a lower-priority policy are ignored, so copy any entry that a higher-priority policy still needs.
+
+**Re-blocking:** a published Version is blocked again when its matching entry expires or is removed, or when the archive digest changes. The controller sets `status.synced` to `false`, writes a `JevBlocked:` message to `syncStatus`, and emits a `JevExemptionRevoked` warning event. The event message does not say whether the entry expired or was removed. Expiry is requeued the same way as finding exemptions.
+
+The policy status counts entries in `status.activeJevExemptions` and `status.expiredJevExemptions`. See [Jev exemptions](../guides/agents.md#exemptions) for what an exemption clears and what it does not.
+
 ### Migrating from global thresholds
 
 The global `scanning.blockOnCritical` and `scanning.blockOnHigh` values remain the baseline for Versions that do not match a policy, or for a matching policy that omits `severityThreshold`. They are not automatically converted into `ScanPolicy` resources. To migrate deliberately:

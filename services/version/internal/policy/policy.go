@@ -79,6 +79,8 @@ type Resolved struct {
 	Threshold int
 	// Exemptions are the unexpired exemptions from the winning policy.
 	Exemptions []opendepotv1alpha1.ScanExemption
+	// JevExemptions are the unexpired Jev exemptions from the winning policy.
+	JevExemptions []opendepotv1alpha1.JevExemption
 	// NextExpiry is the earliest future exemption expiry, used to schedule a requeue so
 	// that an expired exemption re-enforces without waiting for an unrelated event.
 	NextExpiry *time.Time
@@ -306,7 +308,42 @@ func Resolve(winner *opendepotv1alpha1.ScanPolicy, blockOnCritical, blockOnHigh 
 		}
 	}
 
+	for _, exemption := range winner.Spec.JevExemptions {
+		if exemption.Expires == nil {
+			resolved.JevExemptions = append(resolved.JevExemptions, exemption)
+			continue
+		}
+
+		if !exemption.Expires.Time.After(now) {
+			continue
+		}
+
+		resolved.JevExemptions = append(resolved.JevExemptions, exemption)
+
+		if resolved.NextExpiry == nil || exemption.Expires.Time.Before(*resolved.NextExpiry) {
+			expiry := exemption.Expires.Time
+			resolved.NextExpiry = &expiry
+		}
+	}
+
 	return resolved
+}
+
+// JevExemptionFor returns the unexpired Jev exemption bound to the archive digest, or nil when
+// none matches. Matching is exact, so a digest in a different case never matches, and an empty
+// digest never matches.
+func (r Resolved) JevExemptionFor(digest string) *opendepotv1alpha1.JevExemption {
+	if digest == "" {
+		return nil
+	}
+
+	for i := range r.JevExemptions {
+		if r.JevExemptions[i].ContentDigest == digest {
+			return &r.JevExemptions[i]
+		}
+	}
+
+	return nil
 }
 
 // covers reports whether an exemption covers a finding produced by the given scan type.
@@ -371,6 +408,21 @@ func Apply(
 // rule that Resolve applies.
 func CountExemptions(policy *opendepotv1alpha1.ScanPolicy, now time.Time) (active int, expired int) {
 	for _, exemption := range policy.Spec.Exemptions {
+		if exemption.Expires != nil && !exemption.Expires.Time.After(now) {
+			expired++
+			continue
+		}
+
+		active++
+	}
+
+	return active, expired
+}
+
+// CountJevExemptions splits a policy's Jev exemptions into those currently in effect and those
+// whose expiry has passed. An exemption without an expiry is always in effect.
+func CountJevExemptions(policy *opendepotv1alpha1.ScanPolicy, now time.Time) (active int, expired int) {
+	for _, exemption := range policy.Spec.JevExemptions {
 		if exemption.Expires != nil && !exemption.Expires.Time.After(now) {
 			expired++
 			continue

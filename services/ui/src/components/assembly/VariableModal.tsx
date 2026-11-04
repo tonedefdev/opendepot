@@ -132,7 +132,7 @@ export default function VariableModal({
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-          <DataObjectIcon sx={{ fontSize: 20, color: "#04cfd0" }} />
+          <DataObjectIcon sx={{ fontSize: 20, color: "primary.main" }} />
         </Box>
         <Typography component="span" variant="subtitle1" fontWeight={700} sx={{ flex: 1 }}>
           var.{name || "?"} — Variable Definition

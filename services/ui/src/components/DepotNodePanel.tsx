@@ -12,7 +12,8 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import Link from "next/link";
 import type { BrowseStorageConfig } from "@/lib/api";
-import { AGENT_COLOR, DEPOT_COLOR, KIND_CHIP_TEXT, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR, kindChipColor } from "@/lib/kindColors";
+import { graphKindColor } from "@/lib/kindColors";
+import { metaChipSx } from "./chipStyles";
 
 type NodeKind = "depot" | "module" | "provider" | "skill" | "agent" | "version" | "versionOverflow";
 
@@ -91,18 +92,7 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
               ? "Agent"
               : "Version";
 
-  const kindColor =
-    node.kind === "depot"
-      ? DEPOT_COLOR
-      : node.kind === "module"
-        ? MODULE_COLOR
-        : node.kind === "provider"
-          ? PROVIDER_COLOR
-          : node.kind === "skill"
-            ? SKILL_COLOR
-            : node.kind === "agent"
-              ? AGENT_COLOR
-              : VERSION_COLOR;
+  const kindColor = graphKindColor(node.kind);
 
   // Link to the detail page (modules, providers, skills, and agents)
   const detailHref =
@@ -142,13 +132,7 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
             <Chip
               label={kindLabel}
               size="small"
-              sx={{
-                fontSize: "0.65rem",
-                height: 18,
-                color: KIND_CHIP_TEXT,
-                "& .MuiChip-label": { px: 0.75 },
-                bgcolor: kindChipColor(node.kind),
-              }}
+              sx={{ ...(metaChipSx as object), height: 18, fontSize: "0.65rem" }}
             />
           </Box>
           <Typography

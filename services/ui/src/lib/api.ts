@@ -181,6 +181,14 @@ export interface JevAssessment {
   needsReview: boolean;
   blocked: boolean;
   blockReasons?: string[];
+  // contentDigest identifies the exact content that was assessed. A jevExemptions entry matches on it.
+  contentDigest?: string;
+  // exempted is true when a ScanPolicy jevExemptions entry matches contentDigest. blockReasons then lists the reasons the exemption overrides, not active blocks.
+  exempted?: boolean;
+  exemptedBy?: string;
+  exemptionReason?: string;
+  // exemptionExpires is absent when the exemption has no expiry.
+  exemptionExpires?: string;
   error?: string;
   // The fields below are absent on legacy assessments.
   // chunkCount is exact when it is at most 16. Above 16 it is a lower bound, and no Jev call was made.
@@ -335,18 +343,28 @@ export interface ScanPolicyExemption {
   expires?: string;
 }
 
+// ScanPolicyJevExemption exempts the Jev assessment of one exact content digest. Entries without expires do not expire.
+export interface ScanPolicyJevExemption {
+  contentDigest: string;
+  reason: string;
+  expires?: string;
+}
+
 export interface ScanPolicySpec {
   priority?: number;
   selector?: ScanPolicySelector;
   targetRefs?: ScanPolicyTargetRef[];
   severityThreshold?: ScanSeverityThreshold;
   exemptions?: ScanPolicyExemption[];
+  jevExemptions?: ScanPolicyJevExemption[];
 }
 
 export interface ScanPolicyStatus {
   matchedVersions?: number;
   activeExemptions?: number;
   expiredExemptions?: number;
+  activeJevExemptions?: number;
+  expiredJevExemptions?: number;
   supersededBy?: string;
   conditions?: Array<{ type: string; status: string; reason?: string; message?: string }>;
 }
@@ -524,6 +542,60 @@ export async function getResourceDetail(
     `/opendepot/ui/v1/resources/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
     token,
   );
+}
+
+// JevReviewQueueItem is one Skill or Agent row in the needs-review queue. The assessment is the
+// resource's latest-assessed Version, the only one the detail endpoint returns a jevAssessment for.
+export interface JevReviewQueueItem {
+  kind: string;
+  namespace: string;
+  name: string;
+  riskLevel?: JevRiskLevel;
+  blocked: boolean;
+  exempted: boolean;
+}
+
+export interface JevReviewQueue {
+  items: JevReviewQueueItem[];
+}
+
+const REVIEW_QUEUE_PAGE_SIZE = 100;
+const REVIEW_QUEUE_DETAIL_CONCURRENCY = 8;
+
+// listJevReviewQueue fans out over every Skill and Agent, then keeps those whose jevAssessment needs review.
+export async function listJevReviewQueue(token?: string): Promise<JevReviewQueue> {
+  const resources: BrowseResource[] = [];
+  for (const kind of ["skill", "agent"]) {
+    const kindResources: BrowseResource[] = [];
+    for (let page = 1; ; page++) {
+      const list = await listResources({ kind, page, pageSize: REVIEW_QUEUE_PAGE_SIZE }, token);
+      kindResources.push(...list.items);
+      if (list.items.length === 0 || kindResources.length >= list.totalCount) break;
+    }
+    resources.push(...kindResources);
+  }
+
+  const items: JevReviewQueueItem[] = [];
+  for (let start = 0; start < resources.length; start += REVIEW_QUEUE_DETAIL_CONCURRENCY) {
+    const batch = resources.slice(start, start + REVIEW_QUEUE_DETAIL_CONCURRENCY);
+    const details = await Promise.all(
+      batch.map((resource) => getResourceDetail(resource.namespace, resource.kind, resource.name, token)),
+    );
+    for (const detail of details) {
+      const assessment = detail.jevAssessment;
+      if (!assessment?.needsReview) continue;
+      items.push({
+        kind: detail.kind,
+        namespace: detail.namespace,
+        name: detail.name,
+        riskLevel: assessment.riskLevel,
+        blocked: assessment.blocked,
+        exempted: assessment.exempted === true,
+      });
+    }
+  }
+
+  return { items };
 }
 
 export async function listDepots(token?: string): Promise<BrowseDepotList> {

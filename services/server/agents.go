@@ -146,7 +146,144 @@ func buildAgentVersionsResponse(kind agentKind, name string, entries []struct {
 		response.Versions = append(response.Versions, summary)
 	}
 
+	response.UnavailableCandidates = buildAgentUnavailableCandidates(kind, name, versions)
+
 	return response
+}
+
+// Branch lifecycle phases set by the Version controller. Rejected is shared with ui_browse.go.
+const (
+	branchPhasePending = "Pending"
+	branchPhaseHeld    = "Held"
+)
+
+// Fixed diagnostic reasons. Version SyncStatus strings can contain raw internal errors, so they are
+// mapped to these constants and never returned.
+const (
+	agentReasonScanPolicy         = "Rejected by a scan policy"
+	agentReasonSuperseded         = "Superseded by a newer commit"
+	agentReasonInvalidCommit      = "Invalid source commit"
+	agentReasonSourcingDisabled   = "Branch sourcing is disabled on the server"
+	agentReasonBranchRejected     = "Rejected by the branch lifecycle"
+	agentReasonAssessmentFailed   = "Version could not be synced or assessed"
+	agentReasonAwaitingSibling    = "Waiting for an older commit to be assessed"
+	agentReasonAwaitingAssignment = "Waiting for version assignment"
+	agentReasonNotYetAssessed     = "Not yet assessed"
+)
+
+// agentRejectionReason maps a rejected branch Version's SyncStatus to a fixed reason.
+func agentRejectionReason(syncStatus string) string {
+	switch {
+	case strings.HasPrefix(syncStatus, "Scan policy violation:"):
+		return agentReasonScanPolicy
+	case strings.HasPrefix(syncStatus, "Superseded:"):
+		return agentReasonSuperseded
+	case strings.HasPrefix(syncStatus, "Invalid sourceCommit:"):
+		return agentReasonInvalidCommit
+	case strings.HasPrefix(syncStatus, "branch sourcing is disabled"):
+		return agentReasonSourcingDisabled
+	default:
+		return agentReasonBranchRejected
+	}
+}
+
+// agentUnavailableCandidateFor classifies a Version of the named Skill or Agent that cannot be installed.
+// It returns false for installable Versions and for ordinary in-progress semantic Versions, which are
+// omitted. It never changes whether the Version is servable or downloadable.
+func agentUnavailableCandidateFor(version *opendepotv1alpha1.Version, kind agentKind, name string) (AgentUnavailableCandidate, bool) {
+	if !agentVersionMatches(version, kind, name) {
+		return AgentUnavailableCandidate{}, false
+	}
+
+	if version.Spec.Version != "" {
+		candidate := AgentUnavailableCandidate{
+			Version: trimVersionPrefix(version.Spec.Version),
+			Commit:  version.Spec.SourceCommit,
+		}
+
+		switch {
+		case agentVersionBlocked(version):
+			candidate.Status = AgentAvailabilityBlocked
+			candidate.Reasons = version.Status.JevAssessment.BlockReasons
+		case version.Status.Synced:
+			return AgentUnavailableCandidate{}, false
+		case strings.HasPrefix(version.Status.SyncStatus, "Scan policy violation:"):
+			candidate.Status = AgentAvailabilityRejected
+			candidate.Reasons = []string{agentReasonScanPolicy}
+		case strings.HasPrefix(version.Status.SyncStatus, "Failed to "):
+			candidate.Status = AgentAvailabilityAssessmentFailed
+			candidate.Reasons = []string{agentReasonAssessmentFailed}
+		default:
+			return AgentUnavailableCandidate{}, false
+		}
+
+		return candidate, true
+	}
+
+	if version.Spec.SourceCommit == "" || version.Status.Synced {
+		return AgentUnavailableCandidate{}, false
+	}
+
+	candidate := AgentUnavailableCandidate{Commit: version.Spec.SourceCommit}
+
+	switch {
+	case agentVersionBlocked(version):
+		candidate.Status = AgentAvailabilityRejected
+		candidate.Reasons = version.Status.JevAssessment.BlockReasons
+	case version.Status.BranchPhase == branchPhaseRejected:
+		candidate.Status = AgentAvailabilityRejected
+		candidate.Reasons = []string{agentRejectionReason(version.Status.SyncStatus)}
+	case strings.HasPrefix(version.Status.SyncStatus, "Failed to "):
+		candidate.Status = AgentAvailabilityAssessmentFailed
+		candidate.Reasons = []string{agentReasonAssessmentFailed}
+	case version.Status.BranchPhase == branchPhasePending:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonAwaitingSibling}
+	case version.Status.BranchPhase == branchPhaseHeld:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonAwaitingAssignment}
+	default:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonNotYetAssessed}
+	}
+
+	return candidate, true
+}
+
+// buildAgentUnavailableCandidates returns the sorted, de-duplicated unavailable candidates of the named
+// Skill or Agent. The versions map holds derived-name aliases of the same Version, so candidates are
+// de-duplicated by content. It returns nil when there are none, so the field is omitted.
+func buildAgentUnavailableCandidates(kind agentKind, name string, versions map[string]opendepotv1alpha1.Version) []AgentUnavailableCandidate {
+	seen := make(map[string]bool)
+	var candidates []AgentUnavailableCandidate
+	for _, version := range versions {
+		candidate, ok := agentUnavailableCandidateFor(&version, kind, name)
+		if !ok {
+			continue
+		}
+
+		key := fmt.Sprintf("%s|%s|%s|%s", candidate.Version, candidate.Commit, candidate.Status, strings.Join(candidate.Reasons, ";"))
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+		candidates = append(candidates, candidate)
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Version != candidates[j].Version {
+			return candidates[i].Version < candidates[j].Version
+		}
+
+		if candidates[i].Commit != candidates[j].Commit {
+			return candidates[i].Commit < candidates[j].Commit
+		}
+
+		return candidates[i].Status < candidates[j].Status
+	})
+
+	return candidates
 }
 
 // agentSigningKeys derives the public signing key from the provider GPG private key

@@ -15,6 +15,9 @@ type ServiceDiscoveryResponse struct {
 // AgentVersionsResponse is the JSON body returned by the agents.v1 versions endpoint.
 type AgentVersionsResponse struct {
 	Versions []AgentVersionSummary `json:"versions"`
+	// UnavailableCandidates lists candidates that cannot be installed. It is omitted when empty,
+	// and servers that predate it never send it, so clients must treat a missing field as "not reported".
+	UnavailableCandidates []AgentUnavailableCandidate `json:"unavailableCandidates,omitempty"`
 }
 
 // AgentVersionSummary describes a single Skill or Agent Version. Yanked Versions stay listed
@@ -25,6 +28,67 @@ type AgentVersionSummary struct {
 	Yanked       bool     `json:"yanked"`
 	Blocked      bool     `json:"blocked"`
 	BlockReasons []string `json:"blockReasons,omitempty"`
+}
+
+// AgentAvailabilityStatus is the availability category of a Skill or Agent candidate or catalog resource.
+//   - Available: a catalog resource whose latest installable Version can be downloaded. Never used on a candidate.
+//   - Blocked: Jev blocked a versioned candidate. The Version string is set.
+//   - Rejected: a terminal decision, such as a branch lifecycle rejection or a non-Jev rejection. The candidate may be unversioned.
+//   - Pending: an ordinary in-progress state, such as an unsynced or unassigned branch. It is not a rejection and may become installable.
+//   - AssessmentFailed: the candidate could not be synced or assessed for a reason other than a Jev block decision.
+type AgentAvailabilityStatus string
+
+const (
+	AgentAvailabilityAvailable        AgentAvailabilityStatus = "available"
+	AgentAvailabilityBlocked          AgentAvailabilityStatus = "blocked"
+	AgentAvailabilityRejected         AgentAvailabilityStatus = "rejected"
+	AgentAvailabilityPending          AgentAvailabilityStatus = "pending"
+	AgentAvailabilityAssessmentFailed AgentAvailabilityStatus = "assessmentFailed"
+)
+
+// AgentUnavailableCandidate describes a Skill or Agent candidate that cannot be installed. It explains
+// why a newer candidate is missing. It never makes an artifact downloadable, and the download endpoint
+// keeps refusing it.
+//
+// Safe to expose: the status, the Version or commit identifier, and the sanitized Reasons, which are
+// Jev block reasons or branch lifecycle reasons. Never expose artifact URLs, archive content, credentials,
+// or raw Kubernetes or internal errors.
+type AgentUnavailableCandidate struct {
+	// Version is the semantic version of a versioned candidate. It is empty for an unversioned branch candidate.
+	Version string `json:"version,omitempty"`
+	// Commit is the full commit SHA of an unversioned branch candidate. It is empty when Version is set.
+	Commit string `json:"commit,omitempty"`
+	// Status is the availability category of this candidate. It is never Available.
+	Status AgentAvailabilityStatus `json:"status"`
+	// Reasons are short, sanitized diagnostic strings that explain the status.
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+// AgentCatalogResponse is the JSON body returned by the paginated agents.v1 catalog endpoint.
+// It lists only the Skill and Agent resources that the caller can see.
+type AgentCatalogResponse struct {
+	Items      []AgentCatalogItem `json:"items"`
+	TotalCount int                `json:"totalCount"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"pageSize"`
+}
+
+// AgentCatalogItem summarizes one visible Skill or Agent resource for listing.
+//
+// Status is Blocked or Rejected when the newest unavailable candidate has that status, even when an older
+// version is still installable. Otherwise it is Available when LatestVersion is installable, and it is the
+// newest candidate's status when nothing is installable. LatestVersion is the latest installable Version.
+// RiskLevel and RiskScore describe LatestVersion only and never a blocked or rejected candidate. When they
+// are omitted, the assessment is unknown, not safe.
+type AgentCatalogItem struct {
+	Kind                 string                     `json:"kind"`
+	Namespace            string                     `json:"namespace"`
+	Name                 string                     `json:"name"`
+	Status               AgentAvailabilityStatus    `json:"status"`
+	LatestVersion        string                     `json:"latestVersion,omitempty"`
+	RiskLevel            string                     `json:"riskLevel,omitempty"`
+	RiskScore            *float64                   `json:"riskScore,omitempty"`
+	UnavailableCandidate *AgentUnavailableCandidate `json:"unavailableCandidate,omitempty"`
 }
 
 // AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.

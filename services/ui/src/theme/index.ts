@@ -1,4 +1,5 @@
 import { createTheme } from "@mui/material/styles";
+import { BRAND_BLUE, BRAND_BRIDGE, BRAND_MINT } from "@/lib/brand";
 
 // Cookie used to persist the user's resolved light/dark preference so the
 // server can render the correct `data-mui-color-scheme` attribute on <html>
@@ -6,17 +7,9 @@ import { createTheme } from "@mui/material/styles";
 // ThemeRegistry's ColorModeCookieSync) and read server-side in layout.tsx.
 export const COLOR_MODE_COOKIE = "opendepot_color_mode";
 
-// Brand tokens from docs/stylesheets/extra.css
-// Dark-mode palette mirrors the docs slate scheme: teal (#04cfd0) is primary,
-// blue (#047df1) is demoted to primary.dark / secondary. Light-mode palette
-// reuses the docs site's light scheme tokens verbatim (blue primary, sky
-// light variant, teal/mint demoted to secondary) so both modes draw from the
-// same five-color brand palette, just swapping which hue leads.
-const teal = "#04cfd0";
-const mint = "#03deb8";
-const blue = "#047df1";
-const sky = "#05b6de";
-const deepBlue = "#0350c7";
+// Brand hues from the OpenDepot Brand Guidelines 2026 (see src/lib/brand.ts). Mint leads in dark mode and
+// blue leads in light mode, because mint fails contrast on white and blue fails on the dark surface. The
+// bridge color sits between them as the secondary hue in both modes.
 
 const theme = createTheme({
   cssVariables: {
@@ -26,13 +19,12 @@ const theme = createTheme({
     dark: {
       palette: {
         primary: {
-          main: teal,
-          light: mint,
-          dark: blue,
+          main: BRAND_MINT,
+          dark: BRAND_BRIDGE,
         },
         secondary: {
-          main: blue,
-          light: mint,
+          main: BRAND_BRIDGE,
+          light: BRAND_MINT,
         },
         background: {
           default: "#0d1117",
@@ -40,7 +32,7 @@ const theme = createTheme({
         },
         error: { main: "#f85149" },
         warning: { main: "#d29922" },
-        info: { main: mint },
+        info: { main: BRAND_MINT },
         success: { main: "#3fb950" },
         divider: "rgba(240,246,252,0.1)",
         text: {
@@ -52,13 +44,12 @@ const theme = createTheme({
     light: {
       palette: {
         primary: {
-          main: blue,
-          light: sky,
-          dark: deepBlue,
+          main: BRAND_BLUE,
+          light: BRAND_BRIDGE,
         },
         secondary: {
-          main: teal,
-          light: mint,
+          main: BRAND_BRIDGE,
+          light: BRAND_MINT,
         },
         background: {
           default: "#ffffff",
@@ -97,6 +88,24 @@ const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
+        // Mode-aware brand and kind accents. Inline styles (ReactFlow nodes) cannot read the theme, so they
+        // reference these variables. Mint fails contrast on white, so AI kinds and the accent use blue in light mode.
+        ":root": {
+          "--od-accent": BRAND_MINT,
+          "--od-kind-iac": BRAND_BRIDGE,
+          "--od-kind-ai": BRAND_MINT,
+          "--od-kind-version": "#8b949e",
+          // Assembly Line node icon colors. Light mode uses the for_each chip's teal so the icon and minimap read on the card.
+          "--od-assembly-variable": BRAND_BRIDGE,
+          "--od-assembly-module": BRAND_MINT,
+        },
+        '[data-mui-color-scheme="light"]': {
+          "--od-accent": BRAND_BLUE,
+          "--od-kind-ai": BRAND_BLUE,
+          "--od-kind-version": "#6e7781",
+          "--od-assembly-variable": BRAND_BLUE,
+          "--od-assembly-module": "#037a70",
+        },
         body: {
           scrollbarColor: `${theme.vars.palette.divider} transparent`,
           "&::-webkit-scrollbar": { width: "8px" },
@@ -151,13 +160,13 @@ const theme = createTheme({
             boxShadow: "0 1px 0 0 rgba(255,255,255,0.06) inset, 0 10px 24px -8px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)",
           }),
           "&:hover": {
-            borderColor: "rgba(4,207,208,0.5)",
-            boxShadow: "0 0 0 1px rgba(4,207,208,0.15), 0 4px 16px rgba(0,0,0,0.4)",
+            borderColor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.5)`,
+            boxShadow: `0 0 0 1px rgba(${theme.vars.palette.primary.mainChannel} / 0.15), 0 4px 16px rgba(0,0,0,0.4)`,
           },
           ...theme.applyStyles("light", {
             "&:hover": {
-              borderColor: "rgba(4,125,241,0.4)",
-              boxShadow: "0 0 0 1px rgba(4,125,241,0.12), 0 4px 16px rgba(0,0,0,0.08)",
+              borderColor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.4)`,
+              boxShadow: `0 0 0 1px rgba(${theme.vars.palette.primary.mainChannel} / 0.12), 0 4px 16px rgba(0,0,0,0.08)`,
             },
           }),
         }),

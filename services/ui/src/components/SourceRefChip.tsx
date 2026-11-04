@@ -4,6 +4,7 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import Link from "@mui/material/Link";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
+import { metaChipSurfaceSx } from "./chipStyles";
 
 interface SourceRefChipProps {
   sourceRef?: string;
@@ -44,39 +45,42 @@ export default function SourceRefChip({ sourceRef, sourceCommit, sourcePath, rep
   return (
     <Box
       component="span"
+      title={shortCommit ? `${sourceRef}@${shortCommit}` : sourceRef}
       sx={{
+        ...metaChipSurfaceSx,
         display: "inline-flex",
         alignItems: "center",
         gap: 0.5,
-        px: 1,
-        py: 0.25,
-        borderRadius: "999px",
-        border: 1,
-        borderColor: "divider",
+        px: 0.75,
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
         fontFamily: "monospace",
-        fontSize: "0.75rem",
+        fontWeight: 500,
       }}
     >
-      <CallSplitIcon sx={{ fontSize: 14 }} />
-      {base ? (
-        <Link href={`${base}/tree/${sourceRef}${treePath}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={linkSx}>
-          {displayRef(sourceRef)}
-        </Link>
-      ) : (
-        <span>{displayRef(sourceRef)}</span>
-      )}
-      {shortCommit && (
-        <>
-          <span>@</span>
-          {base ? (
-            <Link href={`${base}/commit/${sourceCommit}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={linkSx}>
-              {shortCommit}
-            </Link>
-          ) : (
-            <span>{shortCommit}</span>
-          )}
-        </>
-      )}
+      <CallSplitIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+      <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {base ? (
+          <Link href={`${base}/tree/${sourceRef}${treePath}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={linkSx}>
+            {displayRef(sourceRef)}
+          </Link>
+        ) : (
+          <span>{displayRef(sourceRef)}</span>
+        )}
+        {shortCommit && (
+          <>
+            <span>@</span>
+            {base ? (
+              <Link href={`${base}/commit/${sourceCommit}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={linkSx}>
+                {shortCommit}
+              </Link>
+            ) : (
+              <span>{shortCommit}</span>
+            )}
+          </>
+        )}
+      </Box>
     </Box>
   );
 }

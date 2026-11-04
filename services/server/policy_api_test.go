@@ -48,6 +48,63 @@ func TestDecodeAndValidateScanPolicy(t *testing.T) {
 	}
 }
 
+func TestDecodeAndValidateJevExemptions(t *testing.T) {
+	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	const otherDigest = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	t.Run("accepts an entry without expires", func(t *testing.T) {
+		var policy opendepotv1alpha1.ScanPolicy
+		err := decodeAndValidateScanPolicy([]byte(`{
+			"metadata":{"name":"jev-exemptions"},
+			"spec":{"jevExemptions":[{"contentDigest":"`+digest+`","reason":"reviewed by security"}]}
+		}`), &policy)
+		if err != nil {
+			t.Fatalf("decodeAndValidateScanPolicy() error = %v", err)
+		}
+
+		if policy.Spec.JevExemptions[0].Expires != nil {
+			t.Fatal("Expires = non-nil, want nil when omitted")
+		}
+	})
+
+	t.Run("accepts an entry with expires", func(t *testing.T) {
+		var policy opendepotv1alpha1.ScanPolicy
+		err := decodeAndValidateScanPolicy([]byte(`{
+			"metadata":{"name":"jev-exemptions"},
+			"spec":{"jevExemptions":[{"contentDigest":"`+digest+`","reason":"reviewed","expires":"2030-01-01T00:00:00Z"}]}
+		}`), &policy)
+		if err != nil {
+			t.Fatalf("decodeAndValidateScanPolicy() error = %v", err)
+		}
+
+		if policy.Spec.JevExemptions[0].Expires == nil {
+			t.Fatal("Expires = nil, want a time")
+		}
+	})
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"blank reason", `{"spec":{"jevExemptions":[{"contentDigest":"` + digest + `","reason":"   "}]}}`},
+		{"missing reason", `{"spec":{"jevExemptions":[{"contentDigest":"` + digest + `"}]}}`},
+		{"uppercase digest", `{"spec":{"jevExemptions":[{"contentDigest":"` + strings.ToUpper(digest) + `","reason":"r"}]}}`},
+		{"short digest", `{"spec":{"jevExemptions":[{"contentDigest":"abc","reason":"r"}]}}`},
+		{"missing digest", `{"spec":{"jevExemptions":[{"reason":"r"}]}}`},
+		{"duplicate digest", `{"spec":{"jevExemptions":[{"contentDigest":"` + digest + `","reason":"a"},{"contentDigest":"` + digest + `","reason":"b"}]}}`},
+		{"other duplicate digest", `{"spec":{"jevExemptions":[{"contentDigest":"` + otherDigest + `","reason":"a"},{"contentDigest":"` + digest + `","reason":"b"},{"contentDigest":"` + otherDigest + `","reason":"c"}]}}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var policy opendepotv1alpha1.ScanPolicy
+			if err := decodeAndValidateScanPolicy([]byte(test.body), &policy); err == nil {
+				t.Fatal("decodeAndValidateScanPolicy() error = nil, want validation error")
+			}
+		})
+	}
+}
+
 func TestFindSecurityGroupBindingFirstMatchAndFailClosed(t *testing.T) {
 	originalNamespace := opendepotServerNamespace
 	namespace := "opendepot-system"
@@ -482,4 +539,162 @@ func policyTestClientset(t *testing.T, apiURL string) *kubernetes.Clientset {
 	}
 
 	return clientset
+}
+
+func TestScanPolicyJevExemptionAuthorization(t *testing.T) {
+	originalAnonymous := opendepotAnonymousAuth
+	originalEnabled := opendepotPolicyManagementEnabled
+	originalVerifier := oidcVerifier
+	originalAuth := policyRequestAuth
+	defer func() {
+		opendepotAnonymousAuth = originalAnonymous
+		opendepotPolicyManagementEnabled = originalEnabled
+		oidcVerifier = originalVerifier
+		policyRequestAuth = originalAuth
+	}()
+
+	anonymous := false
+	enabled := true
+	opendepotAnonymousAuth = &anonymous
+	opendepotPolicyManagementEnabled = &enabled
+	oidcVerifier = &gooidc.IDTokenVerifier{}
+
+	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	exemption := `[{"contentDigest":"` + digest + `","reason":"reviewed by security"}]`
+	plainPolicy := `{"apiVersion":"opendepot.defdev.io/v1alpha1","kind":"ScanPolicy","metadata":{"name":"plain","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}]}}`
+	exemptPolicy := `{"apiVersion":"opendepot.defdev.io/v1alpha1","kind":"ScanPolicy","metadata":{"name":"exempt","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":` + exemption + `}}`
+
+	var methods []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methods = append(methods, r.Method+" "+r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/modules"):
+			_, _ = w.Write([]byte(`{"apiVersion":"opendepot.defdev.io/v1alpha1","kind":"ModuleList","items":[{"metadata":{"name":"allowed"}}]}`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/plain"):
+			_, _ = w.Write([]byte(plainPolicy))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/exempt"):
+			_, _ = w.Write([]byte(exemptPolicy))
+		case r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			_, _ = w.Write([]byte(`{"apiVersion":"opendepot.defdev.io/v1alpha1","kind":"ScanPolicy","metadata":{"name":"plain","namespace":"team","resourceVersion":"2"},"spec":{}}`))
+		}
+	}))
+	defer api.Close()
+
+	clientset := policyTestClientset(t, api.URL)
+	scoped := &opendepotv1alpha1.SecurityGroupBinding{Spec: opendepotv1alpha1.SecurityGroupBindingSpec{Namespaces: []string{"team"}, ModuleResources: []string{"allowed"}}}
+	wide := &opendepotv1alpha1.SecurityGroupBinding{Spec: opendepotv1alpha1.SecurityGroupBindingSpec{Namespaces: []string{"team"}, ModuleResources: []string{"allowed"}, NamespaceWidePolicyManagement: true}}
+	var binding *opendepotv1alpha1.SecurityGroupBinding
+	policyRequestAuth = func(http.ResponseWriter, *http.Request) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
+		return clientset, nil, binding, "test-user", nil
+	}
+
+	router := chi.NewRouter()
+	router.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}", handleScanPolicies)
+	router.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}/{name}", handleScanPolicies)
+
+	serve := func(method, path, body, ifMatch string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+
+		return response
+	}
+
+	t.Run("scoped binding cannot create a policy with jevExemptions", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		response := serve(http.MethodPost, "/opendepot/ui/v1/scan-policies/team", `{"metadata":{"name":"new"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":`+exemption+`}}`, "")
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "namespace-wide") {
+			t.Fatalf("POST status = %d body = %s, want 403 with namespace-wide message", response.Code, response.Body.String())
+		}
+		if len(methods) != 0 {
+			t.Fatalf("forbidden create forwarded writes: %v", methods)
+		}
+	})
+
+	t.Run("scoped binding cannot add jevExemptions on update", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		response := serve(http.MethodPut, "/opendepot/ui/v1/scan-policies/team/plain", `{"metadata":{"name":"plain","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":`+exemption+`}}`, `"1"`)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("PUT adding exemption status = %d, want %d", response.Code, http.StatusForbidden)
+		}
+		if len(methods) != 0 {
+			t.Fatalf("forbidden update forwarded writes: %v", methods)
+		}
+	})
+
+	t.Run("scoped binding cannot remove jevExemptions on update", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		response := serve(http.MethodPut, "/opendepot/ui/v1/scan-policies/team/exempt", `{"metadata":{"name":"exempt","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}]}}`, `"1"`)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("PUT removing exemption status = %d, want %d", response.Code, http.StatusForbidden)
+		}
+		if len(methods) != 0 {
+			t.Fatalf("forbidden update forwarded writes: %v", methods)
+		}
+	})
+
+	t.Run("scoped binding cannot delete a policy with jevExemptions", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		response := serve(http.MethodDelete, "/opendepot/ui/v1/scan-policies/team/exempt", "", "1")
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("DELETE status = %d, want %d", response.Code, http.StatusForbidden)
+		}
+		if len(methods) != 0 {
+			t.Fatalf("forbidden delete forwarded writes: %v", methods)
+		}
+	})
+
+	t.Run("scoped binding keeps working for policies without jevExemptions", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		update := serve(http.MethodPut, "/opendepot/ui/v1/scan-policies/team/plain", `{"metadata":{"name":"plain","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}]}}`, `"1"`)
+		if update.Code != http.StatusOK {
+			t.Fatalf("PUT without exemptions status = %d, want %d", update.Code, http.StatusOK)
+		}
+		remove := serve(http.MethodDelete, "/opendepot/ui/v1/scan-policies/team/plain", "", "1")
+		if remove.Code != http.StatusNoContent {
+			t.Fatalf("DELETE without exemptions status = %d, want %d", remove.Code, http.StatusNoContent)
+		}
+	})
+
+	t.Run("scoped binding may keep an unchanged jevExemption while editing the policy", func(t *testing.T) {
+		binding = scoped
+		methods = nil
+		response := serve(http.MethodPut, "/opendepot/ui/v1/scan-policies/team/exempt", `{"metadata":{"name":"exempt","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":`+exemption+`}}`, `"1"`)
+		if response.Code != http.StatusOK {
+			t.Fatalf("PUT with unchanged exemption status = %d, want %d", response.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("namespace-wide binding may manage jevExemptions", func(t *testing.T) {
+		binding = wide
+		methods = nil
+		create := serve(http.MethodPost, "/opendepot/ui/v1/scan-policies/team", `{"metadata":{"name":"new"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":`+exemption+`}}`, "")
+		if create.Code != http.StatusCreated {
+			t.Fatalf("POST status = %d, want %d", create.Code, http.StatusCreated)
+		}
+		update := serve(http.MethodPut, "/opendepot/ui/v1/scan-policies/team/plain", `{"metadata":{"name":"plain","resourceVersion":"1"},"spec":{"targetRefs":[{"kind":"Module","name":"allowed"}],"jevExemptions":`+exemption+`}}`, `"1"`)
+		if update.Code != http.StatusOK {
+			t.Fatalf("PUT status = %d, want %d", update.Code, http.StatusOK)
+		}
+		remove := serve(http.MethodDelete, "/opendepot/ui/v1/scan-policies/team/exempt", "", "1")
+		if remove.Code != http.StatusNoContent {
+			t.Fatalf("DELETE status = %d, want %d", remove.Code, http.StatusNoContent)
+		}
+	})
 }

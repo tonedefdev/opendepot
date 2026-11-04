@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1036,4 +1037,186 @@ func TestAgentArtifactEndpointsEnforceGroupBinding(t *testing.T) {
 			}
 		})
 	}
+}
+
+const agentTestCommit = "3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182"
+
+// agentTestBranchVersion returns an unversioned branch Version sourced from the named Skill.
+func agentTestBranchVersion(skillName, branchPhase, syncStatus string) opendepotv1alpha1.Version {
+	return opendepotv1alpha1.Version{
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:           opendepotv1alpha1.OpenDepotSkill,
+			SourceCommit:   agentTestCommit,
+			AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{Name: &skillName},
+		},
+		Status: opendepotv1alpha1.VersionStatus{
+			Synced:      false,
+			BranchPhase: branchPhase,
+			SyncStatus:  syncStatus,
+		},
+	}
+}
+
+func TestBuildAgentVersionsResponseListsBlockedCandidateUnderUnsyncedParent(t *testing.T) {
+	entries := []struct {
+		Version string `json:"version"`
+		Synced  bool   `json:"synced"`
+	}{
+		{Version: "1.2.0", Synced: false},
+	}
+
+	blocked := agentTestSkillVersion("1.2.0")
+	blocked.Status.Synced = false
+	blocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{Blocked: true, BlockReasons: []string{"cvss above threshold"}}
+	versions := map[string]opendepotv1alpha1.Version{
+		"skill-my-skill-1-2-0": blocked,
+	}
+
+	response := buildAgentVersionsResponse(agentTestSkillKind(), "my-skill", entries, versions)
+	if len(response.Versions) != 0 {
+		t.Fatalf("versions = %+v, want none because the parent ref is unsynced", response.Versions)
+	}
+
+	want := []AgentUnavailableCandidate{
+		{Version: "1.2.0", Status: AgentAvailabilityBlocked, Reasons: []string{"cvss above threshold"}},
+	}
+	if !reflect.DeepEqual(response.UnavailableCandidates, want) {
+		t.Fatalf("unavailableCandidates = %+v, want %+v", response.UnavailableCandidates, want)
+	}
+}
+
+func TestBuildAgentUnavailableCandidatesAssociatesBranchRejectionWithMatchingSource(t *testing.T) {
+	rejected := agentTestBranchVersion("my-skill", branchPhaseRejected, "Superseded: a newer commit exists as Version 'skill-my-skill-abc'")
+	otherSource := agentTestBranchVersion("other-skill", branchPhaseRejected, "Superseded: a newer commit exists as Version 'skill-other-skill-abc'")
+	versions := map[string]opendepotv1alpha1.Version{
+		"skill-my-skill-abc":    rejected,
+		"skill-other-skill-abc": otherSource,
+	}
+
+	candidates := buildAgentUnavailableCandidates(agentTestSkillKind(), "my-skill", versions)
+	want := []AgentUnavailableCandidate{
+		{Commit: agentTestCommit, Status: AgentAvailabilityRejected, Reasons: []string{agentReasonSuperseded}},
+	}
+	if !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("unavailableCandidates = %+v, want %+v", candidates, want)
+	}
+}
+
+func TestBuildAgentUnavailableCandidatesKeepsPendingDistinctFromRejected(t *testing.T) {
+	pending := agentTestBranchVersion("my-skill", branchPhasePending, "Waiting for skill-my-skill-older")
+	rejected := agentTestBranchVersion("my-skill", branchPhaseRejected, "Invalid sourceCommit: not a commit")
+	rejected.Spec.SourceCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	versions := map[string]opendepotv1alpha1.Version{
+		"skill-my-skill-pending":  pending,
+		"skill-my-skill-rejected": rejected,
+	}
+
+	candidates := buildAgentUnavailableCandidates(agentTestSkillKind(), "my-skill", versions)
+	if len(candidates) != 2 {
+		t.Fatalf("unavailableCandidates = %+v, want 2 candidates", candidates)
+	}
+
+	for _, candidate := range candidates {
+		switch candidate.Commit {
+		case agentTestCommit:
+			if candidate.Status != AgentAvailabilityPending {
+				t.Fatalf("pending candidate status = %q, want %q", candidate.Status, AgentAvailabilityPending)
+			}
+
+			if candidate.Reasons[0] == agentReasonBranchRejected || candidate.Reasons[0] == agentReasonInvalidCommit {
+				t.Fatalf("pending candidate reasons = %+v, want an in-progress reason", candidate.Reasons)
+			}
+		case "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
+			if candidate.Status != AgentAvailabilityRejected || candidate.Reasons[0] != agentReasonInvalidCommit {
+				t.Fatalf("rejected candidate = %+v, want rejected with invalid source commit reason", candidate)
+			}
+		default:
+			t.Fatalf("unexpected candidate %+v", candidate)
+		}
+	}
+}
+
+func TestBuildAgentUnavailableCandidatesOmitsInstallableAndSemanticInProgress(t *testing.T) {
+	installable := agentTestSkillVersion("1.0.0")
+	inProgress := agentTestSkillVersion("1.1.0")
+	inProgress.Status.Synced = false
+	versions := map[string]opendepotv1alpha1.Version{
+		"skill-my-skill-1-0-0": installable,
+		"skill-my-skill-1-1-0": inProgress,
+	}
+
+	if candidates := buildAgentUnavailableCandidates(agentTestSkillKind(), "my-skill", versions); candidates != nil {
+		t.Fatalf("unavailableCandidates = %+v, want none", candidates)
+	}
+}
+
+func TestBuildAgentUnavailableCandidatesExcludesKindAndNameMismatch(t *testing.T) {
+	otherName := agentTestBranchVersion("other-skill", branchPhaseRejected, "Superseded: a newer commit exists")
+	agentType := agentTestBranchVersion("my-skill", branchPhaseRejected, "Superseded: a newer commit exists")
+	agentType.Spec.Type = opendepotv1alpha1.OpenDepotAgent
+	blockedOther := agentTestSkillVersion("2.0.0")
+	blockedOther.Status.Synced = false
+	otherSkill := "other-skill"
+	blockedOther.Spec.AgentSourceRef.Name = &otherSkill
+	blockedOther.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{Blocked: true}
+	versions := map[string]opendepotv1alpha1.Version{
+		"skill-other-skill-abc":   otherName,
+		"agent-my-skill-abc":      agentType,
+		"skill-other-skill-2-0-0": blockedOther,
+	}
+
+	if candidates := buildAgentUnavailableCandidates(agentTestSkillKind(), "my-skill", versions); candidates != nil {
+		t.Fatalf("unavailableCandidates = %+v, want none for mismatched kind or name", candidates)
+	}
+}
+
+func TestAgentUnavailableCandidatesNeverServableOrDownloadable(t *testing.T) {
+	kind := agentTestSkillKind()
+
+	blocked := agentTestSkillVersion("1.2.0")
+	blocked.Status.Synced = false
+	blocked.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{Blocked: true}
+	rejected := agentTestBranchVersion("my-skill", branchPhaseRejected, "Scan policy violation: critical")
+	pending := agentTestBranchVersion("my-skill", branchPhasePending, "")
+
+	for name, version := range map[string]opendepotv1alpha1.Version{"blocked": blocked, "rejected": rejected, "pending": pending} {
+		if agentVersionServable(&version, kind, "my-skill") {
+			t.Fatalf("%s candidate is servable, want not servable", name)
+		}
+	}
+
+	api := agentTestVersionServer(t, rejectedDownloadFixture())
+	defer api.Close()
+
+	originalAnonymous := opendepotAnonymousAuth
+	originalUseBearerToken := opendepotUseBearerToken
+	originalVerifier := oidcVerifier
+	defer func() {
+		opendepotAnonymousAuth = originalAnonymous
+		opendepotUseBearerToken = originalUseBearerToken
+		oidcVerifier = originalVerifier
+	}()
+
+	anonymous := false
+	useBearerToken := false
+	opendepotAnonymousAuth = &anonymous
+	opendepotUseBearerToken = &useBearerToken
+	oidcVerifier = nil
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download", nil)
+	request.Header.Set("Authorization", base64.StdEncoding.EncodeToString([]byte(agentTestKubeconfig(api.URL, "rejected-token"))))
+	response := httptest.NewRecorder()
+	agentTestRouter().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("download metadata status = %d, want %d: %s", response.Code, http.StatusNotFound, response.Body.String())
+	}
+}
+
+// rejectedDownloadFixture returns a blocked versioned Agent Version that the download endpoint must refuse.
+func rejectedDownloadFixture() *opendepotv1alpha1.Version {
+	version := agentTestVersion("agent-reviewer-1-2-0")
+	version.Status.Synced = false
+	version.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{Blocked: true, BlockReasons: []string{"cvss above threshold"}}
+
+	return version
 }

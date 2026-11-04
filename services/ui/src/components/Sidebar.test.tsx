@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -74,6 +74,45 @@ describe("Sidebar security policy navigation", () => {
   });
 });
 
+describe("Sidebar needs review placement", () => {
+  it.each([
+    { initialCollapsed: false, state: "expanded" },
+    { initialCollapsed: true, state: "collapsed" },
+  ])("hides Needs review with Security Policies when disabled in the $state sidebar", ({ initialCollapsed }) => {
+    renderSidebar(initialCollapsed, false);
+
+    expect(screen.queryByRole("button", { name: "Needs review" })).toBeNull();
+  });
+
+  it("nests Needs review directly under Security Policies in the expanded sidebar", () => {
+    renderSidebar(false, true);
+
+    const securityPolicies = screen.getByRole("link", { name: "Security Policies" });
+    const needsReview = screen.getByRole("button", { name: "Needs review" });
+    expect(securityPolicies.closest("li")?.nextElementSibling?.contains(needsReview)).toBe(true);
+  });
+
+  it("opens the needs review drawer from the collapsed icon rail", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === "/api/review-queue") {
+        return new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error("not available in unit test");
+    });
+
+    render(
+      <ThemeProvider theme={theme}>
+        <Sidebar initialCollapsed={true} securityPoliciesEnabled={true} initialNamespaces={[]} />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Needs review" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review-queue", expect.objectContaining({ cache: "no-store" })));
+    expect(await screen.findByText("Nothing needs review right now.")).not.toBeNull();
+  });
+});
+
 describe("Sidebar registry navigation", () => {
   it.each([
     { initialCollapsed: false, state: "expanded" },
@@ -110,5 +149,28 @@ describe("Sidebar registry navigation", () => {
     expect(screen.queryByText("Kind")).toBeNull();
     expect(screen.queryByText("Module")).toBeNull();
     expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
+  });
+});
+
+describe("Sidebar needs review navigation", () => {
+  it("opens the needs review drawer from the navigation list", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === "/api/review-queue") {
+        return new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error("not available in unit test");
+    });
+
+    render(
+      <ThemeProvider theme={theme}>
+        <Sidebar initialCollapsed={false} securityPoliciesEnabled={true} initialNamespaces={[]} />
+      </ThemeProvider>,
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/review-queue", expect.anything());
+
+    fireEvent.click(screen.getByRole("button", { name: "Needs review" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review-queue", expect.objectContaining({ cache: "no-store" })));
+    expect(await screen.findByText("Nothing needs review right now.")).not.toBeNull();
   });
 });

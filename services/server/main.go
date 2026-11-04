@@ -274,6 +274,7 @@ func main() {
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{versionFile}", getProviderMirrorArchives)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{version}/{os}/{arch}/{filename}", serveProviderMirrorArchive)
 
+	r.Get("/opendepot/agents/v1/catalog", handleAgentCatalog)
 	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/versions", getAgentVersions)
 	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/download", getAgentDownloadMetadata)
 	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/archive", serveAgentArchive)

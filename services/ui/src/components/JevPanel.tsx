@@ -10,6 +10,7 @@ import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { JevAssessment, JevThresholds } from "@/lib/api";
 import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
+import CopyButton from "./CopyButton";
 import JevChunkTree from "./JevChunkTree";
 
 interface JevPanelProps {
@@ -41,6 +42,13 @@ interface ProbabilityRow {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function describeExemption(assessment: JevAssessment): string {
+  const expiry = assessment.exemptionExpires
+    ? `Expires ${new Date(assessment.exemptionExpires).toLocaleString()}`
+    : "No expiry";
+  return `Reason: ${assessment.exemptionReason ?? "none given"}. ${expiry}.`;
 }
 
 function formatInputCost(inputTokens: number): string {
@@ -161,8 +169,18 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
       {assessment.blocked && (
         <Alert severity="error">
           Blocked by Jev
-          {assessment.blockReasons && assessment.blockReasons.length > 0 && `: ${assessment.blockReasons.join("; ")}`}
+          {!assessment.exempted && assessment.blockReasons && assessment.blockReasons.length > 0 && `: ${assessment.blockReasons.join("; ")}`}
         </Alert>
+      )}
+
+      {assessment.contentDigest && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary">Digest</Typography>
+          <Typography variant="caption" sx={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+            {assessment.contentDigest}
+          </Typography>
+          <CopyButton value={assessment.contentDigest} />
+        </Box>
       )}
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
@@ -208,10 +226,19 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
             }}
           />
         )}
+        {assessment.exempted && (
+          <InfoChip
+            label={assessment.exemptedBy ? `Exempted by ${assessment.exemptedBy}` : "Exempted"}
+            description={describeExemption(assessment)}
+            size="small"
+            color="info"
+            variant="outlined"
+          />
+        )}
         {assessment.needsReview && (
           <InfoChip
             label="Needs review"
-            description="A person should check this version before relying on it. It is set when confidence falls below the policy's minConfidence, and that low confidence also blocks the version. Without minConfidence, confidence does not block."
+            description="A person should check this version before relying on it. It is set when the risk level is Critical, and when confidence falls below the policy's minConfidence, which also blocks the version. An exemption does not clear it."
             size="small"
             color="warning"
           />
@@ -256,7 +283,13 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
 
       <JevChunkTree assessment={assessment} />
 
-      {assessment.blockReasons && assessment.blockReasons.length > 0 && !assessment.blocked && (
+      {assessment.exempted && assessment.blockReasons && assessment.blockReasons.length > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          Exempted block reasons: {assessment.blockReasons.join("; ")}
+        </Typography>
+      )}
+
+      {!assessment.exempted && assessment.blockReasons && assessment.blockReasons.length > 0 && !assessment.blocked && (
         <Typography variant="caption" color="text.secondary">
           Flags: {assessment.blockReasons.join("; ")}
         </Typography>

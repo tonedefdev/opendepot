@@ -304,6 +304,7 @@ func main() {
 		JevMaxRetries:           jevMaxRetries,
 		BranchSourcingEnabled:   branchSourcingEnabled,
 		APIReader:               mgr.GetAPIReader(),
+		Recorder:                mgr.GetEventRecorder("opendepot-version-controller"),
 		TrivyCacheDir:           trivyCacheDir,
 		ScanOffline:             scanOffline,
 		BlockOnCritical:         scanBlockOnCritical,

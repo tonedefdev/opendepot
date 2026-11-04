@@ -35,15 +35,20 @@ The server image bundles the binaries at `/opt/opendepot/cli/`. The image build 
 | `opendepot plan` | Show what `apply` would change, comparing the project and lock file with the registry. Downloads and verifies content, then writes nothing. Never prompts. |
 | `opendepot validate [path]` | Validate a `SKILL.md`, a skill directory, or an agent `.md` file. Defaults to the current directory when `path` is omitted. Frontmatter keys are checked against the union of all platform key sets. The command has no platform option. |
 | `opendepot verify` | Check the installed targets against `opendepot.lock.hcl` without network access. |
+| `opendepot list skills` or `opendepot list agents` | List the skills or agents on a registry. Read-only. See [List skills and agents](#list-skills-and-agents). |
+| `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` | Show version and assessment details for one resource. |
+
+Command failures are written to standard error in a distinct error section, with the source when available and the underlying details. Jev assessment output includes an `Error` row; `none reported` means the assessment did not report an error.
 
 ## Flags
 
-Flags apply to `opendepot apply` unless noted. `opendepot plan` accepts `--upgrade`, `--allow-yanked`, `--trust-new-key`, and `--force` with the same meaning, and it never prompts. A changed signing key appears as an error in the plan instead of a prompt.
+Flags apply to `opendepot apply` unless noted. `opendepot plan` accepts `--upgrade`, `--allow-yanked`, `--allow-older-versions`, `--trust-new-key`, and `--force` with the same meaning, and it never prompts. A changed signing key appears as an error in the plan instead of a prompt.
 
 | Flag | Purpose |
 |------|---------|
 | `--upgrade` | Re-resolve version constraints instead of reusing the versions in the lock file. |
 | `--allow-yanked` | Allow yanked versions. Without this flag, the CLI skips yanked versions for new resolution. |
+| `--allow-older-versions` | Install an older matching version when a newer one is blocked, rejected, or failed assessment. See [Allow older versions](#allow-older-versions). |
 | `--trust-new-key` | Re-pin a rotated signing key. Without this flag, a changed signing key fails the install. |
 | `--no-prompt` | Never prompt. Fail instead of asking for confirmation. Use this in CI. |
 | `--force` | Overwrite AGENTS.md blocks that were edited by hand. |
@@ -54,7 +59,8 @@ Flags apply to `opendepot apply` unless noted. `opendepot plan` accepts `--upgra
 
 ```hcl
 opendepot {
-  targets = ["copilot", "claude"]
+  targets  = ["copilot", "claude"]
+  registry = "registry.example.com"
 }
 
 agent_skill "release-notes" {
@@ -77,6 +83,7 @@ agent "code-reviewer" {
 | `signing_key` | No | Pins the expected GPG signing key fingerprint. A mismatch fails the install and never prompts. |
 | `path` | No | Installs to this path instead of the default targets. A custom path replaces `targets` for that entry. |
 | `targets` | In the `opendepot` block | The install targets for entries that do not set `path`. |
+| `registry` | No, in the `opendepot` block | The registry host that `opendepot list` queries, such as `registry.example.com`. Use a bare host, not a URL. `apply` and `plan` ignore it. |
 
 Each block label is the local name of the entry. Names must be unique within the file. An entry needs at least one install target, from `targets` or from `path`.
 
@@ -161,6 +168,7 @@ The registry serves skills and agents under `/opendepot/agents/v1/`. `{kind}` is
 | GET | `/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/archive` | Download the packaged archive. |
 | GET | `/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS` | Return the checksums for the archive. |
 | GET | `/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS.sig` | Return the GPG signature for `SHA256SUMS`. |
+| GET | `/opendepot/agents/v1/catalog` | List the skills and agents the caller can see. Used by `opendepot list`. |
 
 The service discovery document advertises the base path as `agents.v1`. Requests are subject to GroupBinding authorization. Archive requests return a `302` redirect to a checksum-keyed download URL. The redirect URL remains valid after GroupBinding access is revoked. See [agents.v1 protocol](../guides/agents.md#agentsv1-protocol) for details.
 
@@ -186,6 +194,44 @@ The first install pins the signing key that signed the package (trust on first u
 
 When the registry has a newer version than the lock file, the plan shows it with a note to run `opendepot apply --upgrade`. The plan ends with a summary, and `opendepot apply` writes it.
 
+## List skills and agents
+
+`opendepot list skills` and `opendepot list agents` show the skills or agents on a registry. The command is read-only. It writes no files, and it prints nothing until every page of the catalog has loaded.
+
+| Flag | Purpose |
+|------|---------|
+| `--registry <host>` | The registry host to query. Overrides the project setting. |
+| `--namespace <name>` | List only the resources in one namespace. |
+
+The CLI picks the registry in this order:
+
+1. The `--registry` flag.
+2. The `registry` attribute in the `opendepot` block of `opendepot.hcl`.
+3. The single host shared by every `source` in `opendepot.hcl`.
+
+If none of these yields one host, the command fails. The error asks you to pass `--registry`, or to set `registry` in `opendepot.hcl`. With several different hosts in `source`, the error lists them.
+
+Each row shows one skill or agent:
+
+| Column | Meaning |
+|--------|---------|
+| `SOURCE` | The `namespace/name` of the resource. |
+| `VERSION` | The latest installable version, or `none`. |
+| `RISK` | The risk level and score of the latest version, or `unknown`. |
+| `STATUS` | Whether the displayed version is available, plus any unavailable candidate's status. |
+
+Each resource takes one line. Use `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` to inspect a single resource's versions, rejection reasons, and latest Jev assessment. Describe accepts `--registry` and uses the same registry selection and UI browse access rules as list. A version marked `synced` is not necessarily installable. See [Unavailable candidates](../guides/agents.md#unavailable-candidates) for the statuses.
+
+If the registry has OIDC enabled, `list` needs a token. Run `opendepot login <host>` first. The listing then shows public resources and the resources that your GroupBindings allow.
+
+The command reports these errors:
+
+| Response | Message |
+|----------|---------|
+| `401` or `403` | Not authorized. The message includes the HTTP status and tells you to run `opendepot login <host>` and retry. |
+| `404` | The registry does not support the agents.v1 catalog. It may be an older OpenDepot server. |
+| `5xx` | The catalog could not be listed. The message says that no results were shown. |
+
 ## Blocked versions
 
 A version that a Jev policy blocks is not installed. The registry lists it with `blocked: true` and the Jev block reasons, so the CLI does not treat it as missing. Resolution skips a blocked version and picks the highest unblocked match. When the only match is blocked, the CLI explains why in the same label-column layout it uses for Jev assessments. It names the source and version, the Jev status, each policy reason, and what to do next:
@@ -197,7 +243,27 @@ A version that a Jev policy blocks is not installed. The registry lists it with 
   Next         installs are refused until the policy allows this version
 ```
 
-A locked version that becomes blocked gets the same output, with a `Next` line that says the lock file pins the version and to re-run with `-upgrade`. When no version satisfies the constraint, the error lists the published versions, marked `(yanked)` or `(blocked)` where they apply. Jev scores are shown during `apply` and `plan` and are not written to the lock file.
+A locked version that becomes blocked gets the same output, with a `Next` line that says the lock file pins the version and to re-run with `--upgrade`. When no version satisfies the constraint, the error lists the published versions, marked `(yanked)` or `(blocked)` where they apply. Jev scores are shown during `apply` and `plan` and are not written to the lock file.
+
+### Allow older versions
+
+Resolution can also find a newer version that matches the constraint but cannot be installed. If that version is blocked, rejected, or failed assessment, and an older matching version is installable, `apply` and `plan` stop before they write anything. The error names the newer version, its status, and its reasons, and it suggests `--allow-older-versions`.
+
+Pass `--allow-older-versions` to install the older version instead. Both `apply` and `plan` print a warning that names the newer version that was skipped. The flag does not bypass any of these checks:
+
+- Signature, hash, and signing-key verification.
+- Yank checks. Use `--allow-yanked` for yanked versions.
+- Jev blocks on the version that would be installed.
+
+Some cases do not refuse:
+
+- A `pending` version is not a refusal. The CLI installs the best installable version without the flag.
+- An unversioned commit is never compared against a version constraint. It can add context to a refusal, but it cannot cause one by itself.
+
+A locked version is never re-resolved by this flag. If the lock file pins a version that is now blocked, `apply` fails and asks you to re-run with `--upgrade`. To fall back to an older version after that, pass both `--upgrade` and `--allow-older-versions`.
+
+Registries that predate the `unavailableCandidates` field do not report newer blocked versions. The CLI cannot see them on those registries, so it installs the best installable version without a refusal.
+
 
 ## Example workflow
 

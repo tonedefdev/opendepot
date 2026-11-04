@@ -1,16 +1,16 @@
 # Implementation Plan: Digest-Bound Jev Exemptions in ScanPolicy
 
-Status: REVISED (rev 2). The user has answered D1 to D8. Follow-up questions Q1 to Q7 are listed under "Still Undecided". Each has a provisional choice, so the Developer can start. If the user answers Q1 to Q3 differently, only the `jevExemptible` predicate (Steps 3 and 4) and its tests change. Q4 affects only Step 7, and Q5 affects only Step 6.
+Status: REVISED (rev 4, approved for implementation). The user has answered D1 to D8 and Q1 to Q7. Q1 and Q2 widened the scope: every Jev block reason is exemptible. Q4 proceeds in the widened form. Q5 is approved. Step 13 (review queue, Q7) and an E2E requirement were added in rev 4.
 
 ## Summary
 Today a Jev block on a Skill or Agent Version cannot be overridden. A block can be a Critical risk level or a JevPolicy threshold breach. This plan adds `spec.jevExemptions` to ScanPolicy. Each entry binds to one archive content digest (lowercase hex SHA-256, 64 characters), has a required reason, and has an optional expiry. Only the highest-priority ScanPolicy that matches the Version is used.
 
-An exemption applies when the winning policy has an unexpired entry whose digest equals both the digest Jev assessed and the current archive digest. Then every policy-gate block reason on the assessment is cleared: the Critical reason and the JevPolicy threshold reasons. `blocked` becomes false, the original `blockReasons` stay listed as the audit trail, and the exemption is recorded in three places:
+An exemption applies when the winning policy has an unexpired entry whose digest equals both the digest Jev assessed and the current archive digest. Then every Jev block reason on the assessment is cleared: verdict reasons (Critical, JevPolicy thresholds, minConfidence) and coverage reasons (errors, incomplete assessments, skipped files, token limit, Jev disabled). `blocked` becomes false, the original `blockReasons` stay listed as the audit trail, and the exemption is recorded in three places:
 - `status.jevAssessment`: the policy name, reason and expiry
 - `syncStatus`
 - a Kubernetes Event
 
-Some reasons mean Jev did not see or score all the content: errors, incomplete assessments, skipped files, the token limit, and Jev being disabled. These are never cleared (provisional, see Q1). Any content change gives a new digest, so the Version blocks again.
+An exemption is bound to one digest. Any content change gives a new digest, so the Version blocks again. Coverage reasons are cleared too (Q1), so an exempted Version may be one Jev never fully scored. See Risks.
 
 Two behavior changes are explicit:
 - A Critical risk level now also sets `needsReview`.
@@ -26,7 +26,7 @@ Rejected branch Versions can be re-opened under four explicit conditions.
 - **Cache.** `runAgentJev` reuses a cached blocked assessment with no error unless ForceSync is set (`reuse && cached.Error == ""`). The reuse check does not compare content, so the exemption must be applied after runAgentJev returns, on both fresh and cached results.
 - **Re-trigger.** The Version controller watches ScanPolicy (GenerationChanged) and enqueues every Version in the namespace. An unsynced agent Version takes the full path and reuses its cached Jev assessment, so no new Jev call is made. A synced Version takes the fast path into `reconcileStoredScanPolicy`, which re-evaluates only scan findings and returns early when both scans are nil.
 - **Branch sources.** `persistAgentBlock` sets `branchPhase=Rejected` on `JevBlocked:`. `reconcileBranchPreflight` returns done for `Rejected && spec.version == ""` (branch_version.go, around line 139). An exemption added after the block can never be seen (see D6).
-- **Critical-only detection.** When `Error == ""`, `riskLevel` is Critical, and there is exactly one block reason, the Critical reason is the only one. Every other blocked path either sets `Error` or adds more reasons, and the aggregate `RiskLevel` is the worst scored part, the same set the gate checks.
+- **Exemptibility.** Superseded by `jevExemptible` (Step 4). Every Jev block reason is exemptible (Q1 to Q3), so no Critical-only check is needed.
 - **RBAC.** The server write path (`services/server/policy_api.go`) is gated by the `--policy-management-enabled` flag, by authenticated access, and by `SecurityGroupBinding`: namespaces, `namespaceWidePolicyManagement` for policies with a selector or with no targetRefs, and per-resource scope for targetRefs. The `GroupBinding.scanPolicyManagement` and `scanPolicyNamespaces` fields cited in the brief are not what `policy_api.go` checks. `decodeAndValidateScanPolicy` decodes into the shared Go type with `DisallowUnknownFields`, so the new field is accepted once types.go has it. No new permission is needed. The version controller already has `get;list;watch` on scanpolicies.
 - **UI data loss.** `services/ui/src/components/security-policies/SecurityPoliciesSurface.tsx` `policyToMutation` copies only priority, selector, targetRefs, severityThreshold and exemptions. A UI edit followed by a PUT would silently delete `jevExemptions`.
 - **Generators.** `make -C api/v1alpha1 generate manifests` regenerates the deepcopy file and writes CRDs straight into `chart/opendepot/crds/`. `make -C services/version manifests` writes `services/version/config/crd/bases` and copies them into the chart.
@@ -53,7 +53,7 @@ Rejected branch Versions can be re-opened under four explicit conditions.
     - The docs recommend always setting `expires`.
     - The audit trail shows "no expiry": the Event message, `syncStatus`, and the JevPanel chip.
     - The ScanPolicy status counts list a no-expiry entry as active.
-- **D2. Scope is the Critical block AND the JevPolicy threshold reasons, for the exact digest only.** When a matching exemption exists, all policy-gate block reasons on that digest's assessment are cleared. The digest must match. Interaction with the status fields:
+- **D2. Scope is every Jev block reason, for the exact digest only.** When a matching exemption exists, all block reasons on that digest's assessment are cleared (verdict and coverage, per Q1 and Q2). The digest must match. Interaction with the status fields:
   - `blocked` becomes false.
   - `blockReasons` is left unchanged. On an exempted assessment it is the list of the reasons that were cleared.
   - `exempted`, `exemptedBy`, `exemptionReason` and `exemptionExpires` record who cleared them and why.
@@ -63,45 +63,43 @@ Rejected branch Versions can be re-opened under four explicit conditions.
     - `syncStatus`, which names the policy and the number of reasons cleared
     - a Kubernetes Event, `JevExemptionApplied` or `JevExemptionRevoked`, emitted on each transition (Step 6)
     - a controller info log
-  - Which reasons count as "threshold reasons" and which never clear: see Q1 to Q3.
+  - Every block reason clears (Q1, Q2 and Q3 are yes). The audit trail lists which reasons were cleared.
 - **D3. needsReview: YES.** A Critical risk level sets `needsReview=true`, including when the source has no JevPolicy. This is an explicit, documented behavior change (Step 3, the docs, and the upgrade note). It stays true on an exempted assessment because it is the raw Jev signal.
 - **D4. Digest form:** lowercase hex SHA-256 of the packed archive, 64 characters, with exact matching. It is stored on `status.jevAssessment.contentDigest`. It is validated by the CRD pattern `^[0-9a-f]{64}$` and by the server payload validation. It equals hex(base64-decode(`status.checksum`)).
 - **D5. Status counts: YES.** Add `activeJevExemptions` and `expiredJevExemptions` to ScanPolicyStatus. `nextExpiry` includes Jev expiries. The existing counts and printcolumns are not changed.
 - **D6. Branch re-open: YES.** It is allowed only when all four conditions hold, taken as written (see Step 7 and Q4):
   1. The Version is Rejected and unassigned, and `syncStatus` starts with `JevBlocked:`.
-  2. Critical was the only block reason (`jevCriticalOnly`).
+  2. Every block reason is exemptible (`jevExemptible`, Step 4). This follows the rev 2 review answer that widened Q4. It is provisional; see Q4.
   3. `status.jevAssessment.contentDigest` is recorded.
   4. The winning ScanPolicy has an unexpired jevExemption for that digest.
 - **D7. Re-block on expiry or removal: YES, for published Versions.** The stored-policy path sets `synced=false` and `syncStatus` to `JevBlocked: …`, and emits `JevExemptionRevoked`. It does not change `branchPhase` on assigned Versions.
 - **D8. UI.** Required: pass `jevExemptions` through `policyToMutation` and the TS types. JevPanel shows `contentDigest` with CopyButton, plus an "Exempted by <policy>" chip. Creating exemptions in the UI is out of scope.
 
 ## Resolved in the user's review (supersedes the provisional choices below)
-- **Q1 (incomplete coverage):** never cleared. Errors, skipped files, token limits, Jev disabled, and exhausted retries are never exempted. A Version with a Critical reason plus a token-limit reason stays blocked.
+- **Q1 (coverage reasons):** yes, cleared too. Errors, skipped files, token limits, Jev disabled, and exhausted retries are exemptible, the same as verdict reasons.
+- **Q2:** yes. A block caused only by a score limit can be exempted, the same as a Critical block.
 - **Q4 (branch re-open):** widened. A Rejected branch Version re-opens when a matching exemption exists and the exemption can clear every block reason. Critical-only is no longer required.
 - **Q5 (Events RBAC):** approved. Keep Step 6 and add `create` and `patch` on `events`.
-- **Q2, Q3, Q6, Q7:** provisional choices stand (threshold-only blocks are exemptable; minConfidence counts as a threshold reason; the exemption is digest-only; no new review-queue surface).
+- **Q3, Q6:** confirmed yes. minConfidence counts as a threshold reason, and the exemption is digest-only (documented as a risk).
+- **Q7:** a new view for items that need review. It opens from a drawer component and lists every item where `needsReview` is true. This is new UI scope beyond Step 10.
 
 ## Still Undecided (provisional choice in brackets; the Developer proceeds with it unless the user says otherwise)
-- **Q1. Do "all Jev block reasons" include the non-gate reasons?** Your answer said both "all Jev block reasons for that digest are cleared" and "Critical AND threshold reasons". The earlier Option B text said "never error, incomplete, skipped or token-limit reasons".
-  - [Provisional: never clear the non-gate reasons: error, incomplete, skipped files, token limit, Jev disabled, retries exhausted. An exemption is valid only when Jev scored every part of the content. A Version with a Critical reason plus a token-limit reason stays blocked.]
-  - If you want these cleared too, that means approving content Jev never fully saw. It also needs Reconcile changes, because those paths return an error from `runAgentJev` before the `Blocked` check.
-- **Q2. Can a threshold-only block (no Critical reason, for example High plus maxDestructiveProbability) be exempted?**
-  - [Provisional: yes. A less severe verdict should not be harder to exempt than a Critical one.]
-  - The alternative is to require a Critical reason to be present.
+- **Q1. Coverage reasons.** Resolved: yes, exemptible (see Resolved above). Reconcile must apply the overlay even when `runAgentJev` returns an error, as long as an assessment with a digest exists (Step 5).
+- **Q2. Should a block caused only by a score limit be exemptible?**
+  - Jev gives each Version an overall risk level (Low, Medium, High, Critical). It also gives a score per category, such as destructive or injection probability. Your JevPolicy sets a limit for each score.
+  - Example: a skill is rated High overall, and its destructive score is 0.7 against a limit of 0.5. Nothing is Critical. The only block is the score limit.
+  - Resolved: yes (see Resolved above).
 - **Q3. Is the minConfidence reason a "threshold reason"?**
-  - [Provisional: yes. It is a JevPolicy field, and `needsReview` stays true, so a human still sees it.]
-- **Q4. Conflict between D6 and D2.** D6 condition 2 requires Critical to be the *only* block, but D2 also clears threshold reasons. So a Rejected branch Version blocked by Critical plus maxDestructiveProbability would *not* re-open, while the same content from a tag source would be exempted.
-  - [Provisional: implement D6 as written, test and document the gap.]
-  - Should condition 2 widen to "every block reason is exemptible" (the same predicate as Step 4)? I did not resolve this myself because you asked to keep the four conditions explicit.
+  - Confirmed: yes (see Resolved above).
+- **Q4. Branch re-open scope.** D6 condition 2 is widened to "every block reason is exemptible" (Step 4 `jevExemptible`), following the rev 2 review answer. Without this, a Rejected branch Version blocked by Critical plus a threshold reason could not re-open, while the same content from a tag source could be exempted.
+  - [Provisional: widened, as above. Confirm this still stands.]
 - **Q5. Kubernetes Events need new RBAC:** `create` and `patch` on `events` for the version controller, in the Helm template and the kubebuilder marker.
   - [Provisional: add it (Step 6).]
   - The alternative is to audit through status, `syncStatus` and logs only, and drop Step 6.
 - **Q6. Should an exemption also pin the reasons or the risk level it covers?** It is bound only to the digest. If the source JevPolicy is tightened later and the Version is force-synced, the same exemption also clears the new threshold reasons.
-  - [Provisional: digest only, documented as a risk.]
-  - A follow-up could add an optional cap, for example `maxRiskLevel`.
+  - Confirmed: yes, digest only (see Resolved above). A follow-up could add an optional cap, for example `maxRiskLevel`.
 - **Q7. Review queue.** I found no review-queue UI. `needsReview` is shown on the assessment and in JevPanel.
-  - [Provisional: no new review-queue surface.]
-  - Confirm, or tell me where the queue lives.
+  - Resolved: a new view with a drawer component lists every item where `needsReview` is true (see Resolved above).
 
 ## Affected Services
 - `api/v1alpha1`: a new type, new ScanPolicySpec and ScanPolicyStatus fields, and new JevAssessment fields.
@@ -121,7 +119,7 @@ Rejected branch Versions can be re-opened under four explicit conditions.
 
 ## API / CRD Changes (`api/v1alpha1/types.go`)
 New type, placed after `ScanExemption`:
-- `JevExemption`. Doc: "clears the Jev policy-gate block (the Critical risk level and JevPolicy threshold reasons) for one exact archive. It never clears incomplete, error, skipped-file or token-limit reasons."
+- `JevExemption`. Doc: "clears every Jev block reason (verdict and coverage) for one exact archive."
   - `ContentDigest string` with `json:"contentDigest"`. Markers: `+kubebuilder:validation:Required` and ``+kubebuilder:validation:Pattern=`^[0-9a-f]{64}$` ``. Doc: lowercase hex SHA-256 of the Version archive, copied from `status.jevAssessment.contentDigest`.
   - `Reason string` with `json:"reason"`. Markers: `+kubebuilder:validation:Required` and `+kubebuilder:validation:MinLength=1`.
   - `Expires *metav1.Time` with `json:"expires,omitempty"` and `+optional` (D1). Doc: when omitted, the exemption never expires and stays valid until the archive content changes. Setting it is recommended.
@@ -178,13 +176,12 @@ New type, placed after `ScanExemption`:
   - Priority shadowing: Select plus Resolve, where a lower-priority policy holds the matching entry, gives no Jev exemption.
   - CountJevExemptions handles a mix of nil, future and past expiries.
 
-### Step 3: Gate reason constants, exemptibility classifier, and needsReview (D2, D3)
+### Step 3: needsReview (D3)
 - **Depends on:** none
 - **Files:**
   - `services/version/internal/controller/agent_jev_aggregate.go`
   - `services/version/internal/controller/agent_jev_aggregate_test.go`
-- Move each `evaluateJevPartsGate` reason format into a named prefix constant plus format string. There are ten: Critical, the eight thresholds, and minConfidence. Steps 4 and 7 match on these prefixes, so the text cannot drift. Keep the reason text byte-identical, because stored assessments already contain it.
-- Add `isJevGateReason(reason string) bool`. It returns true when the reason starts with one of the ten prefixes. The set is per Q1 and Q3 (provisional: all ten).
+- No reason classifier is needed, because every Jev block reason is exemptible (Q1, Q2, Q3). Do not change the reason text, because stored assessments already contain it.
 - D3 behavior change: set `needsReview = true` when a Critical part is found. This also applies when `policy == nil`, so the nil-policy early return must return true when Critical was found. Update the function's doc comment.
 - Keep the `evaluateJevPartsGate` signature unchanged, because `agent_jev_harness.go` (build tag `jevharness`) calls it. Check whether the harness reads `needsReview` and report what you find.
 - Tests:
@@ -194,13 +191,7 @@ New type, placed after `ScanExemption`:
     - High with no minConfidence breach stays false.
     - A minConfidence breach without Critical still gives true.
     - Update existing tests that expect `false` for Critical.
-  - A table test: every reason `evaluateJevPartsGate` can emit (all ten) is classified by `isJevGateReason`.
-  - These non-gate strings are not gate reasons:
-    - a "jev assessment incomplete: …" reason
-    - a "part 1: …" token-limit reason
-    - `jevDisabledError`
-    - a "read jev secret …" error
-  - A reason text regression test pins the exact strings.
+  - A reason text regression test pins the exact `evaluateJevPartsGate` strings, because stored assessments already contain them.
 
 ### Step 4: Digest stamping and the exemption overlay (D2)
 - **Depends on:** 1, 2, 3
@@ -208,24 +199,10 @@ New type, placed after `ScanExemption`:
   - `services/version/internal/controller/agent_jev.go`
   - `services/version/internal/controller/agent_jev_test.go`
 - In `runAgentJev`, set `assessment.ContentDigest = content.checksum` on every fresh assessment built after content is known:
-  - The scored path is mandatory.
-  - The layout-over, skipped, split-error and incomplete paths are recommended, for display only.
+  - Every path stamps it, wherever content is known, because coverage reasons are exemptible (Q1). The Developer must check that the Jev-disabled path produces an assessment object. If it does not, stop and report instead of creating one.
   - Never stamp a cached assessment on reuse.
   - A legacy assessment with no digest cannot be exempted until it has had one forceSync.
-- Add `jevCriticalOnly(a) bool`. Only Step 7 (D6) uses it. It returns true when all of these hold:
-  - `Error == ""`
-  - `RiskLevel` equals Critical (case-insensitive)
-  - `len(BlockReasons) == 1`
-  - the reason has the Critical prefix
-- Add `jevExemptible(a) bool`, the D2 predicate. It returns true when all of these hold:
-  - `a.Error == ""`
-  - `len(a.BlockReasons) >= 1`
-  - every reason satisfies `isJevGateReason` (Q1, Q3)
-  - `a.ChunkCount > 0`
-  - `a.AssessedChunks == a.ChunkCount`
-  - `a.SkippedFileCount == 0`
-
-  It does not require a Critical reason (Q2, provisional). The last three conditions are defense in depth: they make sure Jev scored every part.
+- Add `jevExemptible(a) bool`, the D2 predicate. It returns true when `len(a.BlockReasons) >= 1` and `a.ContentDigest != ""`. Q1 and Q2 make every Jev block reason exemptible, so no reason-text or scoring checks are needed. Step 7 (D6) reuses it.
 - Add the pure function `applyJevExemption(a *JevAssessment, resolved policy.Resolved, digest string) *JevAssessment`. It returns a deep copy and never changes the input, because the cached value points into the Version status.
   - When the assessment is not exemptible: clear any stale exemption fields and leave `Blocked` unchanged.
   - When it is exemptible, `a.ContentDigest != ""`, `a.ContentDigest == digest`, and `resolved.JevExemptionFor(digest)` is non-nil:
@@ -238,7 +215,7 @@ New type, placed after `ScanExemption`:
   - **Threshold-reason clearing (D2).** Critical plus maxDestructiveProbability plus maxRiskScore with a match: `Blocked=false`, all three reasons stay in `BlockReasons`, and `Exempted=true`.
   - **Threshold-only (Q2).** High plus maxDestructiveProbability with a match is unblocked.
   - **minConfidence (Q3).** Critical plus minConfidence with a match is unblocked, and `NeedsReview` stays true.
-  - **Never cleared (Q1).** These stay blocked even with a matching exemption:
+  - **Coverage reasons (Q1).** These are cleared with a matching exemption, the same as verdict reasons:
     - Critical plus a token-limit reason
     - a part failure (`Error` set, with gate reasons appended)
     - skipped files
@@ -260,8 +237,8 @@ New type, placed after `ScanExemption`:
 - **Files:**
   - `services/version/internal/controller/opendepot_versions_controller.go`
   - `services/version/internal/controller/agent_versions_test.go`
-- After `runAgentJev` returns with `jevErr == nil` and a non-nil assessment, apply `applyJevExemption(jevAssessment, resolvedPolicy, content.checksum)` before the `Blocked` check.
-  - When `jevErr != nil`, which covers the incomplete paths, no overlay is applied. This matches Q1.
+- After `runAgentJev` returns a non-nil assessment, with or without `jevErr`, apply `applyJevExemption(jevAssessment, resolvedPolicy, content.checksum)` before the `Blocked` check.
+  - When no assessment is returned, there is nothing to exempt and the Version stays blocked or retries.
   - When the assessment is exempted, log at info level with the policy name, the digest, the number of reasons, and the expiry ("never" when there is none).
 - The existing `resolvedPolicy.NextExpiry` requeue then covers Jev expiry. Entries without an expiry never requeue.
 - In `reconcileStoredScanPolicy` (the published fast path):
@@ -277,7 +254,7 @@ New type, placed after `ScanExemption`:
   - With no policy, Critical stays blocked and `needsReview` is true (D3).
   - With a matching exemption on a Critical-only block: synced, the exemption fields are set, and `syncStatus` names the policy.
   - **D2:** with a matching exemption on Critical plus threshold reasons (stub Jev so maxDestructiveProbability and maxRiskScore also breach): synced, `blockReasons` keeps all reasons, `blocked=false`.
-  - With a matching exemption when one part hits the token limit: still blocked (Q1).
+  - With a matching exemption when one part hits the token limit: unblocked (Q1).
   - An expired exemption: blocked. An exemption without an expiry: synced.
   - Priority shadowing: blocked.
   - A digest mismatch: blocked.
@@ -286,7 +263,7 @@ New type, placed after `ScanExemption`:
     - The exemption expires: re-blocked after the NextExpiry requeue.
     - The winning policy switches to another one with the same digest: it stays synced, and `exemptedBy` is updated.
 
-### Step 6: Kubernetes Events for exemption audit (only if Q5 is accepted)
+### Step 6: Kubernetes Events for exemption audit (Q5 approved)
 - **Depends on:** 5
 - **Files:**
   - `services/version/internal/controller/opendepot_versions_controller.go`
@@ -301,14 +278,14 @@ New type, placed after `ScanExemption`:
 - Add a kubebuilder RBAC marker for `events` with `create;patch` in the group the recorder uses. Add the same rule to the top-level `rules` in `version-rbac.yaml`. That block feeds both the Role (`scopeToNamespace`) and the ClusterRole variants.
 - Tests: a fake recorder records exactly one Applied event on the first exempt reconcile, none on a second identical reconcile, and one Revoked event after removal.
 
-### Step 7: Re-open Rejected branch Versions (D6, as written; see Q4)
+### Step 7: Re-open Rejected branch Versions (D6, widened per Q4)
 - **Depends on:** 4
 - **Files:**
   - `services/version/internal/controller/branch_version.go`
   - `services/version/internal/controller/branch_version_test.go`
 - In `reconcileBranchPreflight`, skip the `Rejected && spec.version == ""` short-circuit only when all four D6 conditions hold:
   1. `syncStatus` starts with `JevBlocked:`
-  2. `jevCriticalOnly(status.jevAssessment)` is true
+  2. `jevExemptible(status.jevAssessment)` is true
   3. `status.jevAssessment.contentDigest` is not empty
   4. `r.resolveScanPolicy(...)` gives a winner whose `JevExemptionFor(contentDigest)` is not nil
 - On a match, return not-done so the normal sibling, superseded and Jev-ref checks run.
@@ -319,7 +296,7 @@ New type, placed after `ScanExemption`:
   - Rejected by Jev with no exemption: stays terminal.
   - Rejected by Jev (Critical only) with a matching exemption: proceeds.
   - Rejected by Jev with an expired exemption: stays terminal.
-  - **Q4 gap, pinned:** Rejected by Jev for Critical plus a threshold reason, with a matching exemption: stays terminal.
+  - Rejected by Jev for Critical plus a threshold reason, with a matching exemption: proceeds (Q4, provisional).
   - Superseded still wins.
 
 ### Step 8: ScanPolicy status counts and expiry requeue (D5)
@@ -367,6 +344,7 @@ New type, placed after `ScanExemption`:
     - Show `blockReasons` under an "Exempted block reasons" label, not as active blocks.
   - Keep the needsReview indicator, which now appears for Critical (D3).
 - Check whether any component treats a non-empty `blockReasons` as blocked. If one does, switch it to `blocked`.
+  - Q4 (rev 4): the widened re-open rule means a Rejected branch Version can be re-opened for any exemptible block. The UI shows a re-open state only as the Version's own status. No new UI for re-open is required.
 - Tests:
   - A loaded policy with jevExemptions keeps them in the PUT body and in the YAML preview, including one entry without `expires`.
   - The digest renders, and the copy button copies it.
@@ -375,26 +353,27 @@ New type, placed after `ScanExemption`:
   - Exempted reasons are not shown as active blocks.
 
 ### Step 11: Docs
-- **Depends on:** 5, 6, 7, 8, 9, 10
+- **Depends on:** 5, 6, 7, 8, 9, 10, 13
+- **Owner:** OpenDepot Documentation agent, run after all code steps and before the single Code Review pass. The Developer does not write docs.
 - **Files:**
   - `docs/configuration/scanning.md` (ScanPolicy section; there is no separate ScanPolicy guide under docs/guides)
   - `docs/guides/agents.md` (Jev section)
   - `docs/upgrading.md`
   - `docs/reference/api.md` (only if it documents ScanPolicySpec, ScanPolicyStatus or JevAssessment fields)
-  - `docs/reference/rbac/controller-permissions.md` (the events rule, only if Step 6 lands)
+  - `docs/reference/rbac/controller-permissions.md` (the events rule, Step 6)
+  - UI docs for the review queue (Step 13) only if an existing docs page already documents the Jev panel or Security Policies page. `docs/reference/` has no UI page, so do not create one.
 - Cover:
   - How to read `status.jevAssessment.contentDigest`, with a kubectl jsonpath example, and how it relates to `status.checksum`.
   - A jevExemptions example with a placeholder digest, a reason, and `expires`. Also show that `expires` is optional, with a warning that an exemption without it stays valid until the content changes. Recommend always setting it.
-  - The D2 scope:
-    - which reasons are cleared: Critical, the eight thresholds, and minConfidence
-    - which are never cleared: errors, incomplete, skipped files, token limit, Jev disabled
+  - The scope:
+    - every Jev block reason is cleared: verdict reasons (Critical, the eight thresholds, minConfidence) and coverage reasons (errors, incomplete, skipped files, token limit, Jev disabled)
     - an exempted assessment keeps `blockReasons` with `blocked=false`
     - where to audit: the status fields, `syncStatus`, Events, and the ScanPolicy counts
   - The exemption covers whatever gate reasons exist for that digest, including reasons added later when the JevPolicy is tightened (Q6).
   - Priority shadowing.
   - Re-blocking published Versions on expiry or removal (D7).
   - A legacy assessment needs one forceSync to get a digest.
-  - Branch sources: the four re-open conditions, and the Q4 gap (a Critical plus threshold block on a Rejected branch Version needs a new commit) unless Q4 is changed.
+  - Branch sources: the four re-open conditions.
   - **Behavior change (D3):** Critical now sets `needsReview`.
   - **Upgrade note:** Helm does not upgrade CRDs, so run `kubectl apply -f chart/opendepot/crds/` before upgrading. Mention the D3 needsReview change and the new events RBAC.
 - Do not add sample skill content (no conventional-commit text).
@@ -410,20 +389,41 @@ New type, placed after `ScanExemption`:
   - `helm template chart/opendepot > /dev/null`, rendered with both `rbac.scopeToNamespace=true` and `false`, to check the RBAC template.
   - UI: the existing vitest, lint and typecheck scripts from `services/ui/package.json`, scoped to the changed components.
 
+### Step 13: Needs-review queue view (UI, Q7)
+- **Depends on:** 1 (types), 10 (types and JevPanel)
+- **Owner:** OpenDepot UI Developer agent only.
+- **Files:** a new drawer component and its test under `services/ui/src/components/`, the wiring in the existing top-level navigation or page that matches current patterns, and any API helper needed in `services/ui/src/lib/api.ts`.
+- Behavior (from the user's Q7 answer):
+  - A new "Needs review" view opens from a drawer component.
+  - The drawer lists every Skill and Agent Version whose `status.jevAssessment.needsReview` is `true`. That is the queue. No new server field is added.
+  - Each row shows the item name, namespace, kind (Skill or Agent), risk level, whether it is blocked, whether it is exempted, and a link to its detail page.
+  - The UI Developer picks the entry point (button or nav item) to match existing patterns, and records the choice in the final report.
+  - An empty state says there are no items that need review.
+- Tests: rows appear only for `needsReview === true`; an exempted item still appears (D3, needsReview is not changed by an exemption); the empty state renders.
+- Playwright e2e for the drawer runs on the isolated Kind cluster after the backend e2e has finished (see the E2E section).
+
 ## E2E Test Changes
-- No e2e is required. Jev needs the TypeSafe endpoint, and the controller paths are covered by Reconcile-level tests.
-- If `services/agent/test/e2e` or `services/version/test/e2e` already has a Jev stub that can return Critical, add one focused scenario:
+- E2E is required for this change (user instruction, rev 4). Reconcile-level tests are not enough on their own.
+- Developer (backend) uses the opendepot-testing skill to choose the focused tier. It must use an existing Jev stub in `services/agent/test/e2e` or `services/version/test/e2e`, or add a minimal one that returns Critical and the threshold breaches needed for Step 4 and Step 5 scenarios. Add one focused scenario:
   1. The Version is Critical-blocked, and `needsReview` is true.
   2. Read `contentDigest`.
   3. Apply a ScanPolicy with a jevExemption that has no `expires`.
   4. The Version syncs, and `exempted` is true.
   5. Remove the entry. The Version is re-blocked.
-- Run only with `E2E_FOCUS` on an isolated Kind cluster name, never on the shared `opendepot` cluster.
+- Run only with `E2E_FOCUS` on an isolated Kind cluster name (for example `KIND_CLUSTER=jev-exempt-e2e KEEP_KIND=1`), never on the shared `opendepot` cluster. Delete only that cluster when done.
+- UI (Step 13 and Step 10): Playwright e2e for the review drawer and the exemption display runs after the backend e2e has finished, on its own isolated cluster name (for example `KIND_CLUSTER=jev-exempt-ui`), and that cluster is deleted when done. The two Kind runs do not overlap.
 
 ## Helm Chart
 - The regenerated CRDs in `chart/opendepot/crds/` (Step 1). Helm does not upgrade CRDs, so the upgrade note in Step 11 is required.
 - One new RBAC rule in `templates/version-rbac.yaml`: `events` with `create` and `patch` (Step 6, Q5). Add it to the shared rules block so both the Role and the ClusterRole variants get it.
 - No values, chart version or appVersion changes.
+
+## Decisions recorded in rev 4 (autopilot, from the user's request to proceed)
+- Q4 proceeds in the widened form (D6 condition 2 uses `jevExemptible`). Reported as a risk for the user's final review.
+- Q5 approved: events `create` and `patch`.
+- Q7 review queue added as Step 13.
+- E2E is required. Developer and UI Developer each run focused e2e on an isolated Kind cluster.
+- Changes are left uncommitted for the user's final review. The Developers do not commit.
 
 ## Constraints for the Developer
 - Never run `go build` in the 32Mi sidecar. Use `go build -o /dev/null` or `go vet`.
@@ -440,15 +440,14 @@ New type, placed after `ScanExemption`:
    - Mitigations:
      - The exemption is digest-bound.
      - It is limited to the winning policy.
-     - Non-gate reasons are never cleared (Q1).
-     - The scored-every-part checks in `jevExemptible`.
      - `blockReasons` is retained, plus Events, and `needsReview` stays true.
+   - **Coverage risk (Q1):** a Jev-disabled, failed or token-limited Version can be published with no Jev verdict on its content. The admin accepts that by setting the entry.
    - **Residual risk:** the exemption is not bound to the reasons it was granted for. If the JevPolicy is tightened later and the Version is force-synced, the same exemption also clears the new reasons (Q6).
 2. **D1 allows permanent exemptions.** An exemption without `expires` stays valid until the content changes. The Version stays published with no forced re-review. If the policy author never revisits it, nothing re-blocks the Version.
    - Mitigations: the docs recommend `expires`, "never" is shown in the status, Events and UI, and the active count.
    - Expiry is not enforced.
 3. **D3 changes behavior.** `needsReview` becomes true for every Critical assessment, including ones with no JevPolicy and ones that are exempted. Any dashboards, alerts or consumers that key on `needsReview` will see more entries. This is called out in the upgrade note.
-4. **D6 and D2 are inconsistent (Q4).** A Rejected branch Version blocked by Critical plus a threshold reason cannot be re-opened, while the same content from a tag source can be exempted.
+4. **Branch re-open scope (Q4).** Re-open is widened to every block reason. The user's rev 2 review answered this. Reported for the final review.
 5. **The UI editor drops `jevExemptions` on save** unless Step 10 lands. This is silent data loss. Ship Step 10 together with Steps 1 to 5.
 6. **Cache reuse is not content-bound.** Cached assessments are reused without comparing content. This is pre-existing. It is mitigated here because the exemption requires the stamped digest to equal the current digest. Legacy assessments need one forceSync, which costs Jev tokens.
 7. **Digest stability depends on the toolchain.** The digest depends on the Go `compress/flate` output and on the packing code. A Go upgrade or an archive change re-blocks exempted Versions. This fails closed and must be documented.

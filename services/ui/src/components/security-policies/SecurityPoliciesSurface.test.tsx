@@ -151,6 +151,35 @@ describe("SecurityPoliciesSurface", () => {
     expect(screen.queryByRole("link", { name: "Create policy" })).toBeNull();
   });
 
+  it("keeps Jev exemptions, including entries without expires, when saving an edited policy", async () => {
+    const jevPolicy = {
+      ...policy,
+      spec: {
+        ...policy.spec,
+        jevExemptions: [
+          { contentDigest: "sha256:aaa", reason: "Reviewed by security", expires: "2027-01-01T00:00:00Z" },
+          { contentDigest: "sha256:bbb", reason: "Vendor attested" },
+        ],
+      },
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ items: [jevPolicy] }))
+      .mockResolvedValueOnce(jsonResponse(capabilities))
+      .mockResolvedValueOnce(jsonResponse(jevPolicy))
+      .mockResolvedValueOnce(jsonResponse(jevPolicy));
+
+    render(<SecurityPoliciesSurface mode="edit" namespace="platform" name="baseline" catalog={catalog} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(JSON.parse(String(put?.[1]?.body)).spec.jevExemptions).toEqual([
+      { contentDigest: "sha256:aaa", reason: "Reviewed by security", expires: "2027-01-01T00:00:00Z" },
+      { contentDigest: "sha256:bbb", reason: "Vendor attested" },
+    ]);
+  });
+
   it("preserves the edit draft and reports an optimistic-concurrency conflict", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ items: [policy] }))

@@ -18,15 +18,20 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -309,3 +314,161 @@ var _ = Describe("Branch Version sourcing", func() {
 		Expect(thirdCurrent.Spec.Version).To(Equal("1.1.0"))
 	})
 })
+
+// TestBranchPreflightJevExemptionReopens covers Step 7: a Rejected branch Version re-opens only for a live Jev
+// exemption on its stored digest, and a newer sibling still supersedes it.
+func TestBranchPreflightJevExemptionReopens(t *testing.T) {
+	const parent = "jev-branch"
+	now := time.Now()
+	digest := jevExemptTestDigest
+	criticalReason := "part skills/agent is rated Critical risk, which always blocks"
+	thresholdReason := "destructive probability 0.90 exceeds the policy limit of 0.01"
+	pastExpiry := metav1.NewTime(now.Add(-time.Hour))
+	futureExpiry := metav1.NewTime(now.Add(time.Hour))
+
+	newBranch := func(name, sha string, created time.Time) *opendepotv1alpha1.Version {
+		return &opendepotv1alpha1.Version{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(created),
+				Labels:            map[string]string{"opendepot.defdev.io/skill": parent},
+			},
+			Spec: opendepotv1alpha1.VersionSpec{
+				Type:         opendepotv1alpha1.OpenDepotSkill,
+				SourceCommit: sha,
+				AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{
+					Name:      ptr.To(parent),
+					RepoOwner: "example",
+					Path:      "skills/" + parent,
+					Ref:       ptr.To("main"),
+				},
+			},
+		}
+	}
+
+	jevRejected := func(reasons ...string) *opendepotv1alpha1.JevAssessment {
+		return &opendepotv1alpha1.JevAssessment{Blocked: true, BlockReasons: reasons, ContentDigest: digest}
+	}
+
+	tests := []struct {
+		name       string
+		syncStatus string
+		assessment *opendepotv1alpha1.JevAssessment
+		policies   []*opendepotv1alpha1.ScanPolicy
+		newerSib   bool
+		wantDone   bool
+		wantPhase  string
+	}{
+		{
+			name:       "scan violation stays terminal",
+			syncStatus: "Scan policy violation: blocking: CRITICAL vulnerability",
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, digest, nil)},
+			wantDone:   true,
+			wantPhase:  branchPhaseRejected,
+		},
+		{
+			name:       "Jev block with no exemption stays terminal",
+			syncStatus: "JevBlocked: " + criticalReason,
+			assessment: jevRejected(criticalReason),
+			wantDone:   true,
+			wantPhase:  branchPhaseRejected,
+		},
+		{
+			name:       "Jev block with an exemption for another digest stays terminal",
+			syncStatus: "JevBlocked: " + criticalReason,
+			assessment: jevRejected(criticalReason),
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, jevExemptTestOther, nil)},
+			wantDone:   true,
+			wantPhase:  branchPhaseRejected,
+		},
+		{
+			name:       "Critical with a matching exemption proceeds",
+			syncStatus: "JevBlocked: " + criticalReason,
+			assessment: jevRejected(criticalReason),
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, digest, nil)},
+			wantDone:   false,
+		},
+		{
+			name:       "Critical with an expired exemption stays terminal",
+			syncStatus: "JevBlocked: " + criticalReason,
+			assessment: jevRejected(criticalReason),
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, digest, &pastExpiry)},
+			wantDone:   true,
+			wantPhase:  branchPhaseRejected,
+		},
+		{
+			name:       "Critical plus a threshold reason with a matching exemption proceeds",
+			syncStatus: "JevBlocked: " + criticalReason + "; " + thresholdReason,
+			assessment: jevRejected(criticalReason, thresholdReason),
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, digest, &futureExpiry)},
+			wantDone:   false,
+		},
+		{
+			name:       "superseded still wins over a matching exemption",
+			syncStatus: "JevBlocked: " + criticalReason,
+			assessment: jevRejected(criticalReason),
+			policies:   []*opendepotv1alpha1.ScanPolicy{jevExemptPolicy("release", 0, digest, nil)},
+			newerSib:   true,
+			wantDone:   true,
+			wantPhase:  branchPhaseRejected,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := opendepotv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatalf("AddToScheme: %v", err)
+			}
+
+			version := newBranch("jev-branch-skill-a", testBranchSHAOne, now.Add(-2*time.Hour))
+			version.Spec.Version = ""
+			version.Status.BranchPhase = branchPhaseRejected
+			version.Status.SyncStatus = tt.syncStatus
+			version.Status.JevAssessment = tt.assessment
+
+			objects := []client.Object{version}
+			for _, policy := range tt.policies {
+				objects = append(objects, policy)
+			}
+
+			if tt.newerSib {
+				objects = append(objects, newBranch("jev-branch-skill-b", testBranchSHATwo, now))
+			}
+
+			reconciler := &VersionReconciler{
+				Client:                fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithStatusSubresource(&opendepotv1alpha1.Version{}).Build(),
+				Log:                   logr.Discard(),
+				BranchSourcingEnabled: true,
+			}
+
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: version.Name, Namespace: "default"}}
+			done, _, err := reconciler.reconcileBranchPreflight(context.Background(), req, version)
+			if err != nil {
+				t.Fatalf("reconcileBranchPreflight: %v", err)
+			}
+
+			if done != tt.wantDone {
+				t.Fatalf("done = %t; want %t", done, tt.wantDone)
+			}
+
+			if tt.wantPhase == "" {
+				return
+			}
+
+			stored := &opendepotv1alpha1.Version{}
+			if err := reconciler.Get(context.Background(), req.NamespacedName, stored); err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+
+			if stored.Status.BranchPhase != tt.wantPhase {
+				t.Fatalf("BranchPhase = %q; want %q", stored.Status.BranchPhase, tt.wantPhase)
+			}
+
+			if tt.newerSib && !strings.HasPrefix(stored.Status.SyncStatus, "Superseded:") {
+				t.Fatalf("SyncStatus = %q; want the superseded message", stored.Status.SyncStatus)
+			}
+		})
+	}
+}

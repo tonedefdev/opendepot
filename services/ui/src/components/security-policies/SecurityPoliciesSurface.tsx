@@ -91,7 +91,9 @@ const thresholdColors: Record<ScanSeverityThreshold, "error" | "warning" | "info
   LOW: "success",
   NONE: "default",
 };
-const accent = { primary: "#047df1", mint: "#03deb8", teal: "#04cfd0", amber: "#f59e0b" };
+// Count cards use StatCard's default brand accent. Exemptions match the exempted severity chips, and expired
+// exemptions use the warning color because they need attention.
+const accent = { exemption: "var(--mui-palette-secondary-main)", warning: "var(--mui-palette-warning-main)" };
 
 function emptyMutation(namespace = ""): ScanPolicyMutation {
   return {
@@ -117,6 +119,7 @@ function policyToMutation(policy: ScanPolicy): ScanPolicyMutation {
       targetRefs: policy.spec.targetRefs?.map((ref) => ({ ...ref })),
       severityThreshold: policy.spec.severityThreshold,
       exemptions: policy.spec.exemptions?.map((item) => ({ ...item })),
+      jevExemptions: policy.spec.jevExemptions ? structuredClone(policy.spec.jevExemptions) : undefined,
     },
   };
 }
@@ -330,10 +333,10 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
           </Stack>
           {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
           <Grid container spacing={2}>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Non-superseded" value={policies.filter((item) => !item.status?.supersededBy).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<VerifiedUserOutlinedIcon fontSize="small" />} accentColor={accent.mint} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Matching resources" value={policies.filter((item) => (item.status?.matchedVersions ?? 0) > 0).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<TrackChangesIcon fontSize="small" />} accentColor={accent.teal} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.primary} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Expired exemptions" value={policies.reduce((total, item) => total + (item.status?.expiredExemptions ?? 0), 0)} icon={<WarningAmberIcon fontSize="small" />} accentColor="#ef6c00" /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Non-superseded" value={policies.filter((item) => !item.status?.supersededBy).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<VerifiedUserOutlinedIcon fontSize="small" />} /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Matching resources" value={policies.filter((item) => (item.status?.matchedVersions ?? 0) > 0).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<TrackChangesIcon fontSize="small" />} /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid>
+            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Expired exemptions" value={policies.reduce((total, item) => total + (item.status?.expiredExemptions ?? 0), 0)} icon={<WarningAmberIcon fontSize="small" />} accentColor={accent.warning} /></Grid>
           </Grid>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "center" }} spacing={1.5} sx={{ mt: 5, mb: 2, pb: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
             <Stack direction="row" spacing={1} alignItems="center">
@@ -365,7 +368,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       </Box>
       <Grid container spacing={3} alignItems="flex-start">
       <Grid size={{ xs: 12, lg: 7 }}>
-      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} accentColor={accent.teal} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.amber} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ color: resolvedMode === "dark" ? "#fff" : undefined }} />}</Stack></Box>}
+      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ color: resolvedMode === "dark" ? "#fff" : undefined }} />}</Stack></Box>}
       <Box component="form" onSubmit={save}>
         {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
         {loading && isEdit ? <PolicyFormSkeleton /> : <Stack spacing={3}>
@@ -391,7 +394,7 @@ function PolicyFormSkeleton() {
   const sectionTitle = <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}><Skeleton variant="circular" width={20} height={20} /><Skeleton variant="text" width={180} height={24} /></Stack>;
   return (
     <Stack role="status" aria-label="Loading policy" spacing={3}>
-      <Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard loading label="Matched versions" value={0} icon={<TrackChangesIcon fontSize="small" />} accentColor={accent.teal} /></Grid><Grid size={{ xs: 6 }}><StatCard loading label="Active exemptions" value={0} sub=" " icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.amber} /></Grid></Grid>
+      <Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard loading label="Matched versions" value={0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard loading label="Active exemptions" value={0} sub=" " icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid>
       <Card><CardContent>{sectionTitle}<Stack spacing={2}><Skeleton variant="rounded" height={56} /><Stack direction={{ xs: "column", sm: "row" }} spacing={2}><Skeleton variant="rounded" height={56} sx={{ flex: 1 }} /><Skeleton variant="rounded" height={56} sx={{ flex: 1 }} /></Stack></Stack></CardContent></Card>
       <Card><CardContent>{sectionTitle}<Stack spacing={2}><Skeleton variant="rounded" height={56} /><Skeleton variant="text" width="40%" /><Skeleton variant="rounded" height={56} /></Stack></CardContent></Card>
       <Card><CardContent>{sectionTitle}<Skeleton variant="text" width="70%" /><Skeleton variant="rounded" height={120} sx={{ mt: 2 }} /></CardContent></Card>

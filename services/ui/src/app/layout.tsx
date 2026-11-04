@@ -10,7 +10,7 @@ import { COLOR_MODE_COOKIE } from "@/theme";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "OpenDepot",
+  title: "OpenDepot Workshop",
   description: "Browse Terraform modules and providers in your OpenDepot registry.",
 };
 

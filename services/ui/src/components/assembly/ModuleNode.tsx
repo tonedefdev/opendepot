@@ -21,7 +21,6 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import CloseIcon from "@mui/icons-material/Close";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { MODULE_COLOR } from "@/lib/kindColors";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { useColorScheme } from "@mui/material/styles";
@@ -216,7 +215,8 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     >
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <DepotKindIcon kind="module" sx={{ fontSize: 16, color: MODULE_COLOR }} />
+          {/* Mint in dark mode; the darker teal in light mode matches the for_each chip. */}
+          <DepotKindIcon kind="module" sx={{ fontSize: 16, color: "var(--od-assembly-module)" }} />
           <Typography variant="caption" color="text.secondary">
             module.
           </Typography>

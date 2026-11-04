@@ -117,12 +117,46 @@ spec:
                   - reason
                   type: object
                 type: array
+              jevExemptions:
+                description: |-
+                  The Jev block reasons that must not block reconciliation for one exact archive digest.
+                  Each entry clears every Jev block reason for its digest only.
+                items:
+                  description: JevExemption clears every Jev block reason (verdict
+                    and coverage) for one exact archive.
+                  properties:
+                    contentDigest:
+                      description: |-
+                        The lowercase hex SHA-256 of the Version archive, copied from status.jevAssessment.contentDigest.
+                        The exemption applies only while the archive content has this digest.
+                      pattern: ^[0-9a-f]{64}$
+                      type: string
+                    expires:
+                      description: |-
+                        The time at which this exemption stops applying. Once it has passed the Version blocks
+                        again. When omitted the exemption never expires and stays valid until the archive content
+                        changes.
+                      format: date-time
+                      type: string
+                    reason:
+                      description: The justification for this exemption, so that every
+                        exemption remains auditable.
+                      minLength: 1
+                      type: string
+                  required:
+                  - contentDigest
+                  - reason
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - contentDigest
+                x-kubernetes-list-type: map
               priority:
                 default: 0
                 description: |-
                   The precedence of this policy. When more than one ScanPolicy matches a Version the
                   policy with the highest priority wins outright and supplies both the severity
-                  threshold and the exemption set; lower priority policies are ignored entirely rather
+                  threshold, the exemption set and the Jev exemptions; lower priority policies are ignored entirely rather
                   than merged. Ties are broken by the oldest creation timestamp, then by name ascending.
                 type: integer
               selector:
@@ -228,6 +262,10 @@ spec:
               activeExemptions:
                 description: The number of exemptions that are currently in effect.
                 type: integer
+              activeJevExemptions:
+                description: The number of Jev exemptions that are currently in effect.
+                  Entries without an expiry count as active.
+                type: integer
               conditions:
                 description: The observed conditions of the ScanPolicy.
                 items:
@@ -288,6 +326,10 @@ spec:
               expiredExemptions:
                 description: The number of exemptions whose expiry has passed and
                   no longer apply.
+                type: integer
+              expiredJevExemptions:
+                description: The number of Jev exemptions whose expiry has passed
+                  and no longer apply.
                 type: integer
               matchedVersions:
                 description: The number of Version resources in this namespace currently

@@ -23,7 +23,8 @@ import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { DepotKindIcon, type DepotKind } from "@/components/DepotKindIcon";
-import { AGENT_COLOR, DEPOT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR } from "@/lib/kindColors";
+import { graphKindColor, graphKindTint } from "@/lib/kindColors";
+import { BRAND_GRADIENT, BRAND_GRADIENT_WASH } from "@/lib/brand";
 import type {
   BrowseDepotGraph,
   BrowseGraphDepot,
@@ -36,12 +37,19 @@ import DepotNodePanel from "./DepotNodePanel";
 import { TOGGLE_NODE_MAP_EVENT } from "./MobileMapButton";
 
 // ── Brand palette ─────────────────────────────────────────────────────────
-const DEPOT_BG = `color-mix(in srgb, ${DEPOT_COLOR} 10%, transparent)`;
-const MODULE_BG = "rgba(3,222,184,0.08)";
-const PROVIDER_BG = "rgba(4,125,241,0.08)";
-const VERSION_BG = "rgba(139,148,158,0.12)";
-const SKILL_BG = "rgba(240,136,62,0.08)";
-const AGENT_BG = "rgba(163,113,247,0.08)";
+// Depots separates kinds by color group; see graphKindColor.
+const DEPOT_COLOR = graphKindColor("depot");
+const MODULE_COLOR = graphKindColor("module");
+const PROVIDER_COLOR = graphKindColor("provider");
+const SKILL_COLOR = graphKindColor("skill");
+const AGENT_COLOR = graphKindColor("agent");
+const VERSION_COLOR = graphKindColor("version");
+const IAC_BG = graphKindTint("module");
+const AI_BG = graphKindTint("agent");
+const VERSION_BG = graphKindTint("version", 10);
+const PAPER_LAYER = "linear-gradient(var(--mui-palette-background-paper), var(--mui-palette-background-paper)) padding-box";
+// Depots are the graph roots, so they carry the brand gradient as a border instead of a flat kind color.
+const DEPOT_BACKGROUND = `${BRAND_GRADIENT_WASH.replace(/\)$/, ") padding-box")}, ${PAPER_LAYER}, ${BRAND_GRADIENT.replace(/\)$/, ") border-box")}`;
 
 // ── Layout constants ───────────────────────────────────────────────────────
 const LANE_X = { depot: 40, resource: 420, version: 780 };
@@ -128,11 +136,11 @@ function compareVersionDesc(a: string, b: string): number {
 
 function nodeStyle(kind: NodeKind): React.CSSProperties {
   const map: Record<NodeKind, { border: string; bg: string }> = {
-    depot: { border: DEPOT_COLOR, bg: DEPOT_BG },
-    module: { border: MODULE_COLOR, bg: MODULE_BG },
-    provider: { border: PROVIDER_COLOR, bg: PROVIDER_BG },
-    skill: { border: SKILL_COLOR, bg: SKILL_BG },
-    agent: { border: AGENT_COLOR, bg: AGENT_BG },
+    depot: { border: "transparent", bg: DEPOT_BACKGROUND },
+    module: { border: MODULE_COLOR, bg: IAC_BG },
+    provider: { border: PROVIDER_COLOR, bg: IAC_BG },
+    skill: { border: SKILL_COLOR, bg: AI_BG },
+    agent: { border: AGENT_COLOR, bg: AI_BG },
     version: { border: VERSION_COLOR, bg: VERSION_BG },
     versionOverflow: { border: VERSION_COLOR, bg: VERSION_BG },
   };
@@ -948,22 +956,25 @@ export default function DepotGraph({ graph, moduleVersionsByKey = {}, providerVe
               borderRadius: 6,
             }}
           />
-          <Box sx={{ display: { xs: mobileMapOpen ? "block" : "none", sm: "block" } }}>
+          <Box
+            sx={{
+              display: { xs: mobileMapOpen ? "block" : "none", sm: "block" },
+              // MiniMap paints nodes with SVG fill attributes, which cannot resolve the theme's CSS variables.
+              // CSS fill overrides the attribute, so kind colors are applied through these per-kind classes.
+              "& .react-flow__minimap-node": { fill: VERSION_COLOR },
+              "& .od-minimap-depot": { fill: DEPOT_COLOR },
+              "& .od-minimap-module, & .od-minimap-provider": { fill: MODULE_COLOR },
+              "& .od-minimap-skill, & .od-minimap-agent": { fill: AGENT_COLOR },
+              "& .react-flow__minimap-mask": { fill: "rgba(var(--mui-palette-background-defaultChannel) / 0.7)" },
+            }}
+          >
             <MiniMap
               style={{
                 background: "var(--mui-palette-background-paper)",
                 border: "1px solid var(--mui-palette-divider)",
                 borderRadius: 6,
               }}
-              nodeColor={(n) => {
-                const d = n.data as NodeData;
-                if (d.kind === "depot") return DEPOT_COLOR;
-                if (d.kind === "module") return MODULE_COLOR;
-                if (d.kind === "provider") return PROVIDER_COLOR;
-                if (d.kind === "skill") return SKILL_COLOR;
-                if (d.kind === "agent") return AGENT_COLOR;
-                return VERSION_COLOR;
-              }}
+              nodeClassName={(n) => `od-minimap-${(n.data as NodeData).kind}`}
             />
           </Box>
         </ReactFlow>
