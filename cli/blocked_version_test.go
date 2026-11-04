@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -72,7 +74,7 @@ func TestPrintBlockedVersionLockedHintAndNoReasons(t *testing.T) {
 	printBlockedVersion(&buf, "", &blockedVersionError{version: "2.0.0", locked: true})
 
 	out := buf.String()
-	for _, want := range []string{"✖ version 2.0.0", "none recorded", "the lock file pins this version", "re-run with -upgrade"} {
+	for _, want := range []string{"✖ version 2.0.0", "none recorded", "the lock file pins this version", "re-run with --upgrade"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -100,12 +102,112 @@ func TestPrintErrorUsesColumnsForBlockedSource(t *testing.T) {
 	}
 }
 
-func TestPrintErrorKeepsPlainErrorForOtherFailures(t *testing.T) {
+func TestPrintErrorUsesColumnsForOtherFailures(t *testing.T) {
 	var buf bytes.Buffer
 
 	printError(&buf, errors.New("boom"))
 
-	if got := buf.String(); got != "error: boom\n" {
-		t.Fatalf("got %q, want %q", got, "error: boom\n")
+	if got, want := buf.String(), "\n✖ Error\n  Error        boom\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestPrintErrorUsesSourceAndPreservesDetails(t *testing.T) {
+	var buf bytes.Buffer
+	source := "opendepot.localtest.me:8443/opendepot-system/anti-ui-slop"
+	detail := "list versions of anti-ui-slop: GET https://opendepot.localtest.me:8443/opendepot/agents/v1/opendepot-system/skills/anti-ui-slop/versions: 401 Unauthorized"
+
+	printError(&buf, &sourceError{source: source, err: errors.New(detail)})
+
+	out := buf.String()
+	for _, want := range []string{"✖ " + source, "  Error        list versions of anti-ui-slop: GET", "https://opendepot.localtest.me:8443/opendepot/agents/v1/opendepot-system/skills/anti-ui-slop/versions:", "401 Unauthorized"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected no ANSI escapes for non-terminal output, got %q", out)
+	}
+}
+
+func TestPrintErrorKeepsWrappedAndMultilineContext(t *testing.T) {
+	var buf bytes.Buffer
+	err := fmt.Errorf("planning failed: %w", &sourceError{source: "reg/ns/skill", err: errors.New("first detail\nsecond detail")})
+
+	printError(&buf, err)
+
+	for _, want := range []string{"✖ Error", "planning failed: reg/ns/skill", "first detail", "second detail"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, buf.String())
+		}
+	}
+}
+
+func TestPrintFallbackWarningListsSkippedCandidates(t *testing.T) {
+	var buf bytes.Buffer
+	skipped := []unavailableCandidate{
+		{Version: "2.0.0", Status: statusBlocked, Reasons: []string{"cvss above threshold"}},
+		{Commit: "3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182", Status: statusRejected, Reasons: []string{"Superseded by a newer commit"}},
+	}
+
+	printFallbackWarning(&buf, "opendepot.localtest.me/acme/lint", "1.0.0", skipped)
+
+	out := buf.String()
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected no ANSI escapes for non-terminal output, got %q", out)
+	}
+
+	for _, want := range []string{
+		"⚠ opendepot.localtest.me/acme/lint@1.0.0",
+		"Skipped",
+		"version 2.0.0 is blocked by a Jev policy",
+		"- cvss above threshold",
+		"commit 3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182 is rejected; no",
+		"version was assigned, so it is not compared with the constraint",
+		"Next",
+		"older version 1.0.0 installed because --allow-older-versions is",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("fallback warning missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestAgentVersionsResponseDecodesUnavailableCandidates(t *testing.T) {
+	body := `{
+  "versions": [{"version": "1.0.0", "yanked": false, "blocked": false, "blockReasons": []}],
+  "unavailableCandidates": [
+    {"version": "1.2.0", "status": "blocked", "reasons": ["cvss above threshold"]},
+    {"commit": "3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182", "status": "rejected", "reasons": ["Superseded by a newer commit"]}
+  ]
+}`
+
+	var resp agentVersionsResponse
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(resp.Versions) != 1 || len(resp.UnavailableCandidates) != 2 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	if c := resp.UnavailableCandidates[0]; c.Version != "1.2.0" || c.Status != statusBlocked || c.Commit != "" {
+		t.Fatalf("versioned candidate: %+v", c)
+	}
+
+	if c := resp.UnavailableCandidates[1]; c.Version != "" || c.Commit == "" || c.Status != statusRejected {
+		t.Fatalf("unversioned candidate: %+v", c)
+	}
+}
+
+func TestAgentVersionsResponseOldServerHasNoCandidates(t *testing.T) {
+	var resp agentVersionsResponse
+	if err := json.Unmarshal([]byte(`{"versions": [{"version": "1.0.0"}]}`), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(resp.UnavailableCandidates) != 0 {
+		t.Fatalf("old server response produced candidates: %+v", resp.UnavailableCandidates)
 	}
 }

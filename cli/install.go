@@ -17,12 +17,13 @@ import (
 )
 
 type applyOptions struct {
-	upgrade     bool
-	allowYanked bool
-	trustNewKey bool
-	noPrompt    bool
-	force       bool
-	dryRun      bool
+	upgrade            bool
+	allowYanked        bool
+	allowOlderVersions bool
+	trustNewKey        bool
+	noPrompt           bool
+	force              bool
+	dryRun             bool
 }
 
 // stagedEntry is a fully verified entry whose archive is extracted to a temporary root.
@@ -39,6 +40,7 @@ type stagedEntry struct {
 	root       string
 	targets    []installTarget
 	assessment *opendepotv1alpha1.JevAssessment
+	fallback   []unavailableCandidate
 }
 
 func (s *stagedEntry) bodyPath() string {
@@ -194,26 +196,41 @@ func (e *sourceError) Unwrap() error {
 	return e.err
 }
 
-func chooseVersion(e entry, versions []agentVersion, prev *lockEntry, opts applyOptions) (string, error) {
+// chooseVersion reuses the locked version when the lock matches the constraint and --upgrade is not set. A locked
+// version that is unavailable is an error here and is never re-resolved, so --allow-older-versions does not
+// bypass it. Otherwise it selects a version from the registry response.
+func chooseVersion(e entry, resp agentVersionsResponse, prev *lockEntry, opts applyOptions) (versionChoice, error) {
 	if prev != nil && !opts.upgrade && prev.Constraints == e.constraint {
-		for _, v := range versions {
+		for _, v := range resp.Versions {
 			if v.Version != prev.Version {
 				continue
 			}
 
 			if v.Blocked {
-				return "", &blockedVersionError{version: v.Version, reasons: v.BlockReasons, locked: true}
+				return versionChoice{}, &blockedVersionError{version: v.Version, reasons: v.BlockReasons, locked: true}
 			}
 
 			if v.Yanked && !opts.allowYanked {
-				return "", fmt.Errorf("locked version %s is yanked; re-run with -allow-yanked or -upgrade", v.Version)
+				return versionChoice{}, fmt.Errorf("locked version %s is yanked; re-run with --allow-yanked or --upgrade", v.Version)
 			}
 
-			return prev.Version, nil
+			return versionChoice{version: prev.Version}, nil
+		}
+
+		for _, c := range resp.UnavailableCandidates {
+			if c.Version == "" || c.Version != prev.Version {
+				continue
+			}
+
+			if c.Status == statusBlocked {
+				return versionChoice{}, &blockedVersionError{version: c.Version, reasons: c.Reasons, locked: true}
+			}
+
+			return versionChoice{}, fmt.Errorf("locked version %s %s; re-run with --upgrade to choose another", c.Version, candidatePhrase(c.Status))
 		}
 	}
 
-	return resolveVersion(versions, e.constraint, opts.allowYanked)
+	return selectVersion(resp.Versions, resp.UnavailableCandidates, e.constraint, opts.allowYanked, opts.allowOlderVersions)
 }
 
 // stage runs the install verification chain for one entry. It fails before any write on mismatch.
@@ -228,19 +245,21 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 		return nil, err
 	}
 
-	versions, err := reg.versions(ctx, src, e.kind)
+	resp, err := reg.versions(ctx, src, e.kind)
 	if err != nil {
 		return nil, err
 	}
 
-	chosen, err := chooseVersion(e, versions, prev, opts)
+	choice, err := chooseVersion(e, resp, prev, opts)
 	if err != nil {
 		return nil, err
 	}
+
+	chosen := choice.version
 
 	// latest ignores the lock file so the plan can point out a newer remote version.
 	latest := ""
-	if v, err := resolveVersion(versions, e.constraint, opts.allowYanked); err == nil {
+	if v, err := resolveVersion(resp.Versions, e.constraint, opts.allowYanked); err == nil {
 		latest = v
 	}
 
@@ -376,6 +395,7 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 		h1:        h1,
 		root:      root,
 		targets:   targets,
+		fallback:  choice.skipped,
 	}
 
 	if staged.kind == kindAgent {
@@ -494,6 +514,10 @@ func (a *app) applyProject(ctx context.Context, opts applyOptions) error {
 
 		if s.assessment != nil {
 			a.printAssessment(s)
+		}
+
+		if len(s.fallback) > 0 {
+			printFallbackWarning(a.out, s.source, s.version, s.fallback)
 		}
 
 		staged = append(staged, s)

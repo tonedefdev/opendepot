@@ -51,14 +51,27 @@ func (a *app) printAssessment(s *stagedEntry) {
 	st := newStyler(a.out)
 	as := s.assessment
 
+	fmt.Fprintln(a.out)
+	fmt.Fprintln(a.out, st.paint(ansiBold, fmt.Sprintf("◆ %s@%s", s.source, s.version)))
+	fmt.Fprintln(a.out, st.paint(ansiDim, "  TypeSafe Jev assessment · advisory scores, not written to the lock"))
+	a.printAssessmentMetrics(st, as)
+	fmt.Fprintf(a.out, "  %-12s %s\n", "Review", reviewLine(st, as.NeedsReview))
+	fmt.Fprintf(a.out, "  %-12s %s\n", "Blocked", blockedLine(st, as))
+	fmt.Fprintf(a.out, "  %-12s %s\n", "Tokens", tokensLine(st, as.InputTokens))
+	if as.Error == "" {
+		writeBlockedRows(a.out, st, "Error", "none reported", ansiDim)
+	} else {
+		writeBlockedRows(a.out, st, "Error", as.Error, ansiRed)
+	}
+	fmt.Fprintln(a.out, st.paint(ansiYellow, "  ⚠ Skill or agent content was sent to TypeSafe for this assessment."))
+}
+
+func (a *app) printAssessmentMetrics(st styler, as *opendepotv1alpha1.JevAssessment) {
 	riskLabel := as.RiskLevel
 	if riskLabel == "" {
 		riskLabel = "n/a"
 	}
 
-	fmt.Fprintln(a.out)
-	fmt.Fprintln(a.out, st.paint(ansiBold, fmt.Sprintf("◆ %s@%s", s.source, s.version)))
-	fmt.Fprintln(a.out, st.paint(ansiDim, "  TypeSafe Jev assessment · advisory scores, not written to the lock"))
 	riskColor := riskLevelColor(as.RiskLevel)
 	if as.RiskLevel == "" {
 		riskColor = ansiDim
@@ -86,13 +99,6 @@ func (a *app) printAssessment(s *stagedEntry) {
 		fmt.Fprintln(a.out, strings.TrimRight(row, " "))
 	}
 
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Review", reviewLine(st, as.NeedsReview))
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Blocked", blockedLine(st, as))
-	fmt.Fprintf(a.out, "  %-12s %s\n", "Tokens", tokensLine(st, as.InputTokens))
-	if as.Error != "" {
-		fmt.Fprintf(a.out, "  %-12s %s\n", "Error", st.paint(ansiRed, as.Error))
-	}
-	fmt.Fprintln(a.out, st.paint(ansiYellow, "  ⚠ Skill or agent content was sent to TypeSafe for this assessment."))
 }
 
 func reviewLine(st styler, needsReview bool) string {

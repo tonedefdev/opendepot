@@ -24,7 +24,7 @@ func printBlockedVersion(w io.Writer, source string, e *blockedVersionError) {
 
 	next := "installs are refused until the policy allows this version"
 	if e.locked {
-		next = "the lock file pins this version; re-run with -upgrade to choose another"
+		next = "the lock file pins this version; re-run with --upgrade to choose another"
 	}
 
 	fmt.Fprintln(w)
@@ -47,15 +47,38 @@ func printBlockedVersion(w io.Writer, source string, e *blockedVersionError) {
 	writeBlockedRows(w, st, "Next", next, "")
 }
 
-// writeBlockedRows writes text after a label column, wrapping long text onto aligned continuation lines.
-func writeBlockedRows(w io.Writer, st styler, label, text, color string) {
-	for i, line := range wrapText(text, blockedValueWidth) {
-		lab := ""
+// printFallbackWarning explains that --allow-older-versions installed an older version because newer matching
+// candidates were skipped. It lists each skipped candidate with its reasons.
+func printFallbackWarning(w io.Writer, source, chosen string, skipped []unavailableCandidate) {
+	st := newStyler(w)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, st.paint(ansiBold+ansiYellow, "⚠ "+source+"@"+chosen))
+	for i, c := range skipped {
+		label := ""
 		if i == 0 {
-			lab = label
+			label = "Skipped"
 		}
 
-		fmt.Fprintf(w, "  %-*s %s\n", blockedLabelWidth, lab, st.paint(color, line))
+		writeBlockedRows(w, st, label, describeCandidate(c), ansiYellow)
+	}
+
+	writeBlockedRows(w, st, "Next", "older version "+chosen+" installed because --allow-older-versions is set", "")
+}
+
+// writeBlockedRows writes text after a label column, wrapping long text onto aligned continuation lines.
+func writeBlockedRows(w io.Writer, st styler, label, text, color string) {
+	first := true
+	for paragraph := range strings.SplitSeq(text, "\n") {
+		for _, line := range wrapText(paragraph, blockedValueWidth) {
+			lab := ""
+			if first {
+				lab = label
+				first = false
+			}
+
+			fmt.Fprintf(w, "  %-*s %s\n", blockedLabelWidth, lab, st.paint(color, line))
+		}
 	}
 }
 

@@ -62,7 +62,8 @@ type loginInfo struct {
 }
 
 type agentVersionsResponse struct {
-	Versions []agentVersion `json:"versions"`
+	Versions              []agentVersion         `json:"versions"`
+	UnavailableCandidates []unavailableCandidate `json:"unavailableCandidates"`
 }
 
 type signingKey struct {
@@ -153,19 +154,19 @@ func (r *registry) resolve(raw string) (string, error) {
 	return r.base.ResolveReference(ref).String(), nil
 }
 
-func (r *registry) versions(ctx context.Context, src sourceAddress, kind entryKind) ([]agentVersion, error) {
+func (r *registry) versions(ctx context.Context, src sourceAddress, kind entryKind) (agentVersionsResponse, error) {
+	var resp agentVersionsResponse
 	u := r.base.JoinPath(src.namespace, kind.plural(), src.name, "versions").String()
 	body, err := r.app.get(ctx, u, r.host)
 	if err != nil {
-		return nil, fmt.Errorf("list versions of %s: %w", src.name, err)
+		return resp, fmt.Errorf("list versions of %s: %w", src.name, err)
 	}
 
-	var resp agentVersionsResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("list versions of %s: %w", src.name, err)
+		return resp, fmt.Errorf("list versions of %s: %w", src.name, err)
 	}
 
-	return resp.Versions, nil
+	return resp, nil
 }
 
 func (r *registry) download(ctx context.Context, src sourceAddress, kind entryKind, ver string) (agentDownload, error) {
@@ -208,10 +209,22 @@ func (a *app) fetch(ctx context.Context, rawURL, authHost string, limit int64) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status)
+		return nil, &httpStatusError{url: req.URL.Redacted(), status: resp.Status, code: resp.StatusCode}
 	}
 
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+// httpStatusError is a non-2xx registry response. Callers can read code to tell auth,
+// missing, and server failures apart.
+type httpStatusError struct {
+	url    string
+	status string
+	code   int
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("GET %s: %s", e.url, e.status)
 }
 
 // findSHA256SUM returns the signed archive digest for filename from a SHA256SUMS file.

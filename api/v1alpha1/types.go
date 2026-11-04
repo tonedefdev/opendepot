@@ -676,6 +676,10 @@ type JevAssessment struct {
 	EvaluatedAt string `json:"evaluatedAt"`
 	// The Jev model that produced the assessment, as returned by the API.
 	Model string `json:"model,omitempty"`
+	// The lowercase hex SHA-256 of the archive that Jev assessed. It equals hex(base64-decode(status.checksum)).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	ContentDigest string `json:"contentDigest,omitempty"`
 	// The probability that the Version is safe to use.
 	// +optional
 	SafeProbability *float64 `json:"safeProbability,omitempty"`
@@ -707,14 +711,27 @@ type JevAssessment struct {
 	// The confidence of the risk assessment. This describes answer concentration, not correctness.
 	// +optional
 	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
-	// Whether the assessment requires a manual review.
+	// Whether the assessment requires a manual review. A Critical risk level sets it, and an exemption does not change it.
 	NeedsReview bool `json:"needsReview"`
 	// Whether Jev blocks the Version: a threshold, a Critical risk level, a part below minConfidence,
 	// content Jev could not read, Jev disabled on the controller, or an assessment that could not complete.
+	// False when a matching jevExemption cleared every block reason.
 	Blocked bool `json:"blocked"`
-	// The JevPolicy thresholds that were crossed when the Version is blocked.
+	// The Jev block reasons. When the assessment is exempted, this lists the reasons that were cleared.
 	// +optional
 	BlockReasons []string `json:"blockReasons,omitempty"`
+	// Whether a jevExemption cleared the block reasons for this assessment.
+	// +optional
+	Exempted bool `json:"exempted,omitempty"`
+	// The name of the ScanPolicy whose jevExemption cleared the block reasons.
+	// +optional
+	ExemptedBy string `json:"exemptedBy,omitempty"`
+	// The reason given by the jevExemption that cleared the block reasons.
+	// +optional
+	ExemptionReason string `json:"exemptionReason,omitempty"`
+	// The expiry of the jevExemption that cleared the block reasons. Nil means the exemption never expires.
+	// +optional
+	ExemptionExpires *metav1.Time `json:"exemptionExpires,omitempty"`
 	// A redacted description of the error that prevented the assessment from completing, or why the
 	// assessment is incomplete.
 	// +optional
@@ -855,11 +872,29 @@ type ScanExemption struct {
 	Expires *metav1.Time `json:"expires,omitempty"`
 }
 
+// JevExemption clears every Jev block reason (verdict and coverage) for one exact archive.
+type JevExemption struct {
+	// The lowercase hex SHA-256 of the Version archive, copied from status.jevAssessment.contentDigest.
+	// The exemption applies only while the archive content has this digest.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	ContentDigest string `json:"contentDigest"`
+	// The justification for this exemption, so that every exemption remains auditable.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Reason string `json:"reason"`
+	// The time at which this exemption stops applying. Once it has passed the Version blocks
+	// again. When omitted the exemption never expires and stays valid until the archive content
+	// changes.
+	// +optional
+	Expires *metav1.Time `json:"expires,omitempty"`
+}
+
 // ScanPolicySpec defines the desired state of ScanPolicy.
 type ScanPolicySpec struct {
 	// The precedence of this policy. When more than one ScanPolicy matches a Version the
 	// policy with the highest priority wins outright and supplies both the severity
-	// threshold and the exemption set; lower priority policies are ignored entirely rather
+	// threshold, the exemption set and the Jev exemptions; lower priority policies are ignored entirely rather
 	// than merged. Ties are broken by the oldest creation timestamp, then by name ascending.
 	// +kubebuilder:default=0
 	// +optional
@@ -883,6 +918,12 @@ type ScanPolicySpec struct {
 	// The findings that must not block reconciliation for the matched Versions.
 	// +optional
 	Exemptions []ScanExemption `json:"exemptions,omitempty"`
+	// The Jev block reasons that must not block reconciliation for one exact archive digest.
+	// Each entry clears every Jev block reason for its digest only.
+	// +optional
+	// +listType=map
+	// +listMapKey=contentDigest
+	JevExemptions []JevExemption `json:"jevExemptions,omitempty"`
 }
 
 // ScanPolicyStatus defines the observed state of ScanPolicy.
@@ -893,6 +934,12 @@ type ScanPolicyStatus struct {
 	ActiveExemptions int `json:"activeExemptions"`
 	// The number of exemptions whose expiry has passed and no longer apply.
 	ExpiredExemptions int `json:"expiredExemptions"`
+	// The number of Jev exemptions that are currently in effect. Entries without an expiry count as active.
+	// +optional
+	ActiveJevExemptions int `json:"activeJevExemptions,omitempty"`
+	// The number of Jev exemptions whose expiry has passed and no longer apply.
+	// +optional
+	ExpiredJevExemptions int `json:"expiredJevExemptions,omitempty"`
 	// The name of the higher priority ScanPolicy that shadows this policy for every Version
 	// it matches. Empty when this policy wins for at least one Version, or when it matches
 	// no Versions at all.

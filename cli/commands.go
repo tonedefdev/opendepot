@@ -75,6 +75,7 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 
 	applyCmd.Flags().BoolVar(&opts.upgrade, "upgrade", false, "re-resolve constraints instead of reusing locked versions")
 	applyCmd.Flags().BoolVar(&opts.allowYanked, "allow-yanked", false, "allow yanked versions")
+	applyCmd.Flags().BoolVar(&opts.allowOlderVersions, "allow-older-versions", false, "install an older matching version when a newer one is blocked, rejected, or failed assessment")
 	applyCmd.Flags().BoolVar(&opts.trustNewKey, "trust-new-key", false, "re-pin a rotated signing key")
 	applyCmd.Flags().BoolVar(&opts.noPrompt, "no-prompt", false, "never prompt; fail instead")
 	applyCmd.Flags().BoolVar(&opts.force, "force", false, "overwrite AGENTS.md blocks that were edited by hand")
@@ -94,9 +95,60 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 
 	planCmd.Flags().BoolVar(&planOpts.upgrade, "upgrade", false, "plan re-resolved constraints instead of locked versions")
 	planCmd.Flags().BoolVar(&planOpts.allowYanked, "allow-yanked", false, "allow yanked versions")
+	planCmd.Flags().BoolVar(&planOpts.allowOlderVersions, "allow-older-versions", false, "install an older matching version when a newer one is blocked, rejected, or failed assessment")
 	planCmd.Flags().BoolVar(&planOpts.trustNewKey, "trust-new-key", false, "plan a re-pin of a rotated signing key")
 	planCmd.Flags().BoolVar(&planOpts.force, "force", false, "plan overwriting AGENTS.md blocks that were edited by hand")
 	root.AddCommand(planCmd)
+
+	var listOpts listOptions
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List the Skills and Agents published by a registry",
+		Args:  cobra.NoArgs,
+	}
+
+	listCmd.PersistentFlags().StringVar(&listOpts.registry, "registry", "", "registry host to list; defaults to the project registry")
+	listCmd.PersistentFlags().StringVar(&listOpts.namespace, "namespace", "", "only list items in this namespace")
+	listCmd.AddCommand(&cobra.Command{
+		Use:   "skills",
+		Short: "List the Skills available from a registry",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.listCatalog(cmd.Context(), kindSkill, listOpts)
+		},
+	}, &cobra.Command{
+		Use:   "agents",
+		Short: "List the Agents available from a registry",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.listCatalog(cmd.Context(), kindAgent, listOpts)
+		},
+	})
+	root.AddCommand(listCmd)
+
+	var describeRegistry string
+	describeCmd := &cobra.Command{
+		Use:   "describe",
+		Short: "Show details for a skill or agent",
+		Args:  cobra.NoArgs,
+	}
+	describeCmd.PersistentFlags().StringVar(&describeRegistry, "registry", "", "registry host to query; defaults to the project registry")
+	describeCmd.AddCommand(&cobra.Command{
+		Use:   "skill <namespace/name>",
+		Short: "Show details for one skill",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.describeResource(cmd.Context(), kindSkill, args[0], describeRegistry)
+		},
+	}, &cobra.Command{
+		Use:   "agent <namespace/name>",
+		Short: "Show details for one agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.describeResource(cmd.Context(), kindAgent, args[0], describeRegistry)
+		},
+	})
+	root.AddCommand(describeCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "validate [path]",

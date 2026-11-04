@@ -2,12 +2,17 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -663,5 +668,270 @@ func TestInitHTTPE2ERejectsUnsupportedProtocolMajor(t *testing.T) {
 	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
 	if err == nil || !strings.Contains(err.Error(), `unsupported agents protocol "2.0"`) {
 		t.Fatalf("expected unsupported protocol error, got %v", err)
+	}
+}
+
+// versionOverlay edits the lint versions response so tests can simulate server-side changes between runs.
+// hide removes listed versions from versions, and unavailable replaces unavailableCandidates.
+type versionOverlay struct {
+	mu          sync.Mutex
+	hide        map[string]bool
+	unavailable []unavailableCandidate
+}
+
+func (o *versionOverlay) set(hide []string, unavailable ...unavailableCandidate) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.hide = map[string]bool{}
+	for _, v := range hide {
+		o.hide[v] = true
+	}
+
+	o.unavailable = unavailable
+}
+
+func (o *versionOverlay) rewrite(body map[string]any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	kept := []any{}
+	list, _ := body["versions"].([]any)
+	for _, item := range list {
+		entry := item.(map[string]any)
+		if o.hide[entry["version"].(string)] {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	body["versions"] = kept
+	if len(o.unavailable) > 0 {
+		body["unavailableCandidates"] = o.unavailable
+	}
+}
+
+// overlayLintVersions wraps the registry handler so only the lint versions response is rewritten.
+// It must run before any request is made.
+func overlayLintVersions(reg *fakeRegistry) *versionOverlay {
+	overlay := &versionOverlay{}
+	inner := reg.server.Config.Handler
+	reg.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/lint/versions") {
+			inner.ServeHTTP(w, r)
+			return
+		}
+
+		rec := httptest.NewRecorder()
+		inner.ServeHTTP(rec, r)
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		overlay.rewrite(body)
+		writeJSON(w, body)
+	})
+
+	return overlay
+}
+
+func lockedVersion(t *testing.T, dir, source string) string {
+	t.Helper()
+	lock, err := loadLock(filepath.Join(dir, lockFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e, ok := lock.find(source)
+	if !ok {
+		t.Fatalf("lock has no entry for %s", source)
+	}
+
+	return e.Version
+}
+
+func TestNewerBlockedVersionRefusesFallbackWithoutWrites(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is blocked by a Jev policy") || !strings.Contains(err.Error(), "--allow-older-versions") {
+		t.Fatalf("expected refusal naming the blocked version, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "version 1.0.0 satisfies") {
+		t.Fatalf("refusal does not name the installable version: %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestAllowOlderVersionsInstallsFallbackWithWarning(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	var buf bytes.Buffer
+	a := testApp(reg, dir)
+	a.out = &buf
+	if err := a.applyProject(context.Background(), applyOptions{allowOlderVersions: true}); err != nil {
+		t.Fatalf("apply with --allow-older-versions: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "⚠") || !strings.Contains(out, "version 2.0.0 is blocked by a Jev policy") {
+		t.Fatalf("expected fallback warning naming the skipped version:\n%s", out)
+	}
+}
+
+func TestRejectedNewerVersionRefuses(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusRejected, Reasons: []string{"Superseded"}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is rejected") || strings.Contains(err.Error(), "blocked by a Jev policy") {
+		t.Fatalf("expected rejected refusal, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestUnversionedRejectedCommitDoesNotRefuse(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Commit: "3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182", Status: statusRejected, Reasons: []string{"Superseded"}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("unversioned commit refused apply: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+}
+
+func TestPendingCandidateDoesNotRefuse(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusPending})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("pending candidate refused apply: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+}
+
+func TestAssessmentFailedRefusesWithoutJevWording(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusAssessmentFailed})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 failed assessment") || strings.Contains(err.Error(), "Jev policy") {
+		t.Fatalf("expected assessment failure refusal, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestGenuineEmptyResultReportsNoVersion(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set([]string{"1.0.0"})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{allowOlderVersions: true})
+	if err == nil || !strings.Contains(err.Error(), "no version satisfies") || strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("expected no-version error, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestLockedUnavailableVersionRequiresUpgrade(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+
+	source := reg.host + "/acme/lint"
+	if got := lockedVersion(t, dir, source); got != "2.0.0" {
+		t.Fatalf("initial locked version = %q, want 2.0.0", got)
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusBlocked, Reasons: []string{"cvss above threshold"}})
+	for _, opts := range []applyOptions{{}, {allowOlderVersions: true}} {
+		err := testApp(reg, dir).applyProject(context.Background(), opts)
+		if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is blocked by a Jev policy") || !strings.Contains(err.Error(), "lock file pins this version") {
+			t.Fatalf("locked blocked version with %+v: %v", opts, err)
+		}
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusRejected, Reasons: []string{"Superseded"}})
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{allowOlderVersions: true})
+	if err == nil || !strings.Contains(err.Error(), "locked version 2.0.0 is rejected; re-run with --upgrade to choose another") {
+		t.Fatalf("locked rejected version: %v", err)
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusBlocked, Reasons: []string{"cvss above threshold"}})
+	err = testApp(reg, dir).applyProject(context.Background(), applyOptions{upgrade: true})
+	if err == nil || !strings.Contains(err.Error(), "--allow-older-versions") {
+		t.Fatalf("upgrade without the flag should refuse the fallback, got %v", err)
+	}
+
+	if got := lockedVersion(t, dir, source); got != "2.0.0" {
+		t.Fatalf("refusals changed the lock to %q", got)
+	}
+
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{upgrade: true, allowOlderVersions: true}); err != nil {
+		t.Fatalf("upgrade with --allow-older-versions: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, source); got != "1.0.0" {
+		t.Fatalf("locked version after explicit fallback = %q, want 1.0.0", got)
 	}
 }

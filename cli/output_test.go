@@ -27,9 +27,27 @@ func TestPrintAssessmentPlainWhenNotTerminal(t *testing.T) {
 		t.Fatalf("expected no ANSI escapes for non-terminal output, got %q", out)
 	}
 
-	for _, want := range []string{"◆ opendepot.localtest.me:8443/opendepot-system/code-review@0.9.0", "Risk", "Minimal", "Safe", "0.77", "Injection", "0.67", "Exfiltration", "n/a", "⚠"} {
+	for _, want := range []string{"◆ opendepot.localtest.me:8443/opendepot-system/code-review@0.9.0", "Risk", "Minimal", "Safe", "0.77", "Injection", "0.67", "Exfiltration", "n/a", "Error        none reported", "⚠"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintAssessmentShowsReportedError(t *testing.T) {
+	var buf bytes.Buffer
+	a := &app{out: &buf}
+	s := &stagedEntry{
+		entry:      entry{source: "reg/ns/skill"},
+		version:    "1.0.0",
+		assessment: &opendepotv1alpha1.JevAssessment{Error: "assessment failed\nplease retry"},
+	}
+
+	a.printAssessment(s)
+
+	for _, want := range []string{"Error        assessment failed", "               please retry"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, buf.String())
 		}
 	}
 }
