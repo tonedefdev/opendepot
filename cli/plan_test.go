@@ -242,3 +242,43 @@ func TestPlanLockedBlockedVersionRequiresUpgradeWithoutWrites(t *testing.T) {
 		t.Fatalf("plan with only --allow-older-versions should not re-resolve the lock, got %v", err)
 	}
 }
+
+func TestPlanHintNamesAllowOlderVersionsWhenNewerIsBlocked(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	before := readFile(t, filepath.Join(dir, lockFileName))
+	reg.publish(t, kindSkill, "lint", release{version: "1.1.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	var buf bytes.Buffer
+	a := testApp(reg, dir)
+	a.out = &buf
+	if err := a.applyProject(context.Background(), applyOptions{dryRun: true, noPrompt: true}); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "1.1.0 is available (locked 1.0.0); run apply --upgrade --allow-older-versions to move to it") {
+		t.Fatalf("plan hint does not name --allow-older-versions:\n%s", buf.String())
+	}
+
+	err := a.applyProject(context.Background(), applyOptions{dryRun: true, noPrompt: true, upgrade: true})
+	if err == nil || !strings.Contains(err.Error(), "version 1.1.0 satisfies") || !strings.Contains(err.Error(), "--allow-older-versions") {
+		t.Fatalf("apply --upgrade should refuse the version the plan hint names, got %v", err)
+	}
+
+	if err := a.applyProject(context.Background(), applyOptions{dryRun: true, noPrompt: true, upgrade: true, allowOlderVersions: true}); err != nil {
+		t.Fatalf("apply --upgrade --allow-older-versions: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(dir, lockFileName)); got != before {
+		t.Fatal("plan changed the lock file")
+	}
+}

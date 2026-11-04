@@ -23,7 +23,6 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { MODULE_COLOR } from "@/lib/kindColors";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import Prism from "prismjs";
@@ -251,7 +250,7 @@ export default function InputsModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: MODULE_COLOR }} />
+            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: "var(--od-assembly-module)" }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             module.{instanceName} — Inputs

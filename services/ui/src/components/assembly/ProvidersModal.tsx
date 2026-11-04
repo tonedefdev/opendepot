@@ -13,7 +13,6 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import CloseIcon from "@mui/icons-material/Close";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { MODULE_COLOR } from "@/lib/kindColors";
 import type { ContractRequiredProvider } from "@/lib/api";
 import type { ProviderBinding, ProviderOption } from "./types";
 
@@ -51,7 +50,7 @@ export default function ProvidersModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: MODULE_COLOR }} />
+            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: "var(--od-assembly-module)" }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             module.{instanceName} — Providers

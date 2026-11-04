@@ -2,7 +2,7 @@
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.9 AS builder
+FROM golang:1.26.10 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -49,7 +49,7 @@ RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETA
 # tofu-release: upstream OpenTofu release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TOFU=true
 FROM debian:bookworm-slim AS tofu-release
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.1
+ARG TOFU_VERSION=1.13.2
 RUN set -eux; \
 	apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl unzip \
@@ -64,7 +64,7 @@ RUN set -eux; \
 	chmod 0755 /usr/local/bin/tofu
 
 # CLI binaries for download from /opendepot/cli/v1; built with GOWORK=off because the CLI is dropped from the server workspace above
-FROM golang:1.26.9 AS cli-builder
+FROM golang:1.26.10 AS cli-builder
 ARG CLI_VERSION=dev
 
 WORKDIR /workspace
@@ -90,7 +90,7 @@ RUN set -eux; \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-false
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false
 WORKDIR /
 COPY --from=builder /workspace/server .
 COPY --from=cli-builder /out/ /opt/opendepot/cli/
@@ -99,7 +99,7 @@ USER 65532:65532
 ENTRYPOINT ["/server"]
 
 # final image with OpenTofu binary bundled (assembly line)
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-true
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true
 WORKDIR /
 COPY --from=builder /workspace/server .
 COPY --from=tofu-release /usr/local/bin/tofu /usr/local/bin/tofu

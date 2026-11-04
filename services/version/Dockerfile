@@ -3,7 +3,7 @@ ARG INCLUDE_TRIVY=false
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.9 AS builder
+FROM golang:1.26.10 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -55,7 +55,7 @@ RUN cd services/version && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGET
 # trivy-release: upstream Trivy release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TRIVY=true
 FROM debian:bookworm-slim AS trivy-release
 ARG TARGETARCH
-ARG TRIVY_VERSION=0.75.0
+ARG TRIVY_VERSION=0.76.1
 RUN set -eux; \
   apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -73,7 +73,7 @@ RUN set -eux; \
 # tofu-release: upstream OpenTofu release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TOFU=true
 FROM debian:bookworm-slim AS tofu-release
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.1
+ARG TOFU_VERSION=1.13.2
 RUN set -eux; \
   apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
@@ -88,14 +88,14 @@ RUN set -eux; \
   chmod 0755 /usr/local/bin/tofu
 
 # final image without Trivy or OpenTofu binaries
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-false-false
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false-false
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with OpenTofu binary bundled (assembly line)
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-false-true
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=tofu-release /usr/local/bin/tofu /usr/local/bin/tofu
@@ -103,7 +103,7 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with Trivy binary bundled
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-true-false
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true-false
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=trivy-release /usr/local/bin/trivy /usr/local/bin/trivy
@@ -111,7 +111,7 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with Trivy and OpenTofu binaries bundled
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS final-true-true
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=trivy-release /usr/local/bin/trivy /usr/local/bin/trivy

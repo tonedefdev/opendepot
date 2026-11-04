@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.26.9 AS builder
+FROM golang:1.26.10 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -43,7 +43,7 @@ RUN cd services/depot && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETAR
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 WORKDIR /
 COPY --from=builder /workspace/depot-controller .
 USER 65532:65532

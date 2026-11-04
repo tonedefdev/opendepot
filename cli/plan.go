@@ -97,7 +97,12 @@ func (a *app) printPlan(staged []*stagedEntry, prev *lockFile, existing []byte, 
 		}
 
 		if s.latest != "" && s.latest != s.version {
-			fmt.Fprintf(a.out, "      %s\n", st.paint(ansiYellow, fmt.Sprintf("↑ %s is available (locked %s); run apply --upgrade to move to it", s.latest, s.version)))
+			hint := "run apply --upgrade to move to it"
+			if s.latestNeedsOlder {
+				hint = "run apply --upgrade --allow-older-versions to move to it"
+			}
+
+			fmt.Fprintf(a.out, "      %s\n", st.paint(ansiYellow, fmt.Sprintf("↑ %s is available (locked %s); %s", s.latest, s.version, hint)))
 		}
 	}
 

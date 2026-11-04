@@ -24,7 +24,7 @@ Never run the full `make test-e2e` during development. It takes about 60 minutes
 Classify every failure:
 
 - **Caused by this diff:** Fix it. Do not report complete while one remains. Code changes can have non-obvious side effects, so check whether your change could be the cause before classifying a failure as anything else.
-- **Pre-existing (also fails on `main`):** Confirm it once in a temporary `git worktree` of `main`, then remove the worktree. Report it to the Orchestrator with the test name and evidence. Do not fix it unless the Orchestrator says to.
+- **Pre-existing (also fails on `main`):** Confirm it once in a temporary `git worktree` of `main`, then remove the worktree. Report it to the Orchestrator with the test name and evidence. Do not fix it unless the Orchestrator says to. This does not apply to a fixable security finding, which is BLOCKING even when pre-existing (see Standing Decisions).
 - **Environment (Kind, Docker, image pulls, Trivy DB or seed job, network):** Make one repair attempt using the existing make targets. If it still fails, report it and stop. Do not rewrite the seed job, Trivy setup, Makefile, or CI to get past it.
 
 ## Documentation
@@ -43,9 +43,12 @@ Documentation is handled by the Orchestrator after review. In your summary, list
 
 ## Standing Decisions (user-approved)
 - **Unreleased chart version:** `chart/opendepot` `0.12.0` is unreleased and will carry the full Agent Registry feature. Do not bump `version` or `appVersion` on this branch. This suspends the chart bump rules until the user says the release is cut.
-- **Base image CVEs are fixed in-change:** OpenDepot's base images (`FROM` lines in `services/*/Dockerfile`) are not treated as third-party dependencies. For CRITICAL or HIGH CVEs in them, pin the tag to the newest published patch of the same major.minor, keep the digest pinned, rebuild, and re-scan. Track a CVE only when no fixed base tag exists.
+- **Base image CVEs are fixed in-change:** OpenDepot's base images (`FROM` lines in `services/*/Dockerfile`) are not treated as third-party dependencies. For any-severity CVEs with an available fix in them, pin the tag to the newest published patch of the same major.minor, keep the digest pinned, rebuild, and re-scan. Track a CVE only when no fixed base tag exists.
 - **The shared `opendepot` Kind cluster is off limits:** The user validates features there, and Tilt owns its resources. Never delete, reset, or remove any resource or Secret from it, and never delete the cluster. Use an isolated cluster name (`KIND_CLUSTER=...` with `KEEP_KIND=1`) for focused e2e, and delete only that cluster when done.
-- **Quality gates stay on:** Never disable, skip, or ignore lint, security scans, or other enabled gates to get a build green. No `eslint-disable`, `ignoreDuringBuilds`, or scan-ignore overrides. Fix the code. When a gate is first enabled on an existing codebase, fix the older code paths it flags in the same change.
+- **Quality gates stay on:** Never disable, skip, or ignore lint, security scans, or other enabled gates to get a build green. No `eslint-disable`, `ignoreDuringBuilds`, or scan-ignore overrides that hide an OpenDepot code finding. Fix the code. The only ignore-file exception is a path-scoped `.trivyignore.yaml` entry for a pre-built third-party binary with no upstream fix, added only after upgrading that binary to the latest upstream release. Nothing else goes in that file. When a gate is first enabled on an existing codebase, fix the older code paths it flags in the same change.
+- **Pre-built third-party binaries (tofu, trivy):** Upgrade to the latest upstream release first, verifying checksums as the Dockerfile does. Path-scoped `.trivyignore.yaml` entries are allowed only for CVEs with no upstream fix. Do not ask permission for the upgrade.
+- **Never patch or rebuild upstream code or binaries:** Never patch, rebuild from source, or edit upstream project code or binaries.
+- **Never rebuild or patch tofu or trivy:** Never rebuild or patch tofu or trivy.
 - **Decide, don't ask:** When a decision is in line with the feature, make the call and record it in the report. Ask the user only when an action needs their explicit permission, such as a destructive change, a push, or work outside the approved scope.
 
 ## Starting Point
@@ -175,7 +178,7 @@ When the Orchestrator sends review findings, fix only the items it lists, re-run
 - DO NOT skip tests for the paths you changed — run the targeted tests for each affected service (see `.github/skills/opendepot-testing/SKILL.md`)
 - DO NOT run the full `make test-e2e` during development. CI runs it on every PR
 - DO NOT report complete while a failure caused by this diff remains
-- DO NOT work on pre-existing or environment failures beyond the classification steps in the Test Policy, unless the Orchestrator asks you to
+- DO NOT work on pre-existing or environment failures beyond the classification steps in the Test Policy, unless the Orchestrator asks you to (fixable security findings are excepted; they are BLOCKING)
 - DO NOT expand the plan. If you find work the plan does not name, report it to the Orchestrator as a follow-up instead of doing it
 - DO NOT add unnecessary abstractions, helpers, or refactors beyond what the plan specifies
 - DO NOT add comments or docstrings to code you did not change

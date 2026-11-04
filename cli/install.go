@@ -30,17 +30,18 @@ type applyOptions struct {
 // Nothing under the project is written until every entry in the project has been staged.
 type stagedEntry struct {
 	entry
-	pkgName    string
-	version    string
-	latest     string
-	pinnedKey  string
-	signature  string
-	zh         string
-	h1         string
-	root       string
-	targets    []installTarget
-	assessment *opendepotv1alpha1.JevAssessment
-	fallback   []unavailableCandidate
+	pkgName          string
+	version          string
+	latest           string
+	latestNeedsOlder bool
+	pinnedKey        string
+	signature        string
+	zh               string
+	h1               string
+	root             string
+	targets          []installTarget
+	assessment       *opendepotv1alpha1.JevAssessment
+	fallback         []unavailableCandidate
 }
 
 func (s *stagedEntry) bodyPath() string {
@@ -257,10 +258,17 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 
 	chosen := choice.version
 
-	// latest ignores the lock file so the plan can point out a newer remote version.
-	latest := ""
-	if v, err := resolveVersion(resp.Versions, e.constraint, opts.allowYanked); err == nil {
-		latest = v
+	// latest ignores the lock file so the plan can point out a newer remote version. It uses the same decision
+	// as apply --upgrade without --allow-older-versions, so the hint never names a version apply would refuse.
+	latest, latestNeedsOlder := "", false
+	latestChoice, latestErr := selectVersion(resp.Versions, resp.UnavailableCandidates, e.constraint, opts.allowYanked, false)
+	var refused *fallbackRefusedError
+	switch {
+	case latestErr == nil:
+		latest = latestChoice.version
+	case errors.As(latestErr, &refused):
+		latest = refused.chosen
+		latestNeedsOlder = true
 	}
 
 	meta, err := reg.download(ctx, src, e.kind, chosen)
@@ -385,17 +393,18 @@ func (a *app) stage(ctx context.Context, regs *registries, tmp string, e entry, 
 	}
 
 	staged := &stagedEntry{
-		entry:     e,
-		pkgName:   src.name,
-		version:   chosen,
-		latest:    latest,
-		pinnedKey: pinned,
-		signature: sigHash,
-		zh:        "zh:" + zh,
-		h1:        h1,
-		root:      root,
-		targets:   targets,
-		fallback:  choice.skipped,
+		entry:            e,
+		pkgName:          src.name,
+		version:          chosen,
+		latest:           latest,
+		latestNeedsOlder: latestNeedsOlder,
+		pinnedKey:        pinned,
+		signature:        sigHash,
+		zh:               "zh:" + zh,
+		h1:               h1,
+		root:             root,
+		targets:          targets,
+		fallback:         choice.skipped,
 	}
 
 	if staged.kind == kindAgent {
