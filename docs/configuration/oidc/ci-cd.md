@@ -144,17 +144,12 @@ TOKEN=$(curl -s -X POST https://opendepot.example.com/dex/token \
 The example assumes the server-proxied Dex setup. With shared external Dex, use
 that Dex deployment's token endpoint instead.
 
-Use the token in `.tofurc`:
+Use the token in `.tofurc`. Discovery supplies the service URLs, so only the
+`credentials` block is needed:
 
 ```hcl
 credentials "opendepot.example.com" {
   token = "<access_token>"
-}
-host "opendepot.example.com" {
-  services = {
-    "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
-    "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
-  }
 }
 ```
 
@@ -168,7 +163,7 @@ No `tofu login` is required.
 | Requires cluster API access | Yes | No |
 | Access control | Kubernetes RBAC | GroupBinding |
 | Works without `kubectl` | No | Yes |
-| Short-lived tokens | Yes, configurable | Yes, Dex-controlled |
+| Short-lived tokens | Yes, `kubectl create token --duration` | Yes, Dex-controlled |
 
 See [Client Credentials in CI/CD](../../guides/cicd.md#registry-reads-with-dex-client-credentials)
 for pipeline examples.

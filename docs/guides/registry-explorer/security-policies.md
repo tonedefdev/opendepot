@@ -18,21 +18,21 @@ that apply to resources in a selected namespace.
     Creating policies in OpenDepot Workshop is provided for convenience, such
     as when you need to react to a threat immediately. Always copy the generated
     YAML and commit it to source control. OpenDepot Workshop assumes a GitOps
-    workflow, where Git is the audit trail; OpenDepot does not retain this
-    policy history today.
+    workflow, where Git is the audit trail.
 
 ## Policy overview
 
-The page includes summary cards for:
+The summary cards show:
 
-- **Total policies** — all policies in the selected namespace.
-- **Non-superseded** — policies that are currently active in policy evaluation.
-- **Matching resources** — resources matched by the policies.
-- **Active exemptions** — current exemptions from policy findings.
+- **Non-superseded** — policies in effect. The caption shows the total policy count.
+- **Matching resources** — number of policies that match at least one version.
+- **Active exemptions** — exemptions currently applied to findings.
+- **Expired exemptions** — exemptions past their expiry. Their findings block again.
 
-The policy list shows each policy's name, priority, severity threshold, and
-number of matched versions. Select a policy to inspect its rules, matches, and
-exemptions.
+Each policy card shows its name, priority, and severity threshold (**Baseline**
+when unset). It also shows the matched version count, the active exemption count,
+and a **Superseded by** chip when another policy takes precedence. Select a policy
+to review its targets and exemptions.
 
 ## Find and create policies
 
@@ -67,9 +67,11 @@ Enter the labels as a JSON object, for example:
 {"environment":"sandbox"}
 ```
 
-You can also add explicit **Target resources**. The form lets you select from
-authorized onboarded Module and Provider resources. When no explicit targets
-are configured, the policy relies on its other matching criteria.
+You can also add explicit **Target resources**. Each target has a kind (`Module`
+or `Provider`), a resource name, and an optional **Version constraint**, such as
+`>= 1.0.0, < 2.0.0`. Select from authorized onboarded resources. Use `*` as the
+name to match every resource of that kind. When no explicit targets are
+configured, the policy relies on its other matching criteria.
 
 ### Add finding exemptions
 
@@ -79,7 +81,7 @@ include a reason. Leave its expiry empty for an indefinite exemption.
 Each exemption can be narrowed with these fields:
 
 - **Vulnerability IDs** — enter one or more vulnerability identifiers, such as
-  `CVE-2026-0001` or `aws-0057`. Use `*` to match any vulnerability ID.
+  `CVE-2026-0001` or `AWS-0057`. Use `*` to match any vulnerability ID.
 - **Package names** — enter one or more package names, such as `stdlib` or
   `golang.org/x/net`. Use `*` to match any package.
 - **Severities** — select the finding severity or leave the filter at `All`.

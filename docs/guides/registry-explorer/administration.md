@@ -18,21 +18,19 @@ When `ui.enabled: true`, OpenDepot deploys a Next.js frontend alongside the
 server. NGINX runs inside the UI pod and splits traffic between the registry
 protocol server and the browser UI:
 
-| Path prefix | Destination |
-|-------------|-------------|
+| Path | Destination |
+|------|-------------|
 | `/opendepot/*` | Server — registry protocol and browse API |
-| `/.well-known/*` | Server — service discovery |
+| `/.well-known/terraform.json` | Server — service discovery |
+| `/dex/*` | Server — Dex proxy, when `server.oidc.dexProxy.enabled: true` |
 | `/` (all other paths) | Next.js UI at port 3000 |
 
-When `ui.ingress.enabled: true`, the Kubernetes Ingress applies the same
-split-path rules at the load balancer. The `/opendepot` and `/.well-known` paths
-route directly to the `server` Service; all other paths go to the `ui` Service.
-NGINX re-proxies browser-originated same-origin API calls from the UI back to the
-server.
+When `ui.ingress.enabled: true`, the Ingress sends every configured path to the
+`ui` Service. The UI pod's NGINX applies the split above.
 
 When `server.ingress.istio.enabled: true` and `ui.enabled: true`, the Istio
-`VirtualService` template automatically adds the same split HTTP match rules. No
-additional Istio configuration is required.
+`VirtualService` routes `/opendepot`, `/.well-known`, and `/dex` (when the Dex
+proxy is enabled) to the server and all other paths to the UI.
 
 !!! warning
     When `ui.enabled: true`, the `server-ingress.yaml` template is automatically
@@ -112,12 +110,27 @@ dex:
           - authorization_code
 ```
 
-Create the client secret:
+Create the client secret. The UI reads the `clientSecret` key, and Dex reads
+`OPENDEPOT_UI_CLIENT_SECRET`. Both keys must hold the same value:
 
 ```bash
 kubectl create secret generic ui-oidc-secret \
   --from-literal=clientSecret=<your-client-secret> \
+  --from-literal=OPENDEPOT_UI_CLIENT_SECRET=<your-client-secret> \
   -n opendepot-system
+```
+
+Dex loads this Secret through `dex.envFrom`. Helm replaces list values, so keep
+the default entry:
+
+```yaml
+dex:
+  envFrom:
+    - secretRef:
+        name: opendepot-dex-client-secret
+        optional: true
+    - secretRef:
+        name: ui-oidc-secret
 ```
 
 ### Set Helm values
@@ -181,7 +194,7 @@ By default, browse endpoints return only resources explicitly marked as public:
 | `opendepot.defdev.io/public: "true"` | Kubernetes Namespace | Marks the namespace as publicly discoverable |
 | `opendepot.defdev.io/public: "true"` | `Module` or `Provider` | Marks the resource as publicly viewable |
 
-Both labels must be present for unauthenticated callers to see a resource.
+A resource is public only when both its namespace and the resource carry the label.
 
 ```bash
 kubectl label namespace opendepot-system opendepot.defdev.io/public=true
@@ -195,7 +208,7 @@ kubectl label namespace opendepot-system opendepot.defdev.io/public=true
 | Unauthenticated in non-OIDC or anonymous mode | Public namespace and public resources |
 | OIDC-authenticated without a matching `GroupBinding` | Public namespace and public resources |
 | OIDC-authenticated with a matching `GroupBinding` | Public resources plus resources allowed by the binding |
-| `anonymousAuth: true` | All resources; public labels are ignored |
+| `anonymousAuth: true` | All resources; `public_only=true` still filters to public resources |
 | Non-OIDC bearer token | Public resources only |
 
 !!! note "Namespace list is always label-filtered"

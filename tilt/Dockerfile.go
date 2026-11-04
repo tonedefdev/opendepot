@@ -1,10 +1,10 @@
-FROM aquasec/trivy:0.74.0 AS trivy-source
+FROM aquasec/trivy:0.76.1 AS trivy-source
 
 FROM debian:bookworm-slim AS tofu-source
 ARG TARGETARCH
-ARG TOFU_VERSION=1.12.6
-ARG TOFU_SHA256_AMD64=5dc43da4f750f33873dc25e94587128709e819e544b7be9016b255316153c3a8
-ARG TOFU_SHA256_ARM64=e573979ba68a17fe7b881752051a694a7efcd970e39521f6a25775197861ed4d
+ARG TOFU_VERSION=1.13.2
+ARG TOFU_SHA256_AMD64=723bebb0df8411daff1e5fc3862e28ff5581fe5634087f4c29a9aa41d78208b5
+ARG TOFU_SHA256_ARM64=6e815c58a09ee957de606ff48cefad082942e70afc43b737ff975654c54ec453
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && rm -rf /var/lib/apt/lists/*
@@ -21,7 +21,7 @@ RUN set -eux; \
   unzip -o /tmp/tofu.zip tofu -d /usr/local/bin; \
   chmod 0755 /usr/local/bin/tofu
 
-FROM golang:1.26.6 AS server-runtime
+FROM golang:1.26.10 AS server-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
@@ -43,7 +43,7 @@ COPY --from=tofu-source /usr/local/bin/tofu /usr/local/bin/tofu
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS depot-runtime
+FROM golang:1.26.10 AS depot-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
@@ -60,7 +60,7 @@ RUN cd services/depot && CGO_ENABLED=0 go build -o /workspace/bin/depot-controll
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS module-runtime
+FROM golang:1.26.10 AS module-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
@@ -75,7 +75,7 @@ RUN cd services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-contro
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS agent-runtime
+FROM golang:1.26.10 AS agent-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
@@ -90,7 +90,7 @@ RUN cd services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controll
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS provider-runtime
+FROM golang:1.26.10 AS provider-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
@@ -105,7 +105,7 @@ RUN cd services/provider && CGO_ENABLED=0 go build -o /workspace/bin/provider-co
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.6 AS version-runtime
+FROM golang:1.26.10 AS version-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/

@@ -19,15 +19,15 @@ The dashboard (`/stats`) shows:
 
 | Section | Description |
 |---------|-------------|
-| Summary cards | Modules, providers, versions, storage, and downloads |
-| Sync health | Synced, unsynced, and failed version ratio |
-| Security posture | Finding counts by severity |
-| Storage distribution | Version counts by backend |
-| Most downloaded | Top resources with download totals and timestamps |
+| Summary cards | Modules, providers, versions, depots, storage used, and downloads |
+| Sync health | Synced, unsynced, and failed version counts |
+| Security posture | Finding counts by severity, plus exempted findings |
+| Storage distribution | Version counts by storage backend |
+| Most downloaded | Resources with download totals and last-download timestamps |
 
-Summary counts are computed from Kubernetes CRDs. Download counts come from
-Prometheus over the configured lookback window and remain available across page
-loads when the metrics endpoint is being scraped.
+Summary counts come from Kubernetes resources. Download counts come from
+Prometheus over the lookback window set by `server.stats.lookback` (default
+`90d`).
 
 !!! note "Visibility"
     The dashboard uses the same visibility rules as OpenDepot Workshop. OIDC
@@ -36,7 +36,9 @@ loads when the metrics endpoint is being scraped.
 
 ## Download Tracking
 
-Download events are exposed as Prometheus metrics from the Server's `/metrics`
-endpoint. Configure the chart's `ServiceMonitor` or an equivalent scrape
-configuration, and configure `server.stats.prometheusURL` when the dashboard
-must query an existing Prometheus deployment.
+The Server exposes download metrics at `/metrics` on the metrics port (`9090`
+by default). The chart creates a `ServiceMonitor` when `metrics.serviceMonitor.enabled`
+is `true`, which is the default.
+
+When `server.stats.prometheusURL` is empty, the chart points the Server at the
+bundled Prometheus service. Set the URL to query an existing Prometheus instead.

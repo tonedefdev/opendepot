@@ -13,6 +13,10 @@ on:
       - CONTRIBUTING.md
       - chart/opendepot/README.md
 
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy MkDocs to GitHub Pages

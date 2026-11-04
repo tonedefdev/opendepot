@@ -102,8 +102,8 @@ version work items:
   `Module.spec.versions`.
 - The Provider controller creates a Version for each version and each requested
   operating system and architecture.
-- Both controllers track the latest version, garbage-collect removed versions,
-  and enforce `versionHistoryLimit` when configured.
+- Both controllers track the latest version and garbage-collect Versions removed
+  from `spec.versions`. When `versionHistoryLimit` is set, the Module and Provider controllers trim `spec.versions` to the newest N versions, and the removed Versions are garbage-collected.
 
 A provider with two versions, two operating systems, and two architectures
 produces eight Version resources.
@@ -115,8 +115,8 @@ The Version controller performs the artifact work:
 - Downloads module archives from GitHub or provider binaries from the configured
   upstream registry.
 - Assigns stable UUID7 storage filenames and computes SHA256 checksums.
-- Runs module IaC scans and provider binary/source scans when Trivy scanning is
-  enabled.
+- Runs module IaC scans when `scanning.enabled` is true, and provider binary and
+  source scans when `scanning.providerScanning` is also true.
 - Generates provider `SHA256SUMS` signatures when provider GPG signing is
   configured.
 - Uploads artifacts to the configured storage backend and updates Version

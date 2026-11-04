@@ -34,7 +34,7 @@ storageConfig:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Redirect downloads to the storage backend |
 | `ttl` | duration | `15m` | URL validity, such as `"15m"` or `"1h"` |
-| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails; set to `false` to require signing |
+| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails. When `false`, a signing failure returns `502 Bad Gateway`. |
 
 ## Backend Permissions
 
@@ -50,6 +50,7 @@ to the controller's identity in addition to `Storage Blob Data Contributor`.
 
 ### Google Cloud Storage
 
-GCS uses HMAC/V4 signing. The workload identity requires
+GCS signs URLs with the Go SDK's default V2 scheme. When the workload identity
+has no private key, the signing call goes through IAM, which requires
 `iam.serviceAccounts.signBlob`, included in the `Service Account Token Creator`
 role, in addition to the existing storage permissions.

@@ -43,16 +43,15 @@ Each resource card summarizes the latest available version:
 | Source | For a Skill or Agent that follows a branch, the tracked branch and source path. Select the branch to open it on GitHub. |
 | Version | The latest version currently shown for the resource. |
 | Sync status | Whether the resource version was successfully synchronized or needs attention. |
-| Finding badges | The number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, and `U` unknown. |
+| Finding badges | The number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, `U` unknown, and `E` exempted. |
 
-The footer shows how many resources are displayed, the selected page size, and
-pagination controls. Change the page size or move between pages to browse the
-full set of resources visible to you.
+The footer shows the resource count, the **Per page** setting, and pagination
+controls.
 
 ## What users see
 
-Depending on their authentication and visibility permissions, users can expect
-to find:
+- **Modules**: versions, README, usage, contract, and scan findings.
+- **Providers**: versions, platform artifacts, checksums, schema extraction status, and scan findings.
 
 - **Modules** with versions, README content, usage examples, contracts, inputs,
   outputs, and scan findings.

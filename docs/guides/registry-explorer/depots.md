@@ -26,10 +26,10 @@ graph LR
   A --> AV[v0.9.0]
 ```
 
-Each node opens a detail panel showing storage, polling, versions, sync status,
-and scan severity counts. A namespace selector narrows the graph to one
-Kubernetes namespace. Skill and Agent versions without a version string are
+Select a depot from the filter to narrow the graph. Each node opens a detail
+panel with its namespace, name, storage backend and configuration, presigned URL
+settings, and sync status. Skill and Agent versions without a version string are
 labeled with their short commit SHA.
 
-The graph uses the [`GET /opendepot/ui/v1/depots/graph`](../../reference/api.md#depot-relationship-graph)
-browse endpoint and applies the same visibility rules as the rest of the UI.
+The graph is served by [`GET /opendepot/ui/v1/depots/graph`](../../reference/api.md#depot-relationship-graph)
+and applies the same visibility rules as the rest of the Workshop.
