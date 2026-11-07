@@ -19,12 +19,19 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,12 +42,22 @@ import (
 	"github.com/tonedefdev/opendepot/pkg/registry"
 )
 
-// githubReleasesTransport answers GitHub release listing requests with the given tags.
+// githubReleasesTransport answers GitHub release listing requests with the given tags and
+// GitHub App installation token requests with a placeholder token.
 type githubReleasesTransport struct {
 	tags []string
 }
 
 func (t githubReleasesTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(req.URL.Path, "/access_tokens") {
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"token":"test-installation-token","expires_at":"2099-01-01T00:00:00Z"}`)),
+			Request:    req,
+		}, nil
+	}
+
 	releases := make([]map[string]string, 0, len(t.tags))
 	for _, tag := range t.tags {
 		releases = append(releases, map[string]string{"tag_name": tag})
@@ -355,7 +372,7 @@ var _ = Describe("Depot Controller", func() {
 				ModuleConfig: &opendepotv1alpha1.ModuleDefaults{
 					FileFormat:         &fileFormat,
 					Immutable:          &immutable,
-					GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+					GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true},
 					StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &defaultsDirectoryPath}},
 				},
 				StorageConfig: &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}},
@@ -380,11 +397,32 @@ var _ = Describe("Depot Controller", func() {
 			}
 			Expect(k8sClient.Update(ctx, current)).To(Succeed())
 
-			controllerReconciler := &DepotReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			signingKey, err := rsa.GenerateKey(rand.Reader, 2048)
+			Expect(err).NotTo(HaveOccurred())
+			keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signingKey)})
+			appSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opendepotv1alpha1.OpenDepotGithubSecretName,
+					Namespace: "default",
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldAppID:      []byte("1"),
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldInstallID:  []byte("2"),
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldPrivateKey: []byte(base64.StdEncoding.EncodeToString(keyPEM)),
+				},
 			}
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(k8sClient.Create(ctx, appSecret)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, appSecret)
+			})
+
+			controllerReconciler := &DepotReconciler{
+				Client:    k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				APIReader: k8sClient,
+			}
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
 			defaults := &opendepotv1alpha1.Module{}
@@ -397,7 +435,7 @@ var _ = Describe("Depot Controller", func() {
 			Expect(defaults.Spec.ModuleConfig.RepoOwner).To(Equal("tonedefdev"))
 			Expect(defaults.Spec.ModuleConfig.FileFormat).To(Equal(&fileFormat))
 			Expect(defaults.Spec.ModuleConfig.Immutable).To(Equal(&immutable))
-			Expect(defaults.Spec.ModuleConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false}))
+			Expect(defaults.Spec.ModuleConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true}))
 			Expect(defaults.Spec.ModuleConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &defaultsDirectoryPath}}))
 
 			override := &opendepotv1alpha1.Module{}
