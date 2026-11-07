@@ -21,7 +21,7 @@ vulnerabilities:
   - id: CVE-2026-78661
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net HTTP/2 issue compiled into the upstream OpenTofu 1.13.9 release binary; no upstream release bundles the fixed dependency yet."
+    statement: "golang.org/x/net/html quadratic-complexity denial of service in text node coalescing compiled into the upstream OpenTofu 1.13.9 release binary; x/net fix 0.62.0 not bundled by any upstream release yet."
   - id: CVE-2026-84445
     paths:
       - usr/local/bin/tofu
