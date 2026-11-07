@@ -79,31 +79,55 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		"depot", depot.ObjectMeta.Name,
 	)
 
+	globalConfig := depot.Spec.GlobalConfig
+	if globalConfig == nil {
+		globalConfig = &opendepotv1alpha1.GlobalConfig{}
+	}
+
+	moduleDefaults := opendepotv1alpha1.ModuleDefaults{}
+	if globalConfig.ModuleConfig != nil {
+		moduleDefaults = *globalConfig.ModuleConfig
+	}
+
+	providerDefaults := opendepotv1alpha1.ProviderDefaults{}
+	if globalConfig.ProviderConfig != nil {
+		providerDefaults = *globalConfig.ProviderConfig
+	}
+
 	var managedModules []string
 	if len(depot.Spec.ModuleConfigs) > 0 {
 		for _, moduleConfig := range depot.Spec.ModuleConfigs {
-			// Set global configs if not set on module config
-			if moduleConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
-				moduleConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+			// Apply the moduleConfig defaults, then the top-level global settings, when not set on the module config.
+			if moduleConfig.FileFormat == nil {
+				moduleConfig.FileFormat = moduleDefaults.FileFormat
 			}
 
-			if moduleConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
-				moduleConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+			if moduleConfig.Immutable == nil {
+				moduleConfig.Immutable = moduleDefaults.Immutable
 			}
 
-			if moduleConfig.FileFormat == nil && depot.Spec.GlobalConfig != nil && depot.Spec.GlobalConfig.ModuleConfig != nil {
-				moduleConfig.FileFormat = depot.Spec.GlobalConfig.ModuleConfig.FileFormat
+			if moduleConfig.StorageConfig == nil {
+				moduleConfig.StorageConfig = moduleDefaults.StorageConfig
 			}
 
-			if moduleConfig.Immutable == nil && depot.Spec.GlobalConfig != nil && depot.Spec.GlobalConfig.ModuleConfig != nil {
-				moduleConfig.Immutable = depot.Spec.GlobalConfig.ModuleConfig.Immutable
+			if moduleConfig.StorageConfig == nil {
+				moduleConfig.StorageConfig = globalConfig.StorageConfig
 			}
 
-			if moduleConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
-				moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
-				if depot.Spec.GlobalConfig.ModuleConfig != nil && depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit != nil {
-					moduleConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ModuleConfig.VersionHistoryLimit
-				}
+			if moduleConfig.GithubClientConfig == nil {
+				moduleConfig.GithubClientConfig = moduleDefaults.GithubClientConfig
+			}
+
+			if moduleConfig.GithubClientConfig == nil {
+				moduleConfig.GithubClientConfig = globalConfig.GithubClientConfig
+			}
+
+			if moduleConfig.VersionHistoryLimit == nil {
+				moduleConfig.VersionHistoryLimit = moduleDefaults.VersionHistoryLimit
+			}
+
+			if moduleConfig.VersionHistoryLimit == nil {
+				moduleConfig.VersionHistoryLimit = globalConfig.VersionHistoryLimit
 			}
 
 			if moduleConfig.RepoUrl == nil {
@@ -263,16 +287,41 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	var managedProviders []string
 	if len(depot.Spec.ProviderConfigs) > 0 {
 		for _, providerConfig := range depot.Spec.ProviderConfigs {
-			// Apply global storage config if not set on this provider config.
-			if providerConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
-				providerConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+			// Apply the providerConfig defaults, then the top-level global settings, when not set on the provider config.
+			if providerConfig.UpstreamRegistry == nil {
+				providerConfig.UpstreamRegistry = providerDefaults.UpstreamRegistry
 			}
 
-			if providerConfig.VersionHistoryLimit == nil && depot.Spec.GlobalConfig != nil {
-				providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.VersionHistoryLimit
-				if depot.Spec.GlobalConfig.ProviderConfig != nil && depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit != nil {
-					providerConfig.VersionHistoryLimit = depot.Spec.GlobalConfig.ProviderConfig.VersionHistoryLimit
-				}
+			if len(providerConfig.OperatingSystems) == 0 {
+				providerConfig.OperatingSystems = providerDefaults.OperatingSystems
+			}
+
+			if len(providerConfig.Architectures) == 0 {
+				providerConfig.Architectures = providerDefaults.Architectures
+			}
+
+			if providerConfig.StorageConfig == nil {
+				providerConfig.StorageConfig = providerDefaults.StorageConfig
+			}
+
+			if providerConfig.StorageConfig == nil {
+				providerConfig.StorageConfig = globalConfig.StorageConfig
+			}
+
+			if providerConfig.GithubClientConfig == nil {
+				providerConfig.GithubClientConfig = providerDefaults.GithubClientConfig
+			}
+
+			if providerConfig.GithubClientConfig == nil {
+				providerConfig.GithubClientConfig = globalConfig.GithubClientConfig
+			}
+
+			if providerConfig.VersionHistoryLimit == nil {
+				providerConfig.VersionHistoryLimit = providerDefaults.VersionHistoryLimit
+			}
+
+			if providerConfig.VersionHistoryLimit == nil {
+				providerConfig.VersionHistoryLimit = globalConfig.VersionHistoryLimit
 			}
 
 			providerName := ""

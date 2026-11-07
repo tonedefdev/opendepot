@@ -347,8 +347,8 @@ spec:
                     type: object
                   moduleConfig:
                     description: |-
-                      ModuleConfig is the configuration settings for the Module and for each
-                      Version created by the Module controller.
+                      Default settings applied to each moduleConfigs entry that does not set them.
+                      These values take precedence over the top-level global settings.
                     properties:
                       fileFormat:
                         description: |-
@@ -356,7 +356,8 @@ spec:
                           This must be one of 'zip' or 'tar'.
                         type: string
                       githubClientConfig:
-                        description: The Github client configuration settings.
+                        description: The Github client configuration settings used
+                          when the entry does not set its own.
                         properties:
                           useAuthenticatedClient:
                             description: |-
@@ -374,23 +375,9 @@ spec:
                           When true, enforces that the ChecksumSHA256 of the module archive
                           always matches the value stored in this field and in any destination storage config.
                         type: boolean
-                      name:
-                        description: |-
-                          The name of the module. If omitted, the name of the Module resource
-                          is used in its place.
-                        type: string
-                      provider:
-                        description: The main OpenTofu provider required for this
-                          module.
-                        type: string
-                      repoOwner:
-                        description: Owner of the Github repository.
-                        type: string
-                      repoUrl:
-                        description: The full URL of the Github repository.
-                        type: string
                       storageConfig:
-                        description: The external storage configuration settings.
+                        description: The external storage configuration settings used
+                          when the entry does not set its own.
                         properties:
                           azureStorage:
                             properties:
@@ -474,37 +461,28 @@ spec:
                             - region
                             type: object
                         type: object
-                      versionConstraints:
-                        description: |-
-                          A comma separated list of version constraints such as
-                          '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'. This field is only
-                          respected by the Depot controller.
-                        type: string
                       versionHistoryLimit:
-                        description: The number of versions to keep stored in the
-                          registry at any given time.
+                        description: |-
+                          The number of versions to keep stored in the registry at any given time.
+                          Used when the entry does not set its own. A versionHistoryLimit set on this block
+                          overrides the top-level global versionHistoryLimit.
+                        minimum: 0
                         type: integer
                     type: object
                   providerConfig:
-                    description: ProviderConfig is the configuration settings for
-                      the Provider and for each Version created by the Provider controller.
+                    description: |-
+                      Default settings applied to each providerConfigs entry that does not set them.
+                      These values take precedence over the top-level global settings.
                     properties:
                       architectures:
                         description: The architecture(s) that the provider supports.
-                          This is used to set the 'arch' constraint in the provider's
-                          versions.
+                          Used when the entry does not set any.
                         items:
                           type: string
                         type: array
                       githubClientConfig:
-                        description: |-
-                          The Github client configuration settings for source scanning. When set with
-                          useAuthenticatedClient: true, the version controller will use a GitHub App to
-                          authenticate requests when fetching the provider's go.mod for source scanning.
-                          This is recommended for private source repositories and to avoid GitHub API rate limiting.
-                          The namespace where the Version resource exists must contain a Secret named
-                          'opendepot-github-application-secret' with githubAppID, githubInstallID, and
-                          githubPrivateKey fields (private key must be base64 encoded).
+                        description: The Github client configuration settings used
+                          when the entry does not set its own.
                         properties:
                           useAuthenticatedClient:
                             description: |-
@@ -517,32 +495,15 @@ spec:
                               to authenticate with the Github API.
                             type: boolean
                         type: object
-                      name:
-                        description: |-
-                          The name of the provider. If omitted, the name of the Provider resource
-                          is used in its place.
-                        type: string
-                      namespace:
-                        description: |-
-                          The namespace (organization) of the provider in the configured upstream registry,
-                          e.g. 'hashicorp', 'integrations', 'DataDog'. Defaults to 'hashicorp' when omitted,
-                          preserving backwards compatibility for existing Provider resources.
-                        type: string
                       operatingSystems:
-                        description: The OS(s) that the provider supports. This is
-                          used to set the 'os' constraint in the provider's versions.
+                        description: The OS(s) that the provider supports. Used when
+                          the entry does not set any.
                         items:
                           type: string
                         type: array
-                      sourceRepository:
-                        description: |-
-                          The URL of the provider's source repository on GitHub, e.g. 'https://github.com/hashicorp/terraform-provider-aws'.
-                          When omitted, OpenDepot looks up the repository from the OpenTofu registry (api.opentofu.org).
-                          If the registry lookup fails, it falls back to 'github.com/{namespace}/terraform-provider-{name}'.
-                          If the repository cannot be resolved, scanning falls back to binary-only mode.
-                        type: string
                       storageConfig:
-                        description: The external storage configuration settings.
+                        description: The external storage configuration settings used
+                          when the entry does not set its own.
                         properties:
                           azureStorage:
                             properties:
@@ -627,22 +588,19 @@ spec:
                             type: object
                         type: object
                       upstreamRegistry:
-                        default: registry.opentofu.org
                         description: |-
-                          The canonical registry used to discover and download this provider and exposed by the Provider Network Mirror Protocol.
-                          Defaults to registry.opentofu.org when omitted.
+                          The canonical registry used to discover and download providers and exposed by the Provider Network Mirror Protocol.
+                          Used when the entry does not set its own.
                         enum:
                         - registry.opentofu.org
                         - registry.terraform.io
                         type: string
-                      versionConstraints:
-                        description: |-
-                          A comma-separated list of version constraints such as
-                          '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0'. This field is only
-                          respected by the Depot controller.
-                        type: string
                       versionHistoryLimit:
-                        description: The version history limit for the provider.
+                        description: |-
+                          The number of versions to keep stored in the registry at any given time.
+                          Used when the entry does not set its own. A versionHistoryLimit set on this block
+                          overrides the top-level global versionHistoryLimit.
+                        minimum: 0
                         type: integer
                     type: object
                   storageConfig:

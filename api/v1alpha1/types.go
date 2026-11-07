@@ -51,12 +51,58 @@ type DepotSpec struct {
 // Defines the desired config of all OpenDepot modules managed by the Depot controller.
 type GlobalConfig struct {
 	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
-	ModuleConfig       *ModuleConfig       `json:"moduleConfig,omitempty"`
-	ProviderConfig     *ProviderConfig     `json:"providerConfig,omitempty"`
-	StorageConfig      *StorageConfig      `json:"storageConfig"`
+	// Default settings applied to each moduleConfigs entry that does not set them.
+	// These values take precedence over the top-level global settings.
+	ModuleConfig *ModuleDefaults `json:"moduleConfig,omitempty"`
+	// Default settings applied to each providerConfigs entry that does not set them.
+	// These values take precedence over the top-level global settings.
+	ProviderConfig *ProviderDefaults `json:"providerConfig,omitempty"`
+	StorageConfig  *StorageConfig    `json:"storageConfig"`
 	// The number of versions to keep for each Module and Provider managed by the Depot.
 	// The moduleConfig and providerConfig values take precedence, and a versionHistoryLimit set on a
 	// moduleConfigs or providerConfigs entry overrides all of them.
+	// +kubebuilder:validation:Minimum=0
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+}
+
+// ModuleDefaults are the default settings applied to each moduleConfigs entry
+// that does not set them. An entry value always takes precedence over these defaults.
+type ModuleDefaults struct {
+	// The file format of the module
+	// This must be one of 'zip' or 'tar'.
+	FileFormat *string `json:"fileFormat,omitempty"`
+	// The Github client configuration settings used when the entry does not set its own.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// When true, enforces that the ChecksumSHA256 of the module archive
+	// always matches the value stored in this field and in any destination storage config.
+	Immutable *bool `json:"immutable,omitempty"`
+	// The external storage configuration settings used when the entry does not set its own.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	// Used when the entry does not set its own. A versionHistoryLimit set on this block
+	// overrides the top-level global versionHistoryLimit.
+	// +kubebuilder:validation:Minimum=0
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+}
+
+// ProviderDefaults are the default settings applied to each providerConfigs entry
+// that does not set them. An entry value always takes precedence over these defaults.
+type ProviderDefaults struct {
+	// The canonical registry used to discover and download providers and exposed by the Provider Network Mirror Protocol.
+	// Used when the entry does not set its own.
+	// +kubebuilder:validation:Enum=registry.opentofu.org;registry.terraform.io
+	UpstreamRegistry *string `json:"upstreamRegistry,omitempty"`
+	// The OS(s) that the provider supports. Used when the entry does not set any.
+	OperatingSystems []string `json:"operatingSystems,omitempty"`
+	// The architecture(s) that the provider supports. Used when the entry does not set any.
+	Architectures []string `json:"architectures,omitempty"`
+	// The Github client configuration settings used when the entry does not set its own.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// The external storage configuration settings used when the entry does not set its own.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	// Used when the entry does not set its own. A versionHistoryLimit set on this block
+	// overrides the top-level global versionHistoryLimit.
 	// +kubebuilder:validation:Minimum=0
 	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
 }
