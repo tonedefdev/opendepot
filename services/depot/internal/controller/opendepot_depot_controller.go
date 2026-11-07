@@ -288,10 +288,6 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if len(depot.Spec.ProviderConfigs) > 0 {
 		for _, providerConfig := range depot.Spec.ProviderConfigs {
 			// Apply the providerConfig defaults, then the top-level global settings, when not set on the provider config.
-			if providerConfig.UpstreamRegistry == nil {
-				providerConfig.UpstreamRegistry = providerDefaults.UpstreamRegistry
-			}
-
 			if len(providerConfig.OperatingSystems) == 0 {
 				providerConfig.OperatingSystems = providerDefaults.OperatingSystems
 			}

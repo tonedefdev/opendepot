@@ -587,14 +587,6 @@ spec:
                             - region
                             type: object
                         type: object
-                      upstreamRegistry:
-                        description: |-
-                          The canonical registry used to discover and download providers and exposed by the Provider Network Mirror Protocol.
-                          Used when the entry does not set its own.
-                        enum:
-                        - registry.opentofu.org
-                        - registry.terraform.io
-                        type: string
                       versionHistoryLimit:
                         description: |-
                           The number of versions to keep stored in the registry at any given time.

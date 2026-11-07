@@ -88,10 +88,6 @@ type ModuleDefaults struct {
 // ProviderDefaults are the default settings applied to each providerConfigs entry
 // that does not set them. An entry value always takes precedence over these defaults.
 type ProviderDefaults struct {
-	// The canonical registry used to discover and download providers and exposed by the Provider Network Mirror Protocol.
-	// Used when the entry does not set its own.
-	// +kubebuilder:validation:Enum=registry.opentofu.org;registry.terraform.io
-	UpstreamRegistry *string `json:"upstreamRegistry,omitempty"`
 	// The OS(s) that the provider supports. Used when the entry does not set any.
 	OperatingSystems []string `json:"operatingSystems,omitempty"`
 	// The architecture(s) that the provider supports. Used when the entry does not set any.
