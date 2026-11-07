@@ -947,7 +947,7 @@ The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described
 | `name` | `string` | Provider name. Defaults to the `Provider` resource name. |
 | `operatingSystems` | `[]string` | Operating systems the provider supports, used as the `os` constraint. |
 | `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
-| `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. Inherited from `global.providerConfig`, then `global.githubClientConfig`, when unset in a Depot. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
 | `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.providerConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
@@ -984,12 +984,60 @@ Items in `spec.versions`.
 
 | Field | Type | Description |
 |---|---|---|
-| `spec.global` | `GlobalConfig` | Defaults for Depot-managed modules and providers. Requires `storageConfig`. Optional `githubClientConfig`, `moduleConfig`, `providerConfig`, and `versionHistoryLimit`. `versionHistoryLimit` applies to each entry that sets neither its own value nor a kind-specific `moduleConfig` or `providerConfig` value. |
+| `spec.global` | `GlobalConfig` | Defaults for the entries the Depot manages. Requires `storageConfig`. See [GlobalConfig](#globalconfig). |
 | `spec.moduleConfigs` | `[]ModuleConfig` | Modules to create and manage. |
 | `spec.providerConfigs` | `[]ProviderConfig` | Providers to create and manage. |
 | `spec.pollingIntervalMinutes` | `int` | Minutes between checks for new versions. Unset or `0` disables periodic polling. |
 | `status.modules` | `[]string` | *Controller-managed.* Names of the `Module` resources the Depot manages. |
 | `status.providers` | `[]string` | *Controller-managed.* Names of the `Provider` resources the Depot manages. |
+
+### GlobalConfig
+
+`spec.global` sets defaults for each entry that does not set its own value. Identity fields such as `name`, `sourceRepository`, and `repoOwner` are not allowed in a global block. Set them on each entry.
+
+| Field | Type | Description |
+|---|---|---|
+| `storageConfig` | `StorageConfig` | **Required.** Storage backend for each module and provider that does not set its own. See [StorageConfig](#storageconfig). |
+| `githubClientConfig` | `GithubClientConfig` | GitHub client settings for each module, provider, skill, and agent that does not set its own. See [GithubClientConfig](#githubclientconfig). |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions of each module and provider that does not set its own. Minimum `0`. |
+| `moduleConfig` | `ModuleDefaults` | Defaults for `moduleConfigs` entries. See **ModuleDefaults** below. |
+| `providerConfig` | `ProviderDefaults` | Defaults for `providerConfigs` entries. See **ProviderDefaults** below. |
+
+**Precedence**
+
+An entry value always wins. The kind-level block (`moduleConfig` or `providerConfig`) is checked next, then the top-level `global` block. A list inherits only when it is empty. A pointer inherits only when it is nil, so an explicit `0` or an explicit `githubClientConfig` on an entry stops inheritance.
+
+| Setting | Applies to | Order |
+|---|---|---|
+| `versionHistoryLimit` | Modules, providers | Entry, `moduleConfig` or `providerConfig`, `global` |
+| `storageConfig` | Modules, providers | Entry, `moduleConfig` or `providerConfig`, `global` |
+| `githubClientConfig` | Modules, providers | Entry, `moduleConfig` or `providerConfig`, `global` |
+| `fileFormat` | Modules | Entry, `moduleConfig` |
+| `immutable` | Modules | Entry, `moduleConfig` |
+| `operatingSystems` | Providers | Entry, `providerConfig` |
+| `architectures` | Providers | Entry, `providerConfig` |
+
+**ModuleDefaults** (`global.moduleConfig`)
+
+| Field | Type | Description |
+|---|---|---|
+| `fileFormat` | `string` | Archive format for entries that do not set one. See [ModuleConfig](#moduleconfig). |
+| `immutable` | `bool` | Checksum enforcement for entries that do not set one. See [ModuleConfig](#moduleconfig). |
+| `githubClientConfig` | `GithubClientConfig` | Used when the entry does not set one. Falls back to `global.githubClientConfig`. |
+| `storageConfig` | `StorageConfig` | Used when the entry does not set one. Falls back to `global.storageConfig`. |
+| `versionHistoryLimit` | `int` | Used when the entry does not set one. Minimum `0`. Falls back to `global.versionHistoryLimit`. |
+
+**ProviderDefaults** (`global.providerConfig`)
+
+| Field | Type | Description |
+|---|---|---|
+| `operatingSystems` | `[]string` | Used when the entry lists none. |
+| `architectures` | `[]string` | Used when the entry lists none. |
+| `githubClientConfig` | `GithubClientConfig` | Used when the entry does not set one. Falls back to `global.githubClientConfig`. |
+| `storageConfig` | `StorageConfig` | Used when the entry does not set one. Falls back to `global.storageConfig`. |
+| `versionHistoryLimit` | `int` | Used when the entry does not set one. Minimum `0`. Falls back to `global.versionHistoryLimit`. |
+
+`global.moduleConfig` does not accept `name`, `namespace`, `sourceRepository`, `versionConstraints`, `provider`, `repoOwner`, or `repoUrl`. `global.providerConfig` does not accept the same identity fields, and it does not accept `upstreamRegistry`. Set `upstreamRegistry` on each `providerConfigs` entry. The API server removes unknown fields when it decodes a Depot. See [Upgrading](../upgrading.md#depot-global-defaults).
 
 ### GithubClientConfig
 

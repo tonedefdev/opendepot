@@ -68,6 +68,29 @@ kubectl apply -f chart/opendepot/crds/opendepot.defdev.io_depots.yaml
 The Depot `GlobalConfig` printer column now reads `.spec.global`, the JSON key.
 Before this release, the column was always blank in `kubectl get depots`.
 
+### Depot global defaults
+
+The `global.moduleConfig` and `global.providerConfig` blocks accept only default fields. Identity fields belong on each entry.
+
+- `global.moduleConfig` accepts `fileFormat`, `immutable`, `githubClientConfig`, `storageConfig`, and `versionHistoryLimit`.
+- `global.providerConfig` accepts `operatingSystems`, `architectures`, `githubClientConfig`, `storageConfig`, and `versionHistoryLimit`.
+- Neither block accepts `name`, `namespace`, `sourceRepository`, `versionConstraints`, `provider`, `repoOwner`, or `repoUrl`. Set these on each entry.
+- `global.providerConfig.upstreamRegistry` is removed. Set `upstreamRegistry` on each `providerConfigs` entry. Each entry already defaults to `registry.opentofu.org`, so the removed global field never applied to entries.
+
+The API server removes fields that the restricted schema does not define when it decodes a Depot. It returns no error or warning. Existing Depots that set `global.providerConfig.upstreamRegistry` or an identity field in a global block have those fields pruned silently. The controller already ignored these fields, so pruning does not change what the Depot manages. Remove them from your manifests so that your source matches the stored object.
+
+`versionHistoryLimit` in `global`, `global.moduleConfig`, and `global.providerConfig` now has `minimum: 0`. The API server rejects a negative value. Use `0` or remove the field to keep all versions.
+
+Provider entries now inherit `spec.global.githubClientConfig`. Before this change, they did not. When the top-level block sets `useAuthenticatedClient: true`, source scans for provider Versions use the GitHub App token by default. This can read `go.mod` data from private repositories, and the Trivy findings are stored in Version status. This is intentional. To keep a provider unauthenticated, set `githubClientConfig.useAuthenticatedClient: false` on that provider entry. See [Options](guides/depot.md#options) for the precedence order.
+
+Helm does not upgrade CRDs in the `crds/` directory. If you use `global` defaults, apply the updated Depot CRD before you upgrade to 0.12.0. Run this from the root of the OpenDepot repository:
+
+```bash
+kubectl apply -f chart/opendepot/crds/opendepot.defdev.io_depots.yaml
+```
+
+Without the updated CRD, the API server keeps the old schema. The restrictions and `minimum: 0` are not enforced until you apply it.
+
 ### Dex and OIDC client secret
 
 When Dex and OIDC are enabled, the chart fails to render unless

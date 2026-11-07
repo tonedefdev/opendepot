@@ -234,3 +234,9 @@ moduleConfigs:
 3. `spec.global.versionHistoryLimit` for both kinds.
 
 The Depot keeps the newest N matching versions and writes only those to each generated resource's `spec.versions`. The Module and Provider controllers then delete the `Version` resources that were removed. Trimmed versions do not return on later polls.
+
+**GitHub client config:** An entry inherits `githubClientConfig` in the same order as the version history limit: the entry, then `spec.global.moduleConfig` or `spec.global.providerConfig`, then `spec.global`. A provider inherits `spec.global.githubClientConfig` when neither the entry nor `spec.global.providerConfig` sets `githubClientConfig`. An entry that sets `githubClientConfig` keeps its own value.
+
+!!! warning "Provider source scans use the GitHub App token by default"
+    When a provider inherits `useAuthenticatedClient: true` from `spec.global.githubClientConfig`, the Version controller uses the GitHub App token for source scans of that provider's Versions. This can read `go.mod` data from private repositories, and the Trivy findings are stored in each Version's `status`. This is intentional. The combined example above sets this flag, so its `aws` provider uses the App token. To keep a provider unauthenticated, set `githubClientConfig.useAuthenticatedClient: false` on that entry. If the `opendepot-github-application-secret` Secret is missing, the scan falls back to an unauthenticated client.
+
