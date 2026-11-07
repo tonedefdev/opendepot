@@ -1,10 +1,10 @@
-FROM aquasec/trivy:0.76.1 AS trivy-source
+FROM aquasec/trivy:0.76.2 AS trivy-source
 
 FROM debian:bookworm-slim AS tofu-source
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.2
-ARG TOFU_SHA256_AMD64=723bebb0df8411daff1e5fc3862e28ff5581fe5634087f4c29a9aa41d78208b5
-ARG TOFU_SHA256_ARM64=6e815c58a09ee957de606ff48cefad082942e70afc43b737ff975654c54ec453
+ARG TOFU_VERSION=1.13.9
+ARG TOFU_SHA256_AMD64=bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce
+ARG TOFU_SHA256_ARM64=04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && rm -rf /var/lib/apt/lists/*

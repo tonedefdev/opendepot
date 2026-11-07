@@ -57,6 +57,7 @@ type GlobalConfig struct {
 	// The number of versions to keep for each Module and Provider managed by the Depot.
 	// The moduleConfig and providerConfig values take precedence, and a versionHistoryLimit set on a
 	// moduleConfigs or providerConfigs entry overrides all of them.
+	// +kubebuilder:validation:Minimum=0
 	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
 }
 

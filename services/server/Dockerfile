@@ -47,9 +47,9 @@ COPY services/server/ services/server/
 RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
 
 # tofu-release: upstream OpenTofu release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TOFU=true
-FROM debian:bookworm-slim AS tofu-release
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS tofu-release
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.2
+ARG TOFU_VERSION=1.13.9
 RUN set -eux; \
 	apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl unzip \

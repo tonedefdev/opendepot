@@ -949,7 +949,7 @@ The `namespace`, `upstreamRegistry`, and `sourceRepository` fields are described
 | `architectures` | `[]string` | Architectures the provider supports, used as the `arch` constraint. |
 | `githubClientConfig` | `GithubClientConfig` | GitHub client settings for source scanning. See [GithubClientConfig](#githubclientconfig). |
 | `storageConfig` | `StorageConfig` | Storage backend for the binaries. See [StorageConfig](#storageconfig). |
-| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.moduleConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
+| `versionHistoryLimit` | `int` | Keeps the newest N versions. The controller trims `spec.versions` to the N highest semantic versions and deletes the removed `Version` resources. Unset, `<= 0`, or greater than the number of versions keeps all versions. Falls back to `spec.global.providerConfig.versionHistoryLimit`, then `spec.global.versionHistoryLimit`. |
 | `versionConstraints` | `string` | Comma-separated constraints such as `~> 1.0.0`. Used only by the Depot controller. |
 
 ### ProviderVersion
