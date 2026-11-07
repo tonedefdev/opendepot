@@ -159,18 +159,18 @@ export default async function StatsPage() {
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
               <StatCard
+                label="Depots"
+                value={totalDepots}
+                icon={<DepotKindIcon kind="depot" fontSize="small" />}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
+              <StatCard
                 label="Versions"
                 value={stats.totalVersions}
                 sub={`${stats.versionsSynced} synced`}
                 icon={<DepotKindIcon kind="version" fontSize="small" />}
                 accentColor={graphKindColor("version")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Depots"
-                value={totalDepots}
-                icon={<DepotKindIcon kind="depot" fontSize="small" />}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
