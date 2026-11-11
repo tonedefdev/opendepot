@@ -47,6 +47,51 @@ describe("JevPanel", () => {
     expect(screen.getByText(/model probabilities, not a certification or an OpenDepot verdict/)).not.toBeNull();
   });
 
+  it("offers a prefilled Create Jev exemption link when blocked and the caller can edit", () => {
+    const digest = "a".repeat(64);
+    renderPanel({
+      assessment: { ...assessment, blocked: true, contentDigest: digest },
+      exemption: { namespace: "platform", versionName: "1.2.3", canEdit: true },
+    });
+
+    const link = screen.getByRole("link", { name: "Create Jev exemption" });
+    const href = new URL(link.getAttribute("href") ?? "", "http://localhost");
+    expect(href.pathname).toBe("/security-policies/new");
+    expect(href.searchParams.get("namespace")).toBe("platform");
+    expect(href.searchParams.get("jevDigest")).toBe(digest);
+    expect(href.searchParams.get("jevVersion")).toBe("1.2.3");
+  });
+
+  it("disables the Create Jev exemption action with an explanation when the caller cannot edit", () => {
+    renderPanel({
+      assessment: { ...assessment, blocked: true, contentDigest: "b".repeat(64) },
+      exemption: { namespace: "platform", canEdit: false },
+    });
+
+    expect((screen.getByRole("button", { name: "Create Jev exemption" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Only namespace-wide policy managers can create Jev exemptions in platform.")).not.toBeNull();
+  });
+
+  it("hides the Create Jev exemption action when the version is not blocked or has no digest", () => {
+    const { unmount } = renderPanel({
+      assessment: { ...assessment, blocked: false, contentDigest: "c".repeat(64) },
+      exemption: { namespace: "platform", canEdit: true },
+    });
+    expect(screen.queryByText("Create Jev exemption")).toBeNull();
+    unmount();
+
+    renderPanel({
+      assessment: { ...assessment, blocked: true },
+      exemption: { namespace: "platform", canEdit: true },
+    });
+    expect(screen.queryByText("Create Jev exemption")).toBeNull();
+  });
+
+  it("hides the Create Jev exemption action when no exemption context is supplied", () => {
+    renderPanel({ assessment: { ...assessment, blocked: true, contentDigest: "d".repeat(64) } });
+    expect(screen.queryByText("Create Jev exemption")).toBeNull();
+  });
+
   it("shows each probability and hides limits when no thresholds are configured", () => {
     renderPanel({ assessment });
 

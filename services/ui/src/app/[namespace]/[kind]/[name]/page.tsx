@@ -35,7 +35,8 @@ import SourceRefChip from "@/components/SourceRefChip";
 import { DepotKindIcon, isDepotKind } from "@/components/DepotKindIcon";
 import { BRAND_GRADIENT_WASH, BRAND_SURFACE_BORDER } from "@/lib/brand";
 import { kindChipSx, monoMetaChipSx } from "@/components/chipStyles";
-import { getContract, getResourceDetail, listDepots } from "@/lib/api";
+import { canEditJevExemptions } from "@/components/security-policies/jevExemptions";
+import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
@@ -113,6 +114,16 @@ function compareVersionDesc(a: string, b: string): number {
   return 0;
 }
 
+// canCreateJevExemption asks the server whether the caller may write jevExemptions in the namespace. Any failure means no access.
+async function canCreateJevExemption(namespace: string, token?: string): Promise<boolean> {
+  try {
+    const [catalog, capabilities] = await Promise.all([getScanPolicyCatalog(token), getScanPolicyCapabilities(namespace, token)]);
+    return canEditJevExemptions(catalog, namespace, capabilities);
+  } catch {
+    return false;
+  }
+}
+
 export default async function ResourceDetailPage({ params }: PageProps) {
   const { namespace, kind, name } = await params;
   const token = await getServerSessionToken();
@@ -153,6 +164,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   );
   const isProviderKind = kind === "provider";
   const isAgentKind = kind === "skill" || kind === "agent";
+  const jevCanEdit = detail.jevAssessment?.blocked && detail.jevAssessment.contentDigest ? await canCreateJevExemption(namespace, token) : false;
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -313,7 +325,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
       {isAgentKind && detail.jevAssessment && (
         <SectionCard icon={<SecurityIcon fontSize="small" />} title="Jev Assessment">
-          <JevPanel assessment={detail.jevAssessment} thresholds={detail.jevThresholds} />
+          <JevPanel assessment={detail.jevAssessment} thresholds={detail.jevThresholds} exemption={{ namespace, versionName: detail.latestVersion, canEdit: jevCanEdit }} />
         </SectionCard>
       )}
 

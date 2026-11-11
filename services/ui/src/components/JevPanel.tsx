@@ -1,6 +1,7 @@
 import * as React from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Chip, { type ChipProps } from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -8,14 +9,24 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
+import Link from "next/link";
 import type { JevAssessment, JevThresholds } from "@/lib/api";
 import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
 import CopyButton from "./CopyButton";
 import JevChunkTree from "./JevChunkTree";
 
+// JevExemptionAction offers the Security Policy editor prefilled with a blocked digest. canEdit comes from the server-side capability check.
+export interface JevExemptionAction {
+  namespace: string;
+  versionName?: string;
+  canEdit: boolean;
+}
+
 interface JevPanelProps {
   assessment: JevAssessment;
   thresholds?: JevThresholds;
+  exemption?: JevExemptionAction;
 }
 
 // JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
@@ -92,7 +103,7 @@ function InfoChip({ description, ...chipProps }: InfoChipProps) {
   );
 }
 
-export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
+export default function JevPanel({ assessment, thresholds, exemption }: JevPanelProps) {
   const allRows: ProbabilityRow[] = [
     {
       label: "Safe",
@@ -180,6 +191,35 @@ export default function JevPanel({ assessment, thresholds }: JevPanelProps) {
             {assessment.contentDigest}
           </Typography>
           <CopyButton value={assessment.contentDigest} />
+        </Box>
+      )}
+
+      {assessment.blocked && assessment.contentDigest && exemption && (
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.5 }}>
+          {exemption.canEdit ? (
+            <Button
+              component={Link}
+              href={`/security-policies/new?${new URLSearchParams({
+                namespace: exemption.namespace,
+                jevDigest: assessment.contentDigest,
+                ...(exemption.versionName ? { jevVersion: exemption.versionName } : {}),
+              })}`}
+              size="small"
+              variant="outlined"
+              startIcon={<VerifiedUserOutlinedIcon fontSize="small" />}
+            >
+              Create Jev exemption
+            </Button>
+          ) : (
+            <>
+              <Button size="small" variant="outlined" disabled startIcon={<VerifiedUserOutlinedIcon fontSize="small" />}>
+                Create Jev exemption
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Only namespace-wide policy managers can create Jev exemptions in {exemption.namespace}.
+              </Typography>
+            </>
+          )}
         </Box>
       )}
 

@@ -65,6 +65,44 @@ describe("scan policy API contract", () => {
     vi.unstubAllGlobals();
   });
 
+  it("returns capabilities for callers who cannot manage namespace-wide policies", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      writesEnabled: true,
+      canRead: true,
+      canWrite: true,
+      canManageNamespaceWidePolicies: false,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      supportsPreview: true,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getScanPolicyCapabilities("platform")).resolves.toMatchObject({
+      canWrite: true,
+      canManageNamespaceWidePolicies: false,
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("sends jevExemptions unchanged so existing Jev exemptions survive a save", async () => {
+    const jevExemptions = [
+      { contentDigest: "a".repeat(64), reason: "Vendor attested", expires: "2027-01-01T00:00:00Z" },
+      { contentDigest: "b".repeat(64), reason: "Reviewed" },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ metadata: { name: "baseline" } }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createScanPolicy("platform", {
+      apiVersion: "opendepot.defdev.io/v1alpha1",
+      kind: "ScanPolicy",
+      metadata: { name: "baseline", namespace: "platform" },
+      spec: { severityThreshold: "HIGH", jevExemptions },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.spec.jevExemptions).toEqual(jevExemptions);
+    vi.unstubAllGlobals();
+  });
+
   it("loads the server-authorized catalog route", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       writesEnabled: true,

@@ -58,6 +58,7 @@ import type {
   ScanPolicyCatalog,
   ScanPolicyCatalogItem,
   ScanPolicyExemption,
+  ScanPolicyJevExemption,
   ScanPolicyMutation,
   ScanPolicyPreview,
   ScanPolicySpec,
@@ -66,6 +67,7 @@ import type {
   ScanType,
 } from "@/lib/api";
 import { validateScanPolicy } from "./securityPolicyValidation";
+import { validateJevExemptions } from "./jevExemptions";
 import PageHeader from "@/components/PageHeader";
 import CopyButton from "@/components/CopyButton";
 import ResourceListControls, { PAGE_SIZE_OPTIONS } from "@/components/ResourceListControls";
@@ -146,9 +148,10 @@ interface SurfaceProps {
   namespace?: string;
   name?: string;
   catalog: ScanPolicyCatalog;
+  initialJevExemption?: ScanPolicyJevExemption;
 }
 
-export default function SecurityPoliciesSurface({ mode, namespace, name, catalog }: SurfaceProps) {
+export default function SecurityPoliciesSurface({ mode, namespace, name, catalog, initialJevExemption }: SurfaceProps) {
   const router = useRouter();
   const { mode: colorMode, systemMode } = useColorScheme();
   const resolvedMode = colorMode === "system" ? systemMode : colorMode;
@@ -163,7 +166,11 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   const [listPage, setListPage] = React.useState(1);
   const [listPageSize, setListPageSize] = React.useState(PAGE_SIZE_OPTIONS[0]);
   const [policy, setPolicy] = React.useState<ScanPolicy | null>(null);
-  const [form, setForm] = React.useState<ScanPolicyMutation>(() => emptyMutation(defaultNamespace));
+  const [form, setForm] = React.useState<ScanPolicyMutation>(() => {
+    const draft = emptyMutation(defaultNamespace);
+    if (initialJevExemption) draft.spec.jevExemptions = [initialJevExemption];
+    return draft;
+  });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -213,6 +220,9 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   const updateSpec = (changes: Partial<ScanPolicySpec>) => setForm((current) => ({ ...current, spec: { ...current.spec, ...changes } }));
   const isEdit = mode === "edit";
   const namespaceWideAllowed = Boolean(catalogItem?.canManageNamespaceWidePolicies && capabilities?.canManageNamespaceWidePolicies);
+  // Jev exemptions are validated live so inline errors appear as the author types; save re-validates the same rules.
+  const jevErrors = validateJevExemptions(form.spec.jevExemptions ?? []);
+  const jevChanged = JSON.stringify(form.spec.jevExemptions ?? []) !== JSON.stringify(policy?.spec.jevExemptions ?? []);
   const filteredPolicies = policies.filter((item) => {
     const query = policyQuery.trim().toLowerCase();
     if (!query) return true;
@@ -246,6 +256,10 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
     const validation = validateScanPolicy(form);
     if (!namespaceWideAllowed && !form.spec.targetRefs?.length) {
       validation.targets = "At least one authorized target is required for this namespace.";
+    }
+    // The server rejects Jev changes from callers who are not namespace-wide managers; this guard fails fast with a clear message.
+    if (!namespaceWideAllowed && jevChanged) {
+      validation.jevAccess = "Only namespace-wide policy managers can add, change, or remove Jev exemptions.";
     }
     setErrors(validation);
     if (Object.keys(validation).length > 0 || !canWrite) return;
@@ -375,6 +389,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
           <Card><CardContent><SectionTitle icon={<BadgeOutlinedIcon fontSize="small" />} title="Policy identity" /><Grid container spacing={2}><Grid size={12}><TextField fullWidth required label="Name" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.name} disabled={isEdit} error={Boolean(errors.name)} helperText={errors.name ?? "Lowercase DNS-compatible name."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, name: event.target.value } })} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth required select label="Namespace" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.namespace} disabled={isEdit} error={Boolean(errors.namespace)} helperText={errors.namespace ?? "Select an authorized policy namespace."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, namespace: event.target.value } })}>{catalog.items.map((item) => <MenuItem key={item.namespace} value={item.namespace}>{item.namespace}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Priority" slotProps={{ inputLabel: { shrink: true } }} value={form.spec.priority ?? 0} helperText="Higher priority wins outright when policies overlap." onChange={(event) => updateSpec({ priority: Number(event.target.value) })} /></Grid></Grid></CardContent></Card>
           <Card><CardContent><SectionTitle icon={<TuneIcon fontSize="small" />} title="Matching and scan threshold" /><Stack spacing={2}><TextField select fullWidth label="Severity threshold" value={form.spec.severityThreshold ?? ""} helperText="Leave empty to use the controller baseline; NONE disables blocking." onChange={(event) => updateSpec({ severityThreshold: (event.target.value || undefined) as ScanSeverityThreshold | undefined })}><MenuItem value="">Controller baseline</MenuItem>{thresholds.map((threshold) => <MenuItem key={threshold} value={threshold}>{threshold}</MenuItem>)}</TextField>{namespaceWideAllowed ? <TextField fullWidth label="Target labels (JSON object)" placeholder='{"environment":"sandbox"}' value={JSON.stringify(form.spec.selector?.matchLabels ?? {}) === "{}" ? "" : JSON.stringify(form.spec.selector?.matchLabels)} error={Boolean(errors.selector)} helperText={errors.selector ?? "Optional exact label matches, for example {\"environment\":\"sandbox\"}."} onChange={(event) => { try { const matchLabels = event.target.value.trim() ? JSON.parse(event.target.value) as Record<string, string> : undefined; updateSpec({ selector: matchLabels ? { matchLabels } : undefined }); } catch { setErrors((current) => ({ ...current, selector: "Enter a valid JSON object of string labels." })); } }} /> : capabilities && <Alert severity="info">This binding permits only policies targeted at authorized onboarded resources.</Alert>}<PolicyTargets value={form.spec.targetRefs ?? []} onChange={(targetRefs) => updateSpec({ targetRefs: targetRefs.length ? targetRefs : undefined })} errors={errors} catalogItem={catalogItem} /></Stack></CardContent></Card>
           <ExemptionEditor value={form.spec.exemptions ?? []} onChange={(exemptions) => updateSpec({ exemptions: exemptions.length ? exemptions : undefined })} errors={errors} />
+          <JevExemptionEditor value={form.spec.jevExemptions ?? []} onChange={(jevExemptions) => updateSpec({ jevExemptions: jevExemptions.length ? jevExemptions : undefined })} errors={jevErrors} editable={namespaceWideAllowed} loaded={Boolean(capabilities)} accessError={errors.jevAccess} />
           {validationResult && <Alert severity={validationResult.valid ? "success" : "warning"} aria-live="polite" onClose={() => setValidationResult(null)}>{validationResult.valid ? "Policy is valid. Nothing was saved." : "Policy is invalid according to the server. Nothing was saved."}</Alert>}
           <Stack direction={{ xs: "column-reverse", sm: "row" }} justifyContent="space-between" spacing={1}><Button component={Link} href="/security-policies">Cancel</Button><Stack direction={{ xs: "column", sm: "row" }} spacing={1}>{isEdit && policy && <Button type="button" color="error" variant="outlined" startIcon={<DeleteOutlineIcon />} disabled={!canWrite || saving} onClick={() => setDeleteOpen(true)}>Delete policy</Button>}<Button type="button" variant="outlined" disabled={!capabilities?.supportsPreview || saving} onClick={() => void runValidation()}>Validate policy</Button><Button type="submit" variant="contained" disabled={saving || !canWrite}>{saving ? <CircularProgress size={20} /> : isEdit ? "Save changes" : "Create policy"}</Button></Stack></Stack>
         </Stack>}
@@ -434,16 +449,22 @@ function MultiSelectField<T extends string>({ label, options, value, onChange }:
   );
 }
 
-function ExpiryPicker({ value, onChange }: { value?: string; onChange: (value: string | undefined) => void }) {
+function JevExemptionEditor({ value, onChange, errors, editable, loaded, accessError }: { value: ScanPolicyJevExemption[]; onChange: (value: ScanPolicyJevExemption[]) => void; errors: Record<string, string>; editable: boolean; loaded: boolean; accessError?: string }) {
+  const update = (index: number, changes: Partial<ScanPolicyJevExemption>) => { const next = [...value]; next[index] = { ...next[index], ...changes }; onChange(next); };
+  return <Card><CardContent><Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ sm: "center" }} spacing={1}><Box><SectionTitle icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Jev exemptions" mb={0.5} /><Typography variant="body2" color="text.secondary">Exempt the Jev assessment of one exact content digest. Every exemption requires a reason.</Typography></Box><Button startIcon={<AddIcon />} disabled={!editable} sx={{ flexShrink: 0, whiteSpace: "nowrap", alignSelf: { xs: "flex-start", sm: "center" } }} onClick={() => onChange([...value, { contentDigest: "", reason: "" }])}>Add Jev exemption</Button></Stack>{loaded && !editable && <Alert severity="info" sx={{ mt: 2 }}>Only namespace-wide policy managers can add, change, or remove Jev exemptions in this namespace. Existing exemptions are kept unchanged.</Alert>}{accessError && <Alert severity="warning" sx={{ mt: 2 }}>{accessError}</Alert>}{value.length === 0 ? <Typography color="text.secondary" sx={{ mt: 2 }}>No Jev exemptions configured.</Typography> : <Stack divider={<Divider />} spacing={2} sx={{ mt: 2 }}>{value.map((exemption, index) => <Box key={index}><Grid container spacing={2}><Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth required disabled={!editable} label="Content digest" placeholder="64 lowercase hex characters" value={exemption.contentDigest} sx={{ "& input": { fontFamily: "monospace" } }} error={Boolean(errors[`jev-${index}-digest`])} helperText={errors[`jev-${index}-digest`] ?? "SHA-256 of the exact content, without a sha256: prefix."} onChange={(event) => update(index, { contentDigest: event.target.value })} /></Grid><Grid size={{ xs: 10, sm: 4 }}><ExpiryPicker value={exemption.expires} disabled={!editable} error={errors[`jev-${index}-expires`]} onChange={(expires) => update(index, { expires })} /></Grid><Grid size={{ xs: 2, sm: 1 }}><IconButton aria-label={`Remove Jev exemption ${index + 1}`} disabled={!editable} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><DeleteOutlineIcon /></IconButton></Grid><Grid size={12}><TextField fullWidth required disabled={!editable} label="Reason" value={exemption.reason} error={Boolean(errors[`jev-${index}-reason`])} helperText={errors[`jev-${index}-reason`]} onChange={(event) => update(index, { reason: event.target.value })} /></Grid></Grid></Box>)}</Stack>}</CardContent></Card>;
+}
+
+function ExpiryPicker({ value, onChange, disabled, error }: { value?: string; onChange: (value: string | undefined) => void; disabled?: boolean; error?: string }) {
   const parsed = value ? dayjs.utc(value) : null;
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <DatePicker
         label="Expires"
         timezone="UTC"
+        disabled={disabled}
         value={parsed?.isValid() ? parsed : null}
         onChange={(next) => onChange(next?.isValid() ? next.format("YYYY-MM-DD[T00:00:00Z]") : undefined)}
-        slotProps={{ textField: { fullWidth: true }, field: { clearable: true } }}
+        slotProps={{ textField: { fullWidth: true, error: Boolean(error), helperText: error }, field: { clearable: true } }}
       />
     </LocalizationProvider>
   );
