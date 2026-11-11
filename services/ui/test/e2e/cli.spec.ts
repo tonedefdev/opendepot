@@ -4,11 +4,10 @@ const osGroup = (page: import("@playwright/test").Page) =>
   page.getByRole("group", { name: "Operating system" });
 
 test.describe("CLI page", () => {
-  test("renders without a header bar and offers an OS selector", async ({ page }) => {
+  test("renders the OpenDepot CLI heading and an OS selector", async ({ page }) => {
     await page.goto("/cli");
 
     await expect(page.getByRole("heading", { name: "OpenDepot CLI", level: 1 })).toBeVisible();
-    await expect(page.getByText("Download the OpenDepot command-line tool.")).toHaveCount(0);
     await expect(osGroup(page).getByRole("button", { name: "macOS" })).toBeVisible();
     await expect(osGroup(page).getByRole("button", { name: "Linux" })).toBeVisible();
     await expect(osGroup(page).getByRole("button", { name: "Windows" })).toBeVisible();
@@ -49,10 +48,20 @@ test.describe("CLI page", () => {
 test.describe("CLI page on mobile", () => {
   test.use({ viewport: { width: 375, height: 800 } });
 
-  test("keeps the sidebar toggle reachable without a header bar", async ({ page }) => {
+  test("shows the shared mobile header bar with the sidebar toggle", async ({ page }) => {
     await page.goto("/cli");
 
+    const barTitle = page.getByRole("heading", { name: "OpenDepot CLI", level: 6 });
+    const toggle = page.getByRole("button", { name: "open sidebar" });
+
+    await expect(barTitle).toBeVisible();
+    await expect(toggle).toBeVisible();
+
+    const titleBox = await barTitle.boundingBox();
+    const toggleBox = await toggle.boundingBox();
+    const titleCenterY = (titleBox?.y ?? 0) + (titleBox?.height ?? 0) / 2;
+    const toggleCenterY = (toggleBox?.y ?? 0) + (toggleBox?.height ?? 0) / 2;
+    expect(Math.abs(titleCenterY - toggleCenterY)).toBeLessThan(8);
     await expect(page.getByRole("heading", { name: "OpenDepot CLI", level: 1 })).toBeVisible();
-    await expect(page.getByRole("button", { name: "open sidebar" })).toBeVisible();
   });
 });

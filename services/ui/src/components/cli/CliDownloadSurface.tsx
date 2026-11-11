@@ -17,7 +17,7 @@ import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import type { IconType } from "react-icons";
 import { FaApple, FaWindows } from "react-icons/fa6";
 import { HighlightedCodeBlock } from "@/components/HighlightedCodeBlock";
-import MobileSidebarButton from "@/components/MobileSidebarButton";
+import PageHeader from "@/components/PageHeader";
 import { SectionCard } from "@/components/SectionCard";
 import { CLI_OS_NAMES, CLI_PLATFORMS, type CLIOS, cliBinaryName, detectCLIOS } from "@/lib/cliPlatforms";
 import { buildCLIInstallScript, buildCLIVerifyCommand } from "@/lib/cliInstallScripts";
@@ -77,10 +77,14 @@ export default function CliDownloadSurface() {
   }, []);
 
   return (
+    <>
+      <PageHeader
+        icon={<TerminalOutlinedIcon color="primary" fontSize="small" />}
+        title="OpenDepot CLI"
+        description="Download and install the OpenDepot command-line tool."
+        mobileOnly
+      />
     <Container maxWidth="md" sx={{ py: 4 }}>
-      <Box sx={{ display: { xs: "flex", sm: "none" }, justifyContent: "flex-end", mb: 1 }}>
-        <MobileSidebarButton />
-      </Box>
       <Typography variant="h4" component="h1" sx={{ mb: 1 }}>
         OpenDepot CLI
       </Typography>
@@ -156,5 +160,6 @@ export default function CliDownloadSurface() {
         <HighlightedCodeBlock code={script} language={language} />
       </SectionCard>
     </Container>
+    </>
   );
 }
