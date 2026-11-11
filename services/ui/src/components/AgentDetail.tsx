@@ -200,10 +200,21 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
           // Keep at least one target so the generated targets list is never empty.
           if (value.length > 0) setSelectedTargets(value);
         }}
-        sx={{ mb: 1.5, flexWrap: "wrap" }}
+        sx={{ mb: 1.5, flexWrap: { xs: "nowrap", sm: "wrap" }, width: { xs: "100%", sm: "auto" } }}
       >
         {SNIPPET_TARGET_OPTIONS.map(({ target, label, Icon }) => (
-          <ToggleButton key={target} value={target} sx={{ textTransform: "none", gap: 1, px: 2 }}>
+          <ToggleButton
+            key={target}
+            value={target}
+            sx={{
+              textTransform: "none",
+              gap: { xs: 0.5, sm: 1 },
+              px: { xs: 0.5, sm: 2 },
+              flex: { xs: 1, sm: "0 1 auto" },
+              minWidth: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
             <Icon size={16} />
             {label}
           </ToggleButton>
