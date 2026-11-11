@@ -96,6 +96,27 @@ spec:
     - '*'
 EOF
 
+kubectl apply -f - <<'EOF'
+apiVersion: opendepot.defdev.io/v1alpha1
+kind: SecurityGroupBinding
+metadata:
+  name: local-test-policy-admin
+  namespace: opendepot-system
+spec:
+  expression: '"local-test-group" in groups'
+  moduleResources:
+    - '*'
+  providerResources:
+    - '*'
+  skillResources:
+    - '*'
+  agentResources:
+    - '*'
+  namespaces:
+    - opendepot-system
+  namespaceWidePolicyManagement: true
+EOF
+
 kubectl apply -f - <<EOF
 apiVersion: opendepot.defdev.io/v1alpha1
 kind: Skill
