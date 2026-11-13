@@ -3,7 +3,7 @@ ARG INCLUDE_TRIVY=false
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.10 AS builder
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
