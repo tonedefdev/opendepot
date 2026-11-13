@@ -28,6 +28,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ui
         image: "{{ .Values.ui.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.ui.image.tag }}"
