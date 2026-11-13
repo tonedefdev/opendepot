@@ -629,7 +629,7 @@ func getAgentDownloadMetadata(w http.ResponseWriter, r *http.Request) {
 		ShasumsURL:          base + "/SHA256SUMS",
 		ShasumsSignatureURL: base + "/SHA256SUMS.sig",
 		SigningKeys:         signingKeys,
-		Assessment:          version.Status.JevAssessment,
+		Assessment:          browseJevAssessment(version.Status.JevAssessment),
 	}
 
 	json.NewEncoder(w).Encode(response)

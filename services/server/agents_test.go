@@ -1220,3 +1220,96 @@ func rejectedDownloadFixture() *opendepotv1alpha1.Version {
 
 	return version
 }
+
+// TestGetAgentDownloadMetadataWithholdsExemptedByFromOIDC covers the download metadata an OIDC caller receives for an
+// exempted Agent Version. The assessment keeps its state, but the ScanPolicy that exempted it is withheld.
+func TestGetAgentDownloadMetadataWithholdsExemptedByFromOIDC(t *testing.T) {
+	privateKeyBase64, fingerprint := agentTestSigningKey(t)
+	t.Setenv("OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64", privateKeyBase64)
+
+	version := agentTestVersion("agent-reviewer-1-2-0")
+	version.Status.SigningKeyFingerprint = fingerprint
+	version.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{
+		Exempted:     true,
+		ExemptedBy:   "release-exemptions",
+		BlockReasons: []string{"cvss above threshold"},
+	}
+	versionPath := "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/versions/" + version.Name
+	versionPayload, err := json.Marshal(version)
+	if err != nil {
+		t.Fatalf("marshal version: %v", err)
+	}
+
+	binding := opendepotv1alpha1.GroupBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "platform"},
+		Spec: opendepotv1alpha1.GroupBindingSpec{
+			Expression:     `"platform" in groups`,
+			AgentResources: []string{"reviewer"},
+		},
+	}
+	bindingPayload, err := json.Marshal(opendepotv1alpha1.GroupBindingList{Items: []opendepotv1alpha1.GroupBinding{binding}})
+	if err != nil {
+		t.Fatalf("marshal GroupBindingList: %v", err)
+	}
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/groupbindings"):
+			_, _ = w.Write(bindingPayload)
+		case r.URL.Path == versionPath:
+			_, _ = w.Write(versionPayload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	const namespace = "opendepot-system"
+	originalAnonymous := opendepotAnonymousAuth
+	originalVerifier := oidcVerifier
+	originalInClusterConfig := inClusterConfig
+	originalNamespace := opendepotServerNamespace
+	originalGroupsClaim := opendepotOIDCGroupsClaim
+	defer func() {
+		opendepotAnonymousAuth = originalAnonymous
+		oidcVerifier = originalVerifier
+		inClusterConfig = originalInClusterConfig
+		opendepotServerNamespace = originalNamespace
+		opendepotOIDCGroupsClaim = originalGroupsClaim
+	}()
+
+	anonymous := false
+	opendepotAnonymousAuth = &anonymous
+	oidcVerifier = gooidc.NewVerifier(agentTestIssuer, agentTestKeySet{}, &gooidc.Config{ClientID: "opendepot"})
+	opendepotServerNamespace = &[]string{namespace}[0]
+	opendepotOIDCGroupsClaim = &[]string{"groups"}[0]
+	inClusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: api.URL}, nil
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download", nil)
+	request.Header.Set("Authorization", "Bearer "+agentTestBearerToken(t, []string{"platform"}))
+	response := httptest.NewRecorder()
+	agentTestRouter().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("download metadata status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload AgentDownloadResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode download metadata: %v", err)
+	}
+
+	if payload.Assessment == nil || !payload.Assessment.Exempted {
+		t.Fatalf("assessment = %+v, want exempted assessment kept", payload.Assessment)
+	}
+
+	if payload.Assessment.ExemptedBy != "" {
+		t.Fatalf("assessment.exemptedBy = %q, want withheld from OIDC caller", payload.Assessment.ExemptedBy)
+	}
+
+	if strings.Contains(response.Body.String(), "release-exemptions") {
+		t.Fatalf("OIDC download metadata exposes the exempting policy: %s", response.Body.String())
+	}
+}
