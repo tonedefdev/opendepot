@@ -913,3 +913,42 @@ func TestBrowseAgentCardsCarryBlockedState(t *testing.T) {
 		})
 	}
 }
+
+func TestBrowseJevExemptionGovernanceHidesPolicyNamesFromOIDCCallers(t *testing.T) {
+	governance := &opendepotv1alpha1.JevExemptionGovernance{
+		GoverningPolicy:   "release-exemptions",
+		GoverningPriority: 10,
+		MatchingPolicy:    "release-exemptions",
+		MatchingPriority:  10,
+		MatchingState:     opendepotv1alpha1.JevMatchingStateExempted,
+	}
+
+	originalVerifier := oidcVerifier
+	defer func() {
+		oidcVerifier = originalVerifier
+	}()
+
+	oidcVerifier = nil
+	open := browseJevExemptionGovernance(governance)
+	if open.GoverningPolicy != "release-exemptions" || open.MatchingPolicy != "release-exemptions" {
+		t.Fatalf("without OIDC names = %q/%q; want them kept", open.GoverningPolicy, open.MatchingPolicy)
+	}
+
+	oidcVerifier = &gooidc.IDTokenVerifier{}
+	gated := browseJevExemptionGovernance(governance)
+	if gated.GoverningPolicy != "" || gated.MatchingPolicy != "" {
+		t.Fatalf("with OIDC names = %q/%q; want them cleared", gated.GoverningPolicy, gated.MatchingPolicy)
+	}
+
+	if gated.GoverningPriority != 10 || gated.MatchingState != opendepotv1alpha1.JevMatchingStateExempted {
+		t.Fatalf("with OIDC = %+v; want the priority and state kept", gated)
+	}
+
+	if governance.GoverningPolicy != "release-exemptions" {
+		t.Fatalf("input governance changed to %+v; want it unchanged", governance)
+	}
+
+	if browseJevExemptionGovernance(nil) != nil {
+		t.Fatalf("nil governance returned non-nil")
+	}
+}

@@ -380,6 +380,9 @@ type BrowseResourceDetail struct {
 	// JevAssessment is the TypeSafe Jev assessment of the latest Version, when Jev ran for it.
 	// Only populated for skill and agent resources.
 	JevAssessment *opendepotv1alpha1.JevAssessment `json:"jevAssessment,omitempty"`
+	// JevExemptionGovernance reports which ScanPolicy governs the Version of JevAssessment and how its jevExemptions
+	// match. The policy names are omitted for OIDC callers, which browse cannot authorize against ScanPolicies.
+	JevExemptionGovernance *opendepotv1alpha1.JevExemptionGovernance `json:"jevExemptionGovernance,omitempty"`
 	// JevThresholds are the JevPolicy thresholds configured on the skill or agent, when set.
 	JevThresholds *opendepotv1alpha1.JevPolicy `json:"jevThresholds,omitempty"`
 }

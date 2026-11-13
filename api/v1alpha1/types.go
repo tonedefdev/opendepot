@@ -817,7 +817,45 @@ type JevAssessment struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	RetryCount int32 `json:"retryCount,omitempty"`
+	// The name of the Version object this assessment belongs to.
+	// +optional
+	VersionName string `json:"versionName,omitempty"`
 }
+
+// JevExemptionGovernance records which ScanPolicy governs a Version's Jev exemptions and how the
+// Version's content digest matches the jevExemptions entries across all ScanPolicies.
+type JevExemptionGovernance struct {
+	// The name of the ScanPolicy that governs this Version. Empty when no ScanPolicy governs it.
+	GoverningPolicy string `json:"governingPolicy"`
+	// The priority of the governing ScanPolicy.
+	GoverningPriority int32 `json:"governingPriority"`
+	// The name of a ScanPolicy whose jevExemptions entry matches this Version's content digest. Empty when none matches.
+	MatchingPolicy string `json:"matchingPolicy"`
+	// The priority of the ScanPolicy named in matchingPolicy.
+	MatchingPriority int32 `json:"matchingPriority"`
+	// The expiry of the matching jevExemptions entry. Nil means the entry never expires or no entry matches.
+	// +optional
+	MatchingExpires *metav1.Time `json:"matchingExpires,omitempty"`
+	// The state of the matching jevExemptions entry. See the JevMatchingState constants for the values.
+	// +kubebuilder:validation:Enum=none;exempted;superseded;expired;noDigest
+	MatchingState string `json:"matchingState"`
+	// Whether the matching entry belongs to a ScanPolicy other than the governing one, so it does not apply.
+	Superseded bool `json:"superseded"`
+}
+
+// JevMatchingState values for JevExemptionGovernance.MatchingState.
+const (
+	// JevMatchingStateNone means no jevExemptions entry matches the Version's content digest.
+	JevMatchingStateNone = "none"
+	// JevMatchingStateExempted means the matching entry is in the governing ScanPolicy and is unexpired.
+	JevMatchingStateExempted = "exempted"
+	// JevMatchingStateSuperseded means the matching entry is in a non-governing ScanPolicy and does not apply.
+	JevMatchingStateSuperseded = "superseded"
+	// JevMatchingStateExpired means the matching entry is in the governing ScanPolicy and has expired.
+	JevMatchingStateExpired = "expired"
+	// JevMatchingStateNoDigest means the Version has no content digest to match.
+	JevMatchingStateNoDigest = "noDigest"
+)
 
 // JevChunkResult holds the Jev result for one planned part of a Version's content.
 type JevChunkResult struct {
@@ -1138,6 +1176,10 @@ type VersionStatus struct {
 	// is enabled and the source opts in with jevSecretRef.
 	// +optional
 	JevAssessment *JevAssessment `json:"jevAssessment,omitempty"`
+	// JevExemptionGovernance reports which ScanPolicy governs this Version's Jev exemptions and how its
+	// content digest matches them. Only populated when a Jev assessment is recorded.
+	// +optional
+	JevExemptionGovernance *JevExemptionGovernance `json:"jevExemptionGovernance,omitempty"`
 	// SourceCommit is the full commit SHA that was downloaded for this branch Version.
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
 	// +optional

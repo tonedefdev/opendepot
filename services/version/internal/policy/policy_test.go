@@ -723,3 +723,161 @@ func TestCountJevExemptions(t *testing.T) {
 		t.Errorf("CountJevExemptions = (%d, %d), want (2, 1)", active, expired)
 	}
 }
+
+func TestRankStartsWithSelectWinner(t *testing.T) {
+	low := policyNamed("low", 10)
+	high := policyNamed("high", 100)
+	version := providerVersion("aws", "5.0.0")
+
+	ranked, errs := Rank([]opendepotv1alpha1.ScanPolicy{low, high}, version)
+	if len(errs) != 0 {
+		t.Fatalf("Rank returned errors: %v", errs)
+	}
+
+	if len(ranked) != 2 || ranked[0].Name != "high" || ranked[1].Name != "low" {
+		t.Errorf("Rank = %v, want high then low", ranked)
+	}
+
+	winner, _ := Select([]opendepotv1alpha1.ScanPolicy{low, high}, version)
+	if winner == nil || winner.Name != ranked[0].Name {
+		t.Errorf("Select winner %v does not match Rank[0] %s", winner, ranked[0].Name)
+	}
+}
+
+func TestJevGovernance(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	future := &metav1.Time{Time: now.Add(time.Hour)}
+	past := &metav1.Time{Time: now.Add(-time.Hour)}
+
+	governing := policyNamed("governing", 100)
+	governing.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "active", Expires: future},
+		{ContentDigest: digestB, Reason: "lapsed", Expires: past},
+	}
+
+	shadowed := policyNamed("shadowed", 10)
+	shadowed.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "not in force"},
+		{ContentDigest: digestC, Reason: "not in force either"},
+	}
+
+	tests := []struct {
+		name   string
+		ranked []opendepotv1alpha1.ScanPolicy
+		digest string
+		want   opendepotv1alpha1.JevExemptionGovernance
+	}{
+		{
+			name:   "no governing policy and no digest",
+			digest: digestA,
+			want:   opendepotv1alpha1.JevExemptionGovernance{MatchingState: opendepotv1alpha1.JevMatchingStateNone},
+		},
+		{
+			name:   "empty digest reports noDigest even when a policy governs",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing},
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateNoDigest,
+			},
+		},
+		{
+			name:   "no entry matches",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestB + "0",
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateNone,
+			},
+		},
+		{
+			name:   "unexpired entry in the governing policy is exempted",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestA,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   future,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExempted,
+			},
+		},
+		{
+			name:   "expired entry in the governing policy is expired",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestB,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   past,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExpired,
+			},
+		},
+		{
+			name:   "entry only in a non-governing policy is superseded",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestC,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "shadowed",
+				MatchingPriority:  10,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateSuperseded,
+				Superseded:        true,
+			},
+		},
+		{
+			name:   "governing policy entry takes precedence over a superseded match",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestA,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   future,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExempted,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := JevGovernance(tt.ranked, tt.digest, now)
+			if got.GoverningPolicy != tt.want.GoverningPolicy || got.GoverningPriority != tt.want.GoverningPriority ||
+				got.MatchingPolicy != tt.want.MatchingPolicy || got.MatchingPriority != tt.want.MatchingPriority ||
+				got.MatchingState != tt.want.MatchingState || got.Superseded != tt.want.Superseded {
+				t.Errorf("JevGovernance() = %+v, want %+v", got, tt.want)
+			}
+
+			if (got.MatchingExpires == nil) != (tt.want.MatchingExpires == nil) ||
+				(got.MatchingExpires != nil && !got.MatchingExpires.Equal(tt.want.MatchingExpires)) {
+				t.Errorf("JevGovernance() matchingExpires = %v, want %v", got.MatchingExpires, tt.want.MatchingExpires)
+			}
+		})
+	}
+}
+
+func TestJevGovernanceAgreesWithOverlay(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	governing := policyNamed("governing", 100)
+	governing.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "active", Expires: &metav1.Time{Time: now.Add(time.Hour)}},
+		{ContentDigest: digestB, Reason: "lapsed", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+	}
+
+	ranked, _ := Rank([]opendepotv1alpha1.ScanPolicy{governing}, providerVersion("demo", "1.0.0"))
+	resolved := Resolve(&ranked[0], true, false, now)
+
+	for _, digest := range []string{digestA, digestB, digestC} {
+		governance := JevGovernance(ranked, digest, now)
+		exempted := resolved.JevExemptionFor(digest) != nil
+		if exempted != (governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted) {
+			t.Errorf("digest %s: overlay exempted=%v but governance state=%s", digest, exempted, governance.MatchingState)
+		}
+	}
+}

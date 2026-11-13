@@ -182,13 +182,19 @@ func jevExemptible(assessment *opendepotv1alpha1.JevAssessment) bool {
 // applyJevExemption returns a copy of the assessment with the Jev exemption for digest applied. It never changes the
 // input, because the cached assessment points into the Version status. When the digest matches an exemption in the
 // resolved policy, Blocked is cleared and the reasons stay listed. Otherwise the exemption fields are cleared and the
-// assessment blocks again.
-func applyJevExemption(assessment *opendepotv1alpha1.JevAssessment, resolved policy.Resolved, digest string) *opendepotv1alpha1.JevAssessment {
+// assessment blocks again. The copy records versionName as the Version the assessment belongs to.
+func applyJevExemption(
+	assessment *opendepotv1alpha1.JevAssessment,
+	resolved policy.Resolved,
+	digest string,
+	versionName string,
+) *opendepotv1alpha1.JevAssessment {
 	if assessment == nil {
 		return nil
 	}
 
 	out := assessment.DeepCopy()
+	out.VersionName = versionName
 	out.Exempted = false
 	out.ExemptedBy = ""
 	out.ExemptionReason = ""

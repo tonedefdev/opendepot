@@ -240,7 +240,7 @@ func TestBlockedAndFailedWritesKeepDefinitionRef(t *testing.T) {
 		{
 			name: "held branch block keeps the definition reference",
 			write: func(r *VersionReconciler) error {
-				return r.persistAgentBlock(ctx, req, nil, nil, "Agent scan failed: boom")
+				return r.persistAgentBlock(ctx, req, nil, nil, nil, "Agent scan failed: boom")
 			},
 		},
 		{
@@ -1475,4 +1475,80 @@ func TestReconcileStoredExemptionEmitsRevokedEvent(t *testing.T) {
 func TestRecordJevExemptionChangeNilRecorder(t *testing.T) {
 	reconciler := &VersionReconciler{}
 	reconciler.recordJevExemptionChange(&opendepotv1alpha1.Version{}, jevExemptionChange{Applied: true}, &opendepotv1alpha1.JevAssessment{})
+}
+
+// TestReconcileJevGovernanceRecordsExemption covers the fresh path: the Version records the Jev assessment's Version name
+// and the governance that the exemption applied under.
+func TestReconcileJevGovernanceRecordsExemption(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{stub: jevCritical})
+	digest := f.learnJevDigest(t)
+
+	f.addPolicy(t, jevExemptPolicy("release-exemptions", 0, digest, nil))
+	f.reconcile(t)
+
+	stored := f.version(t)
+	if stored.Status.JevAssessment.VersionName != stored.Name {
+		t.Fatalf("VersionName = %q; want %q", stored.Status.JevAssessment.VersionName, stored.Name)
+	}
+
+	governance := stored.Status.JevExemptionGovernance
+	if governance == nil {
+		t.Fatalf("JevExemptionGovernance = nil; want it recorded")
+	}
+
+	if governance.GoverningPolicy != "release-exemptions" || governance.MatchingPolicy != "release-exemptions" ||
+		governance.MatchingState != opendepotv1alpha1.JevMatchingStateExempted || governance.Superseded {
+		t.Fatalf("JevExemptionGovernance = %+v; want exempted by the governing policy", governance)
+	}
+}
+
+// TestReconcileStoredGovernanceFollowsPolicyChange covers a ScanPolicy change on a published Version: when the governing
+// policy is deleted, the next policy takes over and the governance names it.
+func TestReconcileStoredGovernanceFollowsPolicyChange(t *testing.T) {
+	first := jevExemptPolicy("policy-a", 10, jevExemptTestDigest, nil)
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestDigest, "policy-a"),
+		first,
+		jevExemptPolicy("policy-b", 1, jevExemptTestDigest, nil),
+	)
+
+	f.reconcileStored(t)
+	before := f.version(t).Status.JevExemptionGovernance
+	if before == nil || before.GoverningPolicy != "policy-a" || before.MatchingState != opendepotv1alpha1.JevMatchingStateExempted {
+		t.Fatalf("governance before = %+v; want policy-a exempted", before)
+	}
+
+	if err := f.reconciler.Delete(context.Background(), first); err != nil {
+		t.Fatalf("Delete ScanPolicy: %v", err)
+	}
+
+	f.reconcileStored(t)
+	after := f.version(t).Status.JevExemptionGovernance
+	if after == nil || after.GoverningPolicy != "policy-b" || after.MatchingPolicy != "policy-b" || after.Superseded {
+		t.Fatalf("governance after = %+v; want policy-b governing and matching", after)
+	}
+}
+
+// TestReconcileStoredShadowedExemptionIsSuperseded covers a higher-priority policy that governs the Version without the
+// digest. The lower-priority entry matches but does not apply, so the Version stays blocked and the governance reports
+// the match as superseded.
+func TestReconcileStoredShadowedExemptionIsSuperseded(t *testing.T) {
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestDigest, "policy-b"),
+		jevExemptPolicy("policy-a", 10, "sha256:0000", nil),
+		jevExemptPolicy("policy-b", 1, jevExemptTestDigest, nil),
+	)
+
+	f.reconcileStored(t)
+
+	stored := f.version(t)
+	if stored.Status.Synced {
+		t.Fatalf("Synced = true; want the shadowed exemption to keep the Version blocked")
+	}
+
+	governance := stored.Status.JevExemptionGovernance
+	if governance == nil || governance.GoverningPolicy != "policy-a" || governance.MatchingPolicy != "policy-b" ||
+		governance.MatchingState != opendepotv1alpha1.JevMatchingStateSuperseded || !governance.Superseded {
+		t.Fatalf("JevExemptionGovernance = %+v; want policy-b superseded by policy-a", governance)
+	}
 }

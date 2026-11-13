@@ -1256,7 +1256,7 @@ func TestApplyJevExemption(t *testing.T) {
 	}
 
 	t.Run("critical only is unblocked and keeps needsReview", func(t *testing.T) {
-		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest, "demo")
 		if got.Blocked || !got.Exempted || !got.NeedsReview {
 			t.Fatalf("Blocked=%v Exempted=%v NeedsReview=%v, want false true true", got.Blocked, got.Exempted, got.NeedsReview)
 		}
@@ -1277,7 +1277,7 @@ func TestApplyJevExemption(t *testing.T) {
 			BlockReasons:  []string{"Critical risk level", "destructive probability above limit", "risk score above limit"},
 		}
 
-		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest, "demo")
 		if got.Blocked || !got.Exempted || len(got.BlockReasons) != 3 {
 			t.Fatalf("Blocked=%v Exempted=%v BlockReasons=%v", got.Blocked, got.Exempted, got.BlockReasons)
 		}
@@ -1290,7 +1290,7 @@ func TestApplyJevExemption(t *testing.T) {
 			BlockReasons:  []string{"destructive probability above limit"},
 		}
 
-		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest, "demo")
 		if got.Blocked || !got.Exempted {
 			t.Fatalf("Blocked=%v Exempted=%v, want false true", got.Blocked, got.Exempted)
 		}
@@ -1307,7 +1307,7 @@ func TestApplyJevExemption(t *testing.T) {
 		}
 
 		for name, assessment := range coverage {
-			got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+			got := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest, "demo")
 			if got.Blocked || !got.Exempted {
 				t.Fatalf("%s: Blocked=%v Exempted=%v, want false true", name, got.Blocked, got.Exempted)
 			}
@@ -1326,7 +1326,7 @@ func TestApplyJevExemption(t *testing.T) {
 		}
 
 		for name, test := range tests {
-			got := applyJevExemption(test.assessment, test.resolved, test.digest)
+			got := applyJevExemption(test.assessment, test.resolved, test.digest, "demo")
 			if !got.Blocked || got.Exempted {
 				t.Fatalf("%s: Blocked=%v Exempted=%v, want true false", name, got.Blocked, got.Exempted)
 			}
@@ -1334,20 +1334,20 @@ func TestApplyJevExemption(t *testing.T) {
 	})
 
 	t.Run("expiry is copied and no expiry stays nil", func(t *testing.T) {
-		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
+		got := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest, "demo")
 		if got.ExemptionExpires == nil || !got.ExemptionExpires.Equal(&future) {
 			t.Fatalf("ExemptionExpires = %v, want %v", got.ExemptionExpires, future)
 		}
 
-		noExpiry := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest)
+		noExpiry := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, nil), jevExemptTestDigest, "demo")
 		if noExpiry.ExemptionExpires != nil {
 			t.Fatalf("ExemptionExpires = %v, want nil", noExpiry.ExemptionExpires)
 		}
 	})
 
 	t.Run("removed exemption re-blocks and clears the fields", func(t *testing.T) {
-		exempted := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
-		got := applyJevExemption(exempted, policy.Resolved{}, jevExemptTestDigest)
+		exempted := applyJevExemption(critical(), jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest, "demo")
+		got := applyJevExemption(exempted, policy.Resolved{}, jevExemptTestDigest, "demo")
 		if !got.Blocked || got.Exempted || got.ExemptedBy != "" || got.ExemptionReason != "" || got.ExemptionExpires != nil {
 			t.Fatalf("re-blocked assessment = %+v", got)
 		}
@@ -1355,7 +1355,7 @@ func TestApplyJevExemption(t *testing.T) {
 
 	t.Run("does not change the input", func(t *testing.T) {
 		assessment := critical()
-		exempted := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest)
+		exempted := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, &future), jevExemptTestDigest, "demo")
 		if exempted == assessment || !assessment.Blocked || assessment.Exempted || assessment.ExemptionExpires != nil {
 			t.Fatalf("input changed: %+v", assessment)
 		}

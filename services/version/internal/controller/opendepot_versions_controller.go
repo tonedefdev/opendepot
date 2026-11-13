@@ -260,7 +260,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, nil
 			}
 
-			if err := r.persistAgentBlock(ctx, req, nil, nil, "Agent scanning is disabled on the version controller (--scan-agents=false)"); err != nil {
+			if err := r.persistAgentBlock(ctx, req, nil, nil, nil, "Agent scanning is disabled on the version controller (--scan-agents=false)"); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -639,11 +639,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var sourceScan *opendepotv1alpha1.SourceScan
 	var resolvedRepo string
 	var resolvedPolicy policy.Resolved
+	var rankedPolicies []opendepotv1alpha1.ScanPolicy
 	var agentSigned *signedAgentArchive
 	var agentJevAssessment *opendepotv1alpha1.JevAssessment
+	var agentJevGovernance *opendepotv1alpha1.JevExemptionGovernance
 
 	if r.ScanningEnabled || isAgent {
-		resolvedPolicy = r.resolveScanPolicy(ctx, version)
+		resolvedPolicy, rankedPolicies = r.resolveScanPolicy(ctx, version)
 	}
 
 	if r.ScanningEnabled && version.Spec.Type == opendepotv1alpha1.OpenDepotProvider && providerTmpPath != "" {
@@ -681,7 +683,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if isAgent {
 		agentSourceScan, content, blocking, scanErr := r.runAgentScan(ctx, version, fileBytes, r.TrivyCacheDir, r.ScanOffline, resolvedPolicy)
 		if scanErr != nil {
-			if err := r.persistAgentBlock(ctx, req, nil, nil, fmt.Sprintf("Agent scan failed: %v", scanErr)); err != nil {
+			if err := r.persistAgentBlock(ctx, req, nil, nil, nil, fmt.Sprintf("Agent scan failed: %v", scanErr)); err != nil {
 				r.Log.Error(err, "Failed to persist agent scan failure", "version", version.Name)
 			}
 
@@ -708,7 +710,8 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		jevAssessment, jevErr := r.runAgentJev(ctx, version, content)
 		if jevAssessment != nil {
 			priorJevAssessment := version.Status.JevAssessment
-			jevAssessment = applyJevExemption(jevAssessment, resolvedPolicy, content.checksum)
+			jevAssessment = applyJevExemption(jevAssessment, resolvedPolicy, content.checksum, version.Name)
+			agentJevGovernance = policy.JevGovernance(rankedPolicies, content.checksum, time.Now())
 			r.recordJevExemptionChange(version, jevExemptionTransition(priorJevAssessment, jevAssessment), jevAssessment)
 			if jevAssessment.Exempted {
 				r.Log.Info("Jev block exempted by ScanPolicy", "version", version.Name, "policy", jevAssessment.ExemptedBy,
@@ -724,7 +727,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if jevErr != nil {
-			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("JevUnavailable: %v", jevErr)); err != nil {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, agentJevGovernance, fmt.Sprintf("JevUnavailable: %v", jevErr)); err != nil {
 				r.Log.Error(err, "Failed to persist jev unavailable status", "version", version.Name)
 			}
 
@@ -747,7 +750,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if jevAssessment != nil && jevAssessment.Blocked {
 			r.Log.Info("Jev assessment blocked the Version", "version", version.Name, "reasons", jevAssessment.BlockReasons)
 
-			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, "JevBlocked: "+strings.Join(jevAssessment.BlockReasons, "; ")); err != nil {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, agentJevGovernance, "JevBlocked: "+strings.Join(jevAssessment.BlockReasons, "; ")); err != nil {
 				r.Log.Error(err, "Failed to persist jev block", "version", version.Name)
 			}
 
@@ -766,7 +769,7 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		signed, signErr := signAgentArchive(fileBytes, filepath.Base(*storedPath), prior)
 		if signErr != nil {
-			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, fmt.Sprintf("SigningUnavailable: %v", signErr)); err != nil {
+			if err := r.persistAgentBlock(ctx, req, sourceScan, jevAssessment, agentJevGovernance, fmt.Sprintf("SigningUnavailable: %v", signErr)); err != nil {
 				r.Log.Error(err, "Failed to persist signing unavailable status", "version", version.Name)
 			}
 
@@ -855,6 +858,10 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if agentJevAssessment != nil {
 			currentVersion.Status.JevAssessment = agentJevAssessment
+		}
+
+		if agentJevGovernance != nil {
+			currentVersion.Status.JevExemptionGovernance = agentJevGovernance
 		}
 
 		if version.Spec.SourceCommit != "" {
@@ -1014,6 +1021,7 @@ func (r *VersionReconciler) persistAgentBlock(
 	req ctrl.Request,
 	sourceScan *opendepotv1alpha1.SourceScan,
 	jevAssessment *opendepotv1alpha1.JevAssessment,
+	governance *opendepotv1alpha1.JevExemptionGovernance,
 	syncStatus string,
 ) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -1030,6 +1038,10 @@ func (r *VersionReconciler) persistAgentBlock(
 
 		if jevAssessment != nil {
 			currentVersion.Status.JevAssessment = jevAssessment
+		}
+
+		if governance != nil {
+			currentVersion.Status.JevExemptionGovernance = governance
 		}
 
 		if currentVersion.Spec.SourceCommit != "" {
@@ -1054,12 +1066,12 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 	version *opendepotv1alpha1.Version,
 ) (ctrl.Result, jevExemptionChange, error) {
 	isAgent := version.Spec.Type == opendepotv1alpha1.OpenDepotSkill || version.Spec.Type == opendepotv1alpha1.OpenDepotAgent
-	hasJevAssessment := jevExemptible(version.Status.JevAssessment)
+	hasJevAssessment := version.Status.JevAssessment != nil
 	if (!r.ScanningEnabled && !isAgent) || (version.Status.BinaryScan == nil && version.Status.SourceScan == nil && !hasJevAssessment) {
 		return ctrl.Result{}, jevExemptionChange{}, nil
 	}
 
-	resolved := r.resolveScanPolicy(ctx, version)
+	resolved, ranked := r.resolveScanPolicy(ctx, version)
 	var change jevExemptionChange
 	var updatedJevAssessment *opendepotv1alpha1.JevAssessment
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -1127,7 +1139,7 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 		change = jevExemptionChange{}
 		updatedJevAssessment = nil
 		if assessment := current.Status.JevAssessment; jevExemptible(assessment) {
-			updated := applyJevExemption(assessment, resolved, storedContentDigest(current.Status.Checksum))
+			updated := applyJevExemption(assessment, resolved, storedContentDigest(current.Status.Checksum), current.Name)
 			if !reflect.DeepEqual(updated, assessment) {
 				changed = true
 			}
@@ -1143,6 +1155,14 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 				current.Status.Synced = false
 				current.Status.SyncStatus = message
 			}
+		}
+
+		if current.Status.JevAssessment != nil {
+			governance := policy.JevGovernance(ranked, storedContentDigest(current.Status.Checksum), time.Now())
+			if !reflect.DeepEqual(governance, current.Status.JevExemptionGovernance) {
+				changed = true
+			}
+			current.Status.JevExemptionGovernance = governance
 		}
 
 		if !changed {

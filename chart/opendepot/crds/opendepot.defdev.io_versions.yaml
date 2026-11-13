@@ -1128,10 +1128,62 @@ spec:
                       type: object
                     maxItems: 32
                     type: array
+                  versionName:
+                    description: The name of the Version object this assessment belongs
+                      to.
+                    type: string
                 required:
                 - blocked
                 - evaluatedAt
                 - needsReview
+                type: object
+              jevExemptionGovernance:
+                description: |-
+                  JevExemptionGovernance reports which ScanPolicy governs this Version's Jev exemptions and how its
+                  content digest matches them. Only populated when a Jev assessment is recorded.
+                properties:
+                  governingPolicy:
+                    description: The name of the ScanPolicy that governs this Version.
+                      Empty when no ScanPolicy governs it.
+                    type: string
+                  governingPriority:
+                    description: The priority of the governing ScanPolicy.
+                    format: int32
+                    type: integer
+                  matchingExpires:
+                    description: The expiry of the matching jevExemptions entry. Nil
+                      means the entry never expires or no entry matches.
+                    format: date-time
+                    type: string
+                  matchingPolicy:
+                    description: The name of a ScanPolicy whose jevExemptions entry
+                      matches this Version's content digest. Empty when none matches.
+                    type: string
+                  matchingPriority:
+                    description: The priority of the ScanPolicy named in matchingPolicy.
+                    format: int32
+                    type: integer
+                  matchingState:
+                    description: The state of the matching jevExemptions entry. See
+                      the JevMatchingState constants for the values.
+                    enum:
+                    - none
+                    - exempted
+                    - superseded
+                    - expired
+                    - noDigest
+                    type: string
+                  superseded:
+                    description: Whether the matching entry belongs to a ScanPolicy
+                      other than the governing one, so it does not apply.
+                    type: boolean
+                required:
+                - governingPolicy
+                - governingPriority
+                - matchingPolicy
+                - matchingPriority
+                - matchingState
+                - superseded
                 type: object
               providerSchemaRef:
                 description: |-

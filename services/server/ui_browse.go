@@ -1330,6 +1330,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		// The newest Jev assessment can belong to a blocked or rejected attempt, which has no version yet.
 		if assessed := agentLatestAssessedVersion(rows); assessed != nil {
 			detail.JevAssessment = assessed.Status.JevAssessment
+			detail.JevExemptionGovernance = browseJevExemptionGovernance(assessed.Status.JevExemptionGovernance)
 		}
 
 		json.NewEncoder(w).Encode(detail)
@@ -1337,6 +1338,23 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
+}
+
+// browseJevExemptionGovernance returns a copy of the governance for the browse response. ScanPolicy names are visible
+// only when OIDC is not configured, which matches the ScanPolicy list. Browse resolves GroupBindings but not
+// SecurityGroupBindings, so it cannot apply the list's per-policy check for OIDC callers. Those callers get no names.
+func browseJevExemptionGovernance(governance *opendepotv1alpha1.JevExemptionGovernance) *opendepotv1alpha1.JevExemptionGovernance {
+	if governance == nil {
+		return nil
+	}
+
+	out := governance.DeepCopy()
+	if oidcVerifier != nil {
+		out.GoverningPolicy = ""
+		out.MatchingPolicy = ""
+	}
+
+	return out
 }
 
 // moduleToCard converts a Module resource to a BrowseResource card.

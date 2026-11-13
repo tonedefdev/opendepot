@@ -46,29 +46,32 @@ var lookupProviderRepo = registry.LookupProviderRepo
 
 // resolveScanPolicy lists the ScanPolicy resources in the Version's namespace and folds the
 // winning policy together with the controller's blocking flags into the effective decision.
-// A listing failure falls back to the flags so that a transient API error can never silently
-// relax enforcement.
-func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) policy.Resolved {
+// It also returns the ranked matching policies, so the caller can report which policy governs
+// the Version. A listing failure falls back to the flags so that a transient API error can never
+// silently relax enforcement, and returns no ranked policies.
+func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) (policy.Resolved, []opendepotv1alpha1.ScanPolicy) {
 	policies := &opendepotv1alpha1.ScanPolicyList{}
 	if err := r.List(ctx, policies, client.InNamespace(version.Namespace)); err != nil {
 		r.Log.Error(err, "Failed to list ScanPolicies — falling back to the controller blocking flags",
 			"version", version.Name, "namespace", version.Namespace)
 
-		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now()), nil
 	}
 
-	winner, errs := policy.Select(policies.Items, version)
+	ranked, errs := policy.Rank(policies.Items, version)
 	for _, err := range errs {
 		r.Log.Error(err, "Skipping ScanPolicy with an invalid selector",
 			"version", version.Name, "namespace", version.Namespace)
 	}
 
-	if winner != nil {
+	var winner *opendepotv1alpha1.ScanPolicy
+	if len(ranked) > 0 {
+		winner = &ranked[0]
 		r.Log.V(5).Info("ScanPolicy selected for version",
 			"version", version.Name, "scanPolicy", winner.Name, "priority", winner.Spec.Priority)
 	}
 
-	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now()), ranked
 }
 
 // trivyVulnerability is the subset of Trivy's per-vulnerability JSON output used here.

@@ -236,6 +236,18 @@ func Matches(policy *opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Ve
 // never depends on the order the API server returned the list in. Policies with an invalid
 // selector are skipped and reported in the returned error slice.
 func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Version) (*opendepotv1alpha1.ScanPolicy, []error) {
+	ranked, errs := Rank(policies, version)
+	if len(ranked) == 0 {
+		return nil, errs
+	}
+
+	return &ranked[0], errs
+}
+
+// Rank returns every ScanPolicy that matches a Version, ordered from the governing policy down. The first element
+// is the policy Select returns. The order is the same as Select's: priority descending, then oldest creation
+// timestamp, then name ascending. Policies with an invalid selector are skipped and reported in the error slice.
+func Rank(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Version) ([]opendepotv1alpha1.ScanPolicy, []error) {
 	var errs []error
 	matched := make([]opendepotv1alpha1.ScanPolicy, 0, len(policies))
 
@@ -251,10 +263,6 @@ func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.
 		}
 	}
 
-	if len(matched) == 0 {
-		return nil, errs
-	}
-
 	slices.SortStableFunc(matched, func(a, b opendepotv1alpha1.ScanPolicy) int {
 		if diff := cmp.Compare(b.Spec.Priority, a.Spec.Priority); diff != 0 {
 			return diff
@@ -267,7 +275,54 @@ func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	return &matched[0], errs
+	return matched, errs
+}
+
+// JevGovernance reports which ScanPolicy governs a Version and how the archive digest matches the jevExemptions
+// across the ranked policies. ranked must come from Rank, so its first element is the governing policy whose
+// jevExemptions apply. The governing policy is searched first. Only when it has no entry for the digest does the
+// search continue down the ranking, and a match there is superseded because it does not apply. Matching is exact,
+// and an empty digest never matches.
+func JevGovernance(ranked []opendepotv1alpha1.ScanPolicy, digest string, now time.Time) *opendepotv1alpha1.JevExemptionGovernance {
+	governance := &opendepotv1alpha1.JevExemptionGovernance{MatchingState: opendepotv1alpha1.JevMatchingStateNone}
+	if len(ranked) > 0 {
+		governance.GoverningPolicy = ranked[0].Name
+		governance.GoverningPriority = int32(ranked[0].Spec.Priority)
+	}
+
+	if digest == "" {
+		governance.MatchingState = opendepotv1alpha1.JevMatchingStateNoDigest
+		return governance
+	}
+
+	for i := range ranked {
+		for _, exemption := range ranked[i].Spec.JevExemptions {
+			if exemption.ContentDigest != digest {
+				continue
+			}
+
+			governance.MatchingPolicy = ranked[i].Name
+			governance.MatchingPriority = int32(ranked[i].Spec.Priority)
+			if exemption.Expires != nil {
+				expires := *exemption.Expires
+				governance.MatchingExpires = &expires
+			}
+
+			switch {
+			case i > 0:
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateSuperseded
+				governance.Superseded = true
+			case exemption.Expires != nil && !exemption.Expires.Time.After(now):
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateExpired
+			default:
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateExempted
+			}
+
+			return governance
+		}
+	}
+
+	return governance
 }
 
 // Resolve folds the winning policy and the controller flags into the effective decision for
