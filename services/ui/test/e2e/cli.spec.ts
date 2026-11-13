@@ -16,7 +16,8 @@ test.describe("CLI page", () => {
   test("switches the install script to the selected OS", async ({ page }) => {
     await page.goto("/cli");
 
-    const script = page.locator("pre").filter({ hasText: "opendepot" });
+    // The verify command renders above the install script and also mentions opendepot, so the script is the last code block.
+    const script = page.locator("pre").last();
 
     await osGroup(page).getByRole("button", { name: "Windows" }).click();
     await expect(script).toContainText("Get-FileHash -Algorithm SHA256");
