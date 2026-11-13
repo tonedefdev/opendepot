@@ -586,6 +586,11 @@ func (r *VersionReconciler) runAgentJev(
 	assessment, err := r.runAgentJevAssessment(ctx, version, content)
 	if assessment != nil && assessment != cached {
 		assessment.ContentDigest = content.checksum
+	} else if assessment != nil && assessment.ContentDigest == "" && content.checksum != "" && storedContentDigest(version.Status.Checksum) == content.checksum {
+		// A reused assessment written before digest stamping has no ContentDigest. Stamp a copy only when the
+		// archive recorded on the Version matches the content that was checked.
+		assessment = assessment.DeepCopy()
+		assessment.ContentDigest = content.checksum
 	}
 
 	return assessment, err

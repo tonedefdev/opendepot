@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math/rand/v2"
@@ -1413,6 +1415,82 @@ func TestRunAgentJevCachedAssessmentKeepsStoredDigest(t *testing.T) {
 
 	if calls.Load() != 0 {
 		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+}
+
+// jevStoredChecksum returns digest in the base64 form that status.checksum stores.
+func jevStoredChecksum(t *testing.T, digest string) *string {
+	t.Helper()
+
+	sum, err := hex.DecodeString(digest)
+	if err != nil {
+		t.Fatalf("hex digest: %v", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(sum)
+
+	return &encoded
+}
+
+func TestRunAgentJevStampsLegacyBlockedCacheForExemption(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	cached := &opendepotv1alpha1.JevAssessment{
+		Blocked:      true,
+		BlockReasons: []string{"Critical risk level"},
+	}
+	version := newJevTestVersion(nil, cached)
+	version.Status.Checksum = jevStoredChecksum(t, jevExemptTestDigest)
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.checksum = jevExemptTestDigest
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, content)
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if calls.Load() != 0 {
+		t.Fatalf("Jev calls = %d, want 0", calls.Load())
+	}
+
+	if assessment.ContentDigest != jevExemptTestDigest {
+		t.Fatalf("ContentDigest = %q, want %q", assessment.ContentDigest, jevExemptTestDigest)
+	}
+
+	if cached.ContentDigest != "" {
+		t.Fatalf("cached ContentDigest = %q, want the status cache left unchanged", cached.ContentDigest)
+	}
+
+	overlaid := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), content.checksum, version.Name)
+	if !overlaid.Exempted || overlaid.Blocked {
+		t.Fatalf("overlaid = %+v, want exempted and not blocked", overlaid)
+	}
+}
+
+func TestRunAgentJevDoesNotStampMismatchedLegacyCache(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, jevOK)
+	reconciler := newJevTestReconciler(t, endpoint)
+	cached := &opendepotv1alpha1.JevAssessment{
+		Blocked:      true,
+		BlockReasons: []string{"Critical risk level"},
+	}
+	version := newJevTestVersion(nil, cached)
+	version.Status.Checksum = jevStoredChecksum(t, jevExemptTestOther)
+	content := jevLoadContent(t, map[string]string{"SKILL.md": jevEntry})
+	content.checksum = jevExemptTestDigest
+
+	assessment, err := reconciler.runAgentJev(context.Background(), version, content)
+	if err != nil {
+		t.Fatalf("runAgentJev: %v", err)
+	}
+
+	if assessment.ContentDigest != "" {
+		t.Fatalf("ContentDigest = %q, want unstamped on digest mismatch", assessment.ContentDigest)
+	}
+
+	overlaid := applyJevExemption(assessment, jevExemptTestResolved(jevExemptTestDigest, nil), content.checksum, version.Name)
+	if overlaid.Exempted || !overlaid.Blocked {
+		t.Fatalf("overlaid = %+v, want blocked and not exempted", overlaid)
 	}
 }
 
