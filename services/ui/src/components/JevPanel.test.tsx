@@ -8,7 +8,7 @@ import JevPanel from "./JevPanel";
 import { buildAgentConfigSnippet } from "./AgentDetail";
 import theme from "@/theme";
 import type { JevAssessment } from "@/lib/api";
-import type { JevUnblock } from "./jevUnblock";
+import type { JevUnblockView } from "./jevUnblock";
 
 const assessment: JevAssessment = {
   evaluatedAt: "2026-01-01T00:00:00Z",
@@ -370,7 +370,7 @@ describe("JevPanel unblock section", () => {
   const blocked: JevAssessment = { ...assessment, blocked: true, contentDigest: "d".repeat(64) };
 
   it("tells the user to set forceSync and copies the kubectl command with the assessment's Version name", () => {
-    const unblock: JevUnblock = { state: "no-digest", namespace: "platform" };
+    const unblock: JevUnblockView = { state: "no-digest", namespace: "platform" };
     renderPanel({ assessment: { ...blocked, contentDigest: undefined, versionName: "lint-helper-1-0-0" }, unblock });
     expect(screen.getByText(/This assessment has no digest, so no exemption can match it. Set forceSync: true on this Version, then return here./)).not.toBeNull();
     expect(screen.getByText(`kubectl patch version lint-helper-1-0-0 -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
@@ -408,28 +408,49 @@ describe("JevPanel unblock section", () => {
     expect(screen.getByText(/The Jev exemption for this digest in ScanPolicy platform expired at /)).not.toBeNull();
   });
 
+  it("refers to the policy without a name when the expired entry's name is hidden", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "expired", digest: "d".repeat(64), expires: "2026-01-01T00:00:00Z" } });
+    expect(screen.getByText(/The Jev exemption for this digest in a ScanPolicy expired at /)).not.toBeNull();
+    expect(screen.queryByText(/ScanPolicy undefined/)).toBeNull();
+  });
+
   it("shows the exempting policy when the entry is active", () => {
     renderPanel({ assessment: { ...blocked, blocked: false, exempted: true, exemptedBy: "platform" }, unblock: { state: "exempted", policy: "platform" } });
     expect(screen.getByText(/Exempted by platform. No expiry./)).not.toBeNull();
   });
 
-  it("lists candidates when the governing policy cannot be determined", () => {
-    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), reason: "Selectors are not evaluated.", candidates: ["by-label"] } });
-    expect(screen.getByText(/Candidates: by-label/)).not.toBeNull();
+  it("says the exempting policy is unnamed when the name is hidden", () => {
+    renderPanel({ assessment: { ...blocked, blocked: false, exempted: true }, unblock: { state: "exempted", expires: "2026-02-01T00:00:00Z" } });
+    expect(screen.getByText(/Exempted by the governing ScanPolicy. Expires /)).not.toBeNull();
+    expect(screen.queryByText(/Exempted by undefined/)).toBeNull();
   });
 
-  it("renders the unknown reason as given, without adding a second explanation", () => {
-    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), reason: "Policy names are hidden for this account.", candidates: [] } });
-    expect(screen.getByText("Policy names are hidden for this account.")).not.toBeNull();
-    expect(screen.queryByText(/The UI cannot determine/)).toBeNull();
+  it("describes the unknown state without a reason or candidates", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64) } });
+    expect(screen.getByText(/The unblock state for this Version cannot be determined/)).not.toBeNull();
+    expect(screen.getAllByText("d".repeat(64)).length).toBeGreaterThan(0);
   });
 
-  it("shows the expiry for an unknown state whose policy name is hidden", () => {
+  it("shows the expiry for an unknown state", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), expires: "2026-02-01T00:00:00Z" } });
+    expect(screen.getByText(/Expiry: /)).not.toBeNull();
+  });
+
+  it("names the winner and the shadowed policy with the winner's priority", () => {
     renderPanel({
       assessment: blocked,
-      unblock: { state: "unknown", digest: "d".repeat(64), reason: "Policy names are hidden for this account.", candidates: [], expires: "2026-02-01T00:00:00Z" },
+      unblock: { state: "superseded", digest: "d".repeat(64), policy: "older", winner: "newer", policyPriority: 2, winnerPriority: 9 },
     });
-    expect(screen.getByText(/Expiry: /)).not.toBeNull();
+    expect(screen.getByText(/newer \(priority 9\) wins this Version over older \(priority 2\)/)).not.toBeNull();
+  });
+
+  it("describes a superseded exemption without names when they are hidden", () => {
+    renderPanel({
+      assessment: blocked,
+      unblock: { state: "superseded", digest: "d".repeat(64), policyPriority: 2, winnerPriority: 9 },
+    });
+    expect(screen.getByText(/Policy names are hidden for this account. The governing policy has priority 9 and the policy with the exemption has priority 2./)).not.toBeNull();
+    expect(screen.queryByText(/wins this Version over/)).toBeNull();
   });
 
   it("does not claim no policy governs the Version when the governing name is hidden", () => {

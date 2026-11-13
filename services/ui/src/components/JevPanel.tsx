@@ -15,7 +15,7 @@ import type { JevAssessment, JevThresholds, ScanPolicyTargetKind } from "@/lib/a
 import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
 import CopyButton from "./CopyButton";
 import JevChunkTree from "./JevChunkTree";
-import type { JevUnblock } from "./jevUnblock";
+import type { JevUnblockView } from "./jevUnblock";
 
 // JevExemptionAction offers the Security Policy editor prefilled with a blocked digest. canEdit comes from the server-side capability check.
 // targetKind and targetName scope the prefilled policy to this resource.
@@ -33,7 +33,7 @@ interface JevPanelProps {
   assessment: JevAssessment;
   thresholds?: JevThresholds;
   exemption?: JevExemptionAction;
-  unblock?: JevUnblock | null;
+  unblock?: JevUnblockView | null;
 }
 
 // JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
@@ -131,11 +131,11 @@ function CopyableValue({ value }: { value: string }) {
 }
 
 // JevUnblockSection states the one condition that stops a blocked assessment from being exempted, and the exemption state.
-function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblock; versionName?: string }) {
+function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblockView; versionName?: string }) {
   if (unblock.state === "exempted") {
     return (
       <Alert severity="success" variant="outlined">
-        {`Exempted by ${unblock.policy}. ${unblock.expires ? `Expires ${formatExpiry(unblock.expires)}.` : "No expiry."}`}
+        {`${unblock.policy ? `Exempted by ${unblock.policy}` : "Exempted by the governing ScanPolicy"}. ${unblock.expires ? `Expires ${formatExpiry(unblock.expires)}.` : "No expiry."}`}
       </Alert>
     );
   }
@@ -165,7 +165,9 @@ function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblock; vers
         {unblock.state === "superseded" && (
           <>
             <Typography variant="body2">
-              {`ScanPolicy ${unblock.policy} has a Jev exemption for this digest, but it is ignored. ${unblock.winner} (priority ${unblock.winnerPriority}) wins this Version over ${unblock.policy} (priority ${unblock.policyPriority}), and a shadowed policy's exemptions are ignored in full. Raise ${unblock.policy} to a priority above ${unblock.winnerPriority}, or add the exemption to ${unblock.winner}.`}
+              {unblock.policy && unblock.winner
+                ? `ScanPolicy ${unblock.policy} has a Jev exemption for this digest, but it is ignored. ${unblock.winner} (priority ${unblock.winnerPriority}) wins this Version over ${unblock.policy} (priority ${unblock.policyPriority}), and a shadowed policy's exemptions are ignored in full. Raise ${unblock.policy} to a priority above ${unblock.winnerPriority}, or add the exemption to ${unblock.winner}.`
+                : `A Jev exemption for this digest is in a policy that does not govern this Version, so it is ignored. Policy names are hidden for this account. The governing policy has priority ${unblock.winnerPriority} and the policy with the exemption has priority ${unblock.policyPriority}.`}
             </Typography>
             <CopyableValue value={unblock.digest} />
           </>
@@ -173,7 +175,7 @@ function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblock; vers
         {unblock.state === "expired" && (
           <>
             <Typography variant="body2">
-              {`The Jev exemption for this digest in ScanPolicy ${unblock.policy} expired${unblock.expires ? ` at ${formatExpiry(unblock.expires)}` : ""}. Expired exemptions are ignored. Add a new entry with a later expires, or remove expires to make it permanent.`}
+              {`The Jev exemption for this digest in ${unblock.policy ? `ScanPolicy ${unblock.policy}` : "a ScanPolicy"} expired${unblock.expires ? ` at ${formatExpiry(unblock.expires)}` : ""}. Expired exemptions are ignored. Add a new entry with a later expires, or remove expires to make it permanent.`}
             </Typography>
             <CopyableValue value={unblock.digest} />
           </>
@@ -181,18 +183,15 @@ function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblock; vers
         {unblock.state === "pending" && (
           <>
             <Typography variant="body2">
-              {`The Jev exemption for this digest is active in ScanPolicy ${unblock.policy}, which governs this Version, but the Version has not been re-evaluated since. Set forceSync: true on this Version to re-run the check.`}
+              {`The Jev exemption for this digest is active in ${unblock.policy ? `ScanPolicy ${unblock.policy}` : "the ScanPolicy"}, which governs this Version, but the Version has not been re-evaluated since. Set forceSync: true on this Version to re-run the check.`}
             </Typography>
             <CopyableValue value={forceSyncCommand(unblock.namespace, versionName)} />
           </>
         )}
         {unblock.state === "unknown" && (
           <>
-            <Typography variant="body2">{unblock.reason}</Typography>
+            <Typography variant="body2">The unblock state for this Version cannot be determined from the server&apos;s response.</Typography>
             {unblock.expires && <Typography variant="body2">{`Expiry: ${formatExpiry(unblock.expires)}.`}</Typography>}
-            {unblock.candidates.length > 0 && (
-              <Typography variant="body2">{`Candidates: ${unblock.candidates.join(", ")}`}</Typography>
-            )}
             {unblock.digest && <CopyableValue value={unblock.digest} />}
           </>
         )}

@@ -183,6 +183,24 @@ export interface JevExemptionGovernance {
   superseded: boolean;
 }
 
+// JevUnblockState is the server's unblock state for a Version's Jev block. none means nothing is needed.
+export type JevUnblockState = "none" | "no-digest" | "needs-entry" | "superseded" | "expired" | "pending" | "exempted" | "unknown";
+
+// JevUnblock is the server's unblock state for one Version, computed from the same governance decision as
+// JevExemptionGovernance. The UI displays it rather than re-deriving it. namesHidden is true when the caller cannot see
+// policy names, in which case governingPolicy and matchingPolicy are absent.
+export interface JevUnblock {
+  state: JevUnblockState;
+  digest?: string;
+  governingPolicy?: string;
+  governingPriority: number;
+  matchingPolicy?: string;
+  matchingPriority: number;
+  // expires is absent when the matching entry never expires or no entry matches.
+  expires?: string;
+  namesHidden: boolean;
+}
+
 export interface JevAssessment {
   evaluatedAt: string;
   // versionName is the Version object name this assessment belongs to. It is absent on legacy assessments.
@@ -256,6 +274,8 @@ export interface BrowseResourceDetail extends BrowseResource {
   jevAssessment?: JevAssessment;
   // jevExemptionGovernance is only present when jevAssessment is. It replaces inferring the governing policy from ScanPolicy specs.
   jevExemptionGovernance?: JevExemptionGovernance;
+  // jevUnblock is the server's unblock state for the latest assessed Version. It is absent when there is no Jev assessment.
+  jevUnblock?: JevUnblock;
   jevThresholds?: JevThresholds;
 }
 

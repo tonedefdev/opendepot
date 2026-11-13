@@ -37,7 +37,7 @@ import { BRAND_GRADIENT_WASH, BRAND_SURFACE_BORDER } from "@/lib/brand";
 import { kindChipSx, monoMetaChipSx } from "@/components/chipStyles";
 import { canEditJevExemptions } from "@/components/security-policies/jevExemptions";
 import { describeJevUnblock } from "@/components/jevUnblock";
-import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots, listScanPolicies, type ScanPolicy } from "@/lib/api";
+import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
@@ -125,15 +125,6 @@ async function canCreateJevExemption(namespace: string, token?: string): Promise
   }
 }
 
-// readScanPolicies returns null when the list cannot be read, so the unblock panel says it cannot decide instead of guessing.
-async function readScanPolicies(namespace: string, token?: string): Promise<ScanPolicy[] | null> {
-  try {
-    return (await listScanPolicies(namespace, token)).items ?? [];
-  } catch {
-    return null;
-  }
-}
-
 export default async function ResourceDetailPage({ params }: PageProps) {
   const { namespace, kind, name } = await params;
   const token = await getServerSessionToken();
@@ -176,16 +167,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   const isAgentKind = kind === "skill" || kind === "agent";
   const jevCanEdit = detail.jevAssessment?.blocked && detail.jevAssessment.contentDigest ? await canCreateJevExemption(namespace, token) : false;
   const jevResource = { kind: kind === "skill" ? "Skill" : "Agent", name } as const;
-  const jevUnblock = detail.jevAssessment && isAgentKind
-    ? describeJevUnblock({
-        assessment: detail.jevAssessment,
-        namespace,
-        resource: jevResource,
-        governance: detail.jevExemptionGovernance,
-        // ScanPolicies are read only for the inferred fallback, when the server did not report governance.
-        policies: detail.jevAssessment.blocked && !detail.jevExemptionGovernance ? await readScanPolicies(namespace, token) : [],
-      })
-    : null;
+  const jevUnblock = detail.jevAssessment && isAgentKind ? describeJevUnblock({ unblock: detail.jevUnblock, namespace }) : null;
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 

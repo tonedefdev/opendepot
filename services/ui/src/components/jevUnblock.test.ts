@@ -1,236 +1,183 @@
 import { describe, expect, it } from "vitest";
-import type { JevAssessment, JevExemptionGovernance, ScanPolicy } from "@/lib/api";
+import type { JevUnblock } from "@/lib/api";
 import { describeJevUnblock } from "./jevUnblock";
 
-const digest = "c".repeat(64);
-const now = new Date("2026-01-15T00:00:00Z");
-const resource = { kind: "Skill" as const, name: "lint-helper" };
+const digest = "d".repeat(64);
 
-function assessment(overrides: Partial<JevAssessment> = {}): JevAssessment {
-  return { evaluatedAt: "2026-01-01T00:00:00Z", needsReview: true, blocked: true, contentDigest: digest, ...overrides };
+function server(overrides: Partial<JevUnblock> & Pick<JevUnblock, "state">): JevUnblock {
+  return { governingPriority: 0, matchingPriority: 0, namesHidden: false, ...overrides };
 }
 
-function policy(name: string, priority: number, jevDigest?: string, expires?: string, scoped = true): ScanPolicy {
-  return {
-    apiVersion: "opendepot.defdev.io/v1alpha1",
-    kind: "ScanPolicy",
-    metadata: { name, namespace: "platform" },
-    spec: {
-      priority,
-      ...(scoped ? { targetRefs: [{ kind: "Skill", name: "lint-helper" }] } : {}),
-      ...(jevDigest ? { jevExemptions: [{ contentDigest: jevDigest, reason: "reviewed", expires }] } : {}),
-    },
-  };
+function run(unblock: JevUnblock | undefined) {
+  return describeJevUnblock({ unblock, namespace: "platform" });
 }
 
-function run(overrides: Partial<Parameters<typeof describeJevUnblock>[0]> = {}) {
-  return describeJevUnblock({
-    assessment: assessment(),
-    namespace: "platform",
-    resource,
-    policies: [],
-    now,
-    ...overrides,
-  });
-}
-
-function governance(overrides: Partial<JevExemptionGovernance> = {}): JevExemptionGovernance {
-  return {
-    governingPolicy: "",
-    governingPriority: 0,
-    matchingPolicy: "",
-    matchingPriority: 0,
-    matchingState: "none",
-    superseded: false,
-    ...overrides,
-  };
-}
-
-describe("describeJevUnblock with server governance", () => {
-  it("returns null when the assessment is not blocked and nothing is exempted", () => {
-    expect(run({ assessment: assessment({ blocked: false }), governance: governance() })).toBeNull();
+describe("describeJevUnblock", () => {
+  it("returns null when the server has no jevUnblock", () => {
+    expect(run(undefined)).toBeNull();
   });
 
-  it("reports exempted from the server's governing policy and expiry when the Version is not blocked", () => {
-    expect(run({
-      assessment: assessment({ blocked: false }),
-      governance: governance({ governingPolicy: "policy-a", matchingPolicy: "policy-a", matchingState: "exempted", matchingExpires: "2026-02-01T00:00:00Z" }),
-      policies: null,
-    })).toEqual({ state: "exempted", policy: "policy-a", expires: "2026-02-01T00:00:00Z" });
+  it("returns null for the none state", () => {
+    expect(run(server({ state: "none" }))).toBeNull();
   });
 
-  it("ignores the ScanPolicy inference when governance is reported", () => {
-    // The shadowed policy would infer superseded, but the server says the entry is active and governed by "winner".
-    expect(run({
-      policies: [policy("winner", 9), policy("shadowed", 2, digest)],
-      governance: governance({ governingPolicy: "winner", governingPriority: 9, matchingState: "none" }),
-    })).toEqual({ state: "needs-entry", digest, policy: "winner" });
+  it("maps no-digest with the namespace for the forceSync command", () => {
+    expect(run(server({ state: "no-digest" }))).toEqual({ state: "no-digest", namespace: "platform" });
   });
 
-  it("asks for forceSync when governance is reported and the assessment has no digest", () => {
-    expect(run({
-      assessment: assessment({ contentDigest: undefined }),
-      governance: governance({ matchingState: "noDigest" }),
-    })).toEqual({ state: "no-digest", namespace: "platform" });
+  it("maps needs-entry with the governing policy name", () => {
+    expect(run(server({ state: "needs-entry", digest, governingPolicy: "platform-skills" }))).toEqual({
+      state: "needs-entry",
+      digest,
+      policy: "platform-skills",
+    });
   });
 
-  it("maps noDigest to the no-digest state even when a digest is present", () => {
-    expect(run({ governance: governance({ matchingState: "noDigest" }) })).toEqual({ state: "no-digest", namespace: "platform" });
+  it("maps needs-entry without a governing policy to no name", () => {
+    expect(run(server({ state: "needs-entry", digest }))).toEqual({ state: "needs-entry", digest, policy: undefined });
   });
 
-  it("maps none to needs-entry with the governing policy name", () => {
-    expect(run({ governance: governance({ governingPolicy: "current", governingPriority: 3 }) }))
-      .toEqual({ state: "needs-entry", digest, policy: "current" });
-  });
-
-  it("maps none with no governing name to needs-entry without a policy name", () => {
-    expect(run({ governance: governance() })).toEqual({ state: "needs-entry", digest, policy: undefined });
-  });
-
-  it("maps exempted while blocked to pending with the governing policy", () => {
-    expect(run({
-      governance: governance({ governingPolicy: "winner", matchingPolicy: "winner", matchingState: "exempted", matchingExpires: "2026-02-01T00:00:00Z" }),
-    })).toEqual({ state: "pending", namespace: "platform", digest, policy: "winner" });
-  });
-
-  it("maps expired to expired with the expiry from governance", () => {
-    expect(run({
-      governance: governance({ governingPolicy: "winner", matchingPolicy: "winner", matchingState: "expired", matchingExpires: "2026-01-01T00:00:00Z" }),
-    })).toEqual({ state: "expired", digest, policy: "winner", expires: "2026-01-01T00:00:00Z" });
-  });
-
-  it("maps superseded to superseded with the matching policy and both priorities", () => {
-    expect(run({
-      governance: governance({
-        governingPolicy: "winner",
-        governingPriority: 9,
-        matchingPolicy: "shadowed",
-        matchingPriority: 2,
-        matchingState: "superseded",
-        superseded: true,
-      }),
-    })).toEqual({
+  it("maps superseded with the shadowed policy as the matching policy and the governing policy as the winner", () => {
+    expect(
+      run(
+        server({
+          state: "superseded",
+          digest,
+          governingPolicy: "newer",
+          governingPriority: 9,
+          matchingPolicy: "older",
+          matchingPriority: 2,
+        }),
+      ),
+    ).toEqual({
       state: "superseded",
       digest,
-      policy: "shadowed",
-      winner: "winner",
+      policy: "older",
+      winner: "newer",
       policyPriority: 2,
       winnerPriority: 9,
     });
   });
 
-  describe("with OIDC redaction (empty policy names)", () => {
-    it("reports exempted without naming the policy when the Version is not blocked", () => {
-      expect(run({
-        assessment: assessment({ blocked: false }),
-        governance: governance({ matchingState: "exempted", matchingExpires: "2026-02-01T00:00:00Z", governingPriority: 4 }),
-      })).toEqual({
-        state: "unknown",
+  it("maps expired with the governing policy and the expiry", () => {
+    expect(run(server({ state: "expired", digest, governingPolicy: "platform", expires: "2026-01-01T00:00:00Z" }))).toEqual({
+      state: "expired",
+      digest,
+      policy: "platform",
+      expires: "2026-01-01T00:00:00Z",
+    });
+  });
+
+  it("maps pending with the namespace and the governing policy", () => {
+    expect(run(server({ state: "pending", digest, governingPolicy: "platform-skills" }))).toEqual({
+      state: "pending",
+      namespace: "platform",
+      digest,
+      policy: "platform-skills",
+    });
+  });
+
+  it("maps exempted with the governing policy and the expiry", () => {
+    expect(run(server({ state: "exempted", governingPolicy: "platform", expires: "2026-02-01T00:00:00Z" }))).toEqual({
+      state: "exempted",
+      policy: "platform",
+      expires: "2026-02-01T00:00:00Z",
+    });
+  });
+
+  it("maps unknown with the digest and the expiry", () => {
+    expect(run(server({ state: "unknown", digest, expires: "2026-03-01T00:00:00Z" }))).toEqual({
+      state: "unknown",
+      digest,
+      expires: "2026-03-01T00:00:00Z",
+    });
+  });
+
+  it("maps a state this UI does not recognize to unknown", () => {
+    expect(run(server({ state: "future-state" as JevUnblock["state"], digest }))).toEqual({ state: "unknown", digest });
+  });
+
+  describe("names hidden", () => {
+    it("drops the governing policy name for needs-entry when namesHidden is true", () => {
+      expect(run(server({ state: "needs-entry", digest, governingPolicy: "platform-skills", namesHidden: true }))).toEqual({
+        state: "needs-entry",
         digest,
-        reason: "A Jev exemption for this digest is active, but policy names are hidden for this account, so the policy that grants it cannot be named.",
-        candidates: [],
+        policy: undefined,
+      });
+    });
+
+    it("drops both names for superseded and keeps the priorities", () => {
+      expect(
+        run(
+          server({
+            state: "superseded",
+            digest,
+            governingPolicy: "newer",
+            matchingPolicy: "older",
+            governingPriority: 9,
+            matchingPriority: 2,
+            namesHidden: true,
+          }),
+        ),
+      ).toEqual({
+        state: "superseded",
+        digest,
+        policy: undefined,
+        winner: undefined,
+        policyPriority: 2,
+        winnerPriority: 9,
+      });
+    });
+
+    it("drops the policy name for expired and keeps the expiry", () => {
+      expect(run(server({ state: "expired", digest, governingPolicy: "platform", expires: "2026-01-01T00:00:00Z", namesHidden: true }))).toEqual({
+        state: "expired",
+        digest,
+        policy: undefined,
+        expires: "2026-01-01T00:00:00Z",
+      });
+    });
+
+    it("drops the policy name for pending", () => {
+      expect(run(server({ state: "pending", digest, governingPolicy: "platform", namesHidden: true }))).toEqual({
+        state: "pending",
+        namespace: "platform",
+        digest,
+        policy: undefined,
+      });
+    });
+
+    it("drops the policy name for exempted", () => {
+      expect(run(server({ state: "exempted", governingPolicy: "platform", expires: "2026-02-01T00:00:00Z", namesHidden: true }))).toEqual({
+        state: "exempted",
+        policy: undefined,
         expires: "2026-02-01T00:00:00Z",
       });
     });
+  });
 
-    it("reports unknown with the active exemption when the Version is still blocked and the name is hidden", () => {
-      expect(run({ governance: governance({ matchingState: "exempted" }) })).toMatchObject({
-        state: "unknown",
+  describe("empty names", () => {
+    it("treats an empty governing policy name as absent", () => {
+      expect(run(server({ state: "needs-entry", digest, governingPolicy: "" }))).toEqual({ state: "needs-entry", digest, policy: undefined });
+    });
+
+    it("treats an empty matching policy name as absent for superseded", () => {
+      expect(
+        run(server({ state: "superseded", digest, governingPolicy: "newer", matchingPolicy: "", governingPriority: 9, matchingPriority: 2 })),
+      ).toEqual({
+        state: "superseded",
         digest,
-        candidates: [],
+        policy: undefined,
+        winner: "newer",
+        policyPriority: 2,
+        winnerPriority: 9,
       });
     });
+  });
 
-    it("reports unknown with the expiry when an expired entry's policy name is hidden", () => {
-      expect(run({
-        governance: governance({ matchingState: "expired", matchingExpires: "2026-01-01T00:00:00Z" }),
-      })).toMatchObject({ state: "unknown", digest, expires: "2026-01-01T00:00:00Z" });
+  describe("missing digest", () => {
+    it.each(["needs-entry", "superseded", "expired", "pending"] as const)("maps %s without a digest to unknown", (state) => {
+      expect(run(server({ state, governingPolicy: "platform" }))).toEqual({ state: "unknown" });
     });
-
-    it("reports superseded with both priorities when the names are hidden", () => {
-      const result = run({
-        governance: governance({ governingPriority: 9, matchingPriority: 2, matchingState: "superseded", superseded: true }),
-      });
-      expect(result).toMatchObject({ state: "unknown", digest, candidates: [] });
-      expect(result).toMatchObject({ reason: expect.stringContaining("priority 9") });
-      expect(result).toMatchObject({ reason: expect.stringContaining("priority 2") });
-    });
-
-    it("keeps needs-entry without a name, so the UI does not claim no policy governs the Version", () => {
-      expect(run({ governance: governance({ matchingState: "none" }) })).toEqual({ state: "needs-entry", digest, policy: undefined });
-    });
-  });
-});
-
-describe("describeJevUnblock inferred fallback", () => {
-  it("returns null when the assessment is not blocked", () => {
-    expect(run({ assessment: assessment({ blocked: false }) })).toBeNull();
-  });
-
-  it("reports exempted with the policy name and expiry when the server marks the exemption", () => {
-    expect(run({
-      assessment: assessment({ exempted: true, exemptedBy: "policy-a", exemptionExpires: "2026-02-01T00:00:00Z" }),
-      policies: null,
-    })).toEqual({ state: "exempted", policy: "policy-a", expires: "2026-02-01T00:00:00Z" });
-  });
-
-  it("asks for forceSync when the assessment has no digest", () => {
-    expect(run({ assessment: assessment({ contentDigest: undefined }) })).toEqual({
-      state: "no-digest",
-      namespace: "platform",
-    });
-  });
-
-  it("reports unknown when the policy list could not be read", () => {
-    expect(run({ policies: null })).toMatchObject({ state: "unknown", digest, candidates: [] });
-  });
-
-  it("reports unknown and lists candidates when the winner cannot be named", () => {
-    const uncertain: ScanPolicy = {
-      apiVersion: "opendepot.defdev.io/v1alpha1",
-      kind: "ScanPolicy",
-      metadata: { name: "by-label", namespace: "platform" },
-      spec: { priority: 5, selector: { matchLabels: { env: "dev" } } },
-    };
-    expect(run({ policies: [uncertain] })).toMatchObject({ state: "unknown", candidates: ["by-label"] });
-  });
-
-  it("asks for an entry in the governing policy when none matches the digest", () => {
-    expect(run({ policies: [policy("current", 3)] })).toEqual({ state: "needs-entry", digest, policy: "current" });
-  });
-
-  it("asks for an entry with no policy named when nothing governs the Version", () => {
-    const elsewhere: ScanPolicy = {
-      apiVersion: "opendepot.defdev.io/v1alpha1",
-      kind: "ScanPolicy",
-      metadata: { name: "elsewhere", namespace: "platform" },
-      spec: { priority: 3, targetRefs: [{ kind: "Agent", name: "other" }] },
-    };
-    expect(run({ policies: [elsewhere] })).toEqual({ state: "needs-entry", digest });
-  });
-
-  it("names the winner and the shadowed policy when the matching entry is ignored for priority", () => {
-    expect(run({
-      policies: [policy("winner", 9), policy("shadowed", 2, digest)],
-    })).toEqual({
-      state: "superseded",
-      digest,
-      policy: "shadowed",
-      winner: "winner",
-      policyPriority: 2,
-      winnerPriority: 9,
-    });
-  });
-
-  it("reports expired with the expiry when the winner's matching entry has lapsed", () => {
-    expect(run({
-      policies: [policy("winner", 9, digest, "2026-01-01T00:00:00Z")],
-    })).toEqual({ state: "expired", digest, policy: "winner", expires: "2026-01-01T00:00:00Z" });
-  });
-
-  it("treats an entry without expires as active, so the Version is pending re-evaluation", () => {
-    expect(run({
-      policies: [policy("winner", 9, digest)],
-    })).toEqual({ state: "pending", namespace: "platform", digest, policy: "winner" });
   });
 });
