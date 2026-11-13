@@ -331,8 +331,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           <JevPanel
             assessment={detail.jevAssessment}
             thresholds={detail.jevThresholds}
-            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit, governingPolicyHidden: detail.jevExemptionGovernance !== undefined && !detail.jevExemptionGovernance.governingPolicy }}
+            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit, governingPolicyHidden: detail.jevUnblock?.namesHidden === true }}
             unblock={jevUnblock}
+            namesHidden={detail.jevUnblock?.namesHidden === true}
           />
         </SectionCard>
       )}

@@ -34,6 +34,8 @@ interface JevPanelProps {
   thresholds?: JevThresholds;
   exemption?: JevExemptionAction;
   unblock?: JevUnblockView | null;
+  // namesHidden mirrors the server's jevUnblock.namesHidden. The unblock view drops it in most states, so the panel takes it directly.
+  namesHidden?: boolean;
 }
 
 // JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
@@ -202,7 +204,7 @@ function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblockView; 
   );
 }
 
-export default function JevPanel({ assessment, thresholds, exemption, unblock }: JevPanelProps) {
+export default function JevPanel({ assessment, thresholds, exemption, unblock, namesHidden }: JevPanelProps) {
   const allRows: ProbabilityRow[] = [
     {
       label: "Safe",
@@ -369,9 +371,9 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock }:
             }}
           />
         )}
-        {assessment.exempted && (
+        {assessment.exempted && Boolean(assessment.exemptedBy) && namesHidden !== true && (
           <InfoChip
-            label={assessment.exemptedBy ? `Exempted by ${assessment.exemptedBy}` : "Exempted"}
+            label={`Exempted by ${assessment.exemptedBy}`}
             description={describeExemption(assessment)}
             size="small"
             color="info"

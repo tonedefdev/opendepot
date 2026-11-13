@@ -238,6 +238,27 @@ describe("JevPanel", () => {
     expect(screen.queryByRole("button", { name: "Copy to clipboard" })).toBeNull();
   });
 
+  it("hides the exemption chip and its policy name when namesHidden is true", () => {
+    renderPanel({
+      assessment: {
+        ...assessment,
+        exempted: true,
+        exemptedBy: "platform-baseline",
+        exemptionReason: "Reviewed by security",
+      },
+      namesHidden: true,
+    });
+
+    expect(screen.queryByText(/Exempted by/)).toBeNull();
+    expect(screen.queryByText(/platform-baseline/)).toBeNull();
+  });
+
+  it("omits the exemption chip when the exemption has no policy name to show", () => {
+    renderPanel({ assessment: { ...assessment, exempted: true, exemptionReason: "Vendor attested" } });
+
+    expect(screen.queryByText(/Exempted/)).toBeNull();
+  });
+
   it("shows an exemption chip naming the policy and a tooltip with the reason and expiry", async () => {
     renderPanel({
       assessment: {

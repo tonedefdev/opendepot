@@ -151,6 +151,14 @@ describe("jevExemptionPrefill", () => {
     expect(prefill.priority).toBe(0);
   });
 
+  it("does not report an unnamed winner for a visible-names Version when only another resource's policy exists", () => {
+    const otherSkill = policy("other-skill-policy", { priority: 4, targetRefs: [{ kind: "Skill", name: "other-skill" }] });
+    const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [otherSkill], governingNameHidden: false });
+    expect(prefill.winnerUnnamed).toBe(false);
+    expect(prefill.winner).toBeUndefined();
+    expect(prefill.uncertainPolicies).toEqual([]);
+  });
+
   it("says the winner is unnamed, not absent, when the server hid the governing name and no policy is visible", () => {
     const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [], governingNameHidden: true });
     expect(prefill.winnerUnnamed).toBe(true);
