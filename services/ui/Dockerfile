@@ -1,5 +1,5 @@
 # Stage 1: Build the Next.js app.
-FROM node:22.23.3-alpine3.23 AS builder
+FROM node:22.23.5-alpine3.23 AS builder
 
 WORKDIR /app
 
