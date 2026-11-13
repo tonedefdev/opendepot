@@ -253,10 +253,35 @@ describe("JevPanel", () => {
     expect(screen.queryByText(/platform-baseline/)).toBeNull();
   });
 
-  it("omits the exemption chip when the exemption has no policy name to show", () => {
+  it("shows a plain Exempted chip with its description when the exemption has no policy name to show", async () => {
     renderPanel({ assessment: { ...assessment, exempted: true, exemptionReason: "Vendor attested" } });
 
-    expect(screen.queryByText(/Exempted/)).toBeNull();
+    expect(screen.getByText("Exempted")).not.toBeNull();
+    expect(screen.queryByText(/Exempted by/)).toBeNull();
+
+    fireEvent.mouseOver(screen.getByText("Exempted"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("Reason: Vendor attested");
+  });
+
+  it("shows a plain Exempted chip and no policy name when the name is hidden", () => {
+    renderPanel({
+      assessment: { ...assessment, exempted: true, exemptedBy: "platform-baseline", exemptionReason: "Vendor attested" },
+      namesHidden: true,
+    });
+
+    expect(screen.getByText("Exempted")).not.toBeNull();
+    expect(screen.queryByText(/Exempted by/)).toBeNull();
+    expect(screen.queryByText(/platform-baseline/)).toBeNull();
+  });
+
+  it("shows an Exempted by chip naming the policy when the name is visible", () => {
+    renderPanel({
+      assessment: { ...assessment, exempted: true, exemptedBy: "platform-baseline", exemptionReason: "Vendor attested" },
+      namesHidden: false,
+    });
+
+    expect(screen.getByText("Exempted by platform-baseline")).not.toBeNull();
   });
 
   it("shows an exemption chip naming the policy and a tooltip with the reason and expiry", async () => {

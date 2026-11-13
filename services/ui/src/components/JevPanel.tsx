@@ -371,9 +371,9 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock, n
             }}
           />
         )}
-        {assessment.exempted && Boolean(assessment.exemptedBy) && namesHidden !== true && (
+        {assessment.exempted && (
           <InfoChip
-            label={`Exempted by ${assessment.exemptedBy}`}
+            label={assessment.exemptedBy && namesHidden !== true ? `Exempted by ${assessment.exemptedBy}` : "Exempted"}
             description={describeExemption(assessment)}
             size="small"
             color="info"
