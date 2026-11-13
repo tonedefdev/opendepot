@@ -22,6 +22,8 @@ spec:
       serviceAccountName: version-controller
       automountServiceAccountToken: false
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
         runAsNonRoot: true
         {{- end }}

@@ -18,6 +18,8 @@ spec:
     spec:
       serviceAccountName: server
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
         {{- if or .Values.storage.filesystem.enabled .Values.assembly.enabled }}

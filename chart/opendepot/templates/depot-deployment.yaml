@@ -21,6 +21,8 @@ spec:
     spec:
       serviceAccountName: depot-controller
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
       containers:
