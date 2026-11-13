@@ -276,6 +276,93 @@ func TestBrowseAgentResourceDetailVisibility(t *testing.T) {
 	}
 }
 
+// TestBrowseAgentResourceDetailWithholdsExemptionNamesFromOIDC covers the newest Jev assessment in the detail response.
+// The ScanPolicy that exempted it is withheld from OIDC callers, along with the governance names. Without OIDC the
+// names are returned, which shows that the assessment carries them.
+func TestBrowseAgentResourceDetailWithholdsExemptionNamesFromOIDC(t *testing.T) {
+	const name = "reviewer"
+	const policyName = "release-exemptions"
+	labels := map[string]string{labelPublic: "true"}
+	assessed := browseAgentTestVersion("agent", name)
+	assessed.Status.JevAssessment = &opendepotv1alpha1.JevAssessment{
+		EvaluatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Exempted:    true,
+		ExemptedBy:  policyName,
+	}
+	assessed.Status.JevExemptionGovernance = &opendepotv1alpha1.JevExemptionGovernance{
+		GoverningPolicy: policyName,
+		MatchingPolicy:  policyName,
+		MatchingState:   opendepotv1alpha1.JevMatchingStateExempted,
+	}
+	assessed.Status.JevUnblock = &opendepotv1alpha1.JevUnblock{GoverningPolicy: policyName, MatchingPolicy: policyName}
+	binding := opendepotv1alpha1.GroupBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "platform"},
+		Spec: opendepotv1alpha1.GroupBindingSpec{
+			Expression:     `"platform" in groups`,
+			AgentResources: []string{name},
+		},
+	}
+
+	cases := []struct {
+		name           string
+		oidc           bool
+		wantExemptedBy string
+	}{
+		{name: "OIDC withholds policy names", oidc: true, wantExemptedBy: ""},
+		{name: "non-OIDC returns policy names", wantExemptedBy: policyName},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := browseAgentTestServer(t, "agent", name, labels, browseAgentTestObject("agent", name, labels, nil), []opendepotv1alpha1.Version{assessed}, []opendepotv1alpha1.GroupBinding{binding})
+			browseAgentTestSetup(t, api, false, tc.oidc)
+
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name, nil)
+			if tc.oidc {
+				request.Header.Set("Authorization", "Bearer "+agentTestBearerToken(t, []string{"platform"}))
+			}
+
+			response := httptest.NewRecorder()
+			browseAgentTestRouter().ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+			}
+
+			var detail BrowseResourceDetail
+			if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+				t.Fatalf("unmarshal detail: %v", err)
+			}
+
+			if detail.JevAssessment == nil || !detail.JevAssessment.Exempted {
+				t.Fatalf("JevAssessment = %+v, want exempted assessment", detail.JevAssessment)
+			}
+
+			if detail.JevAssessment.ExemptedBy != tc.wantExemptedBy {
+				t.Fatalf("JevAssessment.ExemptedBy = %q, want %q", detail.JevAssessment.ExemptedBy, tc.wantExemptedBy)
+			}
+
+			if detail.JevExemptionGovernance == nil || detail.JevExemptionGovernance.MatchingState != opendepotv1alpha1.JevMatchingStateExempted {
+				t.Fatalf("JevExemptionGovernance = %+v, want exempted state kept", detail.JevExemptionGovernance)
+			}
+
+			if tc.oidc {
+				if detail.JevExemptionGovernance.GoverningPolicy != "" || detail.JevExemptionGovernance.MatchingPolicy != "" {
+					t.Fatalf("JevExemptionGovernance = %+v, want policy names withheld", detail.JevExemptionGovernance)
+				}
+
+				if detail.JevUnblock == nil || detail.JevUnblock.GoverningPolicy != "" || detail.JevUnblock.MatchingPolicy != "" || !detail.JevUnblock.NamesHidden {
+					t.Fatalf("JevUnblock = %+v, want policy names withheld and NamesHidden", detail.JevUnblock)
+				}
+
+				if strings.Contains(response.Body.String(), `"exemptedBy"`) || strings.Contains(response.Body.String(), policyName) {
+					t.Fatalf("OIDC detail exposes the exempting policy: %s", response.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestBrowseAgentKindMappingVersionsAndScanFindings(t *testing.T) {
 	cases := []struct {
 		kind     string

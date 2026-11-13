@@ -1329,7 +1329,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		// The newest Jev assessment can belong to a blocked or rejected attempt, which has no version yet.
 		if assessed := agentLatestAssessedVersion(rows); assessed != nil {
-			detail.JevAssessment = assessed.Status.JevAssessment
+			detail.JevAssessment = browseJevAssessment(assessed.Status.JevAssessment)
 			detail.JevExemptionGovernance = browseJevExemptionGovernance(assessed.Status.JevExemptionGovernance)
 			detail.JevUnblock = browseJevUnblock(assessed.Status.JevUnblock)
 		}
@@ -1339,6 +1339,21 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
+}
+
+// browseJevAssessment returns a copy of the assessment for the browse response. For OIDC callers, the name of the
+// ScanPolicy that exempted the assessment is withheld, like the other ScanPolicy names in the response.
+func browseJevAssessment(assessment *opendepotv1alpha1.JevAssessment) *opendepotv1alpha1.JevAssessment {
+	if assessment == nil {
+		return nil
+	}
+
+	out := assessment.DeepCopy()
+	if oidcVerifier != nil {
+		out.ExemptedBy = ""
+	}
+
+	return out
 }
 
 // browseJevExemptionGovernance returns a copy of the governance for the browse response. ScanPolicy names are visible
