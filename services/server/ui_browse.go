@@ -1415,9 +1415,10 @@ func browseJevUnblock(unblock *opendepotv1alpha1.JevUnblock) *opendepotv1alpha1.
 
 	out := unblock.DeepCopy()
 	if oidcVerifier != nil {
+		hadName := out.GoverningPolicy != "" || out.MatchingPolicy != ""
 		out.GoverningPolicy = ""
 		out.MatchingPolicy = ""
-		out.NamesHidden = true
+		out.NamesHidden = hadName
 	}
 
 	return out

@@ -1225,3 +1225,24 @@ func TestBrowseJevUnblockHidesPolicyNamesFromOIDCCallers(t *testing.T) {
 		t.Fatalf("nil unblock returned non-nil")
 	}
 }
+
+// TestBrowseJevUnblockNamesHiddenOnlyWhenANameExists covers an OIDC caller on a Version with no ScanPolicy names.
+// Nothing is withheld, so NamesHidden stays false and the response does not report a hidden name.
+func TestBrowseJevUnblockNamesHiddenOnlyWhenANameExists(t *testing.T) {
+	unblock := &opendepotv1alpha1.JevUnblock{State: opendepotv1alpha1.JevUnblockStatePending, Digest: "abc123"}
+
+	originalVerifier := oidcVerifier
+	defer func() {
+		oidcVerifier = originalVerifier
+	}()
+
+	oidcVerifier = &gooidc.IDTokenVerifier{}
+	gated := browseJevUnblock(unblock)
+	if gated.NamesHidden {
+		t.Fatalf("with OIDC and no policy names NamesHidden = true; want false")
+	}
+
+	if gated.State != opendepotv1alpha1.JevUnblockStatePending || gated.Digest != "abc123" {
+		t.Fatalf("with OIDC = %+v; want the state and digest kept", gated)
+	}
+}
