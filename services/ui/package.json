@@ -53,7 +53,7 @@
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^4.5.2",
-    "eslint": "^9.29.0",
+    "eslint": "9.39.5",
     "eslint-config-next": "^15.5.24",
     "jsdom": "^27.4.0",
     "typescript": "^5.8.3",
@@ -71,6 +71,7 @@
     "sharp": "^0.35.5",
     "source-map-js@npm:^1.2.1": "1.2.2",
     "tar@npm:^7.5.4": "7.5.21",
+    "tldts-core@npm:^7.4.19": "7.4.22",
     "undici": "^6.29.1",
     "vite": "^7.3.7"
   }
