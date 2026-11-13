@@ -323,7 +323,7 @@ scanning:
     schedule: "0 2 * * *"
     image:
       repository: aquasec/trivy
-      tag: "0.70.0"
+      tag: "0.76.2"
   tolerations: []
 
 ## Branch sourcing (Skills and Agents that follow a Git branch)
