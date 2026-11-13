@@ -99,7 +99,7 @@ function findingResolution(f: SecurityFinding): string {
 
 function findingResolutionContent(f: SecurityFinding): React.ReactNode {
   if (f.exempted) {
-    return <Chip size="small" color="secondary" label={`Exempted by ${f.exemptedBy || "ScanPolicy"}`} sx={severityChipSx("exempted")} />;
+    return <Chip size="small" color="secondary" label={f.exemptedBy ? `Exempted by ${f.exemptedBy}` : "Exempted"} sx={severityChipSx("exempted")} />;
   }
   return findingResolution(f);
 }

@@ -1175,7 +1175,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = moduleVersionSummaries(versions)
-		detail.SourceScanFindings = collectModuleSourceFindings(versions)
+		detail.SourceScanFindings = browseScanFindings(collectModuleSourceFindings(versions))
 		detail.StorageConfig = storageConfigToBrowse(m.Spec.ModuleConfig.StorageConfig)
 		detail.RepoOwner = m.Spec.ModuleConfig.RepoOwner
 		detail.VersionHistoryLimit = m.Spec.ModuleConfig.VersionHistoryLimit
@@ -1237,10 +1237,10 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = providerVersionSummaries(p, versions)
 		if latestScan := findProviderSourceScanFromVersions(versions, ""); latestScan != nil {
-			detail.SourceScanFindings = latestScan.Findings
+			detail.SourceScanFindings = browseScanFindings(latestScan.Findings)
 		}
 
-		detail.BinaryScanFindings = collectBinaryFindings(versions)
+		detail.BinaryScanFindings = browseBinaryScanFindings(collectBinaryFindings(versions))
 		detail.StorageConfig = storageConfigToBrowse(p.Spec.ProviderConfig.StorageConfig)
 		detail.VersionHistoryLimit = p.Spec.ProviderConfig.VersionHistoryLimit
 		detail.VersionConstraints = p.Spec.ProviderConfig.VersionConstraints
@@ -1319,7 +1319,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		if latest := agentLatestVersion(versions, latestVersionStr); latest != nil {
 			detail.AgentMetadata = latest.Status.AgentMetadata
 			if latest.Status.SourceScan != nil {
-				detail.SourceScanFindings = latest.Status.SourceScan.Findings
+				detail.SourceScanFindings = browseScanFindings(latest.Status.SourceScan.Findings)
 			}
 
 			if card.SourceRef != "" {
@@ -1351,6 +1351,39 @@ func browseJevAssessment(assessment *opendepotv1alpha1.JevAssessment) *opendepot
 	out := assessment.DeepCopy()
 	if oidcVerifier != nil {
 		out.ExemptedBy = ""
+	}
+
+	return out
+}
+
+// browseScanFindings returns a copy of the findings for the browse response. For OIDC callers, the name of the
+// ScanPolicy that exempted each finding is withheld, like the ScanPolicy name on the JEV assessment. The copy keeps
+// the cached Version status unchanged.
+func browseScanFindings(findings []opendepotv1alpha1.SecurityFinding) []opendepotv1alpha1.SecurityFinding {
+	if findings == nil {
+		return nil
+	}
+
+	out := make([]opendepotv1alpha1.SecurityFinding, len(findings))
+	copy(out, findings)
+	if oidcVerifier != nil {
+		for i := range out {
+			out[i].ExemptedBy = ""
+		}
+	}
+
+	return out
+}
+
+// browseBinaryScanFindings applies browseScanFindings to each os/arch entry of a provider's binary findings.
+func browseBinaryScanFindings(findings map[string][]opendepotv1alpha1.SecurityFinding) map[string][]opendepotv1alpha1.SecurityFinding {
+	if findings == nil {
+		return nil
+	}
+
+	out := make(map[string][]opendepotv1alpha1.SecurityFinding, len(findings))
+	for key, entries := range findings {
+		out[key] = browseScanFindings(entries)
 	}
 
 	return out
@@ -2508,7 +2541,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if selectedVersion != nil {
-			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(selectedVersion.Status.SourceScan.Findings))
 			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
 		}
 
@@ -2584,7 +2617,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if selectedVersion != nil {
-			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(selectedVersion.Status.SourceScan.Findings))
 			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
 		}
 
@@ -2632,12 +2665,12 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 
 		versions = providerVersionsFor(versions, p.Name)
 		result := BrowseScanFindings{
-			BinaryScanFindings: collectBinaryFindingsForVersion(versions, requestedBinaryVersion),
+			BinaryScanFindings: browseBinaryScanFindings(collectBinaryFindingsForVersion(versions, requestedBinaryVersion)),
 		}
 
 		requestedSemver := opendepotUtils.SanitizeVersion(requestedVersion)
 		if scan := findProviderSourceScanFromVersions(versions, requestedSemver); scan != nil {
-			result.SourceScanFindings = deduplicateFindings(scan.Findings)
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(scan.Findings))
 			result.SelectedVersion = requestedSemver
 		}
 

@@ -363,6 +363,137 @@ func TestBrowseAgentResourceDetailWithholdsExemptionNamesFromOIDC(t *testing.T) 
 	}
 }
 
+// TestBrowseScanFindingsWithholdsExemptedByFromOIDC covers the two responses that carry scan findings to ScanDrillDown:
+// the scan-findings endpoint and the resource detail. The ScanPolicy that exempted a finding is withheld from OIDC
+// callers. Without OIDC the names are returned, which shows that the findings carry them.
+func TestBrowseScanFindingsWithholdsExemptedByFromOIDC(t *testing.T) {
+	const name = "reviewer"
+	const policyName = "release-exemptions"
+	labels := map[string]string{labelPublic: "true"}
+	scanned := browseAgentTestVersion("agent", name)
+	scanned.Status.SourceScan = &opendepotv1alpha1.SourceScan{
+		Findings: []opendepotv1alpha1.SecurityFinding{{
+			VulnerabilityID:  "CVE-2026-0001",
+			PkgName:          "left-pad",
+			InstalledVersion: "1.0.0",
+			Severity:         "HIGH",
+			Exempted:         true,
+			ExemptionReason:  "patched by the base image",
+			ExemptedBy:       policyName,
+		}},
+	}
+	binding := opendepotv1alpha1.GroupBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "platform"},
+		Spec: opendepotv1alpha1.GroupBindingSpec{
+			Expression:     `"platform" in groups`,
+			AgentResources: []string{name},
+		},
+	}
+
+	cases := []struct {
+		name           string
+		path           string
+		oidc           bool
+		wantExemptedBy string
+	}{
+		{name: "scan-findings withholds policy names from OIDC", path: "/scan-findings", oidc: true, wantExemptedBy: ""},
+		{name: "scan-findings returns policy names without OIDC", path: "/scan-findings", wantExemptedBy: policyName},
+		{name: "detail withholds policy names from OIDC", path: "", oidc: true, wantExemptedBy: ""},
+		{name: "detail returns policy names without OIDC", path: "", wantExemptedBy: policyName},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := browseAgentTestServer(t, "agent", name, labels, browseAgentTestObject("agent", name, labels, nil), []opendepotv1alpha1.Version{scanned}, []opendepotv1alpha1.GroupBinding{binding})
+			browseAgentTestSetup(t, api, false, tc.oidc)
+
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name+tc.path, nil)
+			if tc.oidc {
+				request.Header.Set("Authorization", "Bearer "+agentTestBearerToken(t, []string{"platform"}))
+			}
+
+			response := httptest.NewRecorder()
+			browseAgentTestRouter().ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+			}
+
+			var findings []opendepotv1alpha1.SecurityFinding
+			if tc.path == "/scan-findings" {
+				var body BrowseScanFindings
+				if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+					t.Fatalf("unmarshal scan findings: %v", err)
+				}
+				findings = body.SourceScanFindings
+			} else {
+				var body BrowseResourceDetail
+				if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+					t.Fatalf("unmarshal detail: %v", err)
+				}
+				findings = body.SourceScanFindings
+			}
+
+			if len(findings) != 1 {
+				t.Fatalf("len(SourceScanFindings) = %d, want 1", len(findings))
+			}
+
+			if findings[0].ExemptedBy != tc.wantExemptedBy {
+				t.Fatalf("ExemptedBy = %q, want %q", findings[0].ExemptedBy, tc.wantExemptedBy)
+			}
+
+			if !findings[0].Exempted || findings[0].ExemptionReason != "patched by the base image" {
+				t.Fatalf("finding = %+v, want exempted finding with its reason", findings[0])
+			}
+		})
+	}
+}
+
+// TestBrowseBinaryScanFindingsWithholdsExemptedByFromOIDC covers provider binary findings. The agent handlers do not
+// return them, so the helper is tested directly. The input must keep its policy name so the cached status is unchanged.
+func TestBrowseBinaryScanFindingsWithholdsExemptedByFromOIDC(t *testing.T) {
+	const policyName = "release-exemptions"
+	findings := map[string][]opendepotv1alpha1.SecurityFinding{
+		"linux/amd64": {{VulnerabilityID: "CVE-2026-0002", Severity: "HIGH", Exempted: true, ExemptedBy: policyName}},
+	}
+
+	cases := []struct {
+		name           string
+		oidc           bool
+		wantExemptedBy string
+	}{
+		{name: "OIDC withholds policy names", oidc: true, wantExemptedBy: ""},
+		{name: "non-OIDC returns policy names", wantExemptedBy: policyName},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalVerifier := oidcVerifier
+			t.Cleanup(func() {
+				oidcVerifier = originalVerifier
+			})
+
+			oidcVerifier = nil
+			if tc.oidc {
+				oidcVerifier = gooidc.NewVerifier(agentTestIssuer, agentTestKeySet{}, &gooidc.Config{ClientID: "opendepot"})
+			}
+
+			got := browseBinaryScanFindings(findings)
+			if len(got["linux/amd64"]) != 1 {
+				t.Fatalf("len(binary findings) = %d, want 1", len(got["linux/amd64"]))
+			}
+
+			if got["linux/amd64"][0].ExemptedBy != tc.wantExemptedBy {
+				t.Fatalf("ExemptedBy = %q, want %q", got["linux/amd64"][0].ExemptedBy, tc.wantExemptedBy)
+			}
+
+			if findings["linux/amd64"][0].ExemptedBy != policyName {
+				t.Fatalf("input ExemptedBy = %q, want %q: helper must not modify its input", findings["linux/amd64"][0].ExemptedBy, policyName)
+			}
+		})
+	}
+}
+
 func TestBrowseAgentKindMappingVersionsAndScanFindings(t *testing.T) {
 	cases := []struct {
 		kind     string
