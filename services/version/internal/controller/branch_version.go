@@ -141,7 +141,13 @@ func (r *VersionReconciler) branchJevExemptionReopens(ctx context.Context, versi
 		return false
 	}
 
-	resolved, _, _ := r.resolveScanPolicy(ctx, version)
+	resolved, _, err := r.resolveScanPolicy(ctx, version)
+	if err != nil {
+		r.Log.Error(err, "Failed to resolve ScanPolicy for JEV exemption re-open check",
+			"version", version.Name, "namespace", version.Namespace)
+
+		return false
+	}
 
 	return resolved.JevExemptionFor(version.Status.JevAssessment.ContentDigest) != nil
 }
