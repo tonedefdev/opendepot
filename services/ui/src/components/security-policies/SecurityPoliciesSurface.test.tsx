@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SecurityPoliciesSurface from "./SecurityPoliciesSurface";
+import { jevExemptionPrefill } from "./jevGovernance";
 
 const router = { push: vi.fn(), refresh: vi.fn() };
 
@@ -321,7 +322,7 @@ describe("SecurityPoliciesSurface", () => {
   });
 
   it("prefills a Jev exemption draft from the Security Policy route", async () => {
-    renderCreate({ initialJevExemption: { contentDigest: "f".repeat(64), reason: "Jev exemption for version 1.2.3" } });
+    renderCreate({ jevPrefill: jevExemptionPrefill({ contentDigest: "f".repeat(64), versionName: "1.2.3", policies: [] }) });
     await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
 
     expect((screen.getByLabelText(/Content digest/) as HTMLInputElement).value).toBe("f".repeat(64));

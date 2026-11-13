@@ -68,6 +68,7 @@ import type {
 } from "@/lib/api";
 import { validateScanPolicy } from "./securityPolicyValidation";
 import { validateJevExemptions } from "./jevExemptions";
+import type { JevExemptionPrefill } from "./jevGovernance";
 import PageHeader from "@/components/PageHeader";
 import CopyButton from "@/components/CopyButton";
 import ResourceListControls, { PAGE_SIZE_OPTIONS } from "@/components/ResourceListControls";
@@ -143,15 +144,106 @@ async function readResponse<T>(response: Response): Promise<T> {
   return body;
 }
 
+// JevResult describes what the server reports for a policy saved from a Jev prefill. supersededBy is set only when the
+// policy matched Versions but won none, so it is the reliable signal that this policy is shadowed.
+interface JevResult {
+  state: "wins" | "superseded" | "no-match" | "pending";
+  namespace: string;
+  policyName: string;
+  priority: number;
+  winnerName?: string;
+  winnerPriority?: number;
+}
+
+async function readJevResult(namespace: string, policyName: string): Promise<JevResult> {
+  const encodedNamespace = encodeURIComponent(namespace);
+  const [saved, list] = await Promise.all([
+    readResponse<ScanPolicy>(await fetch(`/api/security-policies/${encodedNamespace}/${encodeURIComponent(policyName)}`, { cache: "no-store" })),
+    readResponse<{ items: ScanPolicy[] }>(await fetch(`/api/security-policies/${encodedNamespace}`, { cache: "no-store" })),
+  ]);
+  const base = { namespace, policyName, priority: saved.spec.priority ?? 0 };
+  const supersededBy = saved.status?.supersededBy;
+  if (supersededBy) {
+    const winner = (list.items ?? []).find((item) => item.metadata.name === supersededBy);
+    return { ...base, state: "superseded", winnerName: supersededBy, winnerPriority: winner?.spec.priority };
+  }
+  const matchedVersions = saved.status?.matchedVersions;
+  if (matchedVersions === undefined) return { ...base, state: "pending" };
+  return { ...base, state: matchedVersions > 0 ? "wins" : "no-match" };
+}
+
+function JevSaveResult({ result, onRefresh }: { result: JevResult; onRefresh: () => void }) {
+  const policyLink = `/security-policies/${encodeURIComponent(result.namespace)}/${encodeURIComponent(result.policyName)}`;
+  if (result.state === "wins") {
+    return (
+      <Alert severity="success" sx={{ mb: 2 }}>
+        {`${result.policyName} governs this Version and wins at priority ${result.priority}. Its Jev exemption applies. If the Version still shows blocked, set forceSync: true on it.`}
+      </Alert>
+    );
+  }
+  if (result.state === "superseded") {
+    const winnerText = result.winnerName
+      ? `${result.winnerName}${result.winnerPriority === undefined ? "" : ` (priority ${result.winnerPriority})`} wins this Version`
+      : "another policy wins this Version";
+    return (
+      <Alert severity="warning" sx={{ mb: 2 }} action={<Button component={Link} href={policyLink} color="inherit" size="small">Edit policy</Button>}>
+        {`${result.policyName} is superseded: ${winnerText}, so this Jev exemption is ignored. Raise the priority of ${result.policyName} above ${result.winnerPriority === undefined ? "the winning policy" : `priority ${result.winnerPriority}`}, then save again.`}
+      </Alert>
+    );
+  }
+  if (result.state === "no-match") {
+    return (
+      <Alert severity="info" sx={{ mb: 2 }}>
+        {`${result.policyName} saved, but it matches no Version, so its Jev exemption cannot apply. Check the target.`}
+      </Alert>
+    );
+  }
+  return (
+    <Alert severity="info" sx={{ mb: 2 }} action={<Button color="inherit" size="small" startIcon={<RefreshIcon />} onClick={onRefresh}>Refresh</Button>}>
+      {`${result.policyName} saved. The server has not reported whether it governs this Version yet.`}
+    </Alert>
+  );
+}
+
+// JevPrefillWarnings flags what the prefilled priority and targets change for the rest of the namespace.
+function JevPrefillWarnings({ prefill }: { prefill: JevExemptionPrefill }) {
+  return (
+    <Stack spacing={1}>
+      {prefill.targetRefs.length === 0 && (
+        <Alert severity="warning">This policy has no target, so its Jev exemption would apply to every Version in the namespace. Add a target before saving.</Alert>
+      )}
+      {prefill.priority === null && prefill.targetRefs.length > 0 && (
+        <Alert severity="warning">The existing policies could not be read, so the priority is not set above them. Confirm it outranks the policies that govern this Version before saving.</Alert>
+      )}
+      {prefill.winner && (
+        <Alert severity="warning">
+          {`This policy will replace ${prefill.winner.name} (priority ${prefill.winner.priority}) as the policy that governs this Version. Its severity threshold and exemptions stop applying here, and this policy's threshold applies instead.`}
+        </Alert>
+      )}
+      {prefill.uncertainPolicies.length > 0 && (
+        <Alert severity="info">
+          {`${prefill.uncertainPolicies.join(", ")} may also govern this Version through a selector or version constraint, which the UI cannot evaluate. The priority is set above them to be safe.`}
+        </Alert>
+      )}
+    </Stack>
+  );
+}
+
+function jevPriorityHelper(prefill: JevExemptionPrefill): string {
+  if (prefill.priority === null) return "Not set above the existing policies because they could not be read.";
+  if (prefill.priority === 0) return "No existing policy governs this Version, so the exemption uses the default priority.";
+  return `One above the highest priority that governs this Version (${prefill.priority - 1}), so this exemption wins. You can change it.`;
+}
+
 interface SurfaceProps {
   mode: "list" | "create" | "edit";
   namespace?: string;
   name?: string;
   catalog: ScanPolicyCatalog;
-  initialJevExemption?: ScanPolicyJevExemption;
+  jevPrefill?: JevExemptionPrefill;
 }
 
-export default function SecurityPoliciesSurface({ mode, namespace, name, catalog, initialJevExemption }: SurfaceProps) {
+export default function SecurityPoliciesSurface({ mode, namespace, name, catalog, jevPrefill }: SurfaceProps) {
   const router = useRouter();
   const { mode: colorMode, systemMode } = useColorScheme();
   const resolvedMode = colorMode === "system" ? systemMode : colorMode;
@@ -168,7 +260,11 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   const [policy, setPolicy] = React.useState<ScanPolicy | null>(null);
   const [form, setForm] = React.useState<ScanPolicyMutation>(() => {
     const draft = emptyMutation(defaultNamespace);
-    if (initialJevExemption) draft.spec.jevExemptions = [initialJevExemption];
+    if (jevPrefill) {
+      draft.spec.jevExemptions = [jevPrefill.exemption];
+      draft.spec.priority = jevPrefill.priority ?? 0;
+      draft.spec.targetRefs = jevPrefill.targetRefs.length > 0 ? jevPrefill.targetRefs : undefined;
+    }
     return draft;
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
@@ -178,6 +274,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   const [validationResult, setValidationResult] = React.useState<{ valid: boolean } | null>(null);
   const [canWrite, setCanWrite] = React.useState(false);
   const [message, setMessage] = React.useState<{ severity: "error" | "success" | "warning"; text: string } | null>(null);
+  const [jevResult, setJevResult] = React.useState<JevResult | null>(null);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -265,6 +362,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
     if (Object.keys(validation).length > 0 || !canWrite) return;
     setSaving(true);
     setMessage(null);
+    setJevResult(null);
     try {
       const targetNamespace = form.metadata.namespace;
       const response = await fetch(
@@ -281,6 +379,15 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
         },
       );
       const saved = await readResponse<ScanPolicy>(response);
+      if (jevPrefill) {
+        // A Jev prefill stays on this page so the result can be shown; navigating away would hide whether the policy wins.
+        try {
+          setJevResult(await readJevResult(saved.metadata.namespace, saved.metadata.name));
+        } catch {
+          setJevResult({ state: "pending", namespace: saved.metadata.namespace, policyName: saved.metadata.name, priority: saved.spec.priority ?? 0 });
+        }
+        return;
+      }
       setMessage({ severity: "success", text: `Policy ${saved.metadata.name} saved.` });
       router.push(`/security-policies/${encodeURIComponent(saved.metadata.namespace)}/${encodeURIComponent(saved.metadata.name)}`);
       router.refresh();
@@ -288,6 +395,15 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       handleWriteError(error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const refreshJevResult = async () => {
+    if (!jevResult) return;
+    try {
+      setJevResult(await readJevResult(jevResult.namespace, jevResult.policyName));
+    } catch (error) {
+      setMessage({ severity: "error", text: error instanceof Error ? error.message : "Unable to read the policy status." });
     }
   };
 
@@ -385,13 +501,14 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ color: resolvedMode === "dark" ? "#fff" : undefined }} />}</Stack></Box>}
       <Box component="form" onSubmit={save}>
         {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
+        {jevResult && <JevSaveResult result={jevResult} onRefresh={() => void refreshJevResult()} />}
         {loading && isEdit ? <PolicyFormSkeleton /> : <Stack spacing={3}>
-          <Card><CardContent><SectionTitle icon={<BadgeOutlinedIcon fontSize="small" />} title="Policy identity" /><Grid container spacing={2}><Grid size={12}><TextField fullWidth required label="Name" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.name} disabled={isEdit} error={Boolean(errors.name)} helperText={errors.name ?? "Lowercase DNS-compatible name."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, name: event.target.value } })} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth required select label="Namespace" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.namespace} disabled={isEdit} error={Boolean(errors.namespace)} helperText={errors.namespace ?? "Select an authorized policy namespace."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, namespace: event.target.value } })}>{catalog.items.map((item) => <MenuItem key={item.namespace} value={item.namespace}>{item.namespace}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Priority" slotProps={{ inputLabel: { shrink: true } }} value={form.spec.priority ?? 0} helperText="Higher priority wins outright when policies overlap." onChange={(event) => updateSpec({ priority: Number(event.target.value) })} /></Grid></Grid></CardContent></Card>
+          <Card><CardContent><SectionTitle icon={<BadgeOutlinedIcon fontSize="small" />} title="Policy identity" /><Grid container spacing={2}><Grid size={12}><TextField fullWidth required label="Name" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.name} disabled={isEdit} error={Boolean(errors.name)} helperText={errors.name ?? "Lowercase DNS-compatible name."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, name: event.target.value } })} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth required select label="Namespace" slotProps={{ inputLabel: { shrink: true } }} value={form.metadata.namespace} disabled={isEdit} error={Boolean(errors.namespace)} helperText={errors.namespace ?? "Select an authorized policy namespace."} onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, namespace: event.target.value } })}>{catalog.items.map((item) => <MenuItem key={item.namespace} value={item.namespace}>{item.namespace}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Priority" slotProps={{ inputLabel: { shrink: true } }} value={form.spec.priority ?? 0} helperText={jevPrefill ? jevPriorityHelper(jevPrefill) : "Higher priority wins outright when policies overlap."} onChange={(event) => updateSpec({ priority: Number(event.target.value) })} /></Grid>{jevPrefill && <Grid size={12}><JevPrefillWarnings prefill={jevPrefill} /></Grid>}</Grid></CardContent></Card>
           <Card><CardContent><SectionTitle icon={<TuneIcon fontSize="small" />} title="Matching and scan threshold" /><Stack spacing={2}><TextField select fullWidth label="Severity threshold" value={form.spec.severityThreshold ?? ""} helperText="Leave empty to use the controller baseline; NONE disables blocking." onChange={(event) => updateSpec({ severityThreshold: (event.target.value || undefined) as ScanSeverityThreshold | undefined })}><MenuItem value="">Controller baseline</MenuItem>{thresholds.map((threshold) => <MenuItem key={threshold} value={threshold}>{threshold}</MenuItem>)}</TextField>{namespaceWideAllowed ? <TextField fullWidth label="Target labels (JSON object)" placeholder='{"environment":"sandbox"}' value={JSON.stringify(form.spec.selector?.matchLabels ?? {}) === "{}" ? "" : JSON.stringify(form.spec.selector?.matchLabels)} error={Boolean(errors.selector)} helperText={errors.selector ?? "Optional exact label matches, for example {\"environment\":\"sandbox\"}."} onChange={(event) => { try { const matchLabels = event.target.value.trim() ? JSON.parse(event.target.value) as Record<string, string> : undefined; updateSpec({ selector: matchLabels ? { matchLabels } : undefined }); } catch { setErrors((current) => ({ ...current, selector: "Enter a valid JSON object of string labels." })); } }} /> : capabilities && <Alert severity="info">This binding permits only policies targeted at authorized onboarded resources.</Alert>}<PolicyTargets value={form.spec.targetRefs ?? []} onChange={(targetRefs) => updateSpec({ targetRefs: targetRefs.length ? targetRefs : undefined })} errors={errors} catalogItem={catalogItem} /></Stack></CardContent></Card>
           <ExemptionEditor value={form.spec.exemptions ?? []} onChange={(exemptions) => updateSpec({ exemptions: exemptions.length ? exemptions : undefined })} errors={errors} />
           <JevExemptionEditor value={form.spec.jevExemptions ?? []} onChange={(jevExemptions) => updateSpec({ jevExemptions: jevExemptions.length ? jevExemptions : undefined })} errors={jevErrors} editable={namespaceWideAllowed} loaded={Boolean(capabilities)} accessError={errors.jevAccess} />
           {validationResult && <Alert severity={validationResult.valid ? "success" : "warning"} aria-live="polite" onClose={() => setValidationResult(null)}>{validationResult.valid ? "Policy is valid. Nothing was saved." : "Policy is invalid according to the server. Nothing was saved."}</Alert>}
-          <Stack direction={{ xs: "column-reverse", sm: "row" }} justifyContent="space-between" spacing={1}><Button component={Link} href="/security-policies">Cancel</Button><Stack direction={{ xs: "column", sm: "row" }} spacing={1}>{isEdit && policy && <Button type="button" color="error" variant="outlined" startIcon={<DeleteOutlineIcon />} disabled={!canWrite || saving} onClick={() => setDeleteOpen(true)}>Delete policy</Button>}<Button type="button" variant="outlined" disabled={!capabilities?.supportsPreview || saving} onClick={() => void runValidation()}>Validate policy</Button><Button type="submit" variant="contained" disabled={saving || !canWrite}>{saving ? <CircularProgress size={20} /> : isEdit ? "Save changes" : "Create policy"}</Button></Stack></Stack>
+          <Stack direction={{ xs: "column-reverse", sm: "row" }} justifyContent="space-between" spacing={1}><Button component={Link} href="/security-policies">Cancel</Button><Stack direction={{ xs: "column", sm: "row" }} spacing={1}>{isEdit && policy && <Button type="button" color="error" variant="outlined" startIcon={<DeleteOutlineIcon />} disabled={!canWrite || saving} onClick={() => setDeleteOpen(true)}>Delete policy</Button>}<Button type="button" variant="outlined" disabled={!capabilities?.supportsPreview || saving} onClick={() => void runValidation()}>Validate policy</Button><Button type="submit" variant="contained" disabled={saving || !canWrite || Boolean(jevResult)}>{saving ? <CircularProgress size={20} /> : isEdit ? "Save changes" : "Create policy"}</Button></Stack></Stack>
         </Stack>}
       </Box>
       </Grid>

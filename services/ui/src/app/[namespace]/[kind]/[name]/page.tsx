@@ -36,7 +36,8 @@ import { DepotKindIcon, isDepotKind } from "@/components/DepotKindIcon";
 import { BRAND_GRADIENT_WASH, BRAND_SURFACE_BORDER } from "@/lib/brand";
 import { kindChipSx, monoMetaChipSx } from "@/components/chipStyles";
 import { canEditJevExemptions } from "@/components/security-policies/jevExemptions";
-import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots } from "@/lib/api";
+import { describeJevUnblock } from "@/components/jevUnblock";
+import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots, listScanPolicies, type ScanPolicy } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
 
@@ -124,6 +125,15 @@ async function canCreateJevExemption(namespace: string, token?: string): Promise
   }
 }
 
+// readScanPolicies returns null when the list cannot be read, so the unblock panel says it cannot decide instead of guessing.
+async function readScanPolicies(namespace: string, token?: string): Promise<ScanPolicy[] | null> {
+  try {
+    return (await listScanPolicies(namespace, token)).items ?? [];
+  } catch {
+    return null;
+  }
+}
+
 export default async function ResourceDetailPage({ params }: PageProps) {
   const { namespace, kind, name } = await params;
   const token = await getServerSessionToken();
@@ -165,6 +175,16 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   const isProviderKind = kind === "provider";
   const isAgentKind = kind === "skill" || kind === "agent";
   const jevCanEdit = detail.jevAssessment?.blocked && detail.jevAssessment.contentDigest ? await canCreateJevExemption(namespace, token) : false;
+  const jevResource = { kind: kind === "skill" ? "Skill" : "Agent", name } as const;
+  const jevUnblock = detail.jevAssessment && isAgentKind
+    ? describeJevUnblock({
+        assessment: detail.jevAssessment,
+        namespace,
+        resource: jevResource,
+        versions: detail.versions,
+        policies: detail.jevAssessment.blocked ? await readScanPolicies(namespace, token) : [],
+      })
+    : null;
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -325,7 +345,12 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
       {isAgentKind && detail.jevAssessment && (
         <SectionCard icon={<SecurityIcon fontSize="small" />} title="Jev Assessment">
-          <JevPanel assessment={detail.jevAssessment} thresholds={detail.jevThresholds} exemption={{ namespace, versionName: detail.latestVersion, canEdit: jevCanEdit }} />
+          <JevPanel
+            assessment={detail.jevAssessment}
+            thresholds={detail.jevThresholds}
+            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit }}
+            unblock={jevUnblock}
+          />
         </SectionCard>
       )}
 

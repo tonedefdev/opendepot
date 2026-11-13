@@ -8,6 +8,7 @@ import JevPanel from "./JevPanel";
 import { buildAgentConfigSnippet } from "./AgentDetail";
 import theme from "@/theme";
 import type { JevAssessment } from "@/lib/api";
+import type { JevUnblock } from "./jevUnblock";
 
 const assessment: JevAssessment = {
   evaluatedAt: "2026-01-01T00:00:00Z",
@@ -357,5 +358,66 @@ describe("buildAgentConfigSnippet", () => {
     expect(skill).toContain('version = "1.2.0"');
     expect(agent).toContain('agent "reviewer" {');
     expect(agent).not.toContain("version =");
+  });
+});
+
+describe("JevPanel unblock section", () => {
+  afterEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  const blocked: JevAssessment = { ...assessment, blocked: true, contentDigest: "d".repeat(64) };
+
+  it("tells the user to set forceSync and copies the kubectl command when there is no digest", () => {
+    const unblock: JevUnblock = { state: "no-digest", namespace: "platform", versionName: "lint-helper-1-0-0" };
+    renderPanel({ assessment: { ...blocked, contentDigest: undefined }, unblock });
+    expect(screen.getByText(/This assessment has no digest, so no exemption can match it. Set forceSync: true on this Version, then return here./)).not.toBeNull();
+    expect(screen.getByText(`kubectl patch version lint-helper-1-0-0 -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
+  });
+
+  it("uses a placeholder Version name when the Version is not known", () => {
+    renderPanel({ assessment: { ...blocked, contentDigest: undefined }, unblock: { state: "no-digest", namespace: "platform" } });
+    expect(screen.getByText(`kubectl patch version <name> -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
+  });
+
+  it("shows the digest to use and names the governing policy when no entry matches", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64), policy: "platform-skills" } });
+    expect(screen.getByText(/to ScanPolicy platform-skills/)).not.toBeNull();
+    expect(screen.getAllByText("d".repeat(64)).length).toBeGreaterThan(1);
+  });
+
+  it("names the winner and the shadowed policy with the winner's priority", () => {
+    renderPanel({
+      assessment: blocked,
+      unblock: { state: "superseded", digest: "d".repeat(64), policy: "older", winner: "newer", policyPriority: 2, winnerPriority: 9 },
+    });
+    expect(screen.getByText(/newer \(priority 9\) wins this Version over older \(priority 2\)/)).not.toBeNull();
+  });
+
+  it("shows the expiry for an expired entry", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "expired", digest: "d".repeat(64), policy: "platform", expires: "2026-01-01T00:00:00Z" } });
+    expect(screen.getByText(/The Jev exemption for this digest in ScanPolicy platform expired at /)).not.toBeNull();
+  });
+
+  it("shows the exempting policy when the entry is active", () => {
+    renderPanel({ assessment: { ...blocked, blocked: false, exempted: true, exemptedBy: "platform" }, unblock: { state: "exempted", policy: "platform" } });
+    expect(screen.getByText(/Exempted by platform. No expiry./)).not.toBeNull();
+  });
+
+  it("lists candidates when the governing policy cannot be determined", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), reason: "Selectors are not evaluated.", candidates: ["by-label"] } });
+    expect(screen.getByText(/Candidates: by-label/)).not.toBeNull();
+  });
+
+  it("puts the create link's target into the prefill", () => {
+    renderPanel({
+      assessment: blocked,
+      exemption: { namespace: "platform", versionName: "lint-helper-1-0-0", targetKind: "Skill", targetName: "lint-helper", canEdit: true },
+      unblock: { state: "needs-entry", digest: "d".repeat(64) },
+    });
+    const link = screen.getByRole("link", { name: /Create Jev exemption/ });
+    expect(link.getAttribute("href")).toContain("jevKind=Skill");
+    expect(link.getAttribute("href")).toContain("jevName=lint-helper");
   });
 });

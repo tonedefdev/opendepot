@@ -11,15 +11,19 @@ import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import Link from "next/link";
-import type { JevAssessment, JevThresholds } from "@/lib/api";
+import type { JevAssessment, JevThresholds, ScanPolicyTargetKind } from "@/lib/api";
 import { RISK_COLORS, probabilitySeverity } from "@/lib/jevSeverity";
 import CopyButton from "./CopyButton";
 import JevChunkTree from "./JevChunkTree";
+import type { JevUnblock } from "./jevUnblock";
 
 // JevExemptionAction offers the Security Policy editor prefilled with a blocked digest. canEdit comes from the server-side capability check.
+// targetKind and targetName scope the prefilled policy to this resource.
 export interface JevExemptionAction {
   namespace: string;
   versionName?: string;
+  targetKind?: ScanPolicyTargetKind;
+  targetName?: string;
   canEdit: boolean;
 }
 
@@ -27,6 +31,7 @@ interface JevPanelProps {
   assessment: JevAssessment;
   thresholds?: JevThresholds;
   exemption?: JevExemptionAction;
+  unblock?: JevUnblock | null;
 }
 
 // JEV_MAX_PARTS is the most parts one Version can be scored in. Content needing more is blocked before any Jev call.
@@ -103,7 +108,97 @@ function InfoChip({ description, ...chipProps }: InfoChipProps) {
   );
 }
 
-export default function JevPanel({ assessment, thresholds, exemption }: JevPanelProps) {
+// forceSyncCommand re-runs the Version's assessment. A missing Version name keeps a placeholder rather than guessing one.
+function forceSyncCommand(namespace: string, versionName?: string): string {
+  return `kubectl patch version ${versionName ?? "<name>"} -n ${namespace} --type merge -p '{"spec":{"forceSync":true}}'`;
+}
+
+function formatExpiry(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
+function CopyableValue({ value }: { value: string }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+      <Typography variant="caption" sx={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+        {value}
+      </Typography>
+      <CopyButton value={value} />
+    </Box>
+  );
+}
+
+// JevUnblockSection states the one condition that stops a blocked assessment from being exempted, and the exemption state.
+function JevUnblockSection({ unblock }: { unblock: JevUnblock }) {
+  if (unblock.state === "exempted") {
+    return (
+      <Alert severity="success" variant="outlined">
+        {`Exempted by ${unblock.policy}. ${unblock.expires ? `Expires ${formatExpiry(unblock.expires)}.` : "No expiry."}`}
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert severity={unblock.state === "unknown" ? "warning" : "error"} variant="outlined">
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <Typography variant="subtitle2">Unblock</Typography>
+        {unblock.state === "no-digest" && (
+          <>
+            <Typography variant="body2">
+              This assessment has no digest, so no exemption can match it. Set forceSync: true on this Version, then return here.
+            </Typography>
+            <CopyableValue value={forceSyncCommand(unblock.namespace, unblock.versionName)} />
+          </>
+        )}
+        {unblock.state === "needs-entry" && (
+          <>
+            <Typography variant="body2">
+              {unblock.policy
+                ? `Add a Jev exemption for this digest to ScanPolicy ${unblock.policy}. It is the policy that governs this Version.`
+                : "No ScanPolicy governs this Version, so no exemption can apply. Create Jev exemption creates one that does."}
+            </Typography>
+            <CopyableValue value={unblock.digest} />
+          </>
+        )}
+        {unblock.state === "superseded" && (
+          <>
+            <Typography variant="body2">
+              {`ScanPolicy ${unblock.policy} has a Jev exemption for this digest, but it is ignored. ${unblock.winner} (priority ${unblock.winnerPriority}) wins this Version over ${unblock.policy} (priority ${unblock.policyPriority}), and a shadowed policy's exemptions are ignored in full. Raise ${unblock.policy} to a priority above ${unblock.winnerPriority}, or add the exemption to ${unblock.winner}.`}
+            </Typography>
+            <CopyableValue value={unblock.digest} />
+          </>
+        )}
+        {unblock.state === "expired" && (
+          <>
+            <Typography variant="body2">
+              {`The Jev exemption for this digest in ScanPolicy ${unblock.policy} expired${unblock.expires ? ` at ${formatExpiry(unblock.expires)}` : ""}. Expired exemptions are ignored. Add a new entry with a later expires, or remove expires to make it permanent.`}
+            </Typography>
+            <CopyableValue value={unblock.digest} />
+          </>
+        )}
+        {unblock.state === "pending" && (
+          <>
+            <Typography variant="body2">
+              {`The Jev exemption for this digest is active in ScanPolicy ${unblock.policy}, which governs this Version, but the Version has not been re-evaluated since. Set forceSync: true on this Version to re-run the check.`}
+            </Typography>
+            <CopyableValue value={forceSyncCommand(unblock.namespace, unblock.versionName)} />
+          </>
+        )}
+        {unblock.state === "unknown" && (
+          <>
+            <Typography variant="body2">{`The UI cannot determine which policy governs this Version. ${unblock.reason}`}</Typography>
+            {unblock.candidates.length > 0 && (
+              <Typography variant="body2">{`Candidates: ${unblock.candidates.join(", ")}`}</Typography>
+            )}
+            <CopyableValue value={unblock.digest} />
+          </>
+        )}
+      </Box>
+    </Alert>
+  );
+}
+
+export default function JevPanel({ assessment, thresholds, exemption, unblock }: JevPanelProps) {
   const allRows: ProbabilityRow[] = [
     {
       label: "Safe",
@@ -203,6 +298,7 @@ export default function JevPanel({ assessment, thresholds, exemption }: JevPanel
                 namespace: exemption.namespace,
                 jevDigest: assessment.contentDigest,
                 ...(exemption.versionName ? { jevVersion: exemption.versionName } : {}),
+                ...(exemption.targetKind && exemption.targetName ? { jevKind: exemption.targetKind, jevName: exemption.targetName } : {}),
               })}`}
               size="small"
               variant="outlined"
@@ -222,6 +318,8 @@ export default function JevPanel({ assessment, thresholds, exemption }: JevPanel
           )}
         </Box>
       )}
+
+      {unblock && <JevUnblockSection unblock={unblock} />}
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
         {assessment.riskLevel && (
