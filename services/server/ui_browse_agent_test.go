@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
@@ -950,5 +951,59 @@ func TestBrowseJevExemptionGovernanceHidesPolicyNamesFromOIDCCallers(t *testing.
 
 	if browseJevExemptionGovernance(nil) != nil {
 		t.Fatalf("nil governance returned non-nil")
+	}
+}
+
+func TestBrowseJevUnblockHidesPolicyNamesFromOIDCCallers(t *testing.T) {
+	expires := metav1.NewTime(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	unblock := &opendepotv1alpha1.JevUnblock{
+		State:             opendepotv1alpha1.JevUnblockStatePending,
+		Digest:            "abc123",
+		GoverningPolicy:   "release-exemptions",
+		GoverningPriority: 10,
+		MatchingPolicy:    "release-exemptions",
+		MatchingPriority:  10,
+		Expires:           &expires,
+	}
+
+	originalVerifier := oidcVerifier
+	defer func() {
+		oidcVerifier = originalVerifier
+	}()
+
+	oidcVerifier = nil
+	open := browseJevUnblock(unblock)
+	if open.GoverningPolicy != "release-exemptions" || open.MatchingPolicy != "release-exemptions" {
+		t.Fatalf("without OIDC names = %q/%q; want them kept", open.GoverningPolicy, open.MatchingPolicy)
+	}
+
+	if open.NamesHidden {
+		t.Fatalf("without OIDC NamesHidden = true; want false")
+	}
+
+	oidcVerifier = &gooidc.IDTokenVerifier{}
+	gated := browseJevUnblock(unblock)
+	if gated.GoverningPolicy != "" || gated.MatchingPolicy != "" {
+		t.Fatalf("with OIDC names = %q/%q; want them cleared", gated.GoverningPolicy, gated.MatchingPolicy)
+	}
+
+	if !gated.NamesHidden {
+		t.Fatalf("with OIDC NamesHidden = false; want true")
+	}
+
+	if gated.State != opendepotv1alpha1.JevUnblockStatePending || gated.Digest != "abc123" || gated.GoverningPriority != 10 || gated.MatchingPriority != 10 {
+		t.Fatalf("with OIDC = %+v; want the state, digest, and priorities kept", gated)
+	}
+
+	if gated.Expires == nil || !gated.Expires.Equal(&expires) {
+		t.Fatalf("with OIDC Expires = %v; want %v kept", gated.Expires, expires)
+	}
+
+	if unblock.GoverningPolicy != "release-exemptions" || unblock.NamesHidden {
+		t.Fatalf("input unblock changed to %+v; want it unchanged", unblock)
+	}
+
+	if browseJevUnblock(nil) != nil {
+		t.Fatalf("nil unblock returned non-nil")
 	}
 }

@@ -1185,6 +1185,65 @@ spec:
                 - matchingState
                 - superseded
                 type: object
+              jevUnblock:
+                description: |-
+                  JevUnblock reports what this Version needs before its Jev block can be cleared. It is computed from the same
+                  governance decision as JevExemptionGovernance. Only populated when a Jev assessment is recorded.
+                properties:
+                  digest:
+                    description: The content digest the state was computed for.
+                    type: string
+                  expires:
+                    description: The expiry of the matching jevExemptions entry. Nil
+                      means the entry never expires or no entry matches.
+                    format: date-time
+                    type: string
+                  governingPolicy:
+                    description: |-
+                      The name of the ScanPolicy that governs this Version. Empty when no ScanPolicy governs it, or when the name is
+                      hidden from the caller.
+                    type: string
+                  governingPriority:
+                    description: The priority of the governing ScanPolicy.
+                    format: int32
+                    type: integer
+                  matchingPolicy:
+                    description: |-
+                      The name of a ScanPolicy whose jevExemptions entry matches the digest. Empty when none matches, or when the name
+                      is hidden from the caller.
+                    type: string
+                  matchingPriority:
+                    description: The priority of the ScanPolicy named in matchingPolicy.
+                    format: int32
+                    type: integer
+                  namesHidden:
+                    description: |-
+                      Whether the policy names were withheld from the caller, such as for OIDC callers. The state is still computed
+                      before the names are withheld.
+                    type: boolean
+                  state:
+                    description: |-
+                      The unblock state. none means the Version is not blocked and has no exemption in force. no-digest means the
+                      Version has no content digest to match. needs-entry means no jevExemptions entry matches the digest.
+                      superseded means the matching entry is in a ScanPolicy that does not govern the Version. expired means the
+                      governing entry has expired. pending means an active exemption exists but the Version is still blocked. exempted
+                      means the exemption is in force. unknown means the state cannot be determined.
+                    enum:
+                    - none
+                    - no-digest
+                    - needs-entry
+                    - superseded
+                    - expired
+                    - pending
+                    - exempted
+                    - unknown
+                    type: string
+                required:
+                - governingPriority
+                - matchingPriority
+                - namesHidden
+                - state
+                type: object
               providerSchemaRef:
                 description: |-
                   ProviderSchemaRef references the reduced provider schema stored in the object

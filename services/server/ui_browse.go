@@ -1331,6 +1331,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		if assessed := agentLatestAssessedVersion(rows); assessed != nil {
 			detail.JevAssessment = assessed.Status.JevAssessment
 			detail.JevExemptionGovernance = browseJevExemptionGovernance(assessed.Status.JevExemptionGovernance)
+			detail.JevUnblock = browseJevUnblock(assessed.Status.JevUnblock)
 		}
 
 		json.NewEncoder(w).Encode(detail)
@@ -1352,6 +1353,23 @@ func browseJevExemptionGovernance(governance *opendepotv1alpha1.JevExemptionGove
 	if oidcVerifier != nil {
 		out.GoverningPolicy = ""
 		out.MatchingPolicy = ""
+	}
+
+	return out
+}
+
+// browseJevUnblock returns a copy of the unblock state for the browse response. For OIDC callers, the policy names are
+// withheld and NamesHidden is set. The state itself is not changed, so the caller still sees what is needed.
+func browseJevUnblock(unblock *opendepotv1alpha1.JevUnblock) *opendepotv1alpha1.JevUnblock {
+	if unblock == nil {
+		return nil
+	}
+
+	out := unblock.DeepCopy()
+	if oidcVerifier != nil {
+		out.GoverningPolicy = ""
+		out.MatchingPolicy = ""
+		out.NamesHidden = true
 	}
 
 	return out

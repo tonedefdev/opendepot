@@ -240,7 +240,7 @@ func TestBlockedAndFailedWritesKeepDefinitionRef(t *testing.T) {
 		{
 			name: "held branch block keeps the definition reference",
 			write: func(r *VersionReconciler) error {
-				return r.persistAgentBlock(ctx, req, nil, nil, nil, "Agent scan failed: boom")
+				return r.persistAgentBlock(ctx, req, nil, nil, nil, nil, "Agent scan failed: boom")
 			},
 		},
 		{
@@ -1550,5 +1550,79 @@ func TestReconcileStoredShadowedExemptionIsSuperseded(t *testing.T) {
 	if governance == nil || governance.GoverningPolicy != "policy-a" || governance.MatchingPolicy != "policy-b" ||
 		governance.MatchingState != opendepotv1alpha1.JevMatchingStateSuperseded || !governance.Superseded {
 		t.Fatalf("JevExemptionGovernance = %+v; want policy-b superseded by policy-a", governance)
+	}
+}
+
+// jevLegacyBlockedVersion returns a published, blocked Version whose stored JevAssessment has no content digest, as legacy
+// Versions recorded before the digest was stored.
+func jevLegacyBlockedVersion(t *testing.T, checksumDigest string) *opendepotv1alpha1.Version {
+	t.Helper()
+
+	version := jevPublishedVersion(t, checksumDigest, "")
+	version.Status.JevAssessment.ContentDigest = ""
+	version.Status.JevAssessment.Exempted = false
+	version.Status.JevAssessment.ExemptedBy = ""
+	version.Status.JevAssessment.ExemptionReason = ""
+	version.Status.JevAssessment.NeedsReview = false
+	version.Status.JevAssessment.Blocked = true
+
+	return version
+}
+
+// TestReconcileStoredBackfillsContentDigestFromChecksum covers a legacy assessment with an empty content digest and a
+// valid checksum: the digest is backfilled from the checksum and the rest of the assessment is unchanged.
+func TestReconcileStoredBackfillsContentDigestFromChecksum(t *testing.T) {
+	f := newJevStoredFixture(t, jevLegacyBlockedVersion(t, jevExemptTestDigest))
+
+	f.reconcileStored(t)
+
+	stored := f.version(t)
+	assessment := stored.Status.JevAssessment
+	if assessment == nil || assessment.ContentDigest != jevExemptTestDigest {
+		t.Fatalf("ContentDigest = %+v; want %q backfilled from the checksum", assessment, jevExemptTestDigest)
+	}
+
+	if !assessment.Blocked || assessment.Exempted || len(assessment.BlockReasons) != 1 {
+		t.Fatalf("JevAssessment = %+v; want the blocked assessment kept", assessment)
+	}
+
+	if stored.Status.JevUnblock == nil || stored.Status.JevUnblock.State != opendepotv1alpha1.JevUnblockStateNeedsEntry ||
+		stored.Status.JevUnblock.Digest != jevExemptTestDigest {
+		t.Fatalf("JevUnblock = %+v; want needs-entry for the backfilled digest", stored.Status.JevUnblock)
+	}
+}
+
+// TestReconcileStoredEmptyChecksumKeepsContentDigestEmpty covers a legacy assessment with no checksum to backfill from.
+// The digest stays empty.
+func TestReconcileStoredEmptyChecksumKeepsContentDigestEmpty(t *testing.T) {
+	version := jevLegacyBlockedVersion(t, jevExemptTestDigest)
+	version.Status.Checksum = nil
+	f := newJevStoredFixture(t, version)
+
+	f.reconcileStored(t)
+
+	stored := f.version(t)
+	if stored.Status.JevAssessment == nil || stored.Status.JevAssessment.ContentDigest != "" {
+		t.Fatalf("JevAssessment = %+v; want the content digest to stay empty", stored.Status.JevAssessment)
+	}
+
+	if stored.Status.JevUnblock == nil || stored.Status.JevUnblock.State != opendepotv1alpha1.JevUnblockStateNoDigest {
+		t.Fatalf("JevUnblock = %+v; want no-digest", stored.Status.JevUnblock)
+	}
+}
+
+// TestReconcileStoredExistingContentDigestIsNotOverwritten covers an assessment that already has a content digest. The
+// backfill does not replace it, even when the checksum decodes to a different digest.
+func TestReconcileStoredExistingContentDigestIsNotOverwritten(t *testing.T) {
+	otherDigest := strings.Repeat("b", 64)
+	version := jevLegacyBlockedVersion(t, otherDigest)
+	version.Status.JevAssessment.ContentDigest = jevExemptTestDigest
+	f := newJevStoredFixture(t, version)
+
+	f.reconcileStored(t)
+
+	stored := f.version(t)
+	if stored.Status.JevAssessment == nil || stored.Status.JevAssessment.ContentDigest != jevExemptTestDigest {
+		t.Fatalf("ContentDigest = %+v; want the existing %q kept", stored.Status.JevAssessment, jevExemptTestDigest)
 	}
 }

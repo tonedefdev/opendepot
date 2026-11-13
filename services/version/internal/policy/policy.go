@@ -325,6 +325,50 @@ func JevGovernance(ranked []opendepotv1alpha1.ScanPolicy, digest string, now tim
 	return governance
 }
 
+// JevUnblock reports what a Version needs before its Jev block can be cleared. It maps the JevGovernance decision onto
+// an unblock state, so the state and the governance always agree. blocked is the assessment's Blocked after the
+// exemption overlay. A Version that is not blocked needs nothing unless an exemption is in force, which is the none
+// state. Policy names are not withheld here, so callers that hide names clear them after this returns.
+func JevUnblock(ranked []opendepotv1alpha1.ScanPolicy, digest string, blocked bool, now time.Time) *opendepotv1alpha1.JevUnblock {
+	governance := JevGovernance(ranked, digest, now)
+
+	return unblockFromGovernance(governance, digest, blocked)
+}
+
+// unblockFromGovernance maps a governance decision and the Version's blocked state onto an unblock state. A matching
+// state outside the JevMatchingState values is reported as unknown rather than guessed.
+func unblockFromGovernance(governance *opendepotv1alpha1.JevExemptionGovernance, digest string, blocked bool) *opendepotv1alpha1.JevUnblock {
+	unblock := &opendepotv1alpha1.JevUnblock{
+		Digest:            digest,
+		GoverningPolicy:   governance.GoverningPolicy,
+		GoverningPriority: governance.GoverningPriority,
+		MatchingPolicy:    governance.MatchingPolicy,
+		MatchingPriority:  governance.MatchingPriority,
+		Expires:           governance.MatchingExpires,
+	}
+
+	switch {
+	case !blocked && governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted:
+		unblock.State = opendepotv1alpha1.JevUnblockStateExempted
+	case !blocked:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNone
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateNoDigest:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNoDigest
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted:
+		unblock.State = opendepotv1alpha1.JevUnblockStatePending
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateExpired:
+		unblock.State = opendepotv1alpha1.JevUnblockStateExpired
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateSuperseded:
+		unblock.State = opendepotv1alpha1.JevUnblockStateSuperseded
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateNone:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNeedsEntry
+	default:
+		unblock.State = opendepotv1alpha1.JevUnblockStateUnknown
+	}
+
+	return unblock
+}
+
 // Resolve folds the winning policy and the controller flags into the effective decision for
 // a Version. The flags are the baseline: when no policy matched, or when the winning policy
 // leaves severityThreshold unset, the flags remain in effect unchanged.

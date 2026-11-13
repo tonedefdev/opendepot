@@ -857,6 +857,59 @@ const (
 	JevMatchingStateNoDigest = "noDigest"
 )
 
+// JevUnblock describes what a Version needs before its Jev block can be cleared. The server computes it from the
+// same governance decision as JevExemptionGovernance, so clients do not re-derive it from ScanPolicy specs.
+type JevUnblock struct {
+	// The unblock state. none means the Version is not blocked and has no exemption in force. no-digest means the
+	// Version has no content digest to match. needs-entry means no jevExemptions entry matches the digest.
+	// superseded means the matching entry is in a ScanPolicy that does not govern the Version. expired means the
+	// governing entry has expired. pending means an active exemption exists but the Version is still blocked. exempted
+	// means the exemption is in force. unknown means the state cannot be determined.
+	// +kubebuilder:validation:Enum=none;no-digest;needs-entry;superseded;expired;pending;exempted;unknown
+	State string `json:"state"`
+	// The content digest the state was computed for.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+	// The name of the ScanPolicy that governs this Version. Empty when no ScanPolicy governs it, or when the name is
+	// hidden from the caller.
+	// +optional
+	GoverningPolicy string `json:"governingPolicy,omitempty"`
+	// The priority of the governing ScanPolicy.
+	GoverningPriority int32 `json:"governingPriority"`
+	// The name of a ScanPolicy whose jevExemptions entry matches the digest. Empty when none matches, or when the name
+	// is hidden from the caller.
+	// +optional
+	MatchingPolicy string `json:"matchingPolicy,omitempty"`
+	// The priority of the ScanPolicy named in matchingPolicy.
+	MatchingPriority int32 `json:"matchingPriority"`
+	// The expiry of the matching jevExemptions entry. Nil means the entry never expires or no entry matches.
+	// +optional
+	Expires *metav1.Time `json:"expires,omitempty"`
+	// Whether the policy names were withheld from the caller, such as for OIDC callers. The state is still computed
+	// before the names are withheld.
+	NamesHidden bool `json:"namesHidden"`
+}
+
+// JevUnblock state values for JevUnblock.State.
+const (
+	// JevUnblockStateNone means the Version is not blocked and no exemption is in force.
+	JevUnblockStateNone = "none"
+	// JevUnblockStateNoDigest means the Version has no content digest to match.
+	JevUnblockStateNoDigest = "no-digest"
+	// JevUnblockStateNeedsEntry means no jevExemptions entry matches the Version's digest.
+	JevUnblockStateNeedsEntry = "needs-entry"
+	// JevUnblockStateSuperseded means the matching entry is in a ScanPolicy that does not govern the Version.
+	JevUnblockStateSuperseded = "superseded"
+	// JevUnblockStateExpired means the governing ScanPolicy's matching entry has expired.
+	JevUnblockStateExpired = "expired"
+	// JevUnblockStatePending means an active exemption exists in the governing ScanPolicy but the Version is still blocked.
+	JevUnblockStatePending = "pending"
+	// JevUnblockStateExempted means the governing ScanPolicy's exemption is in force.
+	JevUnblockStateExempted = "exempted"
+	// JevUnblockStateUnknown means the unblock state cannot be determined.
+	JevUnblockStateUnknown = "unknown"
+)
+
 // JevChunkResult holds the Jev result for one planned part of a Version's content.
 type JevChunkResult struct {
 	// The 1-based planned part.
@@ -1180,6 +1233,10 @@ type VersionStatus struct {
 	// content digest matches them. Only populated when a Jev assessment is recorded.
 	// +optional
 	JevExemptionGovernance *JevExemptionGovernance `json:"jevExemptionGovernance,omitempty"`
+	// JevUnblock reports what this Version needs before its Jev block can be cleared. It is computed from the same
+	// governance decision as JevExemptionGovernance. Only populated when a Jev assessment is recorded.
+	// +optional
+	JevUnblock *JevUnblock `json:"jevUnblock,omitempty"`
 	// SourceCommit is the full commit SHA that was downloaded for this branch Version.
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
 	// +optional
