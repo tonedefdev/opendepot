@@ -108,6 +108,9 @@ spec:
               fieldPath: metadata.namespace
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
@@ -173,6 +176,9 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
