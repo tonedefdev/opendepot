@@ -21,10 +21,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1526,6 +1528,47 @@ func TestReconcileStoredGovernanceFollowsPolicyChange(t *testing.T) {
 	after := f.version(t).Status.JevExemptionGovernance
 	if after == nil || after.GoverningPolicy != "policy-b" || after.MatchingPolicy != "policy-b" || after.Superseded {
 		t.Fatalf("governance after = %+v; want policy-b governing and matching", after)
+	}
+}
+
+// scanPolicyListFailingClient fails ScanPolicy lists and passes every other call through, so a test can reach the
+// controller's listing-error path while the Version and its status still come from the fake client.
+type scanPolicyListFailingClient struct {
+	client.Client
+}
+
+func (c scanPolicyListFailingClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*opendepotv1alpha1.ScanPolicyList); ok {
+		return errors.New("scanpolicy list unavailable")
+	}
+
+	return c.Client.List(ctx, list, opts...)
+}
+
+// TestReconcileStoredGovernanceKeptOnListFailure covers a ScanPolicy listing failure on a published Version. The
+// recorded governance and unblock state are kept, rather than replaced with "no policy governs this Version".
+func TestReconcileStoredGovernanceKeptOnListFailure(t *testing.T) {
+	f := newJevStoredFixture(t,
+		jevPublishedVersion(t, jevExemptTestDigest, "release-exemptions"),
+		jevExemptPolicy("release-exemptions", 0, jevExemptTestDigest, nil),
+	)
+
+	f.reconcileStored(t)
+	before := f.version(t).Status
+	if before.JevExemptionGovernance == nil || before.JevExemptionGovernance.GoverningPolicy != "release-exemptions" {
+		t.Fatalf("governance before = %+v; want release-exemptions recorded", before.JevExemptionGovernance)
+	}
+
+	f.reconciler.Client = scanPolicyListFailingClient{Client: f.reconciler.Client}
+	f.reconcileStored(t)
+
+	after := f.version(t).Status
+	if !reflect.DeepEqual(after.JevExemptionGovernance, before.JevExemptionGovernance) {
+		t.Fatalf("governance after list failure = %+v; want unchanged %+v", after.JevExemptionGovernance, before.JevExemptionGovernance)
+	}
+
+	if !reflect.DeepEqual(after.JevUnblock, before.JevUnblock) {
+		t.Fatalf("unblock after list failure = %+v; want unchanged %+v", after.JevUnblock, before.JevUnblock)
 	}
 }
 

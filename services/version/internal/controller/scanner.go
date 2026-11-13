@@ -48,14 +48,15 @@ var lookupProviderRepo = registry.LookupProviderRepo
 // winning policy together with the controller's blocking flags into the effective decision.
 // It also returns the ranked matching policies, so the caller can report which policy governs
 // the Version. A listing failure falls back to the flags so that a transient API error can never
-// silently relax enforcement, and returns no ranked policies.
-func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) (policy.Resolved, []opendepotv1alpha1.ScanPolicy) {
+// silently relax enforcement. It returns no ranked policies and the listing error, so the caller
+// can leave the recorded governance unchanged instead of reporting that no policy governs the Version.
+func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) (policy.Resolved, []opendepotv1alpha1.ScanPolicy, error) {
 	policies := &opendepotv1alpha1.ScanPolicyList{}
 	if err := r.List(ctx, policies, client.InNamespace(version.Namespace)); err != nil {
 		r.Log.Error(err, "Failed to list ScanPolicies — falling back to the controller blocking flags",
 			"version", version.Name, "namespace", version.Namespace)
 
-		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now()), nil
+		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now()), nil, err
 	}
 
 	ranked, errs := policy.Rank(policies.Items, version)
@@ -71,7 +72,7 @@ func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *open
 			"version", version.Name, "scanPolicy", winner.Name, "priority", winner.Spec.Priority)
 	}
 
-	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now()), ranked
+	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now()), ranked, nil
 }
 
 // trivyVulnerability is the subset of Trivy's per-vulnerability JSON output used here.

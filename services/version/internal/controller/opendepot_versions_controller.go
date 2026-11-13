@@ -640,13 +640,14 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	var resolvedRepo string
 	var resolvedPolicy policy.Resolved
 	var rankedPolicies []opendepotv1alpha1.ScanPolicy
+	var policyListErr error
 	var agentSigned *signedAgentArchive
 	var agentJevAssessment *opendepotv1alpha1.JevAssessment
 	var agentJevGovernance *opendepotv1alpha1.JevExemptionGovernance
 	var agentJevUnblock *opendepotv1alpha1.JevUnblock
 
 	if r.ScanningEnabled || isAgent {
-		resolvedPolicy, rankedPolicies = r.resolveScanPolicy(ctx, version)
+		resolvedPolicy, rankedPolicies, policyListErr = r.resolveScanPolicy(ctx, version)
 	}
 
 	if r.ScanningEnabled && version.Spec.Type == opendepotv1alpha1.OpenDepotProvider && providerTmpPath != "" {
@@ -712,8 +713,13 @@ func (r *VersionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if jevAssessment != nil {
 			priorJevAssessment := version.Status.JevAssessment
 			jevAssessment = applyJevExemption(jevAssessment, resolvedPolicy, content.checksum, version.Name)
-			agentJevGovernance = policy.JevGovernance(rankedPolicies, content.checksum, time.Now())
-			agentJevUnblock = policy.JevUnblock(rankedPolicies, content.checksum, jevAssessment.Blocked, time.Now())
+
+			// A ScanPolicy listing failure leaves the recorded governance as it was, rather than reporting no policy.
+			if policyListErr == nil {
+				agentJevGovernance = policy.JevGovernance(rankedPolicies, content.checksum, time.Now())
+				agentJevUnblock = policy.JevUnblock(rankedPolicies, content.checksum, jevAssessment.Blocked, time.Now())
+			}
+
 			r.recordJevExemptionChange(version, jevExemptionTransition(priorJevAssessment, jevAssessment), jevAssessment)
 			if jevAssessment.Exempted {
 				r.Log.Info("Jev block exempted by ScanPolicy", "version", version.Name, "policy", jevAssessment.ExemptedBy,
@@ -1082,7 +1088,7 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 		return ctrl.Result{}, jevExemptionChange{}, nil
 	}
 
-	resolved, ranked := r.resolveScanPolicy(ctx, version)
+	resolved, ranked, listErr := r.resolveScanPolicy(ctx, version)
 	var change jevExemptionChange
 	var updatedJevAssessment *opendepotv1alpha1.JevAssessment
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -1177,7 +1183,8 @@ func (r *VersionReconciler) reconcileStoredScanPolicy(
 			}
 		}
 
-		if current.Status.JevAssessment != nil {
+		// A ScanPolicy listing failure leaves the recorded governance as it was, rather than reporting no policy.
+		if current.Status.JevAssessment != nil && listErr == nil {
 			digest := storedContentDigest(current.Status.Checksum)
 			now := time.Now()
 			governance := policy.JevGovernance(ranked, digest, now)
