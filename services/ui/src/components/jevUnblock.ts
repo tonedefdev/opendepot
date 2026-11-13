@@ -1,6 +1,4 @@
-import type { BrowseVersionSummary, JevAssessment, ScanPolicy, ScanPolicyJevExemption } from "@/lib/api";
-
-type VersionIdentity = Pick<BrowseVersionSummary, "name" | "blocked">;
+import type { JevAssessment, JevExemptionGovernance, ScanPolicy, ScanPolicyJevExemption } from "@/lib/api";
 import {
   governance,
   governingPolicies,
@@ -10,15 +8,16 @@ import {
 } from "./security-policies/jevGovernance";
 
 // JevUnblock describes what a blocked Jev assessment needs before it can be exempted. Each state is one condition the
-// UI shows; "unknown" covers the cases where existing data cannot decide which policy governs the Version.
+// UI shows. "unknown" covers the cases where the UI cannot name the policy that governs the Version, either because the
+// server hides the name from this caller or because the inferred data cannot decide it.
 export type JevUnblock =
-  | { state: "no-digest"; namespace: string; versionName?: string }
+  | { state: "no-digest"; namespace: string }
   | { state: "needs-entry"; digest: string; policy?: string }
   | { state: "superseded"; digest: string; policy: string; winner: string; policyPriority: number; winnerPriority: number }
   | { state: "expired"; digest: string; policy: string; expires: string }
-  | { state: "pending"; namespace: string; digest: string; policy: string; versionName?: string }
+  | { state: "pending"; namespace: string; digest: string; policy: string }
   | { state: "exempted"; policy: string; expires?: string }
-  | { state: "unknown"; digest: string; reason: string; candidates: string[] };
+  | { state: "unknown"; digest?: string; reason: string; candidates: string[]; expires?: string };
 
 interface MatchingEntry {
   policy: ScanPolicy;
@@ -26,45 +25,109 @@ interface MatchingEntry {
   governs: Governance;
 }
 
-// blockedVersionName returns the Version object name only when exactly one blocked Version is known. The assessment does
-// not say which Version it belongs to, so a guess would put the wrong name into the kubectl command.
-export function blockedVersionName(versions: VersionIdentity[] = []): string | undefined {
-  const names = versions.filter((version) => version.blocked && version.name).map((version) => version.name as string);
-  return names.length === 1 ? names[0] : undefined;
-}
-
 // isExpired mirrors the server: an entry without expires never expires, and an entry expires once expires is not after now.
 function isExpired(entry: ScanPolicyJevExemption, now: Date): boolean {
   return entry.expires !== undefined && !(Date.parse(entry.expires) > now.getTime());
 }
 
-// describeJevUnblock returns the unblock state for an assessment. It returns null when there is nothing to unblock.
-// policies is null when the ScanPolicy list could not be read.
-export function describeJevUnblock({
+// nameHidden is the unknown state for a policy whose name the server withheld from this caller. Browse hides names from
+// OIDC callers, so an empty name here does not mean there is no policy.
+function nameHidden(reason: string, digest?: string, expires?: string): JevUnblock {
+  return { state: "unknown", digest, reason, candidates: [], expires };
+}
+
+// describeFromGovernance maps the server's jevExemptionGovernance decision onto an unblock state. The server made the
+// governing and matching decisions, so the UI reads them rather than re-deriving them from ScanPolicy specs.
+function describeFromGovernance({
+  assessment,
+  namespace,
+  decision,
+}: {
+  assessment: JevAssessment;
+  namespace: string;
+  decision: JevExemptionGovernance;
+}): JevUnblock | null {
+  const digest = assessment.contentDigest;
+  const { matchingState, governingPolicy, matchingPolicy, matchingExpires, governingPriority, matchingPriority } = decision;
+
+  if (!assessment.blocked) {
+    if (matchingState !== "exempted") return null;
+    if (!governingPolicy) {
+      return nameHidden("A Jev exemption for this digest is active, but policy names are hidden for this account, so the policy that grants it cannot be named.", digest, matchingExpires);
+    }
+    return { state: "exempted", policy: governingPolicy, expires: matchingExpires };
+  }
+
+  if (matchingState === "noDigest" || !digest) return { state: "no-digest", namespace };
+
+  if (matchingState === "exempted") {
+    // The entry is active but the Version is still blocked, so it has not been re-evaluated since the exemption was added.
+    if (!governingPolicy) {
+      return nameHidden("A Jev exemption for this digest is active, but policy names are hidden for this account, so the policy that grants it cannot be named.", digest, matchingExpires);
+    }
+    return { state: "pending", namespace, digest, policy: governingPolicy };
+  }
+
+  if (matchingState === "expired") {
+    if (!governingPolicy) {
+      return nameHidden("A Jev exemption for this digest expired, but policy names are hidden for this account, so the policy that held it cannot be named.", digest, matchingExpires);
+    }
+    return { state: "expired", digest, policy: governingPolicy, expires: matchingExpires ?? "" };
+  }
+
+  if (matchingState === "superseded") {
+    if (!governingPolicy || !matchingPolicy) {
+      return nameHidden(
+        `A Jev exemption for this digest is in a policy that does not govern this Version, so it is ignored. Policy names are hidden for this account. The governing policy has priority ${governingPriority} and the policy with the exemption has priority ${matchingPriority}.`,
+        digest,
+      );
+    }
+    return {
+      state: "superseded",
+      digest,
+      policy: matchingPolicy,
+      winner: governingPolicy,
+      policyPriority: matchingPriority,
+      winnerPriority: governingPriority,
+    };
+  }
+
+  // matchingState "none": no entry matches the digest. An empty governingPolicy is not proof that no policy governs the
+  // Version, because the server clears the name for OIDC callers, so the policy is left unnamed rather than claimed absent.
+  if (matchingState === "none") return { state: "needs-entry", digest, policy: governingPolicy || undefined };
+
+  return nameHidden(`The server reported a matching state this UI does not recognize: ${matchingState}.`, digest);
+}
+
+// describeInferred is the fallback for responses without jevExemptionGovernance. It infers the governing policy from the
+// ScanPolicy specs, which the server may evaluate differently, so it is used only when the server did not report one.
+function describeInferred({
   assessment,
   namespace,
   resource,
-  versions,
   policies,
-  now = new Date(),
+  now,
 }: {
   assessment: JevAssessment;
   namespace: string;
   resource: GovernedResource;
-  versions?: VersionIdentity[];
   policies: ScanPolicy[] | null;
-  now?: Date;
+  now: Date;
 }): JevUnblock | null {
   if (assessment.exempted) {
     return { state: "exempted", policy: assessment.exemptedBy ?? "an unnamed policy", expires: assessment.exemptionExpires };
   }
   if (!assessment.blocked) return null;
 
-  const versionName = blockedVersionName(versions);
   const digest = assessment.contentDigest;
-  if (!digest) return { state: "no-digest", namespace, versionName };
+  if (!digest) return { state: "no-digest", namespace };
   if (!policies) {
-    return { state: "unknown", digest, reason: "The ScanPolicies in this namespace could not be read.", candidates: [] };
+    return {
+      state: "unknown",
+      digest,
+      reason: "The UI cannot determine which policy governs this Version. The ScanPolicies in this namespace could not be read.",
+      candidates: [],
+    };
   }
 
   const winner = winnerFor(governingPolicies(policies, resource));
@@ -72,7 +135,7 @@ export function describeJevUnblock({
     return {
       state: "unknown",
       digest,
-      reason: "A policy that uses a selector or a version constraint may govern this Version. The UI cannot tell which one wins.",
+      reason: "The UI cannot determine which policy governs this Version. A policy that uses a selector or a version constraint may govern this Version, and the UI cannot tell which one wins.",
       candidates: winner.candidates.map((policy) => policy.metadata.name),
     };
   }
@@ -90,7 +153,7 @@ export function describeJevUnblock({
       if (isExpired(winningMatch.entry, now)) {
         return { state: "expired", digest, policy: winnerName, expires: winningMatch.entry.expires ?? "" };
       }
-      return { state: "pending", namespace, digest, policy: winnerName, versionName };
+      return { state: "pending", namespace, digest, policy: winnerName };
     }
 
     // A matching entry in a policy that governs this Version but does not win is ignored in full, so the winner is named.
@@ -109,4 +172,26 @@ export function describeJevUnblock({
   }
 
   return { state: "needs-entry", digest };
+}
+
+// describeJevUnblock returns the unblock state for an assessment. It returns null when there is nothing to unblock.
+// When the server reports governance, that decision is used. Otherwise the inferred fallback runs. policies is null when
+// the ScanPolicy list could not be read, and is only read by the fallback.
+export function describeJevUnblock({
+  assessment,
+  namespace,
+  resource,
+  governance: decision,
+  policies,
+  now = new Date(),
+}: {
+  assessment: JevAssessment;
+  namespace: string;
+  resource: GovernedResource;
+  governance?: JevExemptionGovernance | null;
+  policies: ScanPolicy[] | null;
+  now?: Date;
+}): JevUnblock | null {
+  if (decision) return describeFromGovernance({ assessment, namespace, decision });
+  return describeInferred({ assessment, namespace, resource, policies, now });
 }

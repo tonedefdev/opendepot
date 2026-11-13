@@ -144,4 +144,38 @@ describe("jevExemptionPrefill", () => {
     expect(prefill.uncertainPolicies).toEqual(["sel"]);
     expect(prefill.priority).toBe(7);
   });
+
+  it("reports no unnamed winner when the names are visible and nothing governs the Version", () => {
+    const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [], governingNameHidden: false });
+    expect(prefill.winnerUnnamed).toBe(false);
+    expect(prefill.priority).toBe(0);
+  });
+
+  it("says the winner is unnamed, not absent, when the server hid the governing name and no policy is visible", () => {
+    const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [], governingNameHidden: true });
+    expect(prefill.winnerUnnamed).toBe(true);
+    expect(prefill.winner).toBeUndefined();
+  });
+
+  it("reports the winner as unnamed when the hidden name leaves only an uncertain candidate", () => {
+    const prefill = jevExemptionPrefill({
+      contentDigest: digest,
+      resource: skill,
+      policies: [policy("sel", { priority: 6, selector: { matchLabels: { a: "b" } } })],
+      governingNameHidden: true,
+    });
+    expect(prefill.winnerUnnamed).toBe(true);
+    expect(prefill.uncertainPolicies).toEqual(["sel"]);
+  });
+
+  it("does not mark the winner unnamed when a visible policy is known to win", () => {
+    const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [scoped("current", 2)], governingNameHidden: true });
+    expect(prefill.winnerUnnamed).toBe(false);
+    expect(prefill.winner?.name).toBe("current");
+  });
+
+  it("keeps the priority computation when names are hidden", () => {
+    const prefill = jevExemptionPrefill({ contentDigest: digest, resource: skill, policies: [scoped("current", 2)], governingNameHidden: true });
+    expect(prefill.priority).toBe(3);
+  });
 });

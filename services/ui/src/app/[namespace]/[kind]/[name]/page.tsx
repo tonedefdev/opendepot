@@ -181,8 +181,9 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         assessment: detail.jevAssessment,
         namespace,
         resource: jevResource,
-        versions: detail.versions,
-        policies: detail.jevAssessment.blocked ? await readScanPolicies(namespace, token) : [],
+        governance: detail.jevExemptionGovernance,
+        // ScanPolicies are read only for the inferred fallback, when the server did not report governance.
+        policies: detail.jevAssessment.blocked && !detail.jevExemptionGovernance ? await readScanPolicies(namespace, token) : [],
       })
     : null;
 
@@ -348,7 +349,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
           <JevPanel
             assessment={detail.jevAssessment}
             thresholds={detail.jevThresholds}
-            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit }}
+            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit, governingPolicyHidden: detail.jevExemptionGovernance !== undefined && !detail.jevExemptionGovernance.governingPolicy }}
             unblock={jevUnblock}
           />
         </SectionCard>

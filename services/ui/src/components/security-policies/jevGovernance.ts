@@ -105,36 +105,43 @@ export interface JevExemptionPrefill {
   priority: number | null;
   winner?: { name: string; priority: number; threshold?: ScanSeverityThreshold };
   uncertainPolicies: string[];
+  // winnerUnnamed is true when the server withheld the governing policy's name from this caller and the visible policies
+  // name no winner. The governing policy may exist, so the prefill must not say that none does.
+  winnerUnnamed: boolean;
 }
 
 // jevExemptionPrefill builds the new-policy prefill. The resource is required; without it the policy would be namespace
-// wide and the priority could not be computed safely.
+// wide and the priority could not be computed safely. governingNameHidden is set when the Version's browse data has no
+// governing policy name for this caller.
 export function jevExemptionPrefill({
   contentDigest,
   versionName,
   resource,
   policies,
+  governingNameHidden = false,
 }: {
   contentDigest: string;
   versionName?: string;
   resource?: GovernedResource;
   policies: ScanPolicy[] | null;
+  governingNameHidden?: boolean;
 }): JevExemptionPrefill {
   const exemption = jevExemptionDraft(contentDigest, versionName);
   if (!resource) {
-    return { exemption, targetRefs: [], priority: null, uncertainPolicies: [] };
+    return { exemption, targetRefs: [], priority: null, uncertainPolicies: [], winnerUnnamed: false };
   }
   const targetRefs: ScanPolicyTargetRef[] = [{ kind: resource.kind, name: resource.name }];
   if (!policies) {
-    return { exemption, targetRefs, priority: null, uncertainPolicies: [] };
+    return { exemption, targetRefs, priority: null, uncertainPolicies: [], winnerUnnamed: false };
   }
 
   const governing = governingPolicies(policies, resource);
   const winner = winnerFor(governing);
   const uncertainPolicies = governing.filter((entry) => entry.governance === "unknown").map((entry) => entry.policy.metadata.name);
   const priority = nextJevExemptionPriority(policies, resource);
+  const winnerUnnamed = governingNameHidden && winner.kind !== "known";
   if (winner.kind !== "known") {
-    return { exemption, targetRefs, priority, uncertainPolicies };
+    return { exemption, targetRefs, priority, uncertainPolicies, winnerUnnamed };
   }
 
   return {
@@ -147,5 +154,7 @@ export function jevExemptionPrefill({
       threshold: winner.policy.spec.severityThreshold,
     },
     uncertainPolicies,
+    winnerUnnamed,
   };
 }
+

@@ -369,16 +369,24 @@ describe("JevPanel unblock section", () => {
 
   const blocked: JevAssessment = { ...assessment, blocked: true, contentDigest: "d".repeat(64) };
 
-  it("tells the user to set forceSync and copies the kubectl command when there is no digest", () => {
-    const unblock: JevUnblock = { state: "no-digest", namespace: "platform", versionName: "lint-helper-1-0-0" };
-    renderPanel({ assessment: { ...blocked, contentDigest: undefined }, unblock });
+  it("tells the user to set forceSync and copies the kubectl command with the assessment's Version name", () => {
+    const unblock: JevUnblock = { state: "no-digest", namespace: "platform" };
+    renderPanel({ assessment: { ...blocked, contentDigest: undefined, versionName: "lint-helper-1-0-0" }, unblock });
     expect(screen.getByText(/This assessment has no digest, so no exemption can match it. Set forceSync: true on this Version, then return here./)).not.toBeNull();
     expect(screen.getByText(`kubectl patch version lint-helper-1-0-0 -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
   });
 
-  it("uses a placeholder Version name when the Version is not known", () => {
+  it("uses a placeholder Version name when the server did not return versionName", () => {
     renderPanel({ assessment: { ...blocked, contentDigest: undefined }, unblock: { state: "no-digest", namespace: "platform" } });
     expect(screen.getByText(`kubectl patch version <name> -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
+  });
+
+  it("uses the assessment's Version name in the forceSync command for a pending exemption", () => {
+    renderPanel({
+      assessment: { ...blocked, versionName: "lint-helper-2-0-0" },
+      unblock: { state: "pending", namespace: "platform", digest: "d".repeat(64), policy: "platform-skills" },
+    });
+    expect(screen.getByText(`kubectl patch version lint-helper-2-0-0 -n platform --type merge -p '{"spec":{"forceSync":true}}'`)).not.toBeNull();
   });
 
   it("shows the digest to use and names the governing policy when no entry matches", () => {
@@ -408,6 +416,36 @@ describe("JevPanel unblock section", () => {
   it("lists candidates when the governing policy cannot be determined", () => {
     renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), reason: "Selectors are not evaluated.", candidates: ["by-label"] } });
     expect(screen.getByText(/Candidates: by-label/)).not.toBeNull();
+  });
+
+  it("renders the unknown reason as given, without adding a second explanation", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "unknown", digest: "d".repeat(64), reason: "Policy names are hidden for this account.", candidates: [] } });
+    expect(screen.getByText("Policy names are hidden for this account.")).not.toBeNull();
+    expect(screen.queryByText(/The UI cannot determine/)).toBeNull();
+  });
+
+  it("shows the expiry for an unknown state whose policy name is hidden", () => {
+    renderPanel({
+      assessment: blocked,
+      unblock: { state: "unknown", digest: "d".repeat(64), reason: "Policy names are hidden for this account.", candidates: [], expires: "2026-02-01T00:00:00Z" },
+    });
+    expect(screen.getByText(/Expiry: /)).not.toBeNull();
+  });
+
+  it("does not claim no policy governs the Version when the governing name is hidden", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64) } });
+    expect(screen.queryByText(/No ScanPolicy governs this Version/)).toBeNull();
+    expect(screen.getByText(/The governing policy's name is not shown here/)).not.toBeNull();
+  });
+
+  it("marks the create link when the governing policy name is hidden", () => {
+    renderPanel({
+      assessment: blocked,
+      exemption: { namespace: "platform", targetKind: "Skill", targetName: "lint-helper", canEdit: true, governingPolicyHidden: true },
+      unblock: { state: "needs-entry", digest: "d".repeat(64) },
+    });
+    const link = screen.getByRole("link", { name: /Create Jev exemption/ });
+    expect(link.getAttribute("href")).toContain("jevGoverningHidden=true");
   });
 
   it("puts the create link's target into the prefill", () => {

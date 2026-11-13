@@ -165,8 +165,28 @@ export interface JevSkippedFile {
   reason: JevSkipReason;
 }
 
+// JevMatchingState is the state of the jevExemptions entry that matches a Version's content digest.
+export type JevMatchingState = "none" | "exempted" | "superseded" | "expired" | "noDigest";
+
+// JevExemptionGovernance is the server's decision for one Version's Jev exemptions. The browse response hides policy names
+// from OIDC callers, so governingPolicy and matchingPolicy are empty for them. Priorities, state, and expiry are still set.
+export interface JevExemptionGovernance {
+  // governingPolicy is empty when no ScanPolicy governs the Version, or when the caller cannot see its name.
+  governingPolicy: string;
+  governingPriority: number;
+  // matchingPolicy is empty when no entry matches the digest, or when the caller cannot see its name.
+  matchingPolicy: string;
+  matchingPriority: number;
+  // matchingExpires is absent when the matching entry never expires or no entry matches.
+  matchingExpires?: string;
+  matchingState: JevMatchingState;
+  superseded: boolean;
+}
+
 export interface JevAssessment {
   evaluatedAt: string;
+  // versionName is the Version object name this assessment belongs to. It is absent on legacy assessments.
+  versionName?: string;
   model?: string;
   safeProbability?: number;
   injectionProbability?: number;
@@ -234,6 +254,8 @@ export interface BrowseResourceDetail extends BrowseResource {
   definitionFileName?: string;
   agentMetadata?: AgentMetadata;
   jevAssessment?: JevAssessment;
+  // jevExemptionGovernance is only present when jevAssessment is. It replaces inferring the governing policy from ScanPolicy specs.
+  jevExemptionGovernance?: JevExemptionGovernance;
   jevThresholds?: JevThresholds;
 }
 

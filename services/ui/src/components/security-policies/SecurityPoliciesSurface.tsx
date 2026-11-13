@@ -215,6 +215,11 @@ function JevPrefillWarnings({ prefill }: { prefill: JevExemptionPrefill }) {
       {prefill.priority === null && prefill.targetRefs.length > 0 && (
         <Alert severity="warning">The existing policies could not be read, so the priority is not set above them. Confirm it outranks the policies that govern this Version before saving.</Alert>
       )}
+      {prefill.winnerUnnamed && (
+        <Alert severity="warning">
+          The policy that governs this Version could not be named for this account, so this policy may not outrank it. Confirm the priority is above that policy before saving.
+        </Alert>
+      )}
       {prefill.winner && (
         <Alert severity="warning">
           {`This policy will replace ${prefill.winner.name} (priority ${prefill.winner.priority}) as the policy that governs this Version. Its severity threshold and exemptions stop applying here, and this policy's threshold applies instead.`}
@@ -231,6 +236,7 @@ function JevPrefillWarnings({ prefill }: { prefill: JevExemptionPrefill }) {
 
 function jevPriorityHelper(prefill: JevExemptionPrefill): string {
   if (prefill.priority === null) return "Not set above the existing policies because they could not be read.";
+  if (prefill.priority === 0 && prefill.winnerUnnamed) return "The governing policy could not be named, so the default priority may not outrank it.";
   if (prefill.priority === 0) return "No existing policy governs this Version, so the exemption uses the default priority.";
   return `One above the highest priority that governs this Version (${prefill.priority - 1}), so this exemption wins. You can change it.`;
 }

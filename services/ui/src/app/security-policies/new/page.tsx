@@ -14,9 +14,9 @@ function jevResource(kind?: string, name?: string): GovernedResource | undefined
 export default async function NewSecurityPolicyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ namespace?: string; jevDigest?: string; jevVersion?: string; jevKind?: string; jevName?: string }>;
+  searchParams: Promise<{ namespace?: string; jevDigest?: string; jevVersion?: string; jevKind?: string; jevName?: string; jevGoverningHidden?: string }>;
 }) {
-  const { namespace, jevDigest, jevVersion, jevKind, jevName } = await searchParams;
+  const { namespace, jevDigest, jevVersion, jevKind, jevName, jevGoverningHidden } = await searchParams;
   const contentDigest = parseJevDigest(jevDigest);
   const token = await getServerSessionToken().catch(() => undefined);
   let catalog: Awaited<ReturnType<typeof getScanPolicyCatalog>> = { writesEnabled: false, items: [] };
@@ -41,6 +41,8 @@ export default async function NewSecurityPolicyPage({
       versionName: jevVersion,
       resource: jevResource(jevKind, jevName),
       policies,
+      // The Version's browse data withheld the governing policy name, so the prefill must not say there is none.
+      governingNameHidden: jevGoverningHidden === "true",
     });
   }
   return <SecurityPoliciesSurface mode="create" namespace={namespace} catalog={catalog} jevPrefill={jevPrefill} />;

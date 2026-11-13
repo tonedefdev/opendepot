@@ -25,6 +25,8 @@ export interface JevExemptionAction {
   targetKind?: ScanPolicyTargetKind;
   targetName?: string;
   canEdit: boolean;
+  // governingPolicyHidden is set when browse returned no governing policy name, which is always the case for OIDC callers.
+  governingPolicyHidden?: boolean;
 }
 
 interface JevPanelProps {
@@ -129,7 +131,7 @@ function CopyableValue({ value }: { value: string }) {
 }
 
 // JevUnblockSection states the one condition that stops a blocked assessment from being exempted, and the exemption state.
-function JevUnblockSection({ unblock }: { unblock: JevUnblock }) {
+function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblock; versionName?: string }) {
   if (unblock.state === "exempted") {
     return (
       <Alert severity="success" variant="outlined">
@@ -147,7 +149,7 @@ function JevUnblockSection({ unblock }: { unblock: JevUnblock }) {
             <Typography variant="body2">
               This assessment has no digest, so no exemption can match it. Set forceSync: true on this Version, then return here.
             </Typography>
-            <CopyableValue value={forceSyncCommand(unblock.namespace, unblock.versionName)} />
+            <CopyableValue value={forceSyncCommand(unblock.namespace, versionName)} />
           </>
         )}
         {unblock.state === "needs-entry" && (
@@ -155,7 +157,7 @@ function JevUnblockSection({ unblock }: { unblock: JevUnblock }) {
             <Typography variant="body2">
               {unblock.policy
                 ? `Add a Jev exemption for this digest to ScanPolicy ${unblock.policy}. It is the policy that governs this Version.`
-                : "No ScanPolicy governs this Version, so no exemption can apply. Create Jev exemption creates one that does."}
+                : "Add a Jev exemption for this digest to the ScanPolicy that governs this Version. The governing policy's name is not shown here. Create Jev exemption opens a new policy, and the editor reports which policy governs this Version."}
             </Typography>
             <CopyableValue value={unblock.digest} />
           </>
@@ -181,16 +183,17 @@ function JevUnblockSection({ unblock }: { unblock: JevUnblock }) {
             <Typography variant="body2">
               {`The Jev exemption for this digest is active in ScanPolicy ${unblock.policy}, which governs this Version, but the Version has not been re-evaluated since. Set forceSync: true on this Version to re-run the check.`}
             </Typography>
-            <CopyableValue value={forceSyncCommand(unblock.namespace, unblock.versionName)} />
+            <CopyableValue value={forceSyncCommand(unblock.namespace, versionName)} />
           </>
         )}
         {unblock.state === "unknown" && (
           <>
-            <Typography variant="body2">{`The UI cannot determine which policy governs this Version. ${unblock.reason}`}</Typography>
+            <Typography variant="body2">{unblock.reason}</Typography>
+            {unblock.expires && <Typography variant="body2">{`Expiry: ${formatExpiry(unblock.expires)}.`}</Typography>}
             {unblock.candidates.length > 0 && (
               <Typography variant="body2">{`Candidates: ${unblock.candidates.join(", ")}`}</Typography>
             )}
-            <CopyableValue value={unblock.digest} />
+            {unblock.digest && <CopyableValue value={unblock.digest} />}
           </>
         )}
       </Box>
@@ -299,6 +302,7 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock }:
                 jevDigest: assessment.contentDigest,
                 ...(exemption.versionName ? { jevVersion: exemption.versionName } : {}),
                 ...(exemption.targetKind && exemption.targetName ? { jevKind: exemption.targetKind, jevName: exemption.targetName } : {}),
+                ...(exemption.governingPolicyHidden ? { jevGoverningHidden: "true" } : {}),
               })}`}
               size="small"
               variant="outlined"
@@ -319,7 +323,7 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock }:
         </Box>
       )}
 
-      {unblock && <JevUnblockSection unblock={unblock} />}
+      {unblock && <JevUnblockSection unblock={unblock} versionName={assessment.versionName} />}
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
         {assessment.riskLevel && (
