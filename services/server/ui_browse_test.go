@@ -19,7 +19,9 @@ package main
 import (
 	"testing"
 
+	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_anyVersionUnsynced(t *testing.T) {
@@ -339,5 +341,63 @@ func Test_agentLatestVersion(t *testing.T) {
 
 	if got := agentLatestVersion(versions, ""); got != nil {
 		t.Errorf("agentLatestVersion(\"\") = %v, want nil", got)
+	}
+}
+
+// TestBrowseModuleAndProviderSyncStatusWithholdsExemptionNameFromOIDC covers the exempting ScanPolicy name in module and
+// provider version summaries. OIDC callers see that the block was exempted, but not which ScanPolicy did it.
+func TestBrowseModuleAndProviderSyncStatusWithholdsExemptionNameFromOIDC(t *testing.T) {
+	const policyName = "release-exemptions"
+	const providerName = "aws"
+	syncStatus := "Successfully synced version; Jev block exempted by ScanPolicy " + policyName + ": 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"
+	withheld := "Successfully synced version; Jev block exempted by a ScanPolicy: 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"
+
+	providerRefName := providerName
+	module := opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "vpc-1-0-0"},
+		Spec:       opendepotv1alpha1.VersionSpec{Version: "1.0.0"},
+		Status:     opendepotv1alpha1.VersionStatus{SyncStatus: syncStatus},
+	}
+	provider := opendepotv1alpha1.Provider{ObjectMeta: metav1.ObjectMeta{Name: providerName}}
+	providerVersion := opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: providerName + "-1-0-0"},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Version:           "1.0.0",
+			ProviderConfigRef: &opendepotv1alpha1.ProviderConfig{Name: &providerRefName},
+		},
+		Status: opendepotv1alpha1.VersionStatus{SyncStatus: syncStatus},
+	}
+
+	cases := []struct {
+		name string
+		oidc bool
+		want string
+	}{
+		{name: "OIDC withholds exemption policy name", oidc: true, want: withheld},
+		{name: "non-OIDC returns exemption policy name", want: syncStatus},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalVerifier := oidcVerifier
+			defer func() {
+				oidcVerifier = originalVerifier
+			}()
+
+			oidcVerifier = nil
+			if tc.oidc {
+				oidcVerifier = &gooidc.IDTokenVerifier{}
+			}
+
+			modules := moduleVersionSummaries([]opendepotv1alpha1.Version{module})
+			if len(modules) != 1 || modules[0].SyncStatus != tc.want {
+				t.Fatalf("module SyncStatus = %+v; want %q", modules, tc.want)
+			}
+
+			providers := providerVersionSummaries(provider, []opendepotv1alpha1.Version{providerVersion})
+			if len(providers) != 1 || providers[0].SyncStatus != tc.want {
+				t.Fatalf("provider SyncStatus = %+v; want %q", providers, tc.want)
+			}
+		})
 	}
 }
