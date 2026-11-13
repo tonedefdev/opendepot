@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -889,6 +890,19 @@ func browseAgentKind(kind string) agentKind {
 	return agentKind{resource: "skills", prefix: "skill", versionType: opendepotv1alpha1.OpenDepotSkill}
 }
 
+// exemptionPolicyNamePattern matches the ScanPolicy name that jevPublishedStatus writes into Version.status.syncStatus.
+var exemptionPolicyNamePattern = regexp.MustCompile(`exempted by ScanPolicy [^\s:]+`)
+
+// browseSyncStatus withholds the ScanPolicy name that exempted a Jev block from OIDC callers. The name is replaced
+// in a copy of the status, so the cached Version is not modified.
+func browseSyncStatus(syncStatus string) string {
+	if oidcVerifier == nil {
+		return syncStatus
+	}
+
+	return exemptionPolicyNamePattern.ReplaceAllString(syncStatus, "exempted by a ScanPolicy")
+}
+
 // agentVersionSummaries converts Skill or Agent Version resources to BrowseVersionSummary.
 // Versions the registry would not serve keep their row, so the browse view can show
 // status and scan results, but their download metadata is omitted.
@@ -899,7 +913,7 @@ func agentVersionSummaries(kind agentKind, name string, versions []opendepotv1al
 			Name:        v.Name,
 			Version:     v.Spec.Version,
 			Synced:      v.Status.Synced,
-			SyncStatus:  v.Status.SyncStatus,
+			SyncStatus:  browseSyncStatus(v.Status.SyncStatus),
 			Commit:      agentVersionCommit(&v),
 			BranchPhase: v.Status.BranchPhase,
 		}

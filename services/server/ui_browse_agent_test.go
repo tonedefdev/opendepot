@@ -1246,3 +1246,82 @@ func TestBrowseJevUnblockNamesHiddenOnlyWhenANameExists(t *testing.T) {
 		t.Fatalf("with OIDC = %+v; want the state and digest kept", gated)
 	}
 }
+
+// TestBrowseAgentVersionSyncStatusWithholdsExemptionNameFromOIDC covers the exempting ScanPolicy name written into
+// Version.status.syncStatus. OIDC callers see that the block was exempted, but not which ScanPolicy did it.
+func TestBrowseAgentVersionSyncStatusWithholdsExemptionNameFromOIDC(t *testing.T) {
+	const name = "reviewer"
+	const policyName = "release-exemptions"
+	labels := map[string]string{labelPublic: "true"}
+	syncStatus := "Successfully synced version; Jev block exempted by ScanPolicy " + policyName + ": 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"
+	exempted := browseAgentTestVersion("agent", name)
+	exempted.Status.SyncStatus = syncStatus
+	binding := opendepotv1alpha1.GroupBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "platform"},
+		Spec: opendepotv1alpha1.GroupBindingSpec{
+			Expression:     `"platform" in groups`,
+			AgentResources: []string{name},
+		},
+	}
+
+	cases := []struct {
+		name           string
+		oidc           bool
+		wantSyncStatus string
+	}{
+		{name: "OIDC withholds exemption policy name", oidc: true, wantSyncStatus: "Successfully synced version; Jev block exempted by a ScanPolicy: 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"},
+		{name: "non-OIDC returns exemption policy name", wantSyncStatus: syncStatus},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := browseAgentTestServer(t, "agent", name, labels, browseAgentTestObject("agent", name, labels, nil), []opendepotv1alpha1.Version{exempted}, []opendepotv1alpha1.GroupBinding{binding})
+			browseAgentTestSetup(t, api, false, tc.oidc)
+
+			authorize := func(request *http.Request) {
+				if tc.oidc {
+					request.Header.Set("Authorization", "Bearer "+agentTestBearerToken(t, []string{"platform"}))
+				}
+			}
+
+			detailRequest := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name, nil)
+			authorize(detailRequest)
+			detailResponse := httptest.NewRecorder()
+			browseAgentTestRouter().ServeHTTP(detailResponse, detailRequest)
+
+			if detailResponse.Code != http.StatusOK {
+				t.Fatalf("detail status = %d, want %d: %s", detailResponse.Code, http.StatusOK, detailResponse.Body.String())
+			}
+
+			var detail BrowseResourceDetail
+			if err := json.Unmarshal(detailResponse.Body.Bytes(), &detail); err != nil {
+				t.Fatalf("unmarshal detail: %v", err)
+			}
+
+			if len(detail.Versions) != 1 {
+				t.Fatalf("len(detail.Versions) = %d, want 1", len(detail.Versions))
+			}
+
+			if detail.Versions[0].SyncStatus != tc.wantSyncStatus {
+				t.Fatalf("detail SyncStatus = %q, want %q", detail.Versions[0].SyncStatus, tc.wantSyncStatus)
+			}
+
+			versionsRequest := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources/"+browseAgentTestNamespace+"/agent/"+name+"/versions", nil)
+			authorize(versionsRequest)
+			versionsResponse := httptest.NewRecorder()
+			browseAgentTestRouter().ServeHTTP(versionsResponse, versionsRequest)
+
+			if versionsResponse.Code != http.StatusOK {
+				t.Fatalf("versions status = %d, want %d: %s", versionsResponse.Code, http.StatusOK, versionsResponse.Body.String())
+			}
+
+			if strings.Contains(versionsResponse.Body.String(), policyName) != !tc.oidc {
+				t.Fatalf("versions body policy name presence mismatch (oidc=%v): %s", tc.oidc, versionsResponse.Body.String())
+			}
+
+			if tc.oidc && strings.Contains(detailResponse.Body.String(), policyName) {
+				t.Fatalf("OIDC detail exposes the exempting policy: %s", detailResponse.Body.String())
+			}
+		})
+	}
+}
