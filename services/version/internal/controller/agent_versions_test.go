@@ -1724,3 +1724,54 @@ func TestReconcileAgentListFailureLeavesVersionPending(t *testing.T) {
 		t.Fatalf("Jev state after list failure = %+v; want unchanged %+v", after, before)
 	}
 }
+
+// statusRecordingClient records each Version written through the status subresource, so a test can check what a
+// reconcile wrote.
+type statusRecordingClient struct {
+	client.Client
+	updates *[]opendepotv1alpha1.Version
+}
+
+func (c statusRecordingClient) Status() client.SubResourceWriter {
+	return statusRecordingWriter{SubResourceWriter: c.Client.Status(), updates: c.updates}
+}
+
+type statusRecordingWriter struct {
+	client.SubResourceWriter
+	updates *[]opendepotv1alpha1.Version
+}
+
+func (w statusRecordingWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if v, ok := obj.(*opendepotv1alpha1.Version); ok {
+		*w.updates = append(*w.updates, *v.DeepCopy())
+	}
+
+	return w.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+// TestReconcileAgentListFailureWithoutPriorStateStaysUnsynced covers a ScanPolicy listing failure on a Version with an
+// empty status. Nothing has been assessed yet, so the Version stays unsynced, no status update may set Synced, and the
+// error requeues the Version.
+func TestReconcileAgentListFailureWithoutPriorStateStaysUnsynced(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{})
+	if before := f.version(t).Status; before.Synced || before.SyncStatus != "" {
+		t.Fatalf("status before reconcile = %+v; want an empty status", before)
+	}
+
+	var updates []opendepotv1alpha1.Version
+	f.reconciler.Client = scanPolicyListFailingClient{Client: statusRecordingClient{Client: f.reconciler.Client, updates: &updates}}
+	if _, err := f.reconcileResult(t); err == nil {
+		t.Fatalf("Reconcile returned nil error on a ScanPolicy listing failure; want the error to requeue")
+	}
+
+	wantJevCalls(t, f, 0)
+	if f.version(t).Status.Synced {
+		t.Fatalf("Synced = true after list failure with no prior state; want false")
+	}
+
+	for _, v := range updates {
+		if v.Status.Synced {
+			t.Fatalf("status update set Synced = true after list failure with no prior state: %+v", v.Status)
+		}
+	}
+}
