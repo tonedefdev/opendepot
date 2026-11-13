@@ -3358,10 +3358,15 @@ var _ = Describe("Agent Registry", Ordered, func() {
 		agentCommit      = "3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39"
 
 		agentTestUserEmail    = "agent-gb-e2e@example.com"
-		agentTestUserPassword = "agentgbpassword"
 		agentTestUserID       = "agent-gb-user-oidc-e2e"
-		agentTestClientSecret = "agent-client-secret-e2e"
 		agentGroupBindingName = "agent-e2e-groupbinding"
+	)
+
+	// agentTestUserPassword and agentTestClientSecret are read from the environment so
+	// CI can supply its own values. The defaults are for local runs only.
+	var (
+		agentTestUserPassword = agentE2EEnvOr("OPENDEPOT_AGENT_E2E_USER_PASSWORD", "agentgbpassword")
+		agentTestClientSecret = agentE2EEnvOr("OPENDEPOT_AGENT_E2E_CLIENT_SECRET", "agent-client-secret-e2e")
 	)
 
 	var (
@@ -4030,6 +4035,14 @@ spec:
 })
 
 // agentAcquireDexToken performs a password grant against Dex and returns the ID token.
+func agentE2EEnvOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+
+	return fallback
+}
+
 func agentAcquireDexToken(localPort int, clientSecret, username, password string) (string, error) {
 	form := url.Values{
 		"grant_type":    {"password"},
