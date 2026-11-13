@@ -30,11 +30,12 @@ describe("describeJevUnblock", () => {
       state: "needs-entry",
       digest,
       policy: "platform-skills",
+      namesHidden: false,
     });
   });
 
-  it("maps needs-entry without a governing policy to no name", () => {
-    expect(run(server({ state: "needs-entry", digest }))).toEqual({ state: "needs-entry", digest, policy: undefined });
+  it("maps needs-entry without a governing policy to no name, with names visible", () => {
+    expect(run(server({ state: "needs-entry", digest }))).toEqual({ state: "needs-entry", digest, policy: undefined, namesHidden: false });
   });
 
   it("maps superseded with the shadowed policy as the matching policy and the governing policy as the winner", () => {
@@ -103,6 +104,7 @@ describe("describeJevUnblock", () => {
         state: "needs-entry",
         digest,
         policy: undefined,
+        namesHidden: true,
       });
     });
 
@@ -158,7 +160,12 @@ describe("describeJevUnblock", () => {
 
   describe("empty names", () => {
     it("treats an empty governing policy name as absent", () => {
-      expect(run(server({ state: "needs-entry", digest, governingPolicy: "" }))).toEqual({ state: "needs-entry", digest, policy: undefined });
+      expect(run(server({ state: "needs-entry", digest, governingPolicy: "" }))).toEqual({
+        state: "needs-entry",
+        digest,
+        policy: undefined,
+        namesHidden: false,
+      });
     });
 
     it("treats an empty matching policy name as absent for superseded", () => {

@@ -390,7 +390,7 @@ describe("JevPanel unblock section", () => {
   });
 
   it("shows the digest to use and names the governing policy when no entry matches", () => {
-    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64), policy: "platform-skills" } });
+    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64), policy: "platform-skills", namesHidden: false } });
     expect(screen.getByText(/to ScanPolicy platform-skills/)).not.toBeNull();
     expect(screen.getAllByText("d".repeat(64)).length).toBeGreaterThan(1);
   });
@@ -453,17 +453,25 @@ describe("JevPanel unblock section", () => {
     expect(screen.queryByText(/wins this Version over/)).toBeNull();
   });
 
-  it("does not claim no policy governs the Version when the governing name is hidden", () => {
-    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64) } });
-    expect(screen.queryByText(/No ScanPolicy governs this Version/)).toBeNull();
-    expect(screen.getByText(/The governing policy's name is not shown here/)).not.toBeNull();
+  it("says policy names are hidden when the governing name is hidden", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64), namesHidden: true } });
+    expect(screen.getByText(/Policy names are hidden for this account, so the governing policy cannot be named./)).not.toBeNull();
+    expect(screen.queryByText(/No ScanPolicy currently governs this Version/)).toBeNull();
+  });
+
+  it("says no ScanPolicy governs the Version when no governing policy exists and names are visible", () => {
+    renderPanel({ assessment: blocked, unblock: { state: "needs-entry", digest: "d".repeat(64), namesHidden: false } });
+    expect(
+      screen.getByText("No ScanPolicy currently governs this Version, so a Jev exemption entry has no effect until a policy with a matching target governs it."),
+    ).not.toBeNull();
+    expect(screen.queryByText(/Policy names are hidden/)).toBeNull();
   });
 
   it("marks the create link when the governing policy name is hidden", () => {
     renderPanel({
       assessment: blocked,
       exemption: { namespace: "platform", targetKind: "Skill", targetName: "lint-helper", canEdit: true, governingPolicyHidden: true },
-      unblock: { state: "needs-entry", digest: "d".repeat(64) },
+      unblock: { state: "needs-entry", digest: "d".repeat(64), namesHidden: true },
     });
     const link = screen.getByRole("link", { name: /Create Jev exemption/ });
     expect(link.getAttribute("href")).toContain("jevGoverningHidden=true");
@@ -473,7 +481,7 @@ describe("JevPanel unblock section", () => {
     renderPanel({
       assessment: blocked,
       exemption: { namespace: "platform", versionName: "lint-helper-1-0-0", targetKind: "Skill", targetName: "lint-helper", canEdit: true },
-      unblock: { state: "needs-entry", digest: "d".repeat(64) },
+      unblock: { state: "needs-entry", digest: "d".repeat(64), namesHidden: false },
     });
     const link = screen.getByRole("link", { name: /Create Jev exemption/ });
     expect(link.getAttribute("href")).toContain("jevKind=Skill");

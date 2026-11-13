@@ -157,7 +157,9 @@ function JevUnblockSection({ unblock, versionName }: { unblock: JevUnblockView; 
             <Typography variant="body2">
               {unblock.policy
                 ? `Add a Jev exemption for this digest to ScanPolicy ${unblock.policy}. It is the policy that governs this Version.`
-                : "Add a Jev exemption for this digest to the ScanPolicy that governs this Version. The governing policy's name is not shown here. Create Jev exemption opens a new policy, and the editor reports which policy governs this Version."}
+                : unblock.namesHidden
+                  ? "Policy names are hidden for this account, so the governing policy cannot be named. Add a Jev exemption for this digest to the ScanPolicy that governs this Version. Create Jev exemption opens a new policy, and the editor reports which policy governs this Version."
+                  : "No ScanPolicy currently governs this Version, so a Jev exemption entry has no effect until a policy with a matching target governs it."}
             </Typography>
             <CopyableValue value={unblock.digest} />
           </>

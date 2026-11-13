@@ -5,7 +5,7 @@ import type { JevUnblock as ServerJevUnblock } from "@/lib/api";
 // hid the name, or sent an empty one, so the UI never shows an empty name as if it were real.
 export type JevUnblockView =
   | { state: "no-digest"; namespace: string }
-  | { state: "needs-entry"; digest: string; policy?: string }
+  | { state: "needs-entry"; digest: string; policy?: string; namesHidden: boolean }
   | { state: "superseded"; digest: string; policy?: string; winner?: string; policyPriority: number; winnerPriority: number }
   | { state: "expired"; digest: string; policy?: string; expires?: string }
   | { state: "pending"; namespace: string; digest: string; policy?: string }
@@ -43,7 +43,7 @@ export function describeJevUnblock({
     case "unknown":
       return { state: "unknown", digest, expires };
     case "needs-entry":
-      return digest ? { state: "needs-entry", digest, policy } : { state: "unknown" };
+      return digest ? { state: "needs-entry", digest, policy, namesHidden: unblock.namesHidden } : { state: "unknown" };
     case "superseded":
       return digest
         ? {
