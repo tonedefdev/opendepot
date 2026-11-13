@@ -47,16 +47,16 @@ var lookupProviderRepo = registry.LookupProviderRepo
 // resolveScanPolicy lists the ScanPolicy resources in the Version's namespace and folds the
 // winning policy together with the controller's blocking flags into the effective decision.
 // It also returns the ranked matching policies, so the caller can report which policy governs
-// the Version. A listing failure falls back to the flags so that a transient API error can never
-// silently relax enforcement. It returns no ranked policies and the listing error, so the caller
-// can leave the recorded governance unchanged instead of reporting that no policy governs the Version.
+// the Version. A listing failure returns the error and no policy. The caller must fail closed and
+// leave the Version's enforcement state unchanged, because the controller flags are not the
+// effective policy and a fallback to them could relax a stricter ScanPolicy threshold.
 func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) (policy.Resolved, []opendepotv1alpha1.ScanPolicy, error) {
 	policies := &opendepotv1alpha1.ScanPolicyList{}
 	if err := r.List(ctx, policies, client.InNamespace(version.Namespace)); err != nil {
-		r.Log.Error(err, "Failed to list ScanPolicies — falling back to the controller blocking flags",
+		r.Log.Error(err, "Failed to list ScanPolicies",
 			"version", version.Name, "namespace", version.Namespace)
 
-		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now()), nil, err
+		return policy.Resolved{}, nil, fmt.Errorf("list ScanPolicies: %w", err)
 	}
 
 	ranked, errs := policy.Rank(policies.Items, version)

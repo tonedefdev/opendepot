@@ -1546,7 +1546,8 @@ func (c scanPolicyListFailingClient) List(ctx context.Context, list client.Objec
 }
 
 // TestReconcileStoredGovernanceKeptOnListFailure covers a ScanPolicy listing failure on a published Version. The
-// recorded governance and unblock state are kept, rather than replaced with "no policy governs this Version".
+// recorded governance and unblock state are kept, rather than replaced with "no policy governs this Version", and the
+// error requeues the Version.
 func TestReconcileStoredGovernanceKeptOnListFailure(t *testing.T) {
 	f := newJevStoredFixture(t,
 		jevPublishedVersion(t, jevExemptTestDigest, "release-exemptions"),
@@ -1560,7 +1561,9 @@ func TestReconcileStoredGovernanceKeptOnListFailure(t *testing.T) {
 	}
 
 	f.reconciler.Client = scanPolicyListFailingClient{Client: f.reconciler.Client}
-	f.reconcileStored(t)
+	if _, _, err := f.reconciler.reconcileStoredScanPolicy(context.Background(), ctrl.Request{NamespacedName: f.key}, f.version(t)); err == nil {
+		t.Fatalf("reconcileStoredScanPolicy returned nil error on a ScanPolicy listing failure; want the error to requeue")
+	}
 
 	after := f.version(t).Status
 	if !reflect.DeepEqual(after.JevExemptionGovernance, before.JevExemptionGovernance) {
@@ -1667,5 +1670,57 @@ func TestReconcileStoredExistingContentDigestIsNotOverwritten(t *testing.T) {
 	stored := f.version(t)
 	if stored.Status.JevAssessment == nil || stored.Status.JevAssessment.ContentDigest != jevExemptTestDigest {
 		t.Fatalf("ContentDigest = %+v; want the existing %q kept", stored.Status.JevAssessment, jevExemptTestDigest)
+	}
+}
+
+// TestReconcileStoredPriorBlockSurvivesListFailure covers a Version blocked by a ScanPolicy whose threshold is stricter
+// than the controller flags. When the listing fails, the fallback flags would not block the HIGH finding, so the block
+// must be kept, the Version must stay unsynced, and the error must requeue it.
+func TestReconcileStoredPriorBlockSurvivesListFailure(t *testing.T) {
+	version := newJevTestVersion(nil, nil)
+	version.Name = "agent-1-0-0"
+	version.Spec.Version = "1.0.0"
+	version.Status.SourceScan = &opendepotv1alpha1.SourceScan{
+		Findings: []opendepotv1alpha1.SecurityFinding{{VulnerabilityID: "CVE-2024-0001", PkgName: "lib", InstalledVersion: "1.0.0", Severity: "HIGH"}},
+	}
+	version.Status.SyncStatus = "Scan policy violation: blocking: HIGH vulnerability CVE-2024-0001 in agent (lib 1.0.0)"
+	f := newJevStoredFixture(t, version)
+	before := f.version(t).Status
+
+	f.reconciler.Client = scanPolicyListFailingClient{Client: f.reconciler.Client}
+	if _, _, err := f.reconciler.reconcileStoredScanPolicy(context.Background(), ctrl.Request{NamespacedName: f.key}, f.version(t)); err == nil {
+		t.Fatalf("reconcileStoredScanPolicy returned nil error on a ScanPolicy listing failure; want the error to requeue")
+	}
+
+	if after := f.version(t).Status; !reflect.DeepEqual(after, before) {
+		t.Fatalf("status after list failure = %+v; want unchanged %+v", after, before)
+	}
+}
+
+// TestReconcileAgentListFailureLeavesVersionPending covers a ScanPolicy listing failure during the full Reconcile. The
+// Version is not scanned or assessed, no Jev call is made, the prior block is kept, and the error requeues the Version.
+func TestReconcileAgentListFailureLeavesVersionPending(t *testing.T) {
+	f := newJevReconcileFixture(t, jevReconcileCase{})
+	stored := f.version(t)
+	stored.Status.Synced = false
+	stored.Status.SyncStatus = "JevBlocked: Critical risk level"
+	if err := f.reconciler.Status().Update(context.Background(), stored); err != nil {
+		t.Fatalf("Status Update: %v", err)
+	}
+	before := f.version(t).Status
+
+	f.reconciler.Client = scanPolicyListFailingClient{Client: f.reconciler.Client}
+	if _, err := f.reconcileResult(t); err == nil {
+		t.Fatalf("Reconcile returned nil error on a ScanPolicy listing failure; want the error to requeue")
+	}
+
+	wantJevCalls(t, f, 0)
+	after := f.version(t).Status
+	if after.Synced || after.SyncStatus != before.SyncStatus {
+		t.Fatalf("Synced = %v, SyncStatus = %q after list failure; want the prior block kept", after.Synced, after.SyncStatus)
+	}
+
+	if !reflect.DeepEqual(after.JevAssessment, before.JevAssessment) || !reflect.DeepEqual(after.JevExemptionGovernance, before.JevExemptionGovernance) || !reflect.DeepEqual(after.JevUnblock, before.JevUnblock) {
+		t.Fatalf("Jev state after list failure = %+v; want unchanged %+v", after, before)
 	}
 }
