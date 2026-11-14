@@ -1,6 +1,5 @@
 import type { SxProps, Theme } from "@mui/material/styles";
 import { kindColor } from "@/lib/kindColors";
-import { riskLevelSeverity } from "@/lib/jevSeverity";
 
 // Plain object styles (not functions) so server components can pass them to MUI.
 const lightMode = '[data-mui-color-scheme="light"] &';
@@ -12,7 +11,7 @@ type StatusTone = "success" | "warning" | "error" | "info" | "secondary";
 // Shared surface for neutral metadata chips. SourceRefChip is not an MUI Chip, so it reuses this directly.
 export const metaChipSurfaceSx = {
   height: META_CHIP_HEIGHT,
-  borderRadius: "6px",
+  borderRadius: "4px",
   border: "1px solid",
   borderColor: "divider",
   bgcolor: "rgba(240,246,252,0.04)",
@@ -37,7 +36,7 @@ export const metaChipSx: SxProps<Theme> = {
 export const monoMetaChipSx: SxProps<Theme> = {
   ...metaChipSurfaceSx,
   ...chipPartsSx,
-  fontFamily: "monospace",
+  fontFamily: "var(--od-font-mono)",
   fontWeight: 500,
 };
 
@@ -55,7 +54,7 @@ export function kindChipSx(kind: string, iconColor: string = kindColor(kind)): S
 const statusBaseSx = {
   ...chipPartsSx,
   height: META_CHIP_HEIGHT,
-  borderRadius: "6px",
+  borderRadius: "4px",
   border: "1px solid",
   fontSize: "0.75rem",
   fontWeight: 600,
@@ -74,16 +73,5 @@ export function statusChipSx(tone: StatusTone): SxProps<Theme> {
   return {
     ...statusBaseSx,
     ...statusTintSx(tone),
-  };
-}
-
-// Risk chips take the severity tint and carry the Jev shield in the same color as the label.
-export function riskChipSx(level: string): SxProps<Theme> {
-  const severity = riskLevelSeverity(level);
-  if (!severity) return metaChipSx;
-  return {
-    ...statusBaseSx,
-    ...statusTintSx(severity),
-    "& .MuiChip-icon": { ...chipPartsSx["& .MuiChip-icon"], color: "inherit" },
   };
 }

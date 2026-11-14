@@ -7,9 +7,19 @@ import { BRAND_BLUE, BRAND_BRIDGE, BRAND_MINT } from "@/lib/brand";
 // ThemeRegistry's ColorModeCookieSync) and read server-side in layout.tsx.
 export const COLOR_MODE_COOKIE = "opendepot_color_mode";
 
+// Aspekta is the brand's primary typeface. Inter stays in the stack as the brand's supporting face and as
+// the fallback while Aspekta loads. Both web fonts are self-hosted from public/fonts under the OFL.
+export const FONT_SANS = '"Aspekta", "Inter Variable", "Inter", "Helvetica Neue", Arial, sans-serif';
+// Monospace is reserved for values a person would paste into a terminal or HCL: versions, refs, digests, paths.
+export const FONT_MONO = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
 // Brand hues from the OpenDepot Brand Guidelines 2026 (see src/lib/brand.ts). Mint leads in dark mode and
-// blue leads in light mode, because mint fails contrast on white and blue fails on the dark surface. The
-// bridge color sits between them as the secondary hue in both modes.
+// blue leads in light mode, because mint fails contrast on white and blue fails on black. The bridge color
+// sits between them as the secondary hue in both modes.
+//
+// Surfaces follow one rule in both modes: background.default is the lowest layer (the canvas, and wells
+// sunk into cards) and background.paper is raised above it. Dark mode sits on the brand black and light
+// mode puts white paper on a cool grey canvas.
 
 const theme = createTheme({
   cssVariables: {
@@ -27,17 +37,17 @@ const theme = createTheme({
           light: BRAND_MINT,
         },
         background: {
-          default: "#0d1117",
-          paper: "#161b22",
+          default: "#000000",
+          paper: "#0c0e11",
         },
-        error: { main: "#f85149" },
-        warning: { main: "#d29922" },
+        error: { main: "#ff6257" },
+        warning: { main: "#e0a526" },
         info: { main: BRAND_MINT },
         success: { main: "#3fb950" },
-        divider: "rgba(240,246,252,0.1)",
+        divider: "rgba(255,255,255,0.11)",
         text: {
-          primary: "#e6edf3",
-          secondary: "#8b949e",
+          primary: "#edf0f2",
+          secondary: "#8d959e",
         },
       },
     },
@@ -52,35 +62,35 @@ const theme = createTheme({
           light: BRAND_MINT,
         },
         background: {
-          default: "#ffffff",
-          paper: "#f6f8fa",
+          default: "#f3f5f8",
+          paper: "#ffffff",
         },
-        // Semantic feedback colors are re-tuned (not taken from the docs
-        // palette) so they keep sufficient contrast against a white surface;
-        // the brand hues themselves (primary/secondary above) are unchanged.
-        error: { main: "#d1242f" },
+        // Semantic feedback colors are tuned to keep sufficient contrast on white paper.
+        error: { main: "#cf222e" },
         warning: { main: "#9a6700" },
         info: { main: "#037a70" },
         success: { main: "#1a7f37" },
-        divider: "rgba(31,35,40,0.12)",
+        divider: "rgba(11,13,16,0.12)",
         text: {
-          primary: "#1f2328",
-          secondary: "#656d76",
+          primary: "#0b0d10",
+          secondary: "#5b6470",
         },
       },
     },
   },
   typography: {
-    fontFamily: '"Inter Variable", "Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
-    h1: { fontWeight: 700, letterSpacing: "-0.025em" },
-    h2: { fontWeight: 700, letterSpacing: "-0.02em" },
-    h3: { fontWeight: 600, letterSpacing: "-0.015em" },
-    h4: { fontWeight: 600, letterSpacing: "-0.01em" },
-    h5: { fontWeight: 600 },
-    h6: { fontWeight: 600 },
+    fontFamily: FONT_SANS,
+    // h1 to h3 follow the brand type scale (36/38, 24/28, 18/21). h4 to h6 stay as compact UI headings.
+    h1: { fontSize: "2.25rem", lineHeight: 38 / 36, fontWeight: 650, letterSpacing: "-0.025em" },
+    h2: { fontSize: "1.5rem", lineHeight: 28 / 24, fontWeight: 650, letterSpacing: "-0.02em" },
+    h3: { fontSize: "1.125rem", lineHeight: 21 / 18, fontWeight: 600, letterSpacing: "-0.01em" },
+    h4: { fontWeight: 650, letterSpacing: "-0.02em" },
+    h5: { fontWeight: 600, letterSpacing: "-0.015em" },
+    h6: { fontWeight: 600, letterSpacing: "-0.01em" },
     body1: { fontSize: "0.9375rem" },
     body2: { fontSize: "0.875rem" },
     caption: { fontSize: "0.75rem" },
+    button: { fontWeight: 600 },
   },
   shape: {
     borderRadius: 8,
@@ -91,52 +101,87 @@ const theme = createTheme({
         // Mode-aware brand and kind accents. Inline styles (ReactFlow nodes) cannot read the theme, so they
         // reference these variables. Mint fails contrast on white, so AI kinds and the accent use blue in light mode.
         ":root": {
+          "--od-font-mono": FONT_MONO,
           "--od-accent": BRAND_MINT,
           "--od-kind-iac": BRAND_BRIDGE,
           "--od-kind-ai": BRAND_MINT,
-          "--od-kind-version": "#8b949e",
+          "--od-kind-version": "#8d959e",
           // Assembly Line node icon colors. Light mode uses the for_each chip's teal so the icon and minimap read on the card.
           "--od-assembly-variable": BRAND_BRIDGE,
           "--od-assembly-module": BRAND_MINT,
+          // The rule under a table head and above a page footer: one step stronger than a row divider.
+          "--od-rule-strong": "rgba(255,255,255,0.22)",
         },
         '[data-mui-color-scheme="light"]': {
           "--od-accent": BRAND_BLUE,
           "--od-kind-ai": BRAND_BLUE,
-          "--od-kind-version": "#6e7781",
+          "--od-kind-version": "#6b7480",
           "--od-assembly-variable": BRAND_BLUE,
           "--od-assembly-module": "#037a70",
+          "--od-rule-strong": "rgba(11,13,16,0.28)",
         },
         body: {
+          // JetBrains Mono joins sequences such as >= and != into single glyphs. Versions, constraints, and HCL must read literally.
+          fontVariantLigatures: "no-contextual",
           scrollbarColor: `${theme.vars.palette.divider} transparent`,
           "&::-webkit-scrollbar": { width: "8px" },
           "&::-webkit-scrollbar-track": { background: "transparent" },
           "&::-webkit-scrollbar-thumb": {
-            background: "#30363d",
+            background: "#2a2f36",
             borderRadius: "4px",
           },
           ...theme.applyStyles("light", {
             "&::-webkit-scrollbar-thumb": {
-              background: "#d0d7de",
+              background: "#c9d0d8",
             },
           }),
+        },
+        "code, pre, kbd, samp": {
+          fontFamily: FONT_MONO,
+        },
+        "a:focus-visible": {
+          outline: `2px solid ${theme.vars.palette.primary.main}`,
+          outlineOffset: 2,
+          borderRadius: 2,
+        },
+        // ReactFlow ships light-only chrome. These keep its controls and edge labels on the app's surfaces in both modes.
+        ".react-flow__controls": {
+          boxShadow: "none",
+          overflow: "hidden",
+        },
+        ".react-flow__controls .react-flow__controls-button": {
+          background: theme.vars.palette.background.paper,
+          borderBottom: `1px solid ${theme.vars.palette.divider}`,
+          color: theme.vars.palette.text.primary,
+          "&:hover": { background: theme.vars.palette.action.hover },
+          "&:last-of-type": { borderBottom: 0 },
+          "& svg": { fill: "currentColor" },
+        },
+        ".react-flow__edge-textbg": {
+          fill: theme.vars.palette.background.paper,
+        },
+        ".react-flow__minimap-mask": {
+          fill: `rgba(${theme.vars.palette.background.defaultChannel} / 0.7)`,
         },
       }),
     },
     MuiTooltip: {
       styleOverrides: {
         tooltip: ({ theme }) => ({
-          backgroundColor: "#24292f",
-          color: "#f6f8fa",
+          backgroundColor: "#0b0d10",
+          color: "#f3f5f8",
           border: `1px solid ${theme.vars.palette.divider}`,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+          fontSize: "0.75rem",
+          fontWeight: 500,
           ...theme.applyStyles("dark", {
-            backgroundColor: "#2d333b",
+            backgroundColor: "#1c2026",
           }),
         }),
         arrow: ({ theme }) => ({
-          color: "#24292f",
+          color: "#0b0d10",
           ...theme.applyStyles("dark", {
-            color: "#2d333b",
+            color: "#1c2026",
           }),
         }),
       },
@@ -148,17 +193,38 @@ const theme = createTheme({
         }),
       },
     },
+    // Raised surfaces are told apart by a hairline, not by a shadow or a hover effect. Only surfaces that
+    // float over the page (menus, popovers, dialogs) keep a shadow.
+    MuiPaper: {
+      styleOverrides: {
+        root: { backgroundImage: "none" },
+        outlined: ({ theme }) => ({
+          borderColor: theme.vars.palette.divider,
+          borderRadius: 10,
+        }),
+      },
+    },
     MuiCard: {
       styleOverrides: {
         root: ({ theme }) => ({
-          backgroundImage: "none",
           backgroundColor: theme.vars.palette.background.paper,
           border: `1px solid ${theme.vars.palette.divider}`,
+          borderRadius: 10,
           boxShadow: "none",
-          transition: "border-color 0.15s ease",
-          "&:hover": {
-            borderColor: theme.vars.palette.text.secondary,
-          },
+        }),
+      },
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          border: `1px solid ${theme.vars.palette.divider}`,
+        }),
+      },
+    },
+    MuiPopover: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          border: `1px solid ${theme.vars.palette.divider}`,
         }),
       },
     },
@@ -167,7 +233,7 @@ const theme = createTheme({
         root: {
           fontWeight: 600,
           fontSize: "0.75rem",
-          borderRadius: "6px",
+          borderRadius: "4px",
         },
         outlined: ({ theme }) => ({
           borderColor: theme.vars.palette.divider,
@@ -187,6 +253,16 @@ const theme = createTheme({
         },
       },
     },
+    MuiToggleButton: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          textTransform: "none",
+          fontWeight: 600,
+          borderRadius: "6px",
+          borderColor: theme.vars.palette.divider,
+        }),
+      },
+    },
     MuiOutlinedInput: {
       styleOverrides: {
         root: ({ theme }) => ({
@@ -200,13 +276,22 @@ const theme = createTheme({
         }),
       },
     },
+    // Tables are the product's main reading surface: compact rows, aligned figures, and a head rule one
+    // step stronger than the row rules so the eye finds the column labels without a filled header band.
     MuiTableCell: {
       styleOverrides: {
+        root: {
+          padding: "10px 16px",
+          fontVariantNumeric: "tabular-nums",
+        },
         head: ({ theme }) => ({
+          paddingTop: 8,
+          paddingBottom: 8,
           fontWeight: 600,
-          fontSize: "0.8125rem",
+          fontSize: "0.75rem",
+          lineHeight: 1.5,
           color: theme.vars.palette.text.secondary,
-          borderBottomColor: theme.vars.palette.divider,
+          borderBottomColor: "var(--od-rule-strong)",
         }),
         body: ({ theme }) => ({
           borderBottomColor: theme.vars.palette.divider,
@@ -240,4 +325,3 @@ const theme = createTheme({
 });
 
 export default theme;
-

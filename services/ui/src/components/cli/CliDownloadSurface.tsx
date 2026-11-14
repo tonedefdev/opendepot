@@ -79,7 +79,7 @@ export default function CliDownloadSurface() {
   return (
     <>
       <PageHeader
-        icon={<TerminalOutlinedIcon color="primary" fontSize="small" />}
+        icon={<TerminalOutlinedIcon fontSize="small" />}
         title="OpenDepot CLI"
         description="Download and install the OpenDepot command-line tool."
         mobileOnly
@@ -109,7 +109,7 @@ export default function CliDownloadSurface() {
                 <ListItemText
                   primary={platform.label}
                   secondary={cliBinaryName(platform.os, platform.arch)}
-                  secondaryTypographyProps={{ sx: { fontFamily: "monospace" } }}
+                  secondaryTypographyProps={{ sx: { fontFamily: "var(--od-font-mono)" } }}
                 />
               </ListItemButton>
             );

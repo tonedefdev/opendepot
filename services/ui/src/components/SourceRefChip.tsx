@@ -13,6 +13,8 @@ interface SourceRefChipProps {
   repoUrl?: string;
   /** Set to false when the chip is rendered inside another link, since nested anchors are invalid. */
   linked?: boolean;
+  /** Drops the chip surface so the ref reads as plain text inside a table cell or a line of metadata. */
+  plain?: boolean;
 }
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -32,7 +34,7 @@ function githubBaseUrl(repoUrl?: string): string | null {
   return trimmed.startsWith("https://github.com/") ? trimmed : null;
 }
 
-export default function SourceRefChip({ sourceRef, sourceCommit, sourcePath, repoUrl, linked = true }: SourceRefChipProps) {
+export default function SourceRefChip({ sourceRef, sourceCommit, sourcePath, repoUrl, linked = true, plain = false }: SourceRefChipProps) {
   if (!sourceRef) {
     return null;
   }
@@ -47,15 +49,14 @@ export default function SourceRefChip({ sourceRef, sourceCommit, sourcePath, rep
       component="span"
       title={shortCommit ? `${sourceRef}@${shortCommit}` : sourceRef}
       sx={{
-        ...metaChipSurfaceSx,
+        ...(plain ? { color: "text.secondary", fontSize: "0.8125rem", verticalAlign: "middle" } : { ...metaChipSurfaceSx, px: 0.75 }),
         display: "inline-flex",
         alignItems: "center",
         gap: 0.5,
-        px: 0.75,
         maxWidth: "100%",
         minWidth: 0,
         boxSizing: "border-box",
-        fontFamily: "monospace",
+        fontFamily: "var(--od-font-mono)",
         fontWeight: 500,
       }}
     >

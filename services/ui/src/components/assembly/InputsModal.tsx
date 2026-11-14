@@ -98,7 +98,7 @@ function MarkdownDescription({ text }: { text: string }) {
         "& a": { color: "primary.main", textDecoration: "none" },
         "& a:hover": { textDecoration: "underline" },
         "& code": {
-          fontFamily: "monospace",
+          fontFamily: "var(--od-font-mono)",
           fontSize: "0.6875rem",
           color: "warning.main",
           bgcolor: "action.hover",
@@ -448,7 +448,7 @@ export default function InputsModal({
                   borderRadius: 1,
                   border: "1px solid",
                   borderColor: "divider",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--od-font-mono)",
                   fontSize: "0.75rem",
                   lineHeight: 1.5,
                   overflow: "auto",

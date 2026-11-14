@@ -167,7 +167,7 @@ function DirectoryRow({ dir, depth }: { dir: JevTreeDirectory; depth: number }) 
           fontSize="small"
           sx={{ color: "text.secondary", transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 150ms" }}
         />
-        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+        <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)" }}>
           {`${dir.name}/`}
         </Typography>
         <RiskChips risk={dir} />
@@ -190,7 +190,7 @@ function DirectoryRow({ dir, depth }: { dir: JevTreeDirectory; depth: number }) 
 function FileRow({ file, depth }: { file: JevTreeFile; depth: number }) {
   return (
     <ListItem dense sx={{ pl: 1 + depth * TREE_INDENT, gap: 1, flexWrap: "wrap" }}>
-      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+      <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)" }}>
         {file.name}
       </Typography>
       <RiskChips risk={file} />
@@ -239,7 +239,7 @@ function ChunksView({ chunks, skippedFiles }: { chunks: JevChunkResult[]; skippe
       ))}
       {skippedFiles.map((skipped) => (
         <ListItem key={skipped.path} dense sx={{ pl: 1, gap: 1, flexWrap: "wrap" }}>
-          <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+          <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)" }}>
             {skipped.path}
           </Typography>
           <Chip size="small" variant="outlined" color="error" label={SKIP_REASON_TEXT[skipped.reason]} />
@@ -272,7 +272,7 @@ function ChunkRow({ chunk }: { chunk: JevChunkResult }) {
         <Typography variant="caption" color="text.secondary">
           Part
         </Typography>
-        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+        <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)" }}>
           {chunk.label}
         </Typography>
         <Chip size="small" variant="outlined" color={STATUS_COLORS[chunk.status]} label={chunk.status} />
@@ -301,7 +301,7 @@ function ChunkRow({ chunk }: { chunk: JevChunkResult }) {
         <List dense disablePadding>
           {files.map((path) => (
             <ListItem key={path} dense sx={{ pl: 1 + TREE_INDENT }}>
-              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+              <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)" }}>
                 {path}
               </Typography>
             </ListItem>

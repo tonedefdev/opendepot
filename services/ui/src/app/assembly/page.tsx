@@ -1,12 +1,12 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
-import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import { listResources } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import AssemblyCanvas from "@/components/assembly/AssemblyCanvas";
 import { isAssemblyProvider } from "@/lib/registrySource";
+import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import PageHeader from "@/components/PageHeader";
 import MobileMapButton from "@/components/MobileMapButton";
 
@@ -35,7 +35,7 @@ export default async function AssemblyPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <PageHeader
-        icon={<PrecisionManufacturingIcon color="primary" fontSize="small" />}
+        icon={<PrecisionManufacturingIcon fontSize="small" />}
         title="Assembly Line"
         description="Compose modules visually by wiring outputs to inputs."
         actions={<MobileMapButton />}

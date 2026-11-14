@@ -5,12 +5,10 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Tooltip from "@mui/material/Tooltip";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import SyncProblemIcon from "@mui/icons-material/SyncProblem";
-import ErrorIcon from "@mui/icons-material/Error";
 import StorageIcon from "@mui/icons-material/Storage";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import GitHubIcon from "@mui/icons-material/GitHub";
@@ -32,14 +30,22 @@ import JevPanel from "@/components/JevPanel";
 import { AgentConfigSnippet, AgentDefinition, AgentMetadataChips } from "@/components/AgentDetail";
 import { SectionCard } from "@/components/SectionCard";
 import SourceRefChip from "@/components/SourceRefChip";
-import { DepotKindIcon, isDepotKind } from "@/components/DepotKindIcon";
-import { BRAND_GRADIENT_WASH, BRAND_SURFACE_BORDER } from "@/lib/brand";
-import { kindChipSx, monoMetaChipSx } from "@/components/chipStyles";
+import RiskMeter from "@/components/RiskMeter";
+import { KindLabel, SyncStatus, displayVersion } from "@/components/resourceDisplay";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import { monoMetaChipSx } from "@/components/chipStyles";
 import { canEditJevExemptions } from "@/components/security-policies/jevExemptions";
 import { describeJevUnblock } from "@/components/jevUnblock";
 import { getContract, getResourceDetail, getScanPolicyCapabilities, getScanPolicyCatalog, listDepots } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { notFound } from "next/navigation";
+
+const KIND_PLURALS: Record<string, string> = {
+  agent: "Agents",
+  skill: "Skills",
+  module: "Modules",
+  provider: "Providers",
+};
 
 interface PageProps {
   params: Promise<{
@@ -52,32 +58,15 @@ interface PageProps {
 function LabelValue({ label, value }: { label: string; value?: React.ReactNode }) {
   if (!value && value !== 0) return null;
   return (
-    <Box display="flex" gap={1} mb={0.75} alignItems="flex-start">
-      <Typography
-        variant="caption"
-        sx={{
-          color: "text.secondary",
-          minWidth: 150,
-          flexShrink: 0,
-          pt: "2px",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-          fontSize: "0.7rem",
-          fontWeight: 600,
-        }}
-      >
+    <Box display="flex" gap={1} mb={0.75} alignItems="baseline">
+      <Typography variant="body2" sx={{ color: "text.secondary", minWidth: 170, flexShrink: 0, fontSize: "0.8125rem" }}>
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8125rem", wordBreak: "break-all" }}>
+      <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", wordBreak: "break-all" }}>
         {value}
       </Typography>
     </Box>
   );
-}
-
-function displayVersion(v: string): string {
-  if (!v) return "";
-  return v.startsWith("v") ? v : `v${v}`;
 }
 
 function compareVersionDesc(a: string, b: string): number {
@@ -168,6 +157,10 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   const jevCanEdit = detail.jevAssessment?.blocked && detail.jevAssessment.contentDigest ? await canCreateJevExemption(namespace, token) : false;
   const jevResource = { kind: kind === "skill" ? "Skill" : "Agent", name } as const;
   const jevUnblock = detail.jevAssessment && isAgentKind ? describeJevUnblock({ unblock: detail.jevUnblock, namespace }) : null;
+  const jevBlocked = isAgentKind && (!!detail.blocked || !!detail.jevAssessment?.blocked);
+  const jevBlockReasons = detail.blockReasons?.length ? detail.blockReasons : (detail.jevAssessment?.blockReasons ?? []);
+  // The list response carries the block on the resource; the detail response carries it on the assessment.
+  const headerResource = { ...detail, blocked: jevBlocked, blockReasons: jevBlockReasons };
 
   const contract = isProviderKind || isAgentKind ? null : await getContract(namespace, kind, name, undefined, token).catch(() => null);
 
@@ -177,93 +170,50 @@ export default async function ResourceDetailPage({ params }: PageProps) {
 
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
-      {/* Breadcrumbs */}
-      <Breadcrumbs sx={{ mb: 3, "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
+      {/* The breadcrumb stops at the kind because the page title directly below it is the resource name. */}
+      <Breadcrumbs sx={{ mb: 2, fontSize: "0.875rem", "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
         <Link href="/">Registry</Link>
-        <Link href={`/?namespace=${namespace}`}>
-          <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-            {namespace}
-          </Typography>
-        </Link>
-        <Link href={`/?kind=${kind}`}>{capitalizeKind}</Link>
-        <Typography variant="body2" color="text.primary" fontWeight={600}>
-          {name}
-        </Typography>
+        <Link href={`/?namespace=${namespace}`}>{namespace}</Link>
+        <Link href={`/?kind=${kind}`}>{KIND_PLURALS[kind] ?? capitalizeKind}</Link>
       </Breadcrumbs>
 
-      {/* Hero */}
       <Box
-        sx={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 2.5,
-          mb: 4,
-          p: 3,
-          borderRadius: 2,
-          border: `1px solid ${BRAND_SURFACE_BORDER}`,
-          background: BRAND_GRADIENT_WASH,
-        }}
+        component="header"
+        sx={{ display: "flex", alignItems: "flex-start", gap: 2, mb: 3, pb: 3, borderBottom: "1px solid", borderColor: "divider" }}
       >
         {isProviderKind
-          ? <ProviderLogo provider={detail.name} size={44} />
-          : detail.provider && <ProviderLogo provider={detail.provider} size={44} />}
+          ? <ProviderLogo provider={detail.name} size={38} />
+          : detail.provider && <ProviderLogo provider={detail.provider} size={38} />}
 
         <Box flex={1} minWidth={0}>
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 0.5, wordBreak: "break-word" }}>
+          <Typography variant="h1" sx={{ mb: 1.5, wordBreak: "break-word" }}>
             {detail.name}
           </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary", fontFamily: "monospace", mb: 1.5 }}>
-            {namespace} / {capitalizeKind}
-          </Typography>
 
-          <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
-            <Chip
-              label={capitalizeKind}
-              size="small"
-              icon={isDepotKind(kind) ? <DepotKindIcon kind={kind} /> : undefined}
-              sx={kindChipSx(kind)}
-            />
-            {detail.provider && kind !== "module" && (
-              <Chip label={detail.provider} size="small" sx={monoMetaChipSx} />
-            )}
+          <Box display="flex" flexWrap="wrap" columnGap={2.5} rowGap={1} alignItems="center">
+            <KindLabel resource={headerResource} showLogo={false} />
             {detail.latestVersion && (
-              <Chip
-                label={displayVersion(detail.latestVersion)}
-                size="small"
-                icon={<DepotKindIcon kind="version" />}
-                sx={monoMetaChipSx}
-              />
-            )}
-            {detail.sourceRef && (
-              <SourceRefChip
-                sourceRef={detail.sourceRef}
-                sourceCommit={detail.sourceCommit}
-                sourcePath={detail.sourcePath}
-                repoUrl={detail.repoUrl}
-              />
-            )}
-            <Box display="flex" alignItems="center" gap={0.5}>
-              {/failed|error/i.test(detail.syncStatus) ? (
-                <ErrorIcon sx={{ fontSize: 14, color: "error.main" }} />
-              ) : detail.synced ? (
-                <CheckCircleIcon sx={{ fontSize: 14, color: "success.main" }} />
-              ) : (
-                <SyncProblemIcon sx={{ fontSize: 14, color: "warning.main" }} />
-              )}
-              <Typography variant="caption" color="text.secondary">
-                {detail.syncStatus || (detail.synced ? "Synced" : "Not synced")}
+              <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" }}>
+                {displayVersion(detail.latestVersion)}
               </Typography>
-            </Box>
+            )}
+            <SourceRefChip
+              sourceRef={detail.sourceRef}
+              sourceCommit={detail.sourceCommit}
+              sourcePath={detail.sourcePath}
+              repoUrl={detail.repoUrl}
+              plain
+            />
+            <SyncStatus resource={headerResource} />
+            {isAgentKind && detail.jevAssessment?.riskLevel && <RiskMeter level={detail.jevAssessment.riskLevel} />}
+            {detail.scanCounts && (
+              <Box display="flex" flexWrap="wrap" gap={0.5}>
+                <SeverityBadge counts={detail.scanCounts} />
+              </Box>
+            )}
           </Box>
-
-          {detail.scanCounts && (
-            <Box display="flex" flexWrap="wrap" gap={0.5} mt={1.5}>
-              <SeverityBadge counts={detail.scanCounts} />
-            </Box>
-          )}
         </Box>
 
-        {/* Source repo link */}
         {(detail.repoUrl || detail.sourceRepository) && (
           <Box flexShrink={0}>
             <Tooltip title="Open source repository" placement="top">
@@ -276,7 +226,7 @@ export default async function ResourceDetailPage({ params }: PageProps) {
                 sx={{
                   border: "1px solid",
                   borderColor: "divider",
-                  borderRadius: 1.25,
+                  borderRadius: "6px",
                 }}
               >
                 <GitHubIcon fontSize="small" />
@@ -286,58 +236,23 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         )}
       </Box>
 
-      {/* Overview */}
-      <SectionCard icon={<InventoryIcon fontSize="small" />} title="Overview">
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
-          <LabelValue label="Namespace" value={detail.namespace} />
-          <LabelValue label="Kind" value={capitalizeKind} />
-          <LabelValue label="Provider" value={detail.provider} />
-          {isProviderKind && (
-            <LabelValue label="Provider Namespace" value={detail.providerNamespace || "hashicorp"} />
-          )}
-          {isProviderKind && (
-            <LabelValue label="Upstream Registry" value={detail.upstreamRegistry || "registry.opentofu.org"} />
-          )}
-          <LabelValue label="Latest Version" value={detail.latestVersion ? displayVersion(detail.latestVersion) : undefined} />
-          {detail.repoOwner && <LabelValue label="Repo Owner" value={detail.repoOwner} />}
-          {isAgentKind && detail.sourcePath && <LabelValue label="Source Path" value={detail.sourcePath} />}
-          {detail.versionHistoryLimit !== undefined && detail.versionHistoryLimit > 0 && (
-            <LabelValue label="Version History Limit" value={String(detail.versionHistoryLimit)} />
-          )}
-          {detail.versionConstraints && (
-            <LabelValue label="Version Constraints" value={detail.versionConstraints} />
-          )}
-
-        </Box>
-      </SectionCard>
-
-      {/* Agent definition, metadata, Jev assessment, and config snippet */}
-      {isAgentKind && detail.definitionContent && (
-        <AgentDefinition
-          content={detail.definitionContent}
-          fileName={detail.definitionFileName ?? ""}
-          title={kind === "skill" ? "SKILL.md" : "AGENT.md"}
-        />
+      {/* A block is the first thing to know about a resource, so it is stated here and not left to the assessment further down. */}
+      {jevBlocked && (
+        <Alert
+          severity="error"
+          sx={{ mb: 3 }}
+          action={
+            <Button color="inherit" size="small" href="#jev-assessment" sx={{ whiteSpace: "nowrap" }}>
+              View assessment
+            </Button>
+          }
+        >
+          Blocked by Jev. The registry does not serve this version.
+          {jevBlockReasons.length > 0 && ` Reason: ${jevBlockReasons.join("; ")}.`}
+        </Alert>
       )}
 
-      {isAgentKind && (detail.agentMetadata?.model || detail.agentMetadata?.tools?.length) && (
-        <SectionCard icon={<BuildIcon fontSize="small" />} title="Tools and Model">
-          <AgentMetadataChips metadata={detail.agentMetadata} />
-        </SectionCard>
-      )}
-
-      {isAgentKind && detail.jevAssessment && (
-        <SectionCard icon={<SecurityIcon fontSize="small" />} title="Jev Assessment">
-          <JevPanel
-            assessment={detail.jevAssessment}
-            thresholds={detail.jevThresholds}
-            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit, governingPolicyHidden: detail.jevUnblock?.namesHidden === true }}
-            unblock={jevUnblock}
-            namesHidden={detail.jevUnblock?.namesHidden === true}
-          />
-        </SectionCard>
-      )}
-
+      {/* What a person needs first comes first: how to install it, then whether Jev cleared it, then the definition itself. */}
       {isAgentKind && (
         <SectionCard icon={<CodeIcon fontSize="small" />} title="opendepot.hcl">
           <AgentConfigSnippet
@@ -350,19 +265,29 @@ export default async function ResourceDetailPage({ params }: PageProps) {
         </SectionCard>
       )}
 
-      {/* README */}
-      {!isAgentKind && detail.readmeContent && (
-        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
-          <ResourceReadme
-            content={detail.readmeContent}
-            kind={isProviderKind ? "provider" : "module"}
-            namespace={detail.namespace}
-            name={detail.name}
-            provider={detail.provider}
-            registryHost={registryHost}
-            providerNamespace={detail.providerNamespace}
-            upstreamRegistry={detail.upstreamRegistry}
+      {isAgentKind && detail.jevAssessment && (
+        <SectionCard id="jev-assessment" icon={<SecurityIcon fontSize="small" />} title="Jev Assessment">
+          <JevPanel
+            assessment={detail.jevAssessment}
+            thresholds={detail.jevThresholds}
+            exemption={{ namespace, versionName: detail.latestVersion, targetKind: jevResource.kind, targetName: name, canEdit: jevCanEdit, governingPolicyHidden: detail.jevUnblock?.namesHidden === true }}
+            unblock={jevUnblock}
+            namesHidden={detail.jevUnblock?.namesHidden === true}
           />
+        </SectionCard>
+      )}
+
+      {isAgentKind && detail.definitionContent && (
+        <AgentDefinition
+          content={detail.definitionContent}
+          fileName={detail.definitionFileName ?? ""}
+          title={kind === "skill" ? "SKILL.md" : "AGENT.md"}
+        />
+      )}
+
+      {isAgentKind && (detail.agentMetadata?.model || detail.agentMetadata?.tools?.length) && (
+        <SectionCard icon={<BuildIcon fontSize="small" />} title="Tools and Model">
+          <AgentMetadataChips metadata={detail.agentMetadata} />
         </SectionCard>
       )}
 
@@ -384,12 +309,50 @@ export default async function ResourceDetailPage({ params }: PageProps) {
       </SectionCard>
       )}
 
+      {/* README */}
+      {!isAgentKind && detail.readmeContent && (
+        <SectionCard icon={<DescriptionIcon fontSize="small" />} title="README">
+          <ResourceReadme
+            content={detail.readmeContent}
+            kind={isProviderKind ? "provider" : "module"}
+            namespace={detail.namespace}
+            name={detail.name}
+            provider={detail.provider}
+            registryHost={registryHost}
+            providerNamespace={detail.providerNamespace}
+            upstreamRegistry={detail.upstreamRegistry}
+          />
+        </SectionCard>
+      )}
+
       {/* Assembly Line contract */}
       {contract && (
         <SectionCard icon={<AccountTreeIcon fontSize="small" />} title="Contract">
           <ContractTable contract={contract} />
         </SectionCard>
       )}
+
+      {/* Overview */}
+      <SectionCard icon={<InventoryIcon fontSize="small" />} title="Overview">
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
+          <LabelValue label="Provider" value={detail.provider} />
+          {isProviderKind && (
+            <LabelValue label="Provider Namespace" value={detail.providerNamespace || "hashicorp"} />
+          )}
+          {isProviderKind && (
+            <LabelValue label="Upstream Registry" value={detail.upstreamRegistry || "registry.opentofu.org"} />
+          )}
+          {detail.repoOwner && <LabelValue label="Repo Owner" value={detail.repoOwner} />}
+          {isAgentKind && detail.sourcePath && <LabelValue label="Source Path" value={detail.sourcePath} />}
+          {detail.versionHistoryLimit !== undefined && detail.versionHistoryLimit > 0 && (
+            <LabelValue label="Version History Limit" value={String(detail.versionHistoryLimit)} />
+          )}
+          {detail.versionConstraints && (
+            <LabelValue label="Version Constraints" value={detail.versionConstraints} />
+          )}
+
+        </Box>
+      </SectionCard>
 
       {/* Storage Configuration */}
       <SectionCard icon={<StorageIcon fontSize="small" />} title="Storage Configuration">

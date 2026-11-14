@@ -14,7 +14,11 @@ The Provider Details page shows one provider: its registry identity, sync state,
 
 ## Provider identity and status
 
-The header shows the provider name, its Kubernetes location, the latest version, sync status, and scan counts. A link to the upstream source appears when one is configured.
+The breadcrumb shows the namespace and kind. The header shows the provider name, the latest version, sync status, and scan counts. A link to the upstream source appears when one is configured.
+
+## Usage
+
+The **Usage** section comes first and provides copyable network mirror configuration for `.tofurc` or `.terraformrc`. The mirror URL includes the deployment and namespace shown on the page.
 
 ## Overview
 
@@ -22,16 +26,9 @@ The **Overview** section shows:
 
 | Field | Description |
 |-------|-------------|
-| Namespace | Kubernetes namespace of the `Provider` resource |
-| Kind | Resource kind |
 | Provider Namespace | Registry namespace, such as `hashicorp`. Defaults to `hashicorp` |
 | Upstream Registry | Registry used for discovery and downloads. Defaults to `registry.opentofu.org` |
-| Latest Version | Most recent synchronized version |
 | Version Constraints | Constraint used to select versions |
-
-## Usage
-
-The **Usage** section provides copyable network mirror configuration for `.tofurc` or `.terraformrc`. The mirror URL includes the deployment and namespace shown on the page.
 
 ## Versions and findings
 

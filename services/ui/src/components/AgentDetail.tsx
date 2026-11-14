@@ -61,7 +61,7 @@ export function AgentBody({ content }: AgentBodyProps) {
           "& h1, & h2, & h3": { fontWeight: 600, mt: 2, mb: 1 },
           "& p, & li": { fontSize: "0.9rem", lineHeight: 1.6 },
           "& pre.md-plain-pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
-          "& code": { fontFamily: "monospace", fontSize: "0.8125rem" },
+          "& code": { fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" },
         }}
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={highlightedMarkdownComponents({ renderEmbeddedMarkdown: true })}>
@@ -100,7 +100,7 @@ export function AgentMetadataChips({ metadata }: AgentMetadataChipsProps) {
             Model
           </Typography>
           <Box sx={{ mt: 0.5 }}>
-            <Chip label={metadata.model} size="small" variant="outlined" sx={{ fontFamily: "monospace" }} />
+            <Chip label={metadata.model} size="small" variant="outlined" sx={{ fontFamily: "var(--od-font-mono)" }} />
           </Box>
         </Box>
       )}
@@ -111,7 +111,7 @@ export function AgentMetadataChips({ metadata }: AgentMetadataChipsProps) {
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 0.5 }}>
             {metadata.tools.map((tool) => (
-              <Chip key={tool} label={tool} size="small" variant="outlined" sx={{ fontFamily: "monospace" }} />
+              <Chip key={tool} label={tool} size="small" variant="outlined" sx={{ fontFamily: "var(--od-font-mono)" }} />
             ))}
           </Box>
         </Box>
@@ -234,7 +234,7 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
                 pr: 5,
                 borderRadius: 1,
                 overflowX: "auto",
-                fontFamily: "monospace",
+                fontFamily: "var(--od-font-mono)",
                 fontSize: "0.8125rem",
                 lineHeight: 1.6,
                 ...style,
@@ -373,7 +373,7 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
           left: 0,
           visibility: "hidden",
           whiteSpace: "pre",
-          fontFamily: "monospace",
+          fontFamily: "var(--od-font-mono)",
           fontSize: "0.8125rem",
         }}
       />
@@ -388,7 +388,7 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
               p: 1.5,
               borderRadius: 1,
               overflowX: "auto",
-              fontFamily: "monospace",
+              fontFamily: "var(--od-font-mono)",
               fontSize: "0.8125rem",
               lineHeight: 1.6,
               ...style,

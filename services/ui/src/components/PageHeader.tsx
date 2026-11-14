@@ -4,9 +4,9 @@ import Typography from "@mui/material/Typography";
 import MobileSidebarButton from "@/components/MobileSidebarButton";
 
 interface PageHeaderProps {
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   title: string;
-  description: string;
+  description?: string;
   actions?: React.ReactNode;
   mobileOnly?: boolean;
 }
@@ -29,13 +29,17 @@ export default function PageHeader({ icon, title, description, actions, mobileOn
         bgcolor: "background.default",
       }}
     >
-      {icon}
+      {icon && (
+        <Box sx={{ display: "flex", color: "text.secondary", flexShrink: 0 }}>{icon}</Box>
+      )}
       <Typography variant="h6" fontWeight={600} noWrap sx={{ fontSize: { xs: "1rem", sm: "1.25rem" } }}>
         {title}
       </Typography>
-      <Typography variant="body2" color="text.secondary" noWrap sx={{ ml: 1, display: { xs: "none", sm: "block" } }}>
-        {description}
-      </Typography>
+      {description && (
+        <Typography variant="body2" color="text.secondary" noWrap sx={{ ml: 1, display: { xs: "none", sm: "block" } }}>
+          {description}
+        </Typography>
+      )}
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
         {actions}
         <MobileSidebarButton />

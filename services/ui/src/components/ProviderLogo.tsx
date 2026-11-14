@@ -64,7 +64,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
             fontSize: size * 0.45,
             fontWeight: 700,
             color: "primary.main",
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
           }}
         >
           {letter}

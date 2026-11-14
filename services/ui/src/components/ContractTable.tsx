@@ -206,7 +206,7 @@ function DefaultCode({
               borderRadius: 1,
               border: "1px solid",
               borderColor: "divider",
-              fontFamily: "monospace",
+              fontFamily: "var(--od-font-mono)",
               fontSize: "0.75rem",
               lineHeight: 1.5,
               overflowX: "auto",
@@ -273,7 +273,7 @@ function TypeCode({
                 borderRadius: 1,
                 border: "1px solid",
                 borderColor: "divider",
-                fontFamily: "monospace",
+                fontFamily: "var(--od-font-mono)",
                 fontSize: "0.75rem",
                 lineHeight: 1.5,
                 overflowX: "auto",
@@ -351,7 +351,7 @@ function MarkdownDescription({ text }: { text?: string }) {
           "& a": { color: "primary.main", textDecoration: "none" },
           "& a:hover": { textDecoration: "underline" },
           "& code": {
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
             fontSize: "0.75rem",
             color: "warning.main",
             bgcolor: "action.hover",
@@ -409,7 +409,7 @@ function VariablesTable({
         <TableBody>
           {variables.map((v) => (
             <TableRow key={v.name} hover>
-              <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
                 {v.name}
                 {v.sensitive && (
                   <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
@@ -477,7 +477,7 @@ function OutputsTable({
         <TableBody>
           {outputs.map((o) => (
             <TableRow key={o.name} hover>
-              <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
                 {o.name}
                 {o.sensitive && (
                   <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />

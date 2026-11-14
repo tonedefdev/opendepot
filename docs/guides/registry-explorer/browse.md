@@ -19,7 +19,7 @@ The dashboard (`/stats`) shows:
 
 | Section | Description |
 |---------|-------------|
-| Summary cards | Modules, providers, versions, depots, storage used, and downloads |
+| Summary | Modules, providers, skills, agents, depots, versions, storage used, and downloads |
 | Sync health | Synced, unsynced, and failed version counts |
 | Security posture | Finding counts by severity, plus exempted findings |
 | Storage distribution | Version counts by storage backend |

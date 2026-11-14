@@ -106,7 +106,7 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
           "& a": { color: "primary.main", textDecoration: "none" },
           "& a:hover": { textDecoration: "underline" },
           "& code": {
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
             fontSize: "0.8125rem",
             bgcolor: codeBg,
             px: 0.5,

@@ -233,7 +233,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
             >
               <MenuItem value="">All</MenuItem>
               {availableOS.map((o) => (
-                <MenuItem key={o} value={o} sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+                <MenuItem key={o} value={o} sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" }}>
                   {o}
                 </MenuItem>
               ))}
@@ -252,7 +252,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
             >
               <MenuItem value="">All</MenuItem>
               {availableArch.map((a) => (
-                <MenuItem key={a} value={a} sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+                <MenuItem key={a} value={a} sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" }}>
                   {a}
                 </MenuItem>
               ))}
@@ -317,7 +317,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
             ) : (
               items.map((v, idx) => (
                 <TableRow key={`${v.version}-${v.os ?? ""}-${v.arch ?? ""}-${idx}`} hover>
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
+                  <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", verticalAlign: "top" }}>
                     <span>{v.version ? displayVersion(v.version) : "—"}</span>
                   </TableCell>
                   <TableCell sx={{ verticalAlign: "top" }}>
@@ -338,21 +338,21 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
+                  <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
                     {v.name ? (
                       <Box display="flex" alignItems="center" gap={0.5}>
-                        <Typography variant="caption" sx={{ fontFamily: "monospace" }}>{v.name}</Typography>
+                        <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)" }}>{v.name}</Typography>
                         <CopyButton value={v.name} />
                       </Box>
                     ) : "—"}
                   </TableCell>
                   {isProvider && (
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
+                    <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", verticalAlign: "top" }}>
                       {v.os || "—"}
                     </TableCell>
                   )}
                   {isProvider && (
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top" }}>
+                    <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", verticalAlign: "top" }}>
                       {v.arch || "—"}
                     </TableCell>
                   )}
@@ -370,13 +370,13 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                     </TableCell>
                   )}
                   <TableCell
-                    sx={{ fontFamily: "monospace", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}
+                    sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}
                   >
                     {v.fileName ? (
                       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                         <Typography
                           variant="caption"
-                          sx={{ fontFamily: "monospace", whiteSpace: "normal", wordBreak: "break-all" }}
+                          sx={{ fontFamily: "var(--od-font-mono)", whiteSpace: "normal", wordBreak: "break-all" }}
                         >
                           {v.fileName}
                         </Typography>
@@ -385,21 +385,21 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                     ) : "—"}
                   </TableCell>
                   {showCommit && (
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", verticalAlign: "top", whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", verticalAlign: "top", whiteSpace: "nowrap" }}>
                       {v.commit ? (
                         <Box display="flex" alignItems="center" gap={0.5}>
-                          <Typography variant="caption" sx={{ fontFamily: "monospace" }}>{v.commit.slice(0, 7)}</Typography>
+                          <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)" }}>{v.commit.slice(0, 7)}</Typography>
                           <CopyButton value={v.commit} />
                         </Box>
                       ) : "—"}
                     </TableCell>
                   )}
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
+                  <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.75rem", maxWidth: 220, verticalAlign: "top" }}>
                     {v.checksum ? (
                       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                         <Typography
                           variant="caption"
-                          sx={{ fontFamily: "monospace", whiteSpace: "normal", wordBreak: "break-all", maxWidth: { xs: 120, md: 180 }, display: "block" }}
+                          sx={{ fontFamily: "var(--od-font-mono)", whiteSpace: "normal", wordBreak: "break-all", maxWidth: { xs: 120, md: 180 }, display: "block" }}
                         >
                           {v.checksum}
                         </Typography>

@@ -1,15 +1,8 @@
 import * as React from "react";
 import Container from "@mui/material/Container";
-import Paper from "@mui/material/Paper";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableContainer from "@mui/material/TableContainer";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
-import ResourceRow from "@/components/ResourceRow";
+import ResourceList from "@/components/ResourceList";
 import ResourceListControls from "@/components/ResourceListControls";
 import RefreshIconButton from "@/components/RefreshIconButton";
 import { listResources, listNamespaces } from "@/lib/api";
@@ -18,6 +11,15 @@ import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import GridViewIcon from "@mui/icons-material/GridView";
 import PageHeader from "@/components/PageHeader";
+import { DepotKindIcon, type DepotKind } from "@/components/DepotKindIcon";
+
+// A kind filter is its own destination in the sidebar, so the page is titled and iconed for it.
+const KIND_HEADERS: Record<string, { title: string; kind: DepotKind }> = {
+  agent: { title: "Agents", kind: "agent" },
+  skill: { title: "Skills", kind: "skill" },
+  module: { title: "Modules", kind: "module" },
+  provider: { title: "Providers", kind: "provider" },
+};
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -68,12 +70,14 @@ export default async function HomePage({ searchParams }: PageProps) {
   if (listParams.sortDir) cleanParams.set("sort_dir", listParams.sortDir);
   const baseParams = cleanParams.toString();
 
+  const kindHeader = KIND_HEADERS[listParams.kind ?? ""];
+
   return (
     <main>
       <PageHeader
-        icon={<GridViewIcon color="primary" fontSize="small" />}
-        title="Registry Explorer"
-        description="Browse agents, skills, modules, and providers from your OpenDepot registry."
+        icon={kindHeader ? <DepotKindIcon kind={kindHeader.kind} fontSize="small" /> : <GridViewIcon fontSize="small" />}
+        title={kindHeader?.title ?? "Registry Explorer"}
+        description={kindHeader ? undefined : "Browse agents, skills, modules, and providers from your OpenDepot registry."}
         actions={<RefreshIconButton ariaLabel="refresh registry" />}
       />
       <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -111,27 +115,15 @@ export default async function HomePage({ searchParams }: PageProps) {
           </Alert>
         ) : (
           <>
-            <TableContainer component={Paper} variant="outlined">
-              <Table aria-label="Registry resources">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Kind</TableCell>
-                    <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>Version</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Risk and scans</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {resourceList.items.map((r) => (
-                    <ResourceRow
-                      key={`${r.namespace}/${r.kind}/${r.name}`}
-                      resource={r}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <ResourceList
+              items={resourceList.items}
+              totalCount={resourceList.totalCount}
+              sortBy={listParams.sortBy ?? "name"}
+              sortDir={listParams.sortDir === "desc" ? "desc" : "asc"}
+              baseParams={baseParams}
+              namespace={listParams.namespace}
+              query={listParams.q}
+            />
 
             <ResourceListControls
               totalCount={resourceList.totalCount}

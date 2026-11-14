@@ -28,22 +28,29 @@ children filter the explorer by kind:
 | Providers | Only providers. |
 
 Each item has an icon. When the sidebar is collapsed, only the icons appear.
-Hover over an icon to see its name in a tooltip.
+Hover over an icon to see its name in a tooltip. The search icon in the
+collapsed sidebar expands it and places the cursor in the search field.
 
 ## Reading the Registry Explorer
 
-Each resource card summarizes the latest available version:
+The explorer lists one resource per row and summarizes its latest available
+version. Select a row to open the resource details.
 
-| Card attribute | Meaning |
+| Column | Meaning |
 | --- | --- |
-| Namespace | The Kubernetes namespace that owns the resource. |
-| Resource name | The name used to identify the module, provider, skill, or agent. Select the card to open its details. |
-| Provider icon | The provider ecosystem associated with the resource, such as AWS. Modules and providers only. |
-| Type | The resource kind: `Module`, `Provider`, `Skill`, or `Agent`. Each kind has its own chip color. |
-| Source | For a Skill or Agent that follows a branch, the tracked branch and source path. Select the branch to open it on GitHub. |
+| Name | The Kubernetes namespace that owns the resource, then the resource name. A globe icon marks a public resource. |
+| Kind | The resource kind: `Module`, `Provider`, `Skill`, or `Agent`. Modules and providers also show the icon of their provider ecosystem, such as AWS. |
 | Version | The latest version currently shown for the resource. |
-| Sync status | Whether the resource version was successfully synchronized or needs attention. |
-| Finding badges | The number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, `U` unknown, and `E` exempted. |
+| Source | For a Skill or Agent that follows a Git ref, the tracked branch or commit. The column is hidden when no resource on the page has one. |
+| Status | Whether the latest version synchronized. A healthy resource shows **Synced**. A failure, or a version that Jev blocked, is shown in red with its reason in a tooltip. |
+| Risk | For a Skill or Agent, the Jev risk level as a five-step meter from `Minimal` to `Critical`. For a Module or Provider, the number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, `U` unknown, and `E` exempted. |
+
+Above the list, the **Sort** menu orders resources by name, namespace, latest
+version, or last scan, and the arrow next to it reverses the order. Selecting
+the **Name** or **Version** column heading sorts by that column. Active
+namespace and search filters appear next to the resource count and can be
+removed there. The view toggle switches between the table and a card grid.
+Narrow screens always use cards.
 
 The footer shows the resource count, the **Per page** setting, and pagination
 controls.

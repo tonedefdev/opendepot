@@ -34,13 +34,14 @@ export function HighlightedCodeBlock({ code, language }: HighlightedCodeBlockPro
               borderRadius: 1.5,
               border: "1px solid",
               borderColor: "divider",
-              fontFamily: "monospace",
+              fontFamily: "var(--od-font-mono)",
               fontSize: "0.8125rem",
               lineHeight: 1.65,
               overflowX: "auto",
               whiteSpace: "pre",
               ...style,
-              ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
+              // Code sits in a well sunk to the canvas color, like every other inset surface.
+              backgroundColor: "background.default",
             }}
           >
             {tokens.map((line, i) => (

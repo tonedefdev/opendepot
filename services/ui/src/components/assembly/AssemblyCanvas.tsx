@@ -1586,10 +1586,10 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             <Box sx={{ mt: 2, overflow: "hidden", border: "1px solid #30363d", borderRadius: 1, bgcolor: "#0d1117", boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)" }}>
               <Box sx={{ height: 34, px: 1.5, display: "flex", alignItems: "center", gap: 1, bgcolor: "#161b22", borderBottom: "1px solid #30363d", color: "#8b949e" }}>
                 <TerminalIcon sx={{ fontSize: 16, color: "#03deb8" }} />
-                <Typography sx={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#c9d1d9" }}>
+                <Typography sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.7rem", color: "#c9d1d9" }}>
                   OpenTofu
                 </Typography>
-                <Typography sx={{ ml: "auto", fontFamily: "monospace", fontSize: "0.65rem", color: exporting ? "#03deb8" : exportError ? "#f85149" : "#8b949e", textTransform: "uppercase" }}>
+                <Typography sx={{ ml: "auto", fontFamily: "var(--od-font-mono)", fontSize: "0.65rem", color: exporting ? "#03deb8" : exportError ? "#f85149" : "#8b949e", textTransform: "uppercase" }}>
                   {exporting ? "running" : exportError ? "failed" : "complete"}
                 </Typography>
               </Box>

@@ -14,15 +14,13 @@ The Module Details page shows one module: its current version, README, usage, co
 
 ## Module identity and status
 
-The header shows the module name, its Kubernetes location, the latest synchronized version, and sync status. A link to the upstream source appears when one is configured.
+The breadcrumb shows the namespace and kind. The header shows the module name, the latest synchronized version, sync status, and scan counts. A link to the upstream source appears when one is configured.
 
-The **Overview** section lists the namespace, kind, provider, repository owner, latest version, version history limit, and version constraints.
+## Usage and README
 
-## README and usage
+The **Usage** section comes first and provides a copyable module block with the OpenDepot source address and version constraint.
 
 The **README** section renders the module README when one is available.
-
-The **Usage** section provides a copyable module block with the OpenDepot source address and version constraint.
 
 ## Module contract
 
@@ -38,6 +36,8 @@ Use **Show more** to expand long input or output lists. A contract appears only 
 ## Storage, GitHub, and Depot settings
 
 ![OpenDepot Workshop module Storage Configuration, GitHub Configuration, and Depot settings](../../img/workshop-module-configuration.png)
+
+The **Overview** section lists the provider, repository owner, version history limit, and version constraints.
 
 ### Storage Configuration
 

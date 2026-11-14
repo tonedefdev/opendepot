@@ -72,7 +72,7 @@ import type { JevExemptionPrefill } from "./jevGovernance";
 import PageHeader from "@/components/PageHeader";
 import CopyButton from "@/components/CopyButton";
 import ResourceListControls, { PAGE_SIZE_OPTIONS } from "@/components/ResourceListControls";
-import StatCard from "@/components/StatCard";
+import StatCard, { StatStrip } from "@/components/StatCard";
 import { severityChipSx } from "@/components/severityStyles";
 
 (typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
@@ -452,7 +452,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   if (mode === "list") {
     return (
       <Box>
-        <PageHeader icon={<PolicyOutlinedIcon color="primary" fontSize="small" />} title="Security Policies" description="Manage ScanPolicy rules and exemptions." actions={<Tooltip title="Refresh"><IconButton aria-label="Refresh policies" onClick={() => void load()}><RefreshIcon /></IconButton></Tooltip>} mobileOnly />
+        <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title="Security Policies" description="Manage ScanPolicy rules and exemptions." actions={<Tooltip title="Refresh"><IconButton aria-label="Refresh policies" onClick={() => void load()}><RefreshIcon /></IconButton></Tooltip>} mobileOnly />
         <Container maxWidth="xl" sx={{ py: 4 }}>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "flex-end" }} spacing={2} sx={{ mb: 3 }}>
             <Box sx={{ display: { xs: "none", sm: "block" } }}>
@@ -468,12 +468,12 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
             </Stack>
           </Stack>
           {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Non-superseded" value={policies.filter((item) => !item.status?.supersededBy).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<VerifiedUserOutlinedIcon fontSize="small" />} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Matching resources" value={policies.filter((item) => (item.status?.matchedVersions ?? 0) > 0).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<TrackChangesIcon fontSize="small" />} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid>
-            <Grid size={{ xs: 6, md: 3 }}><StatCard loading={loading} label="Expired exemptions" value={policies.reduce((total, item) => total + (item.status?.expiredExemptions ?? 0), 0)} icon={<WarningAmberIcon fontSize="small" />} accentColor={accent.warning} /></Grid>
-          </Grid>
+          <StatStrip columns={4}>
+            <StatCard loading={loading} label="Non-superseded" value={policies.filter((item) => !item.status?.supersededBy).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<VerifiedUserOutlinedIcon fontSize="small" />} />
+            <StatCard loading={loading} label="Matching resources" value={policies.filter((item) => (item.status?.matchedVersions ?? 0) > 0).length} sub={`of ${plural(policies.length, "policy", "policies")}`} icon={<TrackChangesIcon fontSize="small" />} />
+            <StatCard loading={loading} label="Active exemptions" value={policies.reduce((total, item) => total + (item.status?.activeExemptions ?? 0), 0)} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} />
+            <StatCard loading={loading} label="Expired exemptions" value={policies.reduce((total, item) => total + (item.status?.expiredExemptions ?? 0), 0)} icon={<WarningAmberIcon fontSize="small" />} accentColor={accent.warning} />
+          </StatStrip>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "center" }} spacing={1.5} sx={{ mt: 5, mb: 2, pb: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
             <Stack direction="row" spacing={1} alignItems="center">
               <SectionTitle icon={<PolicyOutlinedIcon fontSize="small" />} title="Policies" mb={0} />
@@ -491,12 +491,12 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
 
   return (
     <Box>
-      <PageHeader icon={<PolicyOutlinedIcon color="primary" fontSize="small" />} title={isEdit ? `Edit ${name}` : "Create Security Policy"} description="Guided ScanPolicy configuration." mobileOnly />
+      <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title={isEdit ? `Edit ${name}` : "Create Security Policy"} description="Guided ScanPolicy configuration." mobileOnly />
       <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box sx={{ mb: 3, display: { xs: "none", sm: "block" } }}>
         <Breadcrumbs sx={{ mb: 2, "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
           <Link href="/security-policies">Security Policies</Link>
-          {form.metadata.namespace && <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>{form.metadata.namespace}</Typography>}
+          {form.metadata.namespace && <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "var(--od-font-mono)" }}>{form.metadata.namespace}</Typography>}
           <Typography variant="body2" color="text.primary" fontWeight={600}>{isEdit ? name : "New policy"}</Typography>
         </Breadcrumbs>
         <Typography variant="h4" component="h1">{isEdit ? "Edit Security Policy" : "Create Security Policy"}</Typography>
@@ -574,7 +574,7 @@ function MultiSelectField<T extends string>({ label, options, value, onChange }:
 
 function JevExemptionEditor({ value, onChange, errors, editable, loaded, accessError }: { value: ScanPolicyJevExemption[]; onChange: (value: ScanPolicyJevExemption[]) => void; errors: Record<string, string>; editable: boolean; loaded: boolean; accessError?: string }) {
   const update = (index: number, changes: Partial<ScanPolicyJevExemption>) => { const next = [...value]; next[index] = { ...next[index], ...changes }; onChange(next); };
-  return <Card><CardContent><Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ sm: "center" }} spacing={1}><Box><SectionTitle icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Jev exemptions" mb={0.5} /><Typography variant="body2" color="text.secondary">Exempt the Jev assessment of one exact content digest. Every exemption requires a reason.</Typography></Box><Button startIcon={<AddIcon />} disabled={!editable} sx={{ flexShrink: 0, whiteSpace: "nowrap", alignSelf: { xs: "flex-start", sm: "center" } }} onClick={() => onChange([...value, { contentDigest: "", reason: "" }])}>Add Jev exemption</Button></Stack>{loaded && !editable && <Alert severity="info" sx={{ mt: 2 }}>Only namespace-wide policy managers can add, change, or remove Jev exemptions in this namespace. Existing exemptions are kept unchanged.</Alert>}{accessError && <Alert severity="warning" sx={{ mt: 2 }}>{accessError}</Alert>}{value.length === 0 ? <Typography color="text.secondary" sx={{ mt: 2 }}>No Jev exemptions configured.</Typography> : <Stack divider={<Divider />} spacing={2} sx={{ mt: 2 }}>{value.map((exemption, index) => <Box key={index}><Grid container spacing={2}><Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth required disabled={!editable} label="Content digest" placeholder="64 lowercase hex characters" value={exemption.contentDigest} sx={{ "& input": { fontFamily: "monospace" } }} error={Boolean(errors[`jev-${index}-digest`])} helperText={errors[`jev-${index}-digest`] ?? "SHA-256 of the exact content, without a sha256: prefix."} onChange={(event) => update(index, { contentDigest: event.target.value })} /></Grid><Grid size={{ xs: 10, sm: 4 }}><ExpiryPicker value={exemption.expires} disabled={!editable} error={errors[`jev-${index}-expires`]} onChange={(expires) => update(index, { expires })} /></Grid><Grid size={{ xs: 2, sm: 1 }}><IconButton aria-label={`Remove Jev exemption ${index + 1}`} disabled={!editable} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><DeleteOutlineIcon /></IconButton></Grid><Grid size={12}><TextField fullWidth required disabled={!editable} label="Reason" value={exemption.reason} error={Boolean(errors[`jev-${index}-reason`])} helperText={errors[`jev-${index}-reason`]} onChange={(event) => update(index, { reason: event.target.value })} /></Grid></Grid></Box>)}</Stack>}</CardContent></Card>;
+  return <Card><CardContent><Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ sm: "center" }} spacing={1}><Box><SectionTitle icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Jev exemptions" mb={0.5} /><Typography variant="body2" color="text.secondary">Exempt the Jev assessment of one exact content digest. Every exemption requires a reason.</Typography></Box><Button startIcon={<AddIcon />} disabled={!editable} sx={{ flexShrink: 0, whiteSpace: "nowrap", alignSelf: { xs: "flex-start", sm: "center" } }} onClick={() => onChange([...value, { contentDigest: "", reason: "" }])}>Add Jev exemption</Button></Stack>{loaded && !editable && <Alert severity="info" sx={{ mt: 2 }}>Only namespace-wide policy managers can add, change, or remove Jev exemptions in this namespace. Existing exemptions are kept unchanged.</Alert>}{accessError && <Alert severity="warning" sx={{ mt: 2 }}>{accessError}</Alert>}{value.length === 0 ? <Typography color="text.secondary" sx={{ mt: 2 }}>No Jev exemptions configured.</Typography> : <Stack divider={<Divider />} spacing={2} sx={{ mt: 2 }}>{value.map((exemption, index) => <Box key={index}><Grid container spacing={2}><Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth required disabled={!editable} label="Content digest" placeholder="64 lowercase hex characters" value={exemption.contentDigest} sx={{ "& input": { fontFamily: "var(--od-font-mono)" } }} error={Boolean(errors[`jev-${index}-digest`])} helperText={errors[`jev-${index}-digest`] ?? "SHA-256 of the exact content, without a sha256: prefix."} onChange={(event) => update(index, { contentDigest: event.target.value })} /></Grid><Grid size={{ xs: 10, sm: 4 }}><ExpiryPicker value={exemption.expires} disabled={!editable} error={errors[`jev-${index}-expires`]} onChange={(expires) => update(index, { expires })} /></Grid><Grid size={{ xs: 2, sm: 1 }}><IconButton aria-label={`Remove Jev exemption ${index + 1}`} disabled={!editable} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><DeleteOutlineIcon /></IconButton></Grid><Grid size={12}><TextField fullWidth required disabled={!editable} label="Reason" value={exemption.reason} error={Boolean(errors[`jev-${index}-reason`])} helperText={errors[`jev-${index}-reason`]} onChange={(event) => update(index, { reason: event.target.value })} /></Grid></Grid></Box>)}</Stack>}</CardContent></Card>;
 }
 
 function ExpiryPicker({ value, onChange, disabled, error }: { value?: string; onChange: (value: string | undefined) => void; disabled?: boolean; error?: string }) {
@@ -598,13 +598,13 @@ function LiveYamlPanel({ code, fileName, theme }: { code: string; fileName: stri
     <Card aria-label="Live YAML" sx={{ height: "calc(100vh - 48px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1, borderBottom: "1px solid", borderColor: "divider" }}>
         <CodeIcon fontSize="small" color="primary" />
-        <Typography variant="body2" fontWeight={600} sx={{ fontFamily: "monospace", minWidth: 0 }} noWrap>{fileName}</Typography>
+        <Typography variant="body2" fontWeight={600} sx={{ fontFamily: "var(--od-font-mono)", minWidth: 0 }} noWrap>{fileName}</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ ml: "auto", whiteSpace: "nowrap" }}>Live preview</Typography>
         <CopyButton value={code} />
       </Box>
       <Highlight prism={Prism as typeof Prism} theme={theme} code={code} language={"yaml" as Language}>
         {({ className, style, tokens, getLineProps, getTokenProps }) => (
-          <Box component="pre" className={className} sx={{ m: 0, p: 2, flex: 1, overflow: "auto", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.65, whiteSpace: "pre", ...style, backgroundColor: "transparent" }}>
+          <Box component="pre" className={className} sx={{ m: 0, p: 2, flex: 1, overflow: "auto", fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", lineHeight: 1.65, whiteSpace: "pre", ...style, backgroundColor: "transparent" }}>
             {tokens.map((line, i) => (
               <div key={i} {...getLineProps({ line })}>
                 {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}

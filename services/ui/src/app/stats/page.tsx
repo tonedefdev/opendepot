@@ -12,22 +12,21 @@ import TableCell from "@mui/material/TableCell";
 import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import LinearProgress from "@mui/material/LinearProgress";
 import DownloadIcon from "@mui/icons-material/Download";
 import StorageIcon from "@mui/icons-material/Storage";
 import SyncIcon from "@mui/icons-material/Sync";
 import SecurityIcon from "@mui/icons-material/Security";
 import PieChartIcon from "@mui/icons-material/PieChart";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import BarChartIcon from "@mui/icons-material/BarChart";
 import { SiGooglecloud } from "react-icons/si";
 import { FaAws, FaMicrosoft } from "react-icons/fa6";
 import { getStats, getDepotsGraph } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import PageHeader from "@/components/PageHeader";
-import StatCard from "@/components/StatCard";
+import StatCard, { StatStrip } from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import { severityChipSx } from "@/components/severityStyles";
 import { NEUTRAL_COLOR, graphKindColor } from "@/lib/kindColors";
@@ -40,6 +39,11 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const value = bytes / Math.pow(1024, i);
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+// A count only needs a sync note when part of it is out of sync.
+function syncedNote(synced: number, total: number): string | undefined {
+  return synced === total ? undefined : `${synced} of ${total} synced`;
 }
 
 // Capitalise first letter of a string.
@@ -92,10 +96,18 @@ export default async function StatsPage() {
   const syncTotal =
     stats ? stats.syncHealth.syncedVersions + stats.syncHealth.unsyncedVersions + stats.syncHealth.failedVersions : 0;
 
+  const syncSegments = stats
+    ? [
+        { label: "Synced", count: stats.syncHealth.syncedVersions, colour: "success.main" },
+        { label: "Unsynced", count: stats.syncHealth.unsyncedVersions, colour: "warning.main" },
+        { label: "Failed", count: stats.syncHealth.failedVersions, colour: "error.main" },
+      ]
+    : [];
+
   return (
     <>
       <PageHeader
-        icon={<BarChartIcon color="primary" fontSize="small" />}
+        icon={<BarChartIcon fontSize="small" />}
         title="Registry Statistics"
         description="Live metrics across all visible modules, providers, skills, agents, and versions."
         actions={<RefreshIconButton />}
@@ -110,76 +122,60 @@ export default async function StatsPage() {
       {stats && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {/* Summary cards */}
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Modules"
-                value={stats.totalModules}
-                sub={`${stats.modulesSynced} synced`}
-                icon={<DepotKindIcon kind="module" fontSize="small" />}
-                accentColor={graphKindColor("module")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Providers"
-                value={stats.totalProviders}
-                sub={`${stats.providersSynced} synced`}
-                icon={<DepotKindIcon kind="provider" fontSize="small" />}
-                accentColor={graphKindColor("provider")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Skills"
-                value={stats.totalSkills}
-                sub={`${stats.skillsSynced} synced`}
-                icon={<DepotKindIcon kind="skill" fontSize="small" />}
-                accentColor={graphKindColor("skill")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Agents"
-                value={stats.totalAgents}
-                sub={`${stats.agentsSynced} synced`}
-                icon={<DepotKindIcon kind="agent" fontSize="small" />}
-                accentColor={graphKindColor("agent")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Depots"
-                value={totalDepots}
-                icon={<DepotKindIcon kind="depot" fontSize="small" />}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Versions"
-                value={stats.totalVersions}
-                sub={`${stats.versionsSynced} synced`}
-                icon={<DepotKindIcon kind="version" fontSize="small" />}
-                accentColor={graphKindColor("version")}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label="Storage Used"
-                value={formatBytes(stats.totalStorageBytes)}
-                icon={<StorageIcon fontSize="small" />}
-                accentColor={NEUTRAL_COLOR}
-              />
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
-              <StatCard
-                label={`Downloads (${stats.downloadWindow})`}
-                value={stats.totalDownloads.toLocaleString()}
-                icon={<DownloadIcon fontSize="small" />}
-                accentColor={NEUTRAL_COLOR}
-              />
-            </Grid>
-          </Grid>
+          <StatStrip columns={8}>
+            <StatCard
+              label="Modules"
+              value={stats.totalModules}
+              sub={syncedNote(stats.modulesSynced, stats.totalModules)}
+              icon={<DepotKindIcon kind="module" fontSize="small" />}
+              accentColor={graphKindColor("module")}
+            />
+            <StatCard
+              label="Providers"
+              value={stats.totalProviders}
+              sub={syncedNote(stats.providersSynced, stats.totalProviders)}
+              icon={<DepotKindIcon kind="provider" fontSize="small" />}
+              accentColor={graphKindColor("provider")}
+            />
+            <StatCard
+              label="Skills"
+              value={stats.totalSkills}
+              sub={syncedNote(stats.skillsSynced, stats.totalSkills)}
+              icon={<DepotKindIcon kind="skill" fontSize="small" />}
+              accentColor={graphKindColor("skill")}
+            />
+            <StatCard
+              label="Agents"
+              value={stats.totalAgents}
+              sub={syncedNote(stats.agentsSynced, stats.totalAgents)}
+              icon={<DepotKindIcon kind="agent" fontSize="small" />}
+              accentColor={graphKindColor("agent")}
+            />
+            <StatCard
+              label="Depots"
+              value={totalDepots}
+              icon={<DepotKindIcon kind="depot" fontSize="small" />}
+            />
+            <StatCard
+              label="Versions"
+              value={stats.totalVersions}
+              sub={syncedNote(stats.versionsSynced, stats.totalVersions)}
+              icon={<DepotKindIcon kind="version" fontSize="small" />}
+              accentColor={graphKindColor("version")}
+            />
+            <StatCard
+              label="Storage Used"
+              value={formatBytes(stats.totalStorageBytes)}
+              icon={<StorageIcon fontSize="small" />}
+              accentColor={NEUTRAL_COLOR}
+            />
+            <StatCard
+              label={`Downloads (${stats.downloadWindow})`}
+              value={stats.totalDownloads.toLocaleString()}
+              icon={<DownloadIcon fontSize="small" />}
+              accentColor={NEUTRAL_COLOR}
+            />
+          </StatStrip>
 
           {/* Sync health + Security posture */}
           <Grid container spacing={2}>
@@ -190,38 +186,38 @@ export default async function StatsPage() {
                   Sync Health
                 </Typography>
               </Box>
-              <Paper elevation={2} sx={{ p: 2.5, flex: 1 }}>
+              <Paper variant="outlined" sx={{ p: 2.5, flex: 1 }}>
                 {syncTotal === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No versions found.
                   </Typography>
                 ) : (
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-                    {[
-                      { label: "Synced", count: stats.syncHealth.syncedVersions, colour: "success.main" },
-                      { label: "Unsynced", count: stats.syncHealth.unsyncedVersions, colour: "warning.main" },
-                      { label: "Failed", count: stats.syncHealth.failedVersions, colour: "error.main" },
-                    ].map(({ label, count, colour }) => (
-                      <Box key={label}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                          <Typography variant="body2">{label}</Typography>
-                          <Typography variant="body2" fontWeight={500}>
-                            {count}/{syncTotal}
+                  <>
+                    <Box
+                      role="img"
+                      aria-label={syncSegments.map((seg) => `${seg.count} ${seg.label.toLowerCase()}`).join(", ")}
+                      sx={{ display: "flex", gap: "2px", height: 8, mb: 2, borderRadius: 4, overflow: "hidden", bgcolor: "action.selected" }}
+                    >
+                      {syncSegments
+                        .filter((seg) => seg.count > 0)
+                        .map((seg) => (
+                          <Box key={seg.label} sx={{ width: `${(seg.count / syncTotal) * 100}%`, bgcolor: seg.colour }} />
+                        ))}
+                    </Box>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", columnGap: 3, rowGap: 0.5 }}>
+                      {syncSegments.map((seg) => (
+                        <Box key={seg.label} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: seg.colour }} />
+                          <Typography variant="body2" color="text.secondary">
+                            {seg.label}
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: "tabular-nums" }}>
+                            {seg.count}
                           </Typography>
                         </Box>
-                        <LinearProgress
-                          variant="determinate"
-                          value={syncTotal > 0 ? (count / syncTotal) * 100 : 0}
-                          sx={{
-                            height: 8,
-                            borderRadius: 4,
-                            bgcolor: "action.selected",
-                            "& .MuiLinearProgress-bar": { bgcolor: colour, borderRadius: 4 },
-                          }}
-                        />
-                      </Box>
-                    ))}
-                  </Box>
+                      ))}
+                    </Box>
+                  </>
                 )}
               </Paper>
             </Grid>
@@ -233,7 +229,7 @@ export default async function StatsPage() {
                   Security Posture
                 </Typography>
               </Box>
-              <Paper elevation={2} sx={{ p: 2.5, flex: 1 }}>
+              <Paper variant="outlined" sx={{ p: 2.5, flex: 1 }}>
                 {stats.securityPosture.totalAffectedResources === 0 && stats.securityPosture.exempted === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No scan findings.
@@ -277,7 +273,7 @@ export default async function StatsPage() {
                   Storage Distribution
                 </Typography>
               </Box>
-              <Paper elevation={2} sx={{ p: 2.5 }}>
+              <Paper variant="outlined" sx={{ p: 2.5 }}>
                 <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
                   {stats.storageDistribution
                     .slice()
@@ -344,7 +340,7 @@ export default async function StatsPage() {
                 { label: "Agents", kind: "agent", rows: stats.mostDownloaded.agents },
               ] as const).map(({ label, kind, rows }) => (
                 <Grid key={label} size={{ xs: 12, md: 6 }}>
-                  <Paper elevation={2} sx={{ p: 2.5, height: "100%" }}>
+                  <Paper variant="outlined" sx={{ p: 2.5, height: "100%" }}>
                     <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
                       <DepotKindIcon kind={kind} fontSize="small" />
                       <Typography variant="subtitle1" fontWeight={600}>
@@ -378,7 +374,7 @@ export default async function StatsPage() {
                                   </Typography>
                                 </TableCell>
                                 <TableCell>
-                                  <Typography variant="body2" fontFamily="monospace">
+                                  <Typography variant="body2" fontFamily="var(--od-font-mono)">
                                     {r.version}
                                   </Typography>
                                 </TableCell>

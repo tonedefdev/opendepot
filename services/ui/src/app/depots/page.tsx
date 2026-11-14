@@ -206,7 +206,7 @@ export default async function DepotsPage() {
   return (
     <main>
       <PageHeader
-        icon={<WarehouseIcon color="primary" fontSize="small" />}
+        icon={<WarehouseIcon fontSize="small" />}
         title="Depots"
         description="Visualise the relationships between Depots and their managed Modules, Providers, Skills, and Agents."
         actions={

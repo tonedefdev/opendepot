@@ -241,7 +241,7 @@ export default function ProviderConfigurationModal({
                   borderRadius: 1,
                   border: "1px solid",
                   borderColor: "divider",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--od-font-mono)",
                   fontSize: "0.75rem",
                   lineHeight: 1.5,
                   overflow: "auto",

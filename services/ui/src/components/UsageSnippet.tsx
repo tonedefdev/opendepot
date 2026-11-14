@@ -124,7 +124,7 @@ export default function UsageSnippet({
           <Box sx={{ position: "relative" }}>
             <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={snippet.code} language={"hcl" as Language}>
               {({ style, tokens, getLineProps, getTokenProps }) => (
-                <Box component="pre" sx={{ m: 0, p: 2, pr: 6, borderRadius: 1.5, border: "1px solid", borderColor: "divider", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.65, overflowX: "auto", whiteSpace: "pre", ...style, ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }) }}>
+                <Box component="pre" sx={{ m: 0, p: 2, pr: 6, borderRadius: 1.5, border: "1px solid", borderColor: "divider", fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", lineHeight: 1.65, overflowX: "auto", whiteSpace: "pre", ...style, ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }) }}>
                   {tokens.map((line, i) => (
                     <div key={i} {...getLineProps({ line })}>
                       {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}

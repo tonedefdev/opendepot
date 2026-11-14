@@ -48,7 +48,7 @@ import NeedsReviewDrawer from "@/components/NeedsReviewDrawer";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 56;
@@ -94,9 +94,10 @@ export default function Sidebar({
   const currentQ = searchParams.get("q") ?? "";
   const currentNs = searchParams.get("namespace") ?? "";
   const currentKind = searchParams.get("kind") ?? "";
-  const currentSort = searchParams.get("sort_by") ?? "name";
 
   const [searchValue, setSearchValue] = useState(currentQ);
+  const expandedDrawerRef = useRef<HTMLDivElement>(null);
+  const focusSearchOnExpand = useRef(false);
   const [namespaces, setNamespaces] = useState<Namespace[]>(initialNamespaces);
 
   // Dev token input state
@@ -217,6 +218,19 @@ export default function Sidebar({
     }
   }, []);
 
+  // The collapsed rail has no room for the search field, so its search button opens the sidebar on it.
+  const expandToSearch = () => {
+    focusSearchOnExpand.current = true;
+    updateCollapsedPreference(false);
+  };
+
+  // The drawer content also renders in the mobile drawer, so the field is looked up inside the desktop one.
+  useEffect(() => {
+    if (collapsed || !focusSearchOnExpand.current) return;
+    focusSearchOnExpand.current = false;
+    expandedDrawerRef.current?.querySelector<HTMLInputElement>("[data-sidebar-search]")?.focus();
+  }, [collapsed]);
+
   const openNeedsReview = () => {
     if (isMobile) {
       setMobileOpen(false);
@@ -330,6 +344,7 @@ export default function Sidebar({
         >
           <SearchIcon sx={{ fontSize: 16, color: "text.secondary", flexShrink: 0 }} />
           <InputBase
+            inputProps={{ "data-sidebar-search": "" }}
             placeholder="Search resources…"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
@@ -351,15 +366,7 @@ export default function Sidebar({
       {/* Navigation */}
       <Box sx={{ overflowY: "auto", flex: 1 }}>
         {/* Pages */}
-        <Box sx={{ px: 2, pt: 2, pb: 1 }}>
-          <Typography
-            variant="caption"
-            sx={{ color: "text.secondary", fontWeight: 600 }}
-          >
-            Navigation
-          </Typography>
-        </Box>
-        <List dense disablePadding>
+        <List dense disablePadding sx={{ pt: 1 }}>
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -555,59 +562,10 @@ export default function Sidebar({
           </ListItem>
         </List>
 
-        {isOnHome && (
-          <>
-            <Divider sx={{ mx: 2, my: 1 }} />
-
-            {/* Sort */}
-            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-              <Typography
-                variant="caption"
-                sx={{ color: "text.secondary", fontWeight: 600 }}
-              >
-                Sort by
-              </Typography>
-            </Box>
-            <List dense disablePadding>
-              {[
-                { label: "Name", value: "name" },
-                { label: "Namespace", value: "namespace" },
-                { label: "Latest Version", value: "latest_version" },
-                { label: "Last Scanned", value: "last_scanned" },
-              ].map((opt) => (
-                <ListItem key={opt.value} disablePadding>
-                  <ListItemButton
-                    selected={currentSort === opt.value}
-                    onClick={() => navigate({ sort_by: opt.value })}
-                    sx={{
-                      mx: 1,
-                      borderRadius: "6px",
-                      py: 0.5,
-                      "&.Mui-selected": {
-                        background: selectedBg,
-                        color: "primary.main",
-                      },
-                      "&.Mui-selected:hover": {
-                        background: selectedHoverBg,
-                      },
-                    }}
-                  >
-                    <ListItemText
-                      primary={opt.label}
-                      primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: currentSort === opt.value ? 600 : 400 }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-            </List>
-
-            <Divider sx={{ mx: 2, my: 1 }} />
-          </>
-        )}
-
         {/* Namespace filter */}
         {namespaces.length > 0 && (
           <>
+            <Divider sx={{ mx: 2, my: 1 }} />
             <Box sx={{ px: 2, pt: 1, pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Typography
                 variant="caption"
@@ -646,7 +604,7 @@ export default function Sidebar({
                       primary={ns.name}
                       primaryTypographyProps={{
                         fontSize: "0.8125rem",
-                        fontFamily: "monospace",
+                        fontFamily: "var(--od-font-mono)",
                         fontWeight: currentNs === ns.name ? 600 : 400,
                         noWrap: true,
                       }}
@@ -815,6 +773,15 @@ export default function Sidebar({
         </IconButton>
       </Tooltip>
       <Divider sx={{ width: "80%", mb: 0.5 }} />
+      <Tooltip title="Search" placement="right">
+        <IconButton
+          onClick={expandToSearch}
+          aria-label="Search resources"
+          sx={{ color: "text.secondary", borderRadius: "6px", "&:hover": { bgcolor: hoverTintBg } }}
+        >
+          <SearchIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Registry" placement="right">
         <IconButton
           component={Link}
@@ -1030,6 +997,7 @@ export default function Sidebar({
       >
         <Box sx={{ position: "relative", height: "100%" }}>
           <Box
+            ref={expandedDrawerRef}
             aria-hidden={collapsed}
             sx={{
               position: "absolute",

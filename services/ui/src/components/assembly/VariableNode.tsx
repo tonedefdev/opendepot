@@ -123,7 +123,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
                     borderRadius: 0.5,
                     bgcolor: "action.selected",
                     color: "warning.main",
-                    fontFamily: "monospace",
+                    fontFamily: "var(--od-font-mono)",
                     fontSize: "0.6875rem",
                   },
                 }}

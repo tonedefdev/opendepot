@@ -387,7 +387,7 @@ function FindingsTable({
             {pagedRows.map((f, idx) => (
               <TableRow key={`${findingId(f)}-${idx}`} hover>
                 <TableCell>
-                  <Typography variant="caption" fontFamily="monospace" sx={{ wordBreak: "break-word" }}>
+                  <Typography variant="caption" fontFamily="var(--od-font-mono)" sx={{ wordBreak: "break-word" }}>
                     {findingId(f)}
                   </Typography>
                 </TableCell>
@@ -412,7 +412,7 @@ function FindingsTable({
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingTitle(f)}</TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingMessage(f)}</TableCell>
                 {includeArtifactColumns && (
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "normal", wordBreak: "break-word" }}>
+                  <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.75rem", whiteSpace: "normal", wordBreak: "break-word" }}>
                     {fileName || "—"}
                   </TableCell>
                 )}
@@ -423,7 +423,7 @@ function FindingsTable({
                         <Typography
                           variant="caption"
                           sx={{
-                            fontFamily: "monospace",
+                            fontFamily: "var(--od-font-mono)",
                             whiteSpace: "normal",
                             wordBreak: "break-all",
                             maxWidth: { xs: 110, md: 160 },

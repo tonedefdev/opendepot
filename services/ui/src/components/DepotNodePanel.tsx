@@ -54,7 +54,7 @@ function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) 
       >
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8rem", mt: 0.25, wordBreak: "break-all" }}>
+      <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8rem", mt: 0.25, wordBreak: "break-all" }}>
         {value}
       </Typography>
     </Box>

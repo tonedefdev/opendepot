@@ -124,7 +124,7 @@ function formatExpiry(value: string): string {
 function CopyableValue({ value }: { value: string }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
-      <Typography variant="caption" sx={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+      <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-all" }}>
         {value}
       </Typography>
       <CopyButton value={value} />
@@ -288,7 +288,7 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock, n
       {assessment.contentDigest && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
           <Typography variant="caption" color="text.secondary">Digest</Typography>
-          <Typography variant="caption" sx={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+          <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-all" }}>
             {assessment.contentDigest}
           </Typography>
           <CopyButton value={assessment.contentDigest} />
@@ -389,7 +389,7 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock, n
           />
         )}
         {assessment.model && (
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "var(--od-font-mono)" }}>
             Model: {assessment.model}
           </Typography>
         )}
@@ -406,7 +406,7 @@ export default function JevPanel({ assessment, thresholds, exemption, unblock, n
                   <Typography variant="body2">{row.label}</Typography>
                   <InfoHint label={row.label} description={row.description} />
                 </Box>
-                <Typography variant="body2" sx={{ fontFamily: "monospace", color: breached ? "error.main" : "text.primary" }}>
+                <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", color: breached ? "error.main" : "text.primary" }}>
                   {formatPercent(row.value)}
                   {limitText && (
                     <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
