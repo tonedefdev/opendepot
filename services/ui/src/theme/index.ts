@@ -100,13 +100,10 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
         // Mode-aware brand and kind accents. Inline styles (ReactFlow nodes) cannot read the theme, so they
-        // reference these variables. Mint fails contrast on white, so the accent uses blue in light mode. Light-mode
-        // AI kinds use the deep teal instead, because blue would merge them with the IAC kinds.
+        // reference these variables. Mint fails contrast on white, so the accent uses blue in light mode.
         ":root": {
           "--od-font-mono": FONT_MONO,
           "--od-accent": BRAND_MINT,
-          "--od-kind-iac": BRAND_BRIDGE,
-          "--od-kind-ai": BRAND_MINT,
           "--od-kind-version": "#a0a8b0",
           // Assembly Line node icon colors. Light mode uses the for_each chip's teal so the icon and minimap read on the card.
           "--od-assembly-variable": BRAND_BRIDGE,
@@ -116,7 +113,6 @@ const theme = createTheme({
         },
         '[data-mui-color-scheme="light"]': {
           "--od-accent": BRAND_BLUE,
-          "--od-kind-ai": "#037a70",
           "--od-kind-version": "#6b7480",
           "--od-assembly-variable": BRAND_BLUE,
           "--od-assembly-module": "#037a70",

@@ -9,7 +9,7 @@ import DepotGraph, { agentVersionItems, type AgentVersionMeta } from "@/componen
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import type { BrowseDepotGraph, BrowseStorageConfig } from "@/lib/api";
 import { kindChipSx } from "./chipStyles";
-import { graphKindColor } from "@/lib/kindColors";
+import { kindColor } from "@/lib/kindColors";
 
 
 type DepotOption = {
@@ -217,7 +217,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 							label={`${count} ${count === 1 ? noun : `${noun}s`}`}
 							icon={<DepotKindIcon kind={kind} />}
 							size="small"
-							sx={{ ...(kindChipSx(kind, graphKindColor(kind)) as object), textTransform: "none" }}
+							sx={{ ...(kindChipSx(kind, kindColor(kind)) as object), textTransform: "none" }}
 						/>
 					))}
 			</Box>

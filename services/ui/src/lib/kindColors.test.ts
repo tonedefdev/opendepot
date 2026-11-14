@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_COLOR, DEPOT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR, graphKindColor, kindColor } from "./kindColors";
+import { AGENT_COLOR, DEPOT_COLOR, MODULE_COLOR, PROVIDER_COLOR, SKILL_COLOR, VERSION_COLOR, kindColor, kindTint } from "./kindColors";
 
 describe("kindColor", () => {
   it("shares the accent across kinds so icons, not colors, tell them apart", () => {
-    const colors = [kindColor("Module"), kindColor("Provider"), kindColor("Skill"), kindColor("Agent")];
+    const colors = [kindColor("Module"), kindColor("Provider"), kindColor("Skill"), kindColor("Agent"), kindColor("depot")];
 
     expect(new Set(colors).size).toBe(1);
     expect(colors[0]).toBe("var(--od-accent)");
@@ -13,13 +13,6 @@ describe("kindColor", () => {
   it("keeps versions on the neutral color", () => {
     expect(kindColor("Version")).not.toBe(kindColor("Module"));
     expect(kindColor("VersionOverflow")).toBe(VERSION_COLOR);
-  });
-
-  it("separates Terraform and AI kinds in the stats and depot graph", () => {
-    expect(graphKindColor("module")).toBe(graphKindColor("provider"));
-    expect(graphKindColor("skill")).toBe(graphKindColor("agent"));
-    expect(graphKindColor("module")).not.toBe(graphKindColor("skill"));
-    expect(graphKindColor("depot")).toBe("var(--od-accent)");
   });
 
   it("maps kinds case-insensitively", () => {
@@ -34,5 +27,11 @@ describe("kindColor", () => {
   it("falls back to the module color for unknown kinds", () => {
     expect(kindColor("")).toBe(MODULE_COLOR);
     expect(kindColor("Unknown")).toBe(MODULE_COLOR);
+  });
+});
+
+describe("kindTint", () => {
+  it("mixes the kind color into a transparent background", () => {
+    expect(kindTint("module", 10)).toBe("color-mix(in srgb, var(--od-accent) 10%, transparent)");
   });
 });

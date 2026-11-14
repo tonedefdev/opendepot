@@ -29,7 +29,7 @@ import PageHeader from "@/components/PageHeader";
 import StatCard, { StatStrip } from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import { severityChipSx } from "@/components/severityStyles";
-import { NEUTRAL_COLOR, graphKindColor } from "@/lib/kindColors";
+import { NEUTRAL_COLOR, kindColor } from "@/lib/kindColors";
 import { metaChipSurfaceSx } from "@/components/chipStyles";
 
 // Format bytes into human-readable string.
@@ -128,28 +128,28 @@ export default async function StatsPage() {
               value={stats.totalModules}
               sub={syncedNote(stats.modulesSynced, stats.totalModules)}
               icon={<DepotKindIcon kind="module" fontSize="small" />}
-              accentColor={graphKindColor("module")}
+              accentColor={kindColor("module")}
             />
             <StatCard
               label="Providers"
               value={stats.totalProviders}
               sub={syncedNote(stats.providersSynced, stats.totalProviders)}
               icon={<DepotKindIcon kind="provider" fontSize="small" />}
-              accentColor={graphKindColor("provider")}
+              accentColor={kindColor("provider")}
             />
             <StatCard
               label="Skills"
               value={stats.totalSkills}
               sub={syncedNote(stats.skillsSynced, stats.totalSkills)}
               icon={<DepotKindIcon kind="skill" fontSize="small" />}
-              accentColor={graphKindColor("skill")}
+              accentColor={kindColor("skill")}
             />
             <StatCard
               label="Agents"
               value={stats.totalAgents}
               sub={syncedNote(stats.agentsSynced, stats.totalAgents)}
               icon={<DepotKindIcon kind="agent" fontSize="small" />}
-              accentColor={graphKindColor("agent")}
+              accentColor={kindColor("agent")}
             />
             <StatCard
               label="Depots"
@@ -161,7 +161,7 @@ export default async function StatsPage() {
               value={stats.totalVersions}
               sub={syncedNote(stats.versionsSynced, stats.totalVersions)}
               icon={<DepotKindIcon kind="version" fontSize="small" />}
-              accentColor={graphKindColor("version")}
+              accentColor={kindColor("version")}
             />
             <StatCard
               label="Storage Used"

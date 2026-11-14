@@ -23,7 +23,7 @@ import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { DepotKindIcon, type DepotKind } from "@/components/DepotKindIcon";
-import { graphKindColor, graphKindTint } from "@/lib/kindColors";
+import { kindColor, kindTint } from "@/lib/kindColors";
 import { BRAND_GRADIENT, BRAND_GRADIENT_WASH } from "@/lib/brand";
 import type {
   BrowseDepotGraph,
@@ -37,16 +37,15 @@ import DepotNodePanel from "./DepotNodePanel";
 import { TOGGLE_NODE_MAP_EVENT } from "./MobileMapButton";
 
 // ── Brand palette ─────────────────────────────────────────────────────────
-// Depots separates kinds by color group; see graphKindColor.
-const DEPOT_COLOR = graphKindColor("depot");
-const MODULE_COLOR = graphKindColor("module");
-const PROVIDER_COLOR = graphKindColor("provider");
-const SKILL_COLOR = graphKindColor("skill");
-const AGENT_COLOR = graphKindColor("agent");
-const VERSION_COLOR = graphKindColor("version");
-const IAC_BG = graphKindTint("module");
-const AI_BG = graphKindTint("agent");
-const VERSION_BG = graphKindTint("version", 10);
+// Every kind shares the accent. Icons and labels tell kinds apart, not color.
+const DEPOT_COLOR = kindColor("depot");
+const MODULE_COLOR = kindColor("module");
+const PROVIDER_COLOR = kindColor("provider");
+const SKILL_COLOR = kindColor("skill");
+const AGENT_COLOR = kindColor("agent");
+const VERSION_COLOR = kindColor("version");
+const ACCENT_BG = kindTint("module");
+const VERSION_BG = kindTint("version", 10);
 const PAPER_LAYER = "linear-gradient(var(--mui-palette-background-paper), var(--mui-palette-background-paper)) padding-box";
 // Depots are the graph roots, so they carry the brand gradient as a border instead of a flat kind color.
 const DEPOT_BACKGROUND = `${BRAND_GRADIENT_WASH.replace(/\)$/, ") padding-box")}, ${PAPER_LAYER}, ${BRAND_GRADIENT.replace(/\)$/, ") border-box")}`;
@@ -137,10 +136,10 @@ function compareVersionDesc(a: string, b: string): number {
 function nodeStyle(kind: NodeKind): React.CSSProperties {
   const map: Record<NodeKind, { border: string; bg: string }> = {
     depot: { border: "transparent", bg: DEPOT_BACKGROUND },
-    module: { border: MODULE_COLOR, bg: IAC_BG },
-    provider: { border: PROVIDER_COLOR, bg: IAC_BG },
-    skill: { border: SKILL_COLOR, bg: AI_BG },
-    agent: { border: AGENT_COLOR, bg: AI_BG },
+    module: { border: MODULE_COLOR, bg: ACCENT_BG },
+    provider: { border: PROVIDER_COLOR, bg: ACCENT_BG },
+    skill: { border: SKILL_COLOR, bg: ACCENT_BG },
+    agent: { border: AGENT_COLOR, bg: ACCENT_BG },
     version: { border: VERSION_COLOR, bg: VERSION_BG },
     versionOverflow: { border: VERSION_COLOR, bg: VERSION_BG },
   };

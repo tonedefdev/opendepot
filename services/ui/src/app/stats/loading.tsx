@@ -15,14 +15,14 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import PageHeader from "@/components/PageHeader";
 import StatCard, { StatStrip } from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { NEUTRAL_COLOR, graphKindColor } from "@/lib/kindColors";
+import { NEUTRAL_COLOR, kindColor } from "@/lib/kindColors";
 
 const statCards = [
-  { label: "Modules", icon: <DepotKindIcon kind="module" fontSize="small" />, accentColor: graphKindColor("module") },
-  { label: "Providers", icon: <DepotKindIcon kind="provider" fontSize="small" />, accentColor: graphKindColor("provider") },
-  { label: "Skills", icon: <DepotKindIcon kind="skill" fontSize="small" />, accentColor: graphKindColor("skill") },
-  { label: "Agents", icon: <DepotKindIcon kind="agent" fontSize="small" />, accentColor: graphKindColor("agent") },
-  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: graphKindColor("version") },
+  { label: "Modules", icon: <DepotKindIcon kind="module" fontSize="small" />, accentColor: kindColor("module") },
+  { label: "Providers", icon: <DepotKindIcon kind="provider" fontSize="small" />, accentColor: kindColor("provider") },
+  { label: "Skills", icon: <DepotKindIcon kind="skill" fontSize="small" />, accentColor: kindColor("skill") },
+  { label: "Agents", icon: <DepotKindIcon kind="agent" fontSize="small" />, accentColor: kindColor("agent") },
+  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: kindColor("version") },
   { label: "Depots", icon: <DepotKindIcon kind="depot" fontSize="small" /> },
   { label: "Storage Used", icon: <StorageIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
   { label: "Downloads", icon: <DownloadIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
