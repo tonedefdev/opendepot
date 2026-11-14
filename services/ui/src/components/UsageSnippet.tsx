@@ -6,7 +6,7 @@ import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
-import "prismjs/components/prism-hcl";
+import "@/lib/hclGrammar";
 import CopyButton from "@/components/CopyButton";
 import { buildCanonicalProviderSource, buildModuleSource, buildProviderMirrorUrl, stripV } from "@/lib/registrySource";
 

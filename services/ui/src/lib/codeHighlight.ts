@@ -6,7 +6,7 @@ import "prismjs/components/prism-bash";
 import "prismjs/components/prism-powershell";
 import "prismjs/components/prism-go";
 import "prismjs/components/prism-python";
-import "prismjs/components/prism-hcl";
+import "./hclGrammar";
 import "prismjs/components/prism-yaml";
 
 // prism-react-renderer and the grammar files resolve the Prism global, so it must be set before they run.

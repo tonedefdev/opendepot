@@ -7,7 +7,7 @@ export const lightCodeTheme: PrismTheme = {
   styles: [
     { types: ["comment", "prolog", "doctype", "cdata"], style: { color: "#57606a", fontStyle: "italic" } },
     { types: ["namespace"], style: { opacity: 0.7 } },
-    { types: ["string", "attr-value"], style: { color: "#0a3069" } },
+    { types: ["string", "attr-value"], style: { color: "#116329" } },
     { types: ["punctuation", "operator"], style: { color: "#24292f" } },
     {
       types: ["entity", "url", "symbol", "number", "boolean", "variable", "constant", "property", "regex", "inserted"],

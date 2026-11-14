@@ -234,7 +234,7 @@ function FindingsTable({
         gap={1.5}
         mb={2}
         alignItems="center"
-        sx={{ p: 1.5, borderRadius: 1.5, background: "action.hover", border: "1px solid", borderColor: "divider" }}
+        sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}
       >
         <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
 
@@ -370,7 +370,7 @@ function FindingsTable({
         )}
       </Box>
 
-      <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
+      <TableContainer sx={{ width: "100%", overflowX: "auto", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
         <Table size="small" sx={{ tableLayout: "fixed", minWidth: includeArtifactColumns ? 1060 : 580 }}>
           <TableHead>
             <TableRow>
@@ -563,7 +563,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
           borderRadius: '8px !important',
           '&::before': { display: 'none' },
           ...theme.applyStyles('light', {
-            backgroundColor: 'transparent',
+            backgroundColor: 'background.paper',
             backgroundImage: 'none',
             boxShadow: 'none',
             border: '1px solid',
@@ -604,7 +604,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
             borderRadius: '8px !important',
             '&::before': { display: 'none' },
             ...theme.applyStyles('light', {
-              backgroundColor: 'transparent',
+              backgroundColor: 'background.paper',
               backgroundImage: 'none',
               boxShadow: 'none',
               border: '1px solid',

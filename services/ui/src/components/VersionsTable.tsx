@@ -195,7 +195,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         gap={1.5}
         mb={2}
         alignItems="center"
-        sx={{ p: 1.5, borderRadius: 1.5, background: "action.hover", border: "1px solid", borderColor: "divider" }}
+        sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}
       >
         <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
 
@@ -280,7 +280,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         </Typography>
       )}
 
-      <Box sx={{ overflowX: "auto", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ overflowX: "auto", borderRadius: 2, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <Table size="small" sx={{ minWidth: 860 }}>
           <TableHead>
             <TableRow>
