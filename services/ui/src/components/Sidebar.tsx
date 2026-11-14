@@ -946,9 +946,15 @@ export default function Sidebar({
       </Tooltip>
       {userInfo ? (
         <Tooltip title={userInfo.name ?? userInfo.email} placement="right">
-          <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
-            {avatarInitials}
-          </Avatar>
+          <IconButton
+            onClick={() => updateCollapsedPreference(false)}
+            aria-label="Expand sidebar to view account"
+            sx={{ p: 0, borderRadius: "50%", "&:hover": { opacity: 0.85 } }}
+          >
+            <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
+              {avatarInitials}
+            </Avatar>
+          </IconButton>
         </Tooltip>
       ) : (
         <Tooltip title="Sign in" placement="right">

@@ -113,6 +113,22 @@ describe("Sidebar needs review placement", () => {
   });
 });
 
+describe("Sidebar account control", () => {
+  it("expands the collapsed rail when the user avatar is clicked", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <Sidebar initialCollapsed={true} userInfo={{ email: "dev@example.com", name: "devuser" }} initialNamespaces={[]} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar to view account" }));
+
+    expect(screen.getByRole("button", { name: "Sign out" })).not.toBeNull();
+  });
+});
+
 describe("Sidebar registry navigation", () => {
   it.each([
     { initialCollapsed: false, state: "expanded" },
