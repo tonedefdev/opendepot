@@ -99,18 +99,8 @@ export default async function StatsPage() {
         title="Registry Statistics"
         description="Live metrics across all visible modules, providers, skills, agents, and versions."
         actions={<RefreshIconButton />}
-        mobileOnly
       />
       <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 0.5, display: { xs: "none", sm: "flex" } }}>
-        <Typography variant="h5" fontWeight={600}>
-          Registry Statistics
-        </Typography>
-        <RefreshIconButton />
-      </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, display: { xs: "none", sm: "block" } }}>
-        Live metrics across all visible modules, providers, skills, agents, and versions.
-      </Typography>
       {fetchError && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {fetchError}

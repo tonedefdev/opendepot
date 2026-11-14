@@ -1,10 +1,15 @@
 import * as React from "react";
-import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
-import Grid from "@mui/material/Grid";
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
-import ResourceCard from "@/components/ResourceCard";
+import ResourceRow from "@/components/ResourceRow";
 import ResourceListControls from "@/components/ResourceListControls";
 import RefreshIconButton from "@/components/RefreshIconButton";
 import { listResources, listNamespaces } from "@/lib/api";
@@ -70,59 +75,72 @@ export default async function HomePage({ searchParams }: PageProps) {
         title="Registry Explorer"
         description="Browse agents, skills, modules, and providers from your OpenDepot registry."
         actions={<RefreshIconButton ariaLabel="refresh registry" />}
-        mobileOnly
       />
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box mb={4} sx={{ display: { xs: "none", sm: "block" } }}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="h4" component="h1">
-            Registry Explorer
-          </Typography>
-          <RefreshIconButton ariaLabel="refresh registry" />
-        </Box>
-        <Typography variant="body1" color="text.secondary" mt={1}>
-          Browse agents, skills, modules, and providers from your OpenDepot registry.
-        </Typography>
-      </Box>
-      {authError && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          Authentication error: {decodeURIComponent(authError)}
-        </Alert>
-      )}
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        {authError && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            Authentication error: {decodeURIComponent(authError)}
+          </Alert>
+        )}
 
-      {fetchError && (
-        <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
-          {fetchError}
-        </Alert>
-      )}
+        {fetchError && (
+          <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
+            <Typography variant="body2" fontWeight={600}>
+              The registry could not be loaded.
+            </Typography>
+            <Typography variant="body2">
+              Check that the OpenDepot server is running and reachable, then
+              refresh the page.
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="div"
+              mt={0.5}
+            >
+              {fetchError}
+            </Typography>
+          </Alert>
+        )}
 
-      {resourceList.items.length === 0 && !fetchError ? (
-        <Alert severity="info" data-testid="empty-state">
-          No resources found. Label namespaces and resources with{" "}
-          <code>opendepot.defdev.io/public=true</code> to make them visible, or
-          sign in to see resources allowed by your GroupBinding.
-        </Alert>
-      ) : (
-        <>
-          <Grid container spacing={2}>
-            {resourceList.items.map((r) => (
-              <Grid
-                key={`${r.namespace}/${r.kind}/${r.name}`}
-                size={{ xs: 12, sm: 6, md: 4, lg: 3 }}
-              >
-                <ResourceCard resource={r} />
-              </Grid>
-            ))}
-          </Grid>
+        {resourceList.items.length === 0 && !fetchError ? (
+          <Alert severity="info" data-testid="empty-state">
+            No resources found. Label namespaces and resources with{" "}
+            <code>opendepot.defdev.io/public=true</code> to make them visible,
+            or sign in to see resources allowed by your GroupBinding.
+          </Alert>
+        ) : (
+          <>
+            <TableContainer component={Paper} variant="outlined">
+              <Table aria-label="Registry resources">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Kind</TableCell>
+                    <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>Version</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Risk and scans</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {resourceList.items.map((r) => (
+                    <ResourceRow
+                      key={`${r.namespace}/${r.kind}/${r.name}`}
+                      resource={r}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
 
-          <ResourceListControls
-            totalCount={resourceList.totalCount}
-            page={listParams.page ?? 1}
-            pageSize={listParams.pageSize ?? 24}
-            baseParams={baseParams}
-          />
-        </>
-      )}
+            <ResourceListControls
+              totalCount={resourceList.totalCount}
+              page={listParams.page ?? 1}
+              pageSize={listParams.pageSize ?? 24}
+              baseParams={baseParams}
+            />
+          </>
+        )}
       </Container>
     </main>
   );

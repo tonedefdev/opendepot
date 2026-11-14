@@ -71,7 +71,7 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
+    fontFamily: '"Inter Variable", "Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
     h1: { fontWeight: 700, letterSpacing: "-0.025em" },
     h2: { fontWeight: 700, letterSpacing: "-0.02em" },
     h3: { fontWeight: 600, letterSpacing: "-0.015em" },
@@ -154,21 +154,11 @@ const theme = createTheme({
           backgroundImage: "none",
           backgroundColor: theme.vars.palette.background.paper,
           border: `1px solid ${theme.vars.palette.divider}`,
-          transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-          ...theme.applyStyles("dark", {
-            backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 140px)",
-            boxShadow: "0 1px 0 0 rgba(255,255,255,0.06) inset, 0 10px 24px -8px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)",
-          }),
+          boxShadow: "none",
+          transition: "border-color 0.15s ease",
           "&:hover": {
-            borderColor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.5)`,
-            boxShadow: `0 0 0 1px rgba(${theme.vars.palette.primary.mainChannel} / 0.15), 0 4px 16px rgba(0,0,0,0.4)`,
+            borderColor: theme.vars.palette.text.secondary,
           },
-          ...theme.applyStyles("light", {
-            "&:hover": {
-              borderColor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.4)`,
-              boxShadow: `0 0 0 1px rgba(${theme.vars.palette.primary.mainChannel} / 0.12), 0 4px 16px rgba(0,0,0,0.08)`,
-            },
-          }),
         }),
       },
     },
@@ -214,9 +204,7 @@ const theme = createTheme({
       styleOverrides: {
         head: ({ theme }) => ({
           fontWeight: 600,
-          fontSize: "0.75rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
+          fontSize: "0.8125rem",
           color: theme.vars.palette.text.secondary,
           borderBottomColor: theme.vars.palette.divider,
         }),

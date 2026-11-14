@@ -1,3 +1,4 @@
+import "@fontsource-variable/inter";
 import type { Metadata } from "next";
 import Box from "@mui/material/Box";
 import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";

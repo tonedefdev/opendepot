@@ -189,7 +189,7 @@ test.describe("OIDC login — GroupBinding module access", () => {
 
   test.skip(!oidcEnabled, "set PLAYWRIGHT_OIDC_ENABLED=true to run");
 
-  test("at least one resource card is visible after login for a user with a GroupBinding", async ({
+  test("at least one resource row is visible after login for a user with a GroupBinding", async ({
     page,
   }) => {
     await performLogin(page);
@@ -198,7 +198,7 @@ test.describe("OIDC login — GroupBinding module access", () => {
     // A user whose groups match a GroupBinding expression must see resources.
     // An empty list here indicates GroupBinding evaluation failed (audience
     // mismatch, group extraction failure, or missing --oidc-ui-client-id flag).
-    const card = page.locator('[data-testid="resource-card"]').first();
-    await expect(card).toBeVisible({ timeout: 10_000 });
+    const row = page.locator('[data-testid="resource-row"]').first();
+    await expect(row).toBeVisible({ timeout: 10_000 });
   });
 });

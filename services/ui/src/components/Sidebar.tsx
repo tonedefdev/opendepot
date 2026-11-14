@@ -354,7 +354,7 @@ export default function Sidebar({
         <Box sx={{ px: 2, pt: 2, pb: 1 }}>
           <Typography
             variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+            sx={{ color: "text.secondary", fontWeight: 600 }}
           >
             Navigation
           </Typography>
@@ -563,7 +563,7 @@ export default function Sidebar({
             <Box sx={{ px: 2, pt: 1, pb: 1 }}>
               <Typography
                 variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+                sx={{ color: "text.secondary", fontWeight: 600 }}
               >
                 Sort by
               </Typography>
@@ -611,7 +611,7 @@ export default function Sidebar({
             <Box sx={{ px: 2, pt: 1, pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Typography
                 variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+                sx={{ color: "text.secondary", fontWeight: 600 }}
               >
                 Namespace
               </Typography>
@@ -684,7 +684,7 @@ export default function Sidebar({
         <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Typography
             variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+            sx={{ color: "text.secondary", fontWeight: 600 }}
           >
             Appearance
           </Typography>
@@ -705,7 +705,7 @@ export default function Sidebar({
           <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
             <Typography
               variant="caption"
-              sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600, display: "block", mb: 0.75 }}
+              sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.75 }}
             >
               Dev Token
             </Typography>
