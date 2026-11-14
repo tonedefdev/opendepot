@@ -2,7 +2,6 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Skeleton from "@mui/material/Skeleton";
-import Typography from "@mui/material/Typography";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import PageHeader from "@/components/PageHeader";
 
@@ -13,20 +12,8 @@ export default function DepotsLoading() {
         icon={<WarehouseIcon fontSize="small" />}
         title="Depots"
         description="Visualise the relationships between Depots and their managed Modules and Providers."
-        mobileOnly
       />
       <Container maxWidth="xl" sx={{ py: 4 }} role="status" aria-label="Loading depots">
-        <Box mb={3} sx={{ display: { xs: "none", sm: "block" } }}>
-          <Box display="flex" alignItems="center" minHeight={40}>
-            <Typography variant="h4" component="h1">
-              Depots
-            </Typography>
-          </Box>
-          <Typography variant="body1" color="text.secondary" mt={1} mb={2}>
-            Visualise the relationships between Depots and their managed Modules and Providers.
-          </Typography>
-        </Box>
-
         <Box sx={{ width: { xs: "100%", sm: 420 }, mb: 3 }}>
           <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>

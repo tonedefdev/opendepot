@@ -452,16 +452,9 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   if (mode === "list") {
     return (
       <Box>
-        <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title="Security Policies" description="Manage ScanPolicy rules and exemptions." actions={<Tooltip title="Refresh"><IconButton aria-label="Refresh policies" onClick={() => void load()}><RefreshIcon /></IconButton></Tooltip>} mobileOnly />
+        <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title="Security Policies" description="Manage ScanPolicy rules and exemptions." actions={<Tooltip title="Refresh"><IconButton size="small" aria-label="Refresh policies" onClick={() => void load()}><RefreshIcon fontSize="small" /></IconButton></Tooltip>} />
         <Container maxWidth="xl" sx={{ py: 4 }}>
-          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "flex-end" }} spacing={2} sx={{ mb: 3 }}>
-            <Box sx={{ display: { xs: "none", sm: "block" } }}>
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="h4" component="h1">Security Policies</Typography>
-                <Tooltip title="Refresh"><IconButton aria-label="Refresh policies" onClick={() => void load()}><RefreshIcon /></IconButton></Tooltip>
-              </Box>
-              <Typography variant="body1" color="text.secondary" mt={1}>Manage ScanPolicy rules and exemptions.</Typography>
-            </Box>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent={{ xs: "flex-start", sm: "flex-end" }} alignItems={{ xs: "stretch", sm: "flex-end" }} spacing={2} sx={{ mb: 3 }}>
             <Stack direction="row" spacing={1.5} alignItems="center">
               {catalog.items.length > 0 && <TextField select size="small" label="Namespace" value={selectedNamespace} onChange={(event) => setSelectedNamespace(event.target.value)} sx={{ flex: { xs: 1, sm: "none" }, width: { sm: 240 } }}>{catalog.items.map((item) => <MenuItem key={item.namespace} value={item.namespace}>{item.namespace}</MenuItem>)}</TextField>}
               {canWrite && <Button component={Link} href={`/security-policies/new${selectedNamespace ? `?namespace=${encodeURIComponent(selectedNamespace)}` : ""}`} variant="contained" startIcon={<AddIcon />} sx={{ whiteSpace: "nowrap" }}>Create policy</Button>}
@@ -491,7 +484,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
 
   return (
     <Box>
-      <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title={isEdit ? `Edit ${name}` : "Create Security Policy"} description="Guided ScanPolicy configuration." mobileOnly />
+      <PageHeader icon={<PolicyOutlinedIcon fontSize="small" />} title={isEdit ? `Edit ${name}` : "Create Security Policy"} description="Guided ScanPolicy configuration." />
       <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box sx={{ mb: 3, display: { xs: "none", sm: "block" } }}>
         <Breadcrumbs sx={{ mb: 2, "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
@@ -499,8 +492,6 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
           {form.metadata.namespace && <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "var(--od-font-mono)" }}>{form.metadata.namespace}</Typography>}
           <Typography variant="body2" color="text.primary" fontWeight={600}>{isEdit ? name : "New policy"}</Typography>
         </Breadcrumbs>
-        <Typography variant="h4" component="h1">{isEdit ? "Edit Security Policy" : "Create Security Policy"}</Typography>
-        <Typography variant="body1" color="text.secondary" mt={1}>Guided ScanPolicy configuration.</Typography>
       </Box>
       <Grid container spacing={3} alignItems="flex-start">
       <Grid size={{ xs: 12, lg: 7 }}>

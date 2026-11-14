@@ -30,7 +30,7 @@ export default function PageHeader({ icon, title, description, actions, mobileOn
       }}
     >
       {icon && (
-        <Box sx={{ display: "flex", color: "text.secondary", flexShrink: 0 }}>{icon}</Box>
+        <Box sx={{ display: "flex", color: "primary.main", flexShrink: 0 }}>{icon}</Box>
       )}
       <Typography variant="h6" fontWeight={600} noWrap sx={{ fontSize: { xs: "1rem", sm: "1.25rem" } }}>
         {title}

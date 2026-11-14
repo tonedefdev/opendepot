@@ -1,7 +1,5 @@
 import * as React from "react";
 import Container from "@mui/material/Container";
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import type { BrowseStorageConfig } from "@/lib/api";
 import { getDepotsGraph, getResourceDetail, listResources } from "@/lib/api";
@@ -215,20 +213,8 @@ export default async function DepotsPage() {
             <RefreshIconButton ariaLabel="refresh depots" />
           </>
         }
-        mobileOnly
       />
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Box mb={3} sx={{ display: { xs: "none", sm: "block" } }}>
-          <Box display="flex" alignItems="center" gap={1}>
-            <Typography variant="h4" component="h1">
-              Depots
-            </Typography>
-            <RefreshIconButton ariaLabel="refresh depots" />
-          </Box>
-          <Typography variant="body1" color="text.secondary" mt={1} mb={2}>
-            Visualise the relationships between Depots and their managed Modules, Providers, Skills, and Agents.
-          </Typography>
-        </Box>
         {fetchError ? (
           <Alert severity="error">Failed to load depot graph: {fetchError}</Alert>
         ) : (

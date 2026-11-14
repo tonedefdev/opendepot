@@ -99,7 +99,8 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
         // Mode-aware brand and kind accents. Inline styles (ReactFlow nodes) cannot read the theme, so they
-        // reference these variables. Mint fails contrast on white, so AI kinds and the accent use blue in light mode.
+        // reference these variables. Mint fails contrast on white, so the accent uses blue in light mode. Light-mode
+        // AI kinds use the deep teal instead, because blue would merge them with the IAC kinds.
         ":root": {
           "--od-font-mono": FONT_MONO,
           "--od-accent": BRAND_MINT,
@@ -114,7 +115,7 @@ const theme = createTheme({
         },
         '[data-mui-color-scheme="light"]': {
           "--od-accent": BRAND_BLUE,
-          "--od-kind-ai": BRAND_BLUE,
+          "--od-kind-ai": "#037a70",
           "--od-kind-version": "#6b7480",
           "--od-assembly-variable": BRAND_BLUE,
           "--od-assembly-module": "#037a70",
