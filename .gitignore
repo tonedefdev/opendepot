@@ -51,3 +51,5 @@ test/local/terraform.tfstate.backup
 *.tfstate
 # Local build output for the opendepot CLI
 cli/cli
+
+promo/node_modules/

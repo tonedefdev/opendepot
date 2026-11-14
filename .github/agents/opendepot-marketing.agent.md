@@ -2,7 +2,7 @@
 name: OpenDepot Marketing
 model: "Claude Haiku 5.5 (copilot)"
 description: "Use when building, refining, reviewing, or validating the OpenDepot marketing page, landing page, architecture animation, comparison section, responsive layout, brand styling, or marketing copy. Work directly in the repository and do not delegate to OpenDepot agents."
-tools: [vscode, execute, read, agent, edit, search, web, browser, todo]
+tools: [vscode, execute, read, agent, edit, search, web, browser, todo, browser/openBrowserPage, browser/readPage, browser/clickElement, browser/dragElement, browser/handleDialog, browser/hoverElement ,browser/navigatePage, browser/runPlaywrightCode, browser/screenshotPage]
 agents: []
 user-invocable: true
 disable-model-invocation: true

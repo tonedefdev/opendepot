@@ -67,8 +67,8 @@ Enter the labels as a JSON object, for example:
 {"environment":"sandbox"}
 ```
 
-You can also add explicit **Target resources**. Each target has a kind (`Module`
-or `Provider`), a resource name, and an optional **Version constraint**, such as
+You can also add explicit **Target resources**. Each target has a kind (`Module`,
+`Provider`, `Skill`, or `Agent`), a resource name, and an optional **Version constraint**, such as
 `>= 1.0.0, < 2.0.0`. Select from authorized onboarded resources. Use `*` as the
 name to match every resource of that kind. When no explicit targets are
 configured, the policy relies on its other matching criteria.
@@ -151,7 +151,8 @@ priority policy remains visible in the list, but it is marked **Superseded by
 ![OpenDepot Workshop policy list showing a superseded policy](../../img/security-policies-superseded.png)
 
 The summary separates **Total policies** from **Non-superseded** policies. In
-the example above, two policies exist but only one is non-superseded. A
+the overview above, four policies exist and one of them is superseded, so three
+are non-superseded. A
 superseded policy can still be opened to review its configuration and matching
 resources; its status explains why it is not the effective policy when the
 rules overlap.
