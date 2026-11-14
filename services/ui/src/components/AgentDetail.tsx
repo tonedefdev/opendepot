@@ -16,6 +16,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import { SiClaude, SiGithubcopilot, SiOpenai } from "react-icons/si";
 import { load } from "js-yaml";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import "prismjs/components/prism-yaml";
@@ -188,7 +189,7 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
   const snippet = buildAgentConfigSnippet({ ...props, targets: selectedTargets });
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
 
   return (
     <Box>
@@ -329,7 +330,7 @@ interface FrontmatterCodeProps {
 function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const preRef = React.useRef<HTMLPreElement>(null);
   const probeRef = React.useRef<HTMLSpanElement>(null);
   const [code, setCode] = React.useState(frontmatter);

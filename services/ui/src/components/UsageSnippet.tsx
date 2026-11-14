@@ -4,6 +4,7 @@ import * as React from "react";
 import Box from "@mui/material/Box";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
@@ -114,7 +115,7 @@ export default function UsageSnippet({
 
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
 
   return (
     <Box sx={{ display: "grid", gap: 2 }}>

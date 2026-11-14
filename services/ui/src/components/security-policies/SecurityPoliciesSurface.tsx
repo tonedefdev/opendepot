@@ -50,6 +50,7 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { Highlight, type Language, type PrismTheme, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-yaml";
 import type {
@@ -253,7 +254,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
   const router = useRouter();
   const { mode: colorMode, systemMode } = useColorScheme();
   const resolvedMode = colorMode === "system" ? systemMode : colorMode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const defaultNamespace = catalog.items.some((item) => item.namespace === namespace)
     ? namespace ?? ""
     : catalog.items[0]?.namespace ?? "";

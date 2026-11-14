@@ -65,15 +65,16 @@ const theme = createTheme({
           default: "#f3f5f8",
           paper: "#ffffff",
         },
-        // Semantic feedback colors are tuned to keep sufficient contrast on white paper.
-        error: { main: "#cf222e" },
-        warning: { main: "#9a6700" },
-        info: { main: "#037a70" },
-        success: { main: "#1a7f37" },
+        // Semantic feedback colors are tuned to keep 4.5:1 text contrast on white paper and on their tinted chips.
+        error: { main: "#b4232c" },
+        warning: { main: "#7d5300" },
+        info: { main: "#02675f" },
+        success: { main: "#17703a" },
         divider: "rgba(11,13,16,0.12)",
         text: {
           primary: "#0b0d10",
           secondary: "#5b6470",
+          disabled: "#6b7480",
         },
       },
     },
@@ -106,7 +107,7 @@ const theme = createTheme({
           "--od-accent": BRAND_MINT,
           "--od-kind-iac": BRAND_BRIDGE,
           "--od-kind-ai": BRAND_MINT,
-          "--od-kind-version": "#8d959e",
+          "--od-kind-version": "#a0a8b0",
           // Assembly Line node icon colors. Light mode uses the for_each chip's teal so the icon and minimap read on the card.
           "--od-assembly-variable": BRAND_BRIDGE,
           "--od-assembly-module": BRAND_MINT,

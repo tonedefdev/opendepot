@@ -25,6 +25,7 @@ import ProviderLogo, { hasProviderLogo } from "@/components/ProviderLogo";
 import { PROVIDER_COLOR } from "@/lib/kindColors";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
@@ -82,7 +83,7 @@ export default function ProviderConfigurationModal({
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const code = useMemo(
     () => renderProviderPreview(localName, alias, schema, value, referenceOptions),
     [localName, alias, schema, value, referenceOptions],

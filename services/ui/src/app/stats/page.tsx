@@ -308,7 +308,7 @@ export default async function StatsPage() {
                               py: 0.1,
                               borderRadius: 1,
                               bgcolor: "action.selected",
-                              color: "text.secondary",
+                              color: "text.primary",
                               fontSize: "0.75rem",
                               fontWeight: 700,
                               lineHeight: 1.5,

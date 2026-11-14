@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import CopyButton from "@/components/CopyButton";
 import { Prism, resolvePrismLanguage } from "@/lib/codeHighlight";
 
@@ -19,7 +20,7 @@ interface HighlightedCodeBlockProps {
 export function HighlightedCodeBlock({ code, language }: HighlightedCodeBlockProps) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
 
   return (
     <Box sx={{ position: "relative", mb: 1.5 }}>
