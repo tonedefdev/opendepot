@@ -159,6 +159,8 @@ Archive extraction is limited to 2 GiB of decompressed data and 10,000 entries. 
 
 ## agents.v1 protocol
 
+For the full protocol reference, see [agents.v1 Protocol](agents-v1.md).
+
 The registry serves skills and agents under `/opendepot/agents/v1/`. `{kind}` is `skills` or `agents`. The CLI uses these endpoints:
 
 | Method | Path | Purpose |
@@ -170,7 +172,7 @@ The registry serves skills and agents under `/opendepot/agents/v1/`. `{kind}` is
 | GET | `/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS.sig` | Return the GPG signature for `SHA256SUMS`. |
 | GET | `/opendepot/agents/v1/catalog` | List the skills and agents the caller can see. Used by `opendepot list`. |
 
-The service discovery document advertises the base path as `agents.v1`. Requests are subject to GroupBinding authorization. Archive requests return a `302` redirect to a checksum-keyed download URL. The redirect URL remains valid after GroupBinding access is revoked. See [agents.v1 protocol](../guides/agents.md#agentsv1-protocol) for details.
+The service discovery document advertises the base path as `agents.v1`. Requests are subject to GroupBinding authorization. Archive requests return a `302` redirect to a checksum-keyed download URL. The redirect URL remains valid after GroupBinding access is revoked. See [agents.v1 protocol](agents-v1.md) for details.
 
 ## Signing key trust
 
@@ -279,4 +281,6 @@ In CI, run `opendepot apply --no-prompt` and then `opendepot verify`. Use `opend
 
 ## See also
 
-- [Consuming Agents and Skills](../guides/agents.md): publish Depots and configure Jev.
+- [Consuming Agents and Skills](../guides/agents.md): install skills and agents into a project.
+- [Publishing Agents and Skills](../guides/agents-publishing.md): configure the Depots that publish them.
+- [agents.v1 Protocol](agents-v1.md): the endpoints the CLI calls.

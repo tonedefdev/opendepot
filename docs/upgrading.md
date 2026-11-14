@@ -25,7 +25,7 @@ The Version controller also needs a new RBAC rule that lets it create and patch 
 
 ### Critical Jev assessments set needsReview
 
-A Jev assessment with a `Critical` risk level now sets `status.jevAssessment.needsReview` to `true`, in addition to blocking the Version. Before this change, `Critical` blocked the Version without setting the field. A completed assessment from before this change is reused unchanged, so its `needsReview` value does not change until the Version is assessed again. See [Thresholds](guides/agents.md#thresholds).
+A Jev assessment with a `Critical` risk level now sets `status.jevAssessment.needsReview` to `true`, in addition to blocking the Version. Before this change, `Critical` blocked the Version without setting the field. A completed assessment from before this change is reused unchanged, so its `needsReview` value does not change until the Version is assessed again. See [Thresholds](guides/agents-jev.md#thresholds).
 
 ### Upgrade Steps
 
@@ -52,7 +52,7 @@ The release adds the `Skill` and `Agent` CRDs. Helm does not update CRDs during 
 helm show crds opendepot/opendepot | kubectl apply --server-side -f -
 ```
 
-The agent service is disabled by default. The `GroupBinding` CRD gains the `skillResources` and `agentResources` fields. An empty list denies access to skills and agents, so add these fields to grant access. See [agents](guides/agents.md) for setup.
+The agent service is disabled by default. The `GroupBinding` CRD gains the `skillResources` and `agentResources` fields. An empty list denies access to skills and agents, so add these fields to grant access. See [agents](guides/agents-publishing.md) for setup.
 
 ### Depot version history
 

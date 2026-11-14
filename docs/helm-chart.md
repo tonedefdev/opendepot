@@ -171,7 +171,7 @@ Branch sourcing lets Skill and Agent sources follow a Git branch with `ref`. It 
 |-------|------|-------------|
 | `branchSourcing.enabled` | `bool` | Sets `--branch-sourcing-enabled` on the depot and version controllers. Default `false`. Both controllers read the same value. |
 
-Polling for new branch commits uses the existing `pollingIntervalMinutes` on the Depot. There is no separate poll-interval value. For the behavior, see [Branch sourcing](guides/agents.md#branch-sourcing).
+Polling for new branch commits uses the existing `pollingIntervalMinutes` on the Depot. There is no separate poll-interval value. For the behavior, see [Branch sourcing](guides/agents-publishing.md#branch-sourcing).
 
 ## Assembly Line
 

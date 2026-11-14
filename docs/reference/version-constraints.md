@@ -23,5 +23,5 @@ Skill and Agent sources use `versionConstraints` to select Git tags, or `ref` to
 - **Tags (`versionConstraints`)** are the recommended default for stable content. Tags are usually more immutable than branches.
 - **Branches (`ref`)** publish a new Version on every push to the branch, once all checks pass. A branch head moves with every push. Each Version is still pinned to its exact `sourceCommit`.
 
-`immutable` works on branch sources. A re-download must match the Version's recorded `status.checksum`, and a moving branch creates new Versions without changing existing ones. For the full behavior, see [Branch sourcing](../guides/agents.md#branch-sourcing).
+`immutable` works on branch sources. A re-download must match the Version's recorded `status.checksum`, and a moving branch creates new Versions without changing existing ones. For the full behavior, see [Branch sourcing](../guides/agents-publishing.md#branch-sourcing).
 

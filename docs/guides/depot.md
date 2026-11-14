@@ -7,7 +7,7 @@ tags:
 
 # Pull-Based Workflow: Using the Depot
 
-The Depot is a pull-based controller. It discovers, downloads, and tracks modules and providers from external sources, so your registry stays current without manual imports.
+The Depot is a pull-based controller. It discovers, downloads, and tracks modules, providers, Skills, and Agents from external sources, so your registry stays current without manual imports.
 
 Use it for:
 
@@ -203,13 +203,13 @@ A skill or agent source can set `ref` to follow a Git branch instead of publishi
 - **Tags are the stable choice.** Tags are usually more immutable than branches. A branch head moves with every push, and each new commit becomes a new Version pinned to its `sourceCommit`.
 - **Migration only.** Branch sources are intended as a one-time migration. After that, manage the source definitions through GitOps.
 
-See [Branch sourcing](agents.md#branch-sourcing) for `branchPolicy`, the naming and status flow, and the Jev bump rules.
+See [Branch sourcing](agents-publishing.md#branch-sourcing) for `branchPolicy`, the naming and status flow, and the Jev bump rules.
 
 ## Options
 
 **Polling interval:** `pollingIntervalMinutes` sets how often the Depot re-queries GitHub and upstream registries. If omitted, the Depot reconciles once and does not poll.
 
-For branch sources (`ref`), polling is what picks up new commits on a schedule. When `pollingIntervalMinutes` is unset, a branch source picks up new commits only when the Depot reconciles for another reason, such as a spec change, an annotation change, or a resync. Branch sources are intended as a one-time migration, managed through GitOps afterward. See [Branch sourcing](agents.md#branch-sourcing).
+For branch sources (`ref`), polling is what picks up new commits on a schedule. When `pollingIntervalMinutes` is unset, a branch source picks up new commits only when the Depot reconciles for another reason, such as a spec change, an annotation change, or a resync. Branch sources are intended as a one-time migration, managed through GitOps afterward. See [Branch sourcing](agents-publishing.md#branch-sourcing).
 
 **Per-module storage override:** Any module can override the global storage config:
 

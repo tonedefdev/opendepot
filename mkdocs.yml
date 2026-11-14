@@ -1,5 +1,5 @@
 site_name: OpenDepot
-site_description: Self-hosted OpenTofu/Terraform Module and Provider Registry for Kubernetes
+site_description: Open source, Kubernetes-native artifact registry for OpenTofu and Terraform modules and providers, Agent Skills, and Agents
 site_url: https://opendepot.defdev.io/docs/
 repo_url: https://github.com/tonedefdev/opendepot
 repo_name: tonedefdev/opendepot
@@ -102,6 +102,10 @@ nav:
     - Admins:
       - GitOps with Argo CD: guides/gitops.md
       - Depot (Pull-Based): guides/depot.md
+      - Publishing Agents and Skills: guides/agents-publishing.md
+      - Skill and Agent Checks: guides/agents-checks.md
+      - Jev Assessment: guides/agents-jev.md
+      - Jev Digest, Exemptions, and Retries: guides/agents-jev-exemptions.md
       - CI/CD Pipelines: guides/cicd.md
       - Registry Operations: guides/operations.md
       - Upgrading OpenDepot: upgrading.md
@@ -114,6 +118,7 @@ nav:
     - API: reference/api.md
     - Version Constraints: reference/version-constraints.md
     - CLI: reference/cli.md
+    - agents.v1 Protocol: reference/agents-v1.md
     - Helm Chart: helm-chart.md
     - Kubernetes RBAC:
       - reference/rbac/index.md

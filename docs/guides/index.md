@@ -12,7 +12,7 @@ End-to-end workflows for the most common OpenDepot use cases.
 
 ## For Users
 
-Guides for teams consuming modules and providers from OpenDepot.
+Guides for teams consuming modules, providers, Skills, and Agents from OpenDepot.
 
 <div class="grid cards" markdown>
 
@@ -27,6 +27,12 @@ Guides for teams consuming modules and providers from OpenDepot.
     ---
 
     Use OpenDepot as a private provider mirror, including in air-gapped environments.
+
+- :material-robot-outline: &nbsp;[__Consuming Agents and Skills__](agents.md)
+
+    ---
+
+    Install Skills and Agents from a registry with the `opendepot` CLI. Each install is verified against signed checksums before anything is written to disk.
 
 - :material-graph: &nbsp;[__Assembly Line__](assembly-line.md)
 
@@ -53,6 +59,24 @@ Guides for platform and infrastructure teams operating OpenDepot.
     ---
 
     Automatically discover and sync module versions from GitHub and provider versions from the OpenTofu or Terraform Registry without writing any `kubectl apply` commands or configuring direct pipeline authentication.
+
+- :material-publish: &nbsp;[__Publishing Agents and Skills__](agents-publishing.md)
+
+    ---
+
+    Publish Skills and Agents from Git as Skill and Agent resources or through a Depot, including branch sourcing and version bump rules.
+
+- :material-shield-check: &nbsp;[__Skill and Agent Checks__](agents-checks.md)
+
+    ---
+
+    Review the deterministic checks that every Skill and Agent Version passes before it is synced.
+
+- :material-head-cog: &nbsp;[__Jev Assessment__](agents-jev.md)
+
+    ---
+
+    Enable the optional TypeSafe Jev assessment, review how content is scored, and understand what data is sent.
 
 - :material-upload-circle: &nbsp;[__CI/CD Pipelines__](cicd.md)
 

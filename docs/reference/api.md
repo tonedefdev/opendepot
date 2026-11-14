@@ -1256,7 +1256,7 @@ The base64 encoded definition must be at most 1,000,000 bytes. This keeps the Co
 
 ### Branch source fields
 
-These fields apply to `AgentSourceConfig`, which is used by Depot `skillConfigs` and `agentConfigs`, by `Skill.spec`, `Agent.spec`, and by `Version.spec.agentSourceRef`. Branch sourcing is enabled only when the chart sets `branchSourcing.enabled: true`. See [Branch sourcing](../guides/agents.md#branch-sourcing).
+These fields apply to `AgentSourceConfig`, which is used by Depot `skillConfigs` and `agentConfigs`, by `Skill.spec`, `Agent.spec`, and by `Version.spec.agentSourceRef`. Branch sourcing is enabled only when the chart sets `branchSourcing.enabled: true`. See [Branch sourcing](../guides/agents-publishing.md#branch-sourcing).
 
 | Field | Type | Description |
 |---|---|---|
@@ -1282,7 +1282,7 @@ The following rules are enforced by CEL on the type:
 | `minorThreshold` | `float64` | `0.5` | MINOR when the major-change probability plus the minor-change probability is at least this value. Between `0` and `1`. |
 | `minConfidence` | `float64` | `0.5` | A Version whose confidence is below this value is marked `needsReview`. Informational only. Between `0` and `1`. |
 
-For the classification rules, see [Version bump classification](../guides/agents.md#version-bump-classification).
+For the classification rules, see [Version bump classification](../guides/agents-publishing.md#version-bump-classification).
 
 ### SkillVersion and AgentVersion fields
 
@@ -1332,7 +1332,7 @@ For a branch Version, `version` is empty until the version controller assigns a 
 
 ### JevPolicy fields
 
-`jevPolicy` is set on the same sources as `jevSecretRef`. Each threshold is optional. A threshold that is not set never blocks a Version. Each threshold is checked against every part of the content, and a breach in any part blocks the Version. See [Thresholds](../guides/agents.md#thresholds).
+`jevPolicy` is set on the same sources as `jevSecretRef`. Each threshold is optional. A threshold that is not set never blocks a Version. Each threshold is checked against every part of the content, and a breach in any part blocks the Version. See [Thresholds](../guides/agents-jev.md#thresholds).
 
 | Field | Type | Description |
 |---|---|---|
@@ -1348,7 +1348,7 @@ For a branch Version, `version` is empty until the version controller assigns a 
 
 ### JevAssessment fields
 
-`jevAssessment` is set on `VersionStatus`. It is combined from the scored parts. See [How content is split](../guides/agents.md#how-content-is-split).
+`jevAssessment` is set on `VersionStatus`. It is combined from the scored parts. See [How content is split](../guides/agents-jev.md#how-content-is-split).
 
 | Field | Type | Description |
 |---|---|---|
@@ -1373,7 +1373,7 @@ For a branch Version, `version` is empty until the version controller assigns a 
 | `chunks` | [`[]JevChunkResult`](#jevchunkresult-fields) | Optional. One entry per scored or attempted part. At most 16 entries. |
 | `skippedFiles` | [`[]JevSkippedFile`](#jevskippedfile-fields) | Optional. Files that Jev could not read. Any entry blocks the Version. At most 32 entries are listed. |
 | `skippedFileCount` | `int32` | Optional. The total number of skipped files. |
-| `retryCount` | `int32` | Optional. The number of counted failed attempts since the last ForceSync, which resets it to `0`. The count starts at `0` and rises by one for each counted failure. 401 and 403 failures are not counted. Automatic retries stop once it exceeds `jevMaxRetries`, which defaults to `3`. See [Retries](../guides/agents.md#retries). |
+| `retryCount` | `int32` | Optional. The number of counted failed attempts since the last ForceSync, which resets it to `0`. The count starts at `0` and rises by one for each counted failure. 401 and 403 failures are not counted. Automatic retries stop once it exceeds `jevMaxRetries`, which defaults to `3`. See [Retries](../guides/agents-jev-exemptions.md#retries). |
 
 ### JevChunkResult fields
 

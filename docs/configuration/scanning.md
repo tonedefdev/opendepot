@@ -184,7 +184,7 @@ There is no global flag to disable `ScanPolicy` enforcement. Whoever can create 
 
 ### Jev exemptions with ScanPolicy
 
-A `ScanPolicy` can also clear a [Jev](../guides/agents.md#jev-assessment) block. Jev blocks come from the `jevPolicy` on an agent source, so a Jev exemption is not a finding exemption. It uses `jevExemptions`, and each entry matches one exact archive by its digest. The entry clears every Jev block reason for that archive.
+A `ScanPolicy` can also clear a [Jev](../guides/agents-jev.md) block. Jev blocks come from the `jevPolicy` on an agent source, so a Jev exemption is not a finding exemption. It uses `jevExemptions`, and each entry matches one exact archive by its digest. The entry clears every Jev block reason for that archive.
 
 ```yaml
 apiVersion: opendepot.defdev.io/v1alpha1
@@ -200,7 +200,7 @@ spec:
       expires: "2026-12-31T00:00:00Z"
 ```
 
-- **`contentDigest`** — required. The lowercase hex SHA-256 of the Version archive, copied from `status.jevAssessment.contentDigest`. It must be 64 lowercase hex characters. The server rejects uppercase hex and duplicate digests in one policy. See [Reading the digest](../guides/agents.md#reading-the-digest).
+- **`contentDigest`** — required. The lowercase hex SHA-256 of the Version archive, copied from `status.jevAssessment.contentDigest`. It must be 64 lowercase hex characters. The server rejects uppercase hex and duplicate digests in one policy. See [Reading the digest](../guides/agents-jev-exemptions.md#reading-the-digest).
 - **`reason`** — required. The justification for the entry. It must not be blank.
 - **`expires`** — optional. An RFC3339 timestamp. Omitting it means the entry never expires for as long as the archive digest does not change. Set `expires` on every entry. When it passes, the Version blocks again and the entry must be renewed.
 
@@ -210,7 +210,7 @@ spec:
 
 **Re-blocking:** a published Version is blocked again when its matching entry expires or is removed, or when the archive digest changes. The controller sets `status.synced` to `false`, writes a `JevBlocked:` message to `syncStatus`, and emits a `JevExemptionRevoked` warning event. The event message does not say whether the entry expired or was removed. Expiry is requeued the same way as finding exemptions.
 
-The policy status counts entries in `status.activeJevExemptions` and `status.expiredJevExemptions`. See [Jev exemptions](../guides/agents.md#exemptions) for what an exemption clears and what it does not.
+The policy status counts entries in `status.activeJevExemptions` and `status.expiredJevExemptions`. See [Jev exemptions](../guides/agents-jev-exemptions.md#exemptions) for what an exemption clears and what it does not.
 
 ### Migrating from global thresholds
 
@@ -255,7 +255,7 @@ Validate the rollout in a disposable namespace:
 
 ## Skill and Agent Version Bumps
 
-Skill and Agent sources in branch mode run Trivy scans before the optional Jev assessment. A flagged entry file sets the bump to MAJOR with source `Withheld`, and Jev is not called for that Version. If Jev is enabled and a call fails, the Version is Held rather than published as PATCH. The full classification rules, thresholds, and the `opendepot.defdev.io/bump-override` annotation are in [Version bump classification](../guides/agents.md#version-bump-classification).
+Skill and Agent sources in branch mode run Trivy scans before the optional Jev assessment. A flagged entry file sets the bump to MAJOR with source `Withheld`, and Jev is not called for that Version. If Jev is enabled and a call fails, the Version is Held rather than published as PATCH. The full classification rules, thresholds, and the `opendepot.defdev.io/bump-override` annotation are in [Version bump classification](../guides/agents-publishing.md#version-bump-classification).
 
 ## Offline Mode
 

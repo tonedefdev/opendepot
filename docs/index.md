@@ -9,11 +9,17 @@ tags:
 
 ## Why OpenDepot?
 
-Managing Terraform and OpenTofu modules and providers often means operating a separate registry, authentication flow, storage layer, and security workflow. OpenDepot brings those concerns into the Kubernetes operating model you already use: it's **free, open source, and Kubernetes-native**, with vulnerability scanning, automatic version discovery, a comprehensive User Interface, and OIDC-based SSO included out of the box.
+Managing artifacts such as modules, providers, skills, and agents often means operating a separate registry, authentication flow, storage layer, and security workflow for each kind. OpenDepot is a **free, open source, Kubernetes-native artifact registry** that brings those concerns into the Kubernetes operating model you already use. Vulnerability scanning, automatic version discovery, a comprehensive User Interface, and OIDC-based SSO are included out of the box. It publishes **OpenTofu and Terraform modules and providers** and **Agent Skills and Agents** from Git repositories, so one registry serves all of them. Support for **MCP servers** and **OCI artifacts** is planned.
 
 The server and UI is read-only by design, and Kubernetes RBAC remains the authorization layer for create, update, and delete operations. Deployment requires nothing beyond a Helm chart and a storage backend.
 
 <div class="grid cards" markdown>
+
+- :material-robot-outline: &nbsp;__Agent Skills & Agents__
+
+    ---
+
+    Publish Skills and Agents from Git repositories, either as Skill and Agent resources in a GitOps workflow or through a Depot. Consumers install them with the `opendepot` CLI, which verifies the signed `SHA256SUMS` file and hashes before anything is written to disk. Optionally score each Version with the TypeSafe Jev assessment. See [Consuming Agents and Skills](guides/agents.md).
 
 - :material-view-dashboard-outline: &nbsp;__OpenDepot Workshop__
 
@@ -43,7 +49,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
     ---
 
-    The Depot controller discovers module releases and provider versions from their configured upstream registries. Use the [Provider Network Mirror Protocol](guides/providers.md#default-workflow-network-mirror) to install mirrored providers through OpenDepot while keeping canonical provider source addresses unchanged in module configurations and lockfiles.
+    The Depot controller discovers module releases, provider versions, and Skill and Agent tags from their configured sources. Use the [Provider Network Mirror Protocol](guides/providers.md#default-workflow-network-mirror) to install mirrored providers through OpenDepot while keeping canonical provider source addresses unchanged in module configurations and lockfiles.
 
 - :material-shield-check: &nbsp;__Security First__
 
@@ -101,7 +107,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
 - :material-sitemap: &nbsp;[__Architecture__](architecture.md)
 
-    Understand how the four services interact and reconcile.
+    Understand how the controllers, server, and storage interact and reconcile.
 
 - :material-cog-outline: &nbsp;[__Configuration__](configuration/index.md)
 
@@ -109,7 +115,7 @@ The server and UI is read-only by design, and Kubernetes RBAC remains the author
 
 - :material-book-open-variant: &nbsp;[__Guides__](guides/index.md)
 
-    GitOps, CI/CD, Depot, provider consumption, migration, and upgrade workflows.
+    GitOps, CI/CD, Depot, provider consumption, Skill and Agent consumption, migration, and upgrade workflows.
 
 - :material-book-check: &nbsp;[__Reference__](reference/index.md)
 
