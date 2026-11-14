@@ -30,7 +30,7 @@ const statCards = [
 
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
-    <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2, "& svg": { fontSize: 22, color: "text.secondary" } }}>
+    <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2, "& svg": { fontSize: 22, color: "primary.main" } }}>
       {icon}
       <Typography variant="h6" fontWeight={600}>
         {title}
@@ -46,18 +46,8 @@ export default function StatsLoading() {
         icon={<BarChartIcon fontSize="small" />}
         title="Registry Statistics"
         description="Live metrics across all visible modules, providers, skills, agents, and versions."
-        mobileOnly
       />
       <Container maxWidth="xl" sx={{ py: 3 }} role="status" aria-label="Loading statistics">
-        <Box sx={{ mb: 0.5, display: { xs: "none", sm: "flex" }, alignItems: "center", minHeight: 40 }}>
-          <Typography variant="h5" fontWeight={600}>
-            Registry Statistics
-          </Typography>
-        </Box>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, display: { xs: "none", sm: "block" } }}>
-          Live metrics across all visible modules, providers, skills, agents, and versions.
-        </Typography>
-
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
           <StatStrip columns={8}>
             {statCards.map((card) => (

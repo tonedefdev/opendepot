@@ -17,7 +17,7 @@ export function SectionCard({ id, icon, title, children }: SectionCardProps) {
     <Card id={id} sx={{ mb: 2, scrollMarginTop: 16 }}>
       <CardContent>
         <Box display="flex" alignItems="center" gap={1} mb={2}>
-          <Box sx={{ color: "text.secondary", display: "flex" }}>{icon}</Box>
+          <Box sx={{ color: "primary.main", display: "flex" }}>{icon}</Box>
           <Typography variant="h6" sx={{ fontSize: "0.9375rem", fontWeight: 600 }}>
             {title}
           </Typography>

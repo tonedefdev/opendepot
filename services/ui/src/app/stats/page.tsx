@@ -181,7 +181,7 @@ export default async function StatsPage() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }} sx={{ display: "flex", flexDirection: "column" }}>
               <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
-                <SyncIcon sx={{ fontSize: 22, color: "text.secondary" }} />
+                <SyncIcon sx={{ fontSize: 22, color: "primary.main" }} />
                 <Typography variant="h6" fontWeight={600}>
                   Sync Health
                 </Typography>
@@ -224,7 +224,7 @@ export default async function StatsPage() {
 
             <Grid size={{ xs: 12, md: 6 }} sx={{ display: "flex", flexDirection: "column" }}>
               <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
-                <SecurityIcon sx={{ fontSize: 22, color: "text.secondary" }} />
+                <SecurityIcon sx={{ fontSize: 22, color: "primary.main" }} />
                 <Typography variant="h6" fontWeight={600}>
                   Security Posture
                 </Typography>
@@ -268,7 +268,7 @@ export default async function StatsPage() {
           {stats.storageDistribution.length > 0 && (
             <Box sx={{ mt: 1 }}>
               <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
-                <PieChartIcon sx={{ fontSize: 22, color: "text.secondary" }} />
+                <PieChartIcon sx={{ fontSize: 22, color: "primary.main" }} />
                 <Typography variant="h6" fontWeight={600}>
                   Storage Distribution
                 </Typography>
@@ -327,7 +327,7 @@ export default async function StatsPage() {
           {/* Most downloaded */}
           <Box sx={{ mt: 1 }}>
             <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
-              <TrendingUpIcon sx={{ fontSize: 22, color: "text.secondary" }} />
+              <TrendingUpIcon sx={{ fontSize: 22, color: "primary.main" }} />
               <Typography variant="h6" fontWeight={600}>
                 Most Downloaded
               </Typography>

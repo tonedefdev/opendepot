@@ -7,7 +7,7 @@ test.describe("CLI page", () => {
   test("renders the OpenDepot CLI heading and an OS selector", async ({ page }) => {
     await page.goto("/cli");
 
-    await expect(page.getByRole("heading", { name: "OpenDepot CLI", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "OpenDepot CLI", level: 6 })).toBeVisible();
     await expect(osGroup(page).getByRole("button", { name: "macOS" })).toBeVisible();
     await expect(osGroup(page).getByRole("button", { name: "Linux" })).toBeVisible();
     await expect(osGroup(page).getByRole("button", { name: "Windows" })).toBeVisible();
@@ -63,6 +63,5 @@ test.describe("CLI page on mobile", () => {
     const titleCenterY = (titleBox?.y ?? 0) + (titleBox?.height ?? 0) / 2;
     const toggleCenterY = (toggleBox?.y ?? 0) + (toggleBox?.height ?? 0) / 2;
     expect(Math.abs(titleCenterY - toggleCenterY)).toBeLessThan(8);
-    await expect(page.getByRole("heading", { name: "OpenDepot CLI", level: 1 })).toBeVisible();
   });
 });

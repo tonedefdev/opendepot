@@ -50,7 +50,7 @@ describe("Sidebar namespace fallback", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [] })));
 
     render(<Sidebar initialNamespaces={[]} />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/opendepot/ui/v1/namespaces"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/namespaces", expect.objectContaining({ cache: "no-store" })));
   });
 });
 

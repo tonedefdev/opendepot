@@ -113,7 +113,7 @@ export default function Sidebar({
   useEffect(() => {
     if (pathname !== "/") return;
     if (initialNamespaces.length > 0) return;
-    fetch(`/opendepot/ui/v1/namespaces`)
+    fetch(`/api/namespaces`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: { items: Namespace[] }) => {
         setNamespaces(data.items ?? []);

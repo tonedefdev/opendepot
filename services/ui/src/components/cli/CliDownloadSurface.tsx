@@ -82,12 +82,8 @@ export default function CliDownloadSurface() {
         icon={<TerminalOutlinedIcon fontSize="small" />}
         title="OpenDepot CLI"
         description="Download and install the OpenDepot command-line tool."
-        mobileOnly
       />
     <Container maxWidth="md" sx={{ py: 4 }}>
-      <Typography variant="h4" component="h1" sx={{ mb: 1 }}>
-        OpenDepot CLI
-      </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
         Choose the binary for your platform. Each download matches the server release it was published with.
       </Typography>
