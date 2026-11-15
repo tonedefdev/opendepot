@@ -20,16 +20,20 @@ import PieChartIcon from "@mui/icons-material/PieChart";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import { SiGooglecloud } from "react-icons/si";
 import { FaAws, FaMicrosoft } from "react-icons/fa6";
-import { getStats, getDepotsGraph } from "@/lib/api";
+import { getStats, getDepotsGraph, getScanPolicyCatalog } from "@/lib/api";
+import type { JevRiskLevelStats } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import RefreshIconButton from "@/components/RefreshIconButton";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import PageHeader from "@/components/PageHeader";
+import OpenNeedsReviewButton from "@/components/OpenNeedsReviewButton";
 import StatCard, { StatStrip } from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import { severityChipSx } from "@/components/severityStyles";
-import { NEUTRAL_COLOR, kindColor } from "@/lib/kindColors";
+import { ACCENT_COLOR, kindColor } from "@/lib/kindColors";
+import { JEV_INPUT_USD_PER_MILLION_TOKENS, formatJevInputCost } from "@/lib/jevCost";
 import { metaChipSurfaceSx } from "@/components/chipStyles";
 
 // Format bytes into human-readable string.
@@ -51,6 +55,24 @@ function ucfirst(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function JevMetric({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "error" | "warning" }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" component="div">
+        {label}
+      </Typography>
+      <Typography variant="h6" fontWeight={600} sx={{ color: tone ? `${tone}.main` : "text.primary", fontVariantNumeric: "tabular-nums" }}>
+        {value}
+      </Typography>
+      {sub && (
+        <Typography variant="caption" color="text.secondary">
+          {sub}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 const severityColour: Record<string, "error" | "warning" | "info" | "default" | "success"> = {
   critical: "error",
   high: "warning",
@@ -58,6 +80,16 @@ const severityColour: Record<string, "error" | "warning" | "info" | "default" | 
   low: "success",
   unknown: "default",
 };
+
+// JEV_RISK_LEVELS orders Jev risk levels from lowest to highest. Colour loudness rises with severity, so Critical
+// is the strongest red and High sits below it in amber rather than a paler red.
+const JEV_RISK_LEVELS: { key: keyof JevRiskLevelStats; label: string; colour: string }[] = [
+  { key: "minimal", label: "Minimal", colour: "success.light" },
+  { key: "low", label: "Low", colour: "success.main" },
+  { key: "moderate", label: "Moderate", colour: "warning.light" },
+  { key: "high", label: "High", colour: "warning.main" },
+  { key: "critical", label: "Critical", colour: "error.main" },
+];
 
 function storageBackendMeta(backend: string): { icon: React.ReactNode; color: string; label: string } {
   switch (backend.toLowerCase()) {
@@ -77,6 +109,7 @@ export default async function StatsPage() {
   let stats;
   let totalDepots = 0;
   let fetchError: string | null = null;
+  let securityPoliciesEnabled = false;
 
   try {
     const [statsResult, graphResult] = await Promise.all([
@@ -93,6 +126,15 @@ export default async function StatsPage() {
     fetchError = msg;
   }
 
+  // The queue link follows the sidebar: it appears only when Security Policies is enabled.
+  if (token) {
+    try {
+      securityPoliciesEnabled = (await getScanPolicyCatalog(token)).writesEnabled;
+    } catch {
+      // Leave the queue link hidden when the policy catalog is unavailable.
+    }
+  }
+
   const syncTotal =
     stats ? stats.syncHealth.syncedVersions + stats.syncHealth.unsyncedVersions + stats.syncHealth.failedVersions : 0;
 
@@ -103,6 +145,11 @@ export default async function StatsPage() {
         { label: "Failed", count: stats.syncHealth.failedVersions, colour: "error.main" },
       ]
     : [];
+
+  const jevRisk = stats
+    ? JEV_RISK_LEVELS.map((level) => ({ label: level.label, colour: level.colour, count: stats.jev.riskLevels[level.key] }))
+    : [];
+  const jevScored = jevRisk.reduce((sum, seg) => sum + seg.count, 0);
 
   return (
     <>
@@ -161,19 +208,19 @@ export default async function StatsPage() {
               value={stats.totalVersions}
               sub={syncedNote(stats.versionsSynced, stats.totalVersions)}
               icon={<DepotKindIcon kind="version" fontSize="small" />}
-              accentColor={kindColor("version")}
+              accentColor={ACCENT_COLOR}
             />
             <StatCard
               label="Storage Used"
               value={formatBytes(stats.totalStorageBytes)}
               icon={<StorageIcon fontSize="small" />}
-              accentColor={NEUTRAL_COLOR}
+              accentColor={ACCENT_COLOR}
             />
             <StatCard
               label={`Downloads (${stats.downloadWindow})`}
               value={stats.totalDownloads.toLocaleString()}
               icon={<DownloadIcon fontSize="small" />}
-              accentColor={NEUTRAL_COLOR}
+              accentColor={ACCENT_COLOR}
             />
           </StatStrip>
 
@@ -264,6 +311,103 @@ export default async function StatsPage() {
             </Grid>
           </Grid>
 
+          {/* Jev assessment */}
+          <Box>
+            <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
+              <VerifiedUserOutlinedIcon sx={{ fontSize: 22, color: "primary.main" }} />
+              <Typography variant="h6" fontWeight={600}>
+                Jev Assessment
+              </Typography>
+            </Box>
+            <Paper variant="outlined" sx={{ p: 2.5 }}>
+              {stats.jev.assessedVersions === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No Versions have been assessed by Jev. Jev is off by default.
+                </Typography>
+              ) : (
+                <Grid container spacing={3}>
+                  <Grid size={{ xs: 12, md: 7 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(132px, 1fr))", gap: 2.5 }}>
+                      <JevMetric label="Assessed" value={stats.jev.assessedVersions.toLocaleString()} />
+                      <JevMetric label="Estimated cost" value={formatJevInputCost(stats.jev.inputTokens)} />
+                      <JevMetric label="Input tokens" value={stats.jev.inputTokens.toLocaleString()} />
+                      <JevMetric label="Chunks assessed" value={stats.jev.assessedChunks.toLocaleString()} />
+                      <JevMetric
+                        label="Blocked"
+                        value={stats.jev.blockedVersions.toLocaleString()}
+                        tone={stats.jev.blockedVersions > 0 ? "error" : undefined}
+                      />
+                      {securityPoliciesEnabled ? (
+                        <OpenNeedsReviewButton>
+                          <JevMetric
+                            label="Needs review"
+                            value={stats.jev.needsReviewVersions.toLocaleString()}
+                            sub="Open queue"
+                            tone={stats.jev.needsReviewVersions > 0 ? "warning" : undefined}
+                          />
+                        </OpenNeedsReviewButton>
+                      ) : (
+                        <JevMetric
+                          label="Needs review"
+                          value={stats.jev.needsReviewVersions.toLocaleString()}
+                          tone={stats.jev.needsReviewVersions > 0 ? "warning" : undefined}
+                        />
+                      )}
+                      <JevMetric label="Exempted" value={stats.jev.exemptedVersions.toLocaleString()} />
+                      <JevMetric
+                        label="Failed"
+                        value={stats.jev.failedVersions.toLocaleString()}
+                        tone={stats.jev.failedVersions > 0 ? "error" : undefined}
+                      />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
+                      Estimated from the input tokens Jev reported across all visible Versions, at {`$${JEV_INPUT_USD_PER_MILLION_TOKENS}`} per million.
+                      Jev does not bill output tokens.
+                    </Typography>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      Risk levels
+                    </Typography>
+                    {jevScored === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No scored assessments.
+                      </Typography>
+                    ) : (
+                      <>
+                        <Box
+                          role="img"
+                          aria-label={jevRisk.map((seg) => `${seg.count} ${seg.label.toLowerCase()}`).join(", ")}
+                          sx={{ display: "flex", gap: "2px", height: 8, mb: 2, borderRadius: 4, overflow: "hidden", bgcolor: "action.selected" }}
+                        >
+                          {jevRisk
+                            .filter((seg) => seg.count > 0)
+                            .map((seg) => (
+                              <Box key={seg.label} sx={{ width: `${(seg.count / jevScored) * 100}%`, bgcolor: seg.colour }} />
+                            ))}
+                        </Box>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                          {jevRisk.map((seg) => (
+                            <Box key={seg.label} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                              <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: seg.colour }} />
+                              <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+                                {seg.label}
+                              </Typography>
+                              <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: "tabular-nums" }}>
+                                {seg.count}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </>
+                    )}
+                  </Grid>
+                </Grid>
+              )}
+            </Paper>
+          </Box>
+
           {/* Storage distribution */}
           {stats.storageDistribution.length > 0 && (
             <Box sx={{ mt: 1 }}>
@@ -352,7 +496,7 @@ export default async function StatsPage() {
                         No download events recorded yet.
                       </Typography>
                     ) : (
-                      <TableContainer>
+                      <TableContainer component={Paper} variant="outlined">
                         <Table size="small">
                           <TableHead>
                             <TableRow>

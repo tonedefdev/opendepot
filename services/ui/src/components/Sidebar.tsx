@@ -44,8 +44,8 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import { TOGGLE_SIDEBAR_EVENT } from "@/components/MobileSidebarButton";
-import NeedsReviewDrawer from "@/components/NeedsReviewDrawer";
-import { BRAND_GRADIENT } from "@/lib/brand";
+import NeedsReviewDrawer, { OPEN_NEEDS_REVIEW_EVENT } from "@/components/NeedsReviewDrawer";
+import { BRAND_BLUE } from "@/lib/brand";
 import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -208,6 +208,12 @@ export default function Sidebar({
     return () => window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggleSidebar);
   }, []);
 
+  useEffect(() => {
+    const openDrawer = () => setNeedsReviewOpen(true);
+    window.addEventListener(OPEN_NEEDS_REVIEW_EVENT, openDrawer);
+    return () => window.removeEventListener(OPEN_NEEDS_REVIEW_EVENT, openDrawer);
+  }, []);
+
   const updateCollapsedPreference = useCallback((value: boolean) => {
     setCollapsed(value);
     document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${value}; path=/; max-age=${SIDEBAR_PREFERENCE_MAX_AGE}; samesite=lax`;
@@ -283,6 +289,8 @@ export default function Sidebar({
       : (userInfo.email[0] ?? "").toUpperCase()
     : "";
 
+  // Light-mode logo treatments key off the data-mui-color-scheme attribute in CSS,
+  // not React state, so the first paint matches the final look without a swap.
   const drawerContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Logo + Branding */}
@@ -294,8 +302,9 @@ export default function Sidebar({
           px: 2,
           py: 1.75,
           minHeight: 57,
-          background: BRAND_GRADIENT,
-          borderBottom: "none",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          "[data-mui-color-scheme='light'] &": { bgcolor: BRAND_BLUE, borderBottomColor: BRAND_BLUE },
         }}
       >
         <Box
@@ -305,16 +314,28 @@ export default function Sidebar({
         >
           <Box
             component="img"
+            src="/img/opendepot_dark_mode.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.75rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "none" } }}
+          />
+          <Box
+            component="img"
             src="/img/opendepot_white.svg"
             alt="OpenDepot"
-            sx={{ height: "1.75rem", width: "auto" }}
+            sx={{ display: "none", height: "1.75rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "block" } }}
           />
         </Box>
         <Tooltip title="Collapse sidebar" placement="right">
           <IconButton
             size="small"
             onClick={collapseSidebar}
-            sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, flexShrink: 0 }}
+            sx={{
+              color: "text.secondary",
+              "&:hover": { color: "text.primary" },
+              "[data-mui-color-scheme='light'] &": { color: "#FFFFFF" },
+              "[data-mui-color-scheme='light'] &:hover": { color: "#FFFFFF", bgcolor: "rgba(255,255,255,0.12)" },
+              flexShrink: 0,
+            }}
           >
             <ChevronLeftIcon sx={{ fontSize: 18 }} />
           </IconButton>
@@ -322,7 +343,7 @@ export default function Sidebar({
       </Box>
 
       {/* Search */}
-      <Box sx={{ px: 1.5, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ px: 1.5, py: 1.5 }}>
         <Box
           component="form"
           onSubmit={handleSearchSubmit}
@@ -762,13 +783,32 @@ export default function Sidebar({
         <IconButton
           onClick={() => updateCollapsedPreference(false)}
           aria-label="Expand sidebar"
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: 57, mb: "-5px", p: 0, borderRadius: 0, flexShrink: 0, "&:hover": { opacity: 0.85, bgcolor: hoverTintBg } }}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            height: 57,
+            mb: "-5px",
+            p: 0,
+            borderRadius: 0,
+            flexShrink: 0,
+            "&:hover": { opacity: 0.85, bgcolor: hoverTintBg },
+            "[data-mui-color-scheme='light'] &": { bgcolor: BRAND_BLUE },
+            "[data-mui-color-scheme='light'] &:hover": { bgcolor: BRAND_BLUE },
+          }}
         >
           <Box
             component="img"
             src="/img/opendepot_icon.svg"
             alt="OpenDepot"
-            sx={{ height: "1.25rem", width: "auto" }}
+            sx={{ height: "1.25rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "none" } }}
+          />
+          <Box
+            component="img"
+            src="/img/opendepot_icon_white.svg"
+            alt="OpenDepot"
+            sx={{ display: "none", height: "1.25rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "block" } }}
           />
         </IconButton>
       </Tooltip>

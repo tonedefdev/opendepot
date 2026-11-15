@@ -985,7 +985,7 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 //	arch        - filter providers by supported architecture
 //	severity    - minimum severity: CRITICAL/HIGH/MEDIUM/LOW
 //	public_only - "true" show only public resources
-//	sort_by     - name|namespace|latest_version|synced|severity|last_scanned (default: name)
+//	sort_by     - name|namespace|latest_version|kind|source|status|risk|synced|severity|last_scanned (default: name)
 //	sort_dir    - asc|desc (default: asc)
 //	page        - 1-based page number (default: 1)
 //	page_size   - items per page (default: 20, max: 100)
@@ -2081,6 +2081,32 @@ func sortBrowseItems(items []BrowseResource, by, dir string) {
 			return a.Name < b.Name
 		case "last_scanned":
 			return a.LastScanned < b.LastScanned
+		case "kind":
+			if a.Kind != b.Kind {
+				return a.Kind < b.Kind
+			}
+
+			return a.Name < b.Name
+		case "source":
+			if a.SourceRef != b.SourceRef {
+				return a.SourceRef < b.SourceRef
+			}
+
+			return a.Name < b.Name
+		case "status":
+			ra, rb := browseStatusRank(a), browseStatusRank(b)
+			if ra != rb {
+				return ra < rb
+			}
+
+			return a.Name < b.Name
+		case "risk":
+			ra, rb := browseRiskRank(a), browseRiskRank(b)
+			if ra != rb {
+				return ra < rb
+			}
+
+			return a.Name < b.Name
 		default: // "name"
 			if a.Name != b.Name {
 				return a.Name < b.Name
@@ -2097,6 +2123,50 @@ func sortBrowseItems(items []BrowseResource, by, dir string) {
 
 		return less(i, j)
 	})
+}
+
+// browseStatusRank orders rows so problems come first: blocked, failed, not synced, then synced.
+func browseStatusRank(r BrowseResource) int {
+	if (r.Kind == "agent" || r.Kind == "skill") && r.Blocked {
+		return 0
+	}
+
+	lower := strings.ToLower(r.SyncStatus)
+	if strings.Contains(lower, "failed") || strings.Contains(lower, "error") {
+		return 1
+	}
+
+	if !r.Synced {
+		return 2
+	}
+
+	return 3
+}
+
+// browseRiskRank orders rows by their most severe signal, either scan findings or the Jev assessment.
+func browseRiskRank(r BrowseResource) int {
+	rank := severityRank(highestSeverity(r.ScanCounts))
+	if jev := jevRiskRank(r.JevRiskLevel); jev < rank {
+		rank = jev
+	}
+
+	return rank
+}
+
+// jevRiskRank maps a Jev risk level to the same ordering as severityRank, with Critical first.
+func jevRiskRank(level string) int {
+	switch level {
+	case "Critical":
+		return 0
+	case "High":
+		return 1
+	case "Moderate":
+		return 2
+	case "Low", "Minimal":
+		return 3
+	default:
+		return 4
+	}
 }
 
 // derefString safely dereferences a *string, returning "" when nil.

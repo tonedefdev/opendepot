@@ -400,11 +400,11 @@ function VariablesTable({
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Name</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Type</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Required</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Default</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Description</TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Required</TableCell>
+            <TableCell>Default</TableCell>
+            <TableCell>Description</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -469,10 +469,10 @@ function OutputsTable({
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Name</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Type</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Confidence</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Description</TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Confidence</TableCell>
+            <TableCell>Description</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -523,6 +523,7 @@ export default function ContractTable({ contract }: Props) {
   const outputs = React.useMemo(() => contract.outputs ?? [], [contract.outputs]);
   const warnings = contract.compatibility.warnings ?? [];
   const grade = contract.compatibility.grade;
+  const activeCount = tab === 0 ? variables.length : outputs.length;
 
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -559,7 +560,17 @@ export default function ContractTable({ contract }: Props) {
         <Tab label={`Outputs (${outputs.length})`} />
       </Tabs>
 
-      <Box ref={scrollRef} sx={{ maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, overflowY: "auto", overflowX: "auto", pr: 0.5 }}>
+      {/* The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. Padding is dropped when bordered so the header runs flush to the edge. */}
+      <Box
+        ref={scrollRef}
+        sx={{
+          maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+          overflowY: "auto",
+          overflowX: "auto",
+          pr: activeCount > 0 ? 0 : 0.5,
+          ...(activeCount > 0 && { border: 1, borderColor: "divider", borderRadius: 1 }),
+        }}
+      >
         {tab === 0 ? (
           <VariablesTable variables={variables} prismTheme={prismTheme} lightBg={lightBg} />
         ) : (

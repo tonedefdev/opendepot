@@ -45,7 +45,7 @@ Returns a paginated list of visible `Module` and `Provider` resources.
 | `os` / `arch` | string | Provider platform filters |
 | `severity` | string | Minimum finding severity |
 | `public_only` | bool | Public resources only |
-| `sort_by` / `sort_dir` | string | Sort field and direction |
+| `sort_by` / `sort_dir` | string | Sort field (`name`, `namespace`, `latest_version`, `kind`, `source`, `status`, `risk`) and direction (`asc`, `desc`) |
 | `page` / `page_size` | int | Pagination controls |
 
 ## Resource Detail

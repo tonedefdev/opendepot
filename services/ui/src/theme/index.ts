@@ -105,7 +105,7 @@ const theme = createTheme({
           "--od-font-mono": FONT_MONO,
           "--od-accent": BRAND_MINT,
           "--od-kind-version": "#a0a8b0",
-          // Assembly Line node icon colors. Light mode uses the for_each chip's teal so the icon and minimap read on the card.
+          // Assembly Line node colors. Modules use the primary accent so they match the for_each shadow; variables take the teal in light mode.
           "--od-assembly-variable": BRAND_BRIDGE,
           "--od-assembly-module": BRAND_MINT,
           // The rule under a table head and above a page footer: one step stronger than a row divider.
@@ -114,25 +114,20 @@ const theme = createTheme({
         '[data-mui-color-scheme="light"]': {
           "--od-accent": BRAND_BLUE,
           "--od-kind-version": "#6b7480",
-          "--od-assembly-variable": BRAND_BLUE,
-          "--od-assembly-module": "#037a70",
+          "--od-assembly-variable": "#037a70",
+          "--od-assembly-module": BRAND_BLUE,
           "--od-rule-strong": "rgba(11,13,16,0.28)",
         },
         body: {
           // JetBrains Mono joins sequences such as >= and != into single glyphs. Versions, constraints, and HCL must read literally.
           fontVariantLigatures: "no-contextual",
-          scrollbarColor: `${theme.vars.palette.divider} transparent`,
+          scrollbarColor: `${theme.vars.palette.primary.main} transparent`,
           "&::-webkit-scrollbar": { width: "8px" },
           "&::-webkit-scrollbar-track": { background: "transparent" },
           "&::-webkit-scrollbar-thumb": {
-            background: "#2a2f36",
+            background: theme.vars.palette.primary.main,
             borderRadius: "4px",
           },
-          ...theme.applyStyles("light", {
-            "&::-webkit-scrollbar-thumb": {
-              background: "#c9d0d8",
-            },
-          }),
         },
         "code, pre, kbd, samp": {
           fontFamily: FONT_MONO,
@@ -154,6 +149,11 @@ const theme = createTheme({
           "&:hover": { background: theme.vars.palette.action.hover },
           "&:last-of-type": { borderBottom: 0 },
           "& svg": { fill: "currentColor" },
+        },
+        // ReactFlow's default handle ring is white, which shows as a halo on dark surfaces.
+        ".react-flow__node .react-flow__handle": {
+          border: "1px solid transparent",
+          backgroundClip: "padding-box",
         },
         ".react-flow__edge-textbg": {
           fill: theme.vars.palette.background.paper,
@@ -274,8 +274,8 @@ const theme = createTheme({
         }),
       },
     },
-    // Tables are the product's main reading surface: compact rows, aligned figures, and a head rule one
-    // step stronger than the row rules so the eye finds the column labels without a filled header band.
+    // Tables are the product's main reading surface: compact rows and aligned figures. Light mode fills the
+    // header row with the brand blue so the column labels anchor each table; dark mode keeps a plain head rule.
     MuiTableCell: {
       styleOverrides: {
         root: {
@@ -290,10 +290,28 @@ const theme = createTheme({
           lineHeight: 1.5,
           color: theme.vars.palette.text.secondary,
           borderBottomColor: "var(--od-rule-strong)",
+          [theme.getColorSchemeSelector("light")]: {
+            backgroundColor: theme.vars.palette.primary.main,
+            color: theme.vars.palette.common.white,
+            borderBottomColor: theme.vars.palette.primary.main,
+            "& .MuiTableSortLabel-root, & .MuiTableSortLabel-root:hover, & .MuiTableSortLabel-root.Mui-active": {
+              color: "inherit",
+            },
+            "& .MuiTableSortLabel-root .MuiTableSortLabel-icon, & .MuiTableSortLabel-root.Mui-active .MuiTableSortLabel-icon": {
+              color: theme.vars.palette.common.white,
+            },
+          },
         }),
         body: ({ theme }) => ({
           borderBottomColor: theme.vars.palette.divider,
           fontSize: "0.875rem",
+        }),
+        // Sticky heads need an opaque fill so scrolled rows don't show through.
+        stickyHeader: ({ theme }) => ({
+          backgroundColor: theme.vars.palette.background.paper,
+          [theme.getColorSchemeSelector("light")]: {
+            backgroundColor: theme.vars.palette.primary.main,
+          },
         }),
       },
     },

@@ -8,6 +8,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import PublicIcon from "@mui/icons-material/Public";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import SeverityBadge from "./SeverityBadge";
 import SourceRefChip from "./SourceRefChip";
 import RiskMeter from "./RiskMeter";
@@ -25,14 +26,35 @@ export default function ResourceRow({ resource, showSource }: Props) {
   const address = `${resource.namespace}/${resource.name}`;
   const nameRef = React.useRef<HTMLAnchorElement>(null);
   const [nameTruncated, setNameTruncated] = React.useState(false);
+  const router = useRouter();
 
   React.useEffect(() => {
     const el = nameRef.current;
     if (el) setNameTruncated([...el.children].some((part) => part.scrollWidth > part.clientWidth));
   }, [address]);
 
+  // The name link stretches over the row, but hover targets lifted above it (status, risk chips, kind logo)
+  // swallow clicks. Route those clicks to the same destination the link would have reached.
+  const onRowClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
+    if ((event.target as HTMLElement).closest("a, button, input")) return;
+    if (event.metaKey || event.ctrlKey) {
+      window.open(href, "_blank", "noopener");
+      return;
+    }
+    router.push(href);
+  };
+
   return (
-    <TableRow data-testid="resource-row" hover sx={{ position: "relative", "&:last-child td": { borderBottom: 0 } }}>
+    <TableRow
+      data-testid="resource-row"
+      hover
+      onClick={onRowClick}
+      sx={{ position: "relative", cursor: "pointer", "&:last-child td": { borderBottom: 0 } }}
+    >
+      <TableCell>
+        <KindLabel resource={resource} />
+      </TableCell>
+
       <TableCell>
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <Tooltip title={nameTruncated ? address : ""} placement="top" enterDelay={300} disableInteractive>
@@ -75,10 +97,6 @@ export default function ResourceRow({ resource, showSource }: Props) {
             </Tooltip>
           )}
         </Box>
-      </TableCell>
-
-      <TableCell>
-        <KindLabel resource={resource} />
       </TableCell>
 
       <TableCell>

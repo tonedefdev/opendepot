@@ -502,8 +502,32 @@ type BrowseStats struct {
 	DownloadWindow      string               `json:"downloadWindow"`
 	SyncHealth          SyncHealthStats      `json:"syncHealth"`
 	SecurityPosture     SecurityPostureStats `json:"securityPosture"`
+	Jev                 JevStats             `json:"jev"`
 	StorageDistribution []StorageBackendStat `json:"storageDistribution"`
 	MostDownloaded      MostDownloadedStats  `json:"mostDownloaded"`
+}
+
+// JevStats aggregates the Jev assessments recorded on visible Versions. AssessedVersions counts Versions
+// that have a jevAssessment. InputTokens sums across every assessed Version, including failed and blocked
+// ones, because Jev bills every call that returns usage.
+type JevStats struct {
+	AssessedVersions    int               `json:"assessedVersions"`
+	BlockedVersions     int               `json:"blockedVersions"`
+	NeedsReviewVersions int               `json:"needsReviewVersions"`
+	ExemptedVersions    int               `json:"exemptedVersions"`
+	FailedVersions      int               `json:"failedVersions"`
+	AssessedChunks      int64             `json:"assessedChunks"`
+	InputTokens         int64             `json:"inputTokens"`
+	RiskLevels          JevRiskLevelStats `json:"riskLevels"`
+}
+
+// JevRiskLevelStats counts assessed Versions that Jev scored, by the overall risk level it assigned.
+type JevRiskLevelStats struct {
+	Minimal  int `json:"minimal"`
+	Low      int `json:"low"`
+	Moderate int `json:"moderate"`
+	High     int `json:"high"`
+	Critical int `json:"critical"`
 }
 
 // MostDownloadedStats ranks the most downloaded resources separately for each kind.

@@ -56,7 +56,7 @@ export function SyncStatus({ resource, testId }: { resource: BrowseResource; tes
       )}
       {resource.hasUnsyncedVersions && (
         <Tooltip title="Some versions are out of sync">
-          <WarningAmberIcon sx={{ fontSize: 14, color: "warning.main", flexShrink: 0 }} />
+          <WarningAmberIcon sx={{ fontSize: 14, color: "warning.main", flexShrink: 0, position: "relative", zIndex: 1 }} />
         </Tooltip>
       )}
       <Tooltip title={sync.detail} placement="top" enterDelay={300} disableInteractive>
@@ -64,6 +64,7 @@ export function SyncStatus({ resource, testId }: { resource: BrowseResource; tes
           variant="body2"
           noWrap
           color={sync.tone === "error" ? "error.main" : sync.tone === "warning" ? "text.primary" : "text.secondary"}
+          sx={{ position: "relative", zIndex: 1 }}
           data-testid={testId}
         >
           {sync.label}
@@ -86,7 +87,11 @@ export function KindLabel({ resource, showLogo = true }: { resource: BrowseResou
       <Typography variant="body2" noWrap sx={{ textTransform: "capitalize" }}>
         {resource.kind}
       </Typography>
-      {logo && <ProviderLogo provider={logo} size={18} />}
+      {logo && (
+        <Box sx={{ position: "relative", zIndex: 1, display: "flex" }}>
+          <ProviderLogo provider={logo} size={18} />
+        </Box>
+      )}
     </Box>
   );
 }

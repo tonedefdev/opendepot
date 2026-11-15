@@ -196,6 +196,9 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
     resolvedMode === "light"
       ? "4px 4px 0 0 #d0d7de, 0 2px 6px rgba(0,0,0,0.15)"
       : "4px 4px 0 0 var(--mui-palette-background-default), 4px 4px 0 1px var(--mui-palette-divider), 0 2px 6px rgba(0,0,0,0.4)";
+  // Solid offset block with no blur, matching the marketing site's terminal windows (site-root/styles.css .cli-window).
+  // --od-accent is mint in dark mode and blue in light mode, as on the marketing site.
+  const forEachShadow = "8px 8px 0 0 var(--od-accent)";
 
   return (
     <Box
@@ -209,13 +212,13 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
         // layered box-shadow stacked-card look rather than extra DOM nodes —
         // percentage/inset positioning doesn't work reliably against a
         // parent whose height is itself auto (content-driven).
-        boxShadow: isRepeated ? stackedCardShadow : 3,
+        boxShadow: multiplicity.kind === "for_each" ? forEachShadow : isRepeated ? stackedCardShadow : 3,
         overflow: "hidden",
       }}
     >
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {/* Mint in dark mode; the darker teal in light mode matches the for_each chip. */}
+          {/* Primary accent (mint in dark mode, blue in light), matching the for_each shadow. */}
           <DepotKindIcon kind="module" sx={{ fontSize: 16, color: "var(--od-assembly-module)" }} />
           <Typography variant="caption" color="text.secondary">
             module.
@@ -238,7 +241,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
               size="small"
               icon={isRepeated ? <RepeatIcon sx={{ fontSize: "12px !important" }} /> : undefined}
               label={multiplicity.kind === "none" ? "single" : multiplicity.kind}
-              color={countTypeError ? "error" : isRepeated ? "info" : "default"}
+              color={countTypeError ? "error" : isRepeated ? "primary" : "default"}
               variant={isRepeated || countTypeError ? "filled" : "outlined"}
               onClick={(e) => setRepeatAnchor(e.currentTarget)}
               sx={{ height: 18, fontSize: "0.65rem", cursor: "pointer" }}
@@ -586,7 +589,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
                     right: "auto",
                     width: 8,
                     height: 8,
-                    background: "#03deb8",
+                    background: "var(--od-accent)",
                   }}
                 />
               </Box>

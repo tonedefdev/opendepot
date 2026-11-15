@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar";
+import { OPEN_NEEDS_REVIEW_EVENT } from "./NeedsReviewDrawer";
 import theme from "@/theme";
 
 const router = { push: vi.fn(), refresh: vi.fn() };
@@ -109,6 +110,30 @@ describe("Sidebar needs review placement", () => {
     fireEvent.click(screen.getByRole("button", { name: "Needs review" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review-queue", expect.objectContaining({ cache: "no-store" })));
+    expect(await screen.findByText("Nothing needs review right now.")).not.toBeNull();
+  });
+
+  it("opens the needs review drawer when the open event is dispatched", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === "/api/review-queue") {
+        return new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error("not available in unit test");
+    });
+
+    render(
+      <ThemeProvider theme={theme}>
+        <Sidebar initialCollapsed={false} securityPoliciesEnabled={true} initialNamespaces={[]} />
+      </ThemeProvider>,
+    );
+
+    const queueRequests = () => fetchMock.mock.calls.filter(([input]) => String(input) === "/api/review-queue").length;
+    const before = queueRequests();
+    act(() => {
+      window.dispatchEvent(new Event(OPEN_NEEDS_REVIEW_EVENT));
+    });
+
+    await waitFor(() => expect(queueRequests()).toBeGreaterThan(before));
     expect(await screen.findByText("Nothing needs review right now.")).not.toBeNull();
   });
 });

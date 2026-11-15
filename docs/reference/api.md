@@ -370,7 +370,7 @@ Returns a paginated, filtered list of visible `Module`, `Provider`, `Skill`, and
 | `arch` | string | Filter providers by CPU architecture |
 | `severity` | string | Filter to resources with findings at or above this level (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) |
 | `public_only` | bool | When `true`, return only publicly-labelled resources |
-| `sort_by` | string | Sort field |
+| `sort_by` | string | Sort field: `name`, `namespace`, `latest_version`, `kind`, `source`, `status`, or `risk` |
 | `sort_dir` | string | `asc` or `desc` |
 | `page` | int | Page number (1-based) |
 | `page_size` | int | Results per page |
@@ -856,6 +856,22 @@ Returns aggregate registry statistics as JSON. All counts are scoped to the reso
     "low": 7,
     "unknown": 1,
     "totalAffectedResources": 6
+  },
+  "jev": {
+    "assessedVersions": 12,
+    "blockedVersions": 1,
+    "needsReviewVersions": 2,
+    "exemptedVersions": 0,
+    "failedVersions": 0,
+    "assessedChunks": 348,
+    "inputTokens": 1893204,
+    "riskLevels": {
+      "minimal": 5,
+      "low": 4,
+      "moderate": 2,
+      "high": 1,
+      "critical": 0
+    }
   },
   "storageDistribution": [
     { "backend": "s3", "count": 10 },
@@ -1360,7 +1376,7 @@ For a branch Version, `version` is empty until the version controller assigns a 
 | `riskScore` | `float64` | Optional. The highest part value. |
 | `riskLevel` | `string` | Optional. The worst part value. One of `Minimal`, `Low`, `Moderate`, `High`, or `Critical`. |
 | `riskConfidence` | `float64` | Optional. The lowest part value. |
-| `needsReview` | `bool` | Set when a part's risk confidence is below `minConfidence`, or when the risk level is `Critical` on a fully scored assessment. An exemption does not change it. |
+| `needsReview` | `bool` | Set when a part's risk confidence is below `minConfidence`, or when the risk level is `Critical` on a fully scored assessment. An exemption does not change it, but the Workshop Needs review queue and the Stats Needs review count hide the Version while the exemption is active. |
 | `blocked` | `bool` | Whether Jev blocks the Version: a threshold, a `Critical` risk level, a part below `minConfidence`, content Jev could not read, Jev disabled on the controller, or an assessment that could not complete. `false` when a matching `jevExemptions` entry cleared every block reason. |
 | `blockReasons` | `[]string` | Optional. The Jev block reasons. When the assessment is exempted, this lists the reasons that were cleared. The field is kept when `blocked` is `false`. |
 | `exempted` | `bool` | Optional. Whether a `jevExemptions` entry cleared the block reasons for this assessment. Omitted when `false`. This does not mean the Version is synced. When the Jev call failed, `status.synced` stays `false` until a Jev run completes without an error. |
@@ -1490,6 +1506,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 | `totalDownloads` | `int64` | Download events observed by Prometheus during the configured lookback window, counted only for resources in the caller's visibility set; `0` until a matching metric has been scraped |
 | `syncHealth` | `SyncHealthStats` | Breakdown of version sync states |
 | `securityPosture` | `SecurityPostureStats` | Aggregate finding counts across all visible resources |
+| `jev` | `JevStats` | Jev assessment totals across all visible versions that have `status.jevAssessment`. `inputTokens` sums the input tokens Jev reported, including failed calls that were billed. `riskLevels` counts assessed versions by risk level and does not include versions whose assessment failed |
 | `storageDistribution` | `[]StorageBackendStat` | Per-backend version counts |
 | `mostDownloaded` | `MostDownloadedStats` | Top 10 most-downloaded resources per kind, as `modules`, `providers`, `skills`, and `agents` arrays. Filtered to the caller's visibility set; zero-download resources are omitted |
 

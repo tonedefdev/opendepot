@@ -59,7 +59,7 @@ describe("NeedsReviewDrawer", () => {
     expect(agentRow.getByText("research")).not.toBeNull();
     expect(agentRow.getByText("Agent")).not.toBeNull();
     expect(agentRow.getByText("Low")).not.toBeNull();
-    expect(agentRow.getByText("Exempted")).not.toBeNull();
+    expect(agentRow.getByText("Expired")).not.toBeNull();
     expect(screen.queryByText("Nothing needs review right now.")).toBeNull();
   });
 
@@ -81,6 +81,16 @@ describe("NeedsReviewDrawer", () => {
 
     await waitFor(() => expect(screen.getByText("Nothing needs review right now.")).not.toBeNull());
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("explains what enters the queue and how exemptions affect it when empty", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    renderDrawer(true);
+
+    await waitFor(() => expect(screen.getByText("Nothing needs review right now.")).not.toBeNull());
+    expect(screen.getByText(/Critical verdict or cannot score a chunk/)).not.toBeNull();
+    expect(screen.getByText(/returns when the exemption expires/)).not.toBeNull();
   });
 
   it("shows the server message when the queue cannot be loaded", async () => {

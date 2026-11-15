@@ -19,6 +19,9 @@ import CloseIcon from "@mui/icons-material/Close";
 import type { JevReviewQueue, JevReviewQueueItem } from "@/lib/api";
 import { RISK_COLORS } from "@/lib/jevSeverity";
 
+/** Window event that opens the Needs review drawer from anywhere in the app. */
+export const OPEN_NEEDS_REVIEW_EVENT = "opendepot:open-needs-review";
+
 interface NeedsReviewDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -31,7 +34,7 @@ function kindLabel(kind: string): string {
 /**
  * Lists Skills and Agent Versions whose jevAssessment.needsReview is true.
  *
- * Limitation: only each resource's latest-assessed Version is read, because
+ * Limitation: only each resource&apos;s latest-assessed Version is read, because
  * no list endpoint exposes needsReview. Older Versions that need review are
  * not shown.
  *
@@ -88,8 +91,9 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
         <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 2 }}>
           <Box>
             <Typography variant="h6">Needs review</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Skills and Agents whose latest assessed version needs review, including Critical risk.
+            <Typography variant="caption" color="text.secondary" component="p">
+              Jev flags a Skill or Agent when its Critical verdict comes from a fully scored assessment, or when a
+              chunk&apos;s confidence falls below the minimum. Only each resource&apos;s latest assessed version is checked.
             </Typography>
           </Box>
           <IconButton aria-label="Close needs review" onClick={onClose}>
@@ -106,9 +110,15 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
         )}
 
         {!loading && !error && queue && items.length === 0 && (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-            Nothing needs review right now.
-          </Typography>
+          <Box sx={{ py: 4, textAlign: "center" }}>
+            <Typography variant="body2" color="text.primary" fontWeight={600}>
+              Nothing needs review right now.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Versions appear here when Jev returns a Critical verdict or cannot score a chunk with enough confidence.
+              A Version under an active exemption stays out of this list and returns when the exemption expires.
+            </Typography>
+          </Box>
         )}
 
         {!loading && items.length > 0 && (
@@ -144,7 +154,11 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
                     {item.blocked ? <Chip label="Blocked" size="small" color="error" /> : "No"}
                   </TableCell>
                   <TableCell>
-                    {item.exempted ? <Chip label="Exempted" size="small" color="info" variant="outlined" /> : "No"}
+                    {item.exempted ? (
+                      <Chip label="Expired" size="small" color="warning" variant="outlined" title="The exemption has expired, so this Version is back in review." />
+                    ) : (
+                      "No"
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

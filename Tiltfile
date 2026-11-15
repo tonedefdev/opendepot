@@ -261,6 +261,7 @@ docker_build(
         'tilt/dex-web-overrides',
         'services/ui/public/img/opendepot_white.svg',
         'services/ui/public/img/opendepot_icon.svg',
+        'services/ui/public/fonts',
     ],
 )
 

@@ -601,10 +601,19 @@ export interface JevReviewQueue {
   items: JevReviewQueueItem[];
 }
 
+// jevExemptionActive reports whether an exemption is in force. The controller recomputes the exempted flag
+// only on reconcile, so a past exemptionExpires is treated as lapsed even while exempted is still true.
+export function jevExemptionActive(assessment: JevAssessment, now: number = Date.now()): boolean {
+  if (!assessment.exempted) return false;
+  if (!assessment.exemptionExpires) return true;
+  return new Date(assessment.exemptionExpires).getTime() > now;
+}
+
 const REVIEW_QUEUE_PAGE_SIZE = 100;
 const REVIEW_QUEUE_DETAIL_CONCURRENCY = 8;
 
 // listJevReviewQueue fans out over every Skill and Agent, then keeps those whose jevAssessment needs review.
+// A Version under an active exemption stays out of the queue and returns once the exemption expires.
 export async function listJevReviewQueue(token?: string): Promise<JevReviewQueue> {
   const resources: BrowseResource[] = [];
   for (const kind of ["skill", "agent"]) {
@@ -617,6 +626,7 @@ export async function listJevReviewQueue(token?: string): Promise<JevReviewQueue
     resources.push(...kindResources);
   }
 
+  const now = Date.now();
   const items: JevReviewQueueItem[] = [];
   for (let start = 0; start < resources.length; start += REVIEW_QUEUE_DETAIL_CONCURRENCY) {
     const batch = resources.slice(start, start + REVIEW_QUEUE_DETAIL_CONCURRENCY);
@@ -625,7 +635,7 @@ export async function listJevReviewQueue(token?: string): Promise<JevReviewQueue
     );
     for (const detail of details) {
       const assessment = detail.jevAssessment;
-      if (!assessment?.needsReview) continue;
+      if (!assessment?.needsReview || jevExemptionActive(assessment, now)) continue;
       items.push({
         kind: detail.kind,
         namespace: detail.namespace,
@@ -1043,6 +1053,25 @@ export interface MostDownloadedStats {
   agents: PopularResource[];
 }
 
+export interface JevRiskLevelStats {
+  minimal: number;
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+}
+
+export interface JevStats {
+  assessedVersions: number;
+  blockedVersions: number;
+  needsReviewVersions: number;
+  exemptedVersions: number;
+  failedVersions: number;
+  assessedChunks: number;
+  inputTokens: number;
+  riskLevels: JevRiskLevelStats;
+}
+
 export interface BrowseStats {
   totalModules: number;
   modulesSynced: number;
@@ -1059,6 +1088,7 @@ export interface BrowseStats {
   downloadWindow: string;
   syncHealth: SyncHealthStats;
   securityPosture: SecurityPostureStats;
+  jev: JevStats;
   storageDistribution: StorageBackendStat[];
   mostDownloaded: MostDownloadedStats;
 }

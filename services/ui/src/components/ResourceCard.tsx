@@ -30,7 +30,29 @@ export default function ResourceCard({ resource }: Props) {
   }, [resource.name]);
 
   return (
-    <Card data-testid="resource-card" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <Card
+      data-testid="resource-card"
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 4,
+          bgcolor: "primary.main",
+          zIndex: 1,
+          pointerEvents: "none",
+        },
+        "[data-mui-color-scheme='dark'] &::before": {
+          display: "none",
+        },
+      }}
+    >
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
         <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.25, pb: "16px !important" }}>
           <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} minHeight={20}>

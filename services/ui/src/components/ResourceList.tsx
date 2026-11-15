@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import ResourceCard from "./ResourceCard";
 import ResourceRow from "./ResourceRow";
 import type { BrowseResource } from "@/lib/api";
+import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registryPreferences";
 
 type ListView = "rows" | "cards";
 type SortDir = "asc" | "desc";
@@ -37,7 +38,10 @@ const SORT_OPTIONS = [
   { value: "name", label: "Name" },
   { value: "namespace", label: "Namespace" },
   { value: "latest_version", label: "Latest version" },
-  { value: "last_scanned", label: "Last scanned" },
+  { value: "kind", label: "Kind" },
+  { value: "status", label: "Status" },
+  { value: "source", label: "Source" },
+  { value: "risk", label: "Risk" },
 ];
 
 interface Props {
@@ -45,6 +49,7 @@ interface Props {
   totalCount: number;
   sortBy: string;
   sortDir: SortDir;
+  pageSize: number;
   /** The active filters and sort as a query string, without paging. */
   baseParams: string;
   namespace?: string;
@@ -52,17 +57,24 @@ interface Props {
 }
 
 // Below md the table cannot fit its columns, so cards are the only layout there.
-export default function ResourceList({ items, totalCount, sortBy, sortDir, baseParams, namespace, query }: Props) {
+export default function ResourceList({ items, totalCount, sortBy, sortDir, pageSize, baseParams, namespace, query }: Props) {
   const theme = useTheme();
   const router = useRouter();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const [view, setView] = React.useState<ListView>("rows");
+  // Read after mount so the server-rendered markup matches the first client render.
+  React.useEffect(() => {
+    const saved = loadRegistryPreferences().view;
+    if (saved) setView(saved);
+  }, []);
   const showCards = compact || view === "cards";
   // Only skills and agents carry a source ref. A page of modules or providers would show an empty column.
   const showSource = items.some((r) => !!r.sourceRef);
 
   const navigate = (updates: Record<string, string | null>) => {
+    // Keep the current page size so a sort or filter change does not briefly fall back to the default.
     const params = new URLSearchParams(baseParams);
+    params.set("page_size", String(pageSize));
     for (const [key, value] of Object.entries(updates)) {
       if (value === null) params.delete(key);
       else params.set(key, value);
@@ -72,7 +84,9 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, baseP
 
   // Choosing the active column again flips its direction, as a table header is expected to.
   const sortByColumn = (column: string) => {
-    navigate({ sort_by: column, sort_dir: sortBy === column && sortDir === "asc" ? "desc" : "asc" });
+    const nextDir: SortDir = sortBy === column && sortDir === "asc" ? "desc" : "asc";
+    saveRegistryPreferences({ sortBy: column, sortDir: nextDir });
+    navigate({ sort_by: column, sort_dir: nextDir });
   };
 
   const sortableHead = (column: string, label: string) => (
@@ -99,7 +113,10 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, baseP
           <Select
             size="small"
             value={SORT_OPTIONS.some((o) => o.value === sortBy) ? sortBy : "name"}
-            onChange={(e) => navigate({ sort_by: e.target.value })}
+            onChange={(e) => {
+              saveRegistryPreferences({ sortBy: e.target.value, sortDir });
+              navigate({ sort_by: e.target.value });
+            }}
             renderValue={(value) => `Sort: ${SORT_OPTIONS.find((o) => o.value === value)?.label ?? value}`}
             inputProps={{ "aria-label": "Sort by" }}
             sx={{ fontSize: "0.8125rem", height: 34 }}
@@ -114,7 +131,11 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, baseP
             <IconButton
               size="small"
               aria-label="Reverse sort order"
-              onClick={() => navigate({ sort_dir: sortDir === "asc" ? "desc" : "asc" })}
+              onClick={() => {
+                const nextDir: SortDir = sortDir === "asc" ? "desc" : "asc";
+                saveRegistryPreferences({ sortBy, sortDir: nextDir });
+                navigate({ sort_dir: nextDir });
+              }}
               sx={{ borderRadius: "6px" }}
             >
               {sortDir === "asc" ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
@@ -126,7 +147,10 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, baseP
             aria-label="Registry view"
             value={view}
             onChange={(_, next: ListView | null) => {
-              if (next) setView(next);
+              if (next) {
+                setView(next);
+                saveRegistryPreferences({ view: next });
+              }
             }}
             sx={{ display: { xs: "none", md: "inline-flex" }, ml: 1, "& .MuiToggleButton-root": { height: 34, px: 1 } }}
           >
@@ -153,12 +177,14 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, baseP
           <Table aria-label="Registry resources" sx={{ tableLayout: "fixed" }}>
             <TableHead>
               <TableRow>
+                <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
                 <TableCell>{sortableHead("name", "Name")}</TableCell>
-                <TableCell sx={{ width: 132 }}>Kind</TableCell>
                 <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
-                {showSource && <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>Source</TableCell>}
-                <TableCell sx={{ width: 156 }}>Status</TableCell>
-                <TableCell sx={{ width: 172 }}>Risk</TableCell>
+                {showSource && (
+                  <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
+                )}
+                <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
+                <TableCell sx={{ width: 172 }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

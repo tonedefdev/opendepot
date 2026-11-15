@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -144,6 +145,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	// List all versions — a version is visible if its owner module/provider is visible.
 	// GroupBinding only specifies module/provider names, not version names directly.
 	var versionList opendepotv1alpha1.VersionList
+	var allVersions []opendepotv1alpha1.Version
 	{
 		req := cs.RESTClient().Get().
 			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -165,6 +167,8 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		allVersions = all.Items
 
 		for _, v := range all.Items {
 			for _, ref := range v.OwnerReferences {
@@ -198,6 +202,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		totalStorageBytes int64
 		syncHealth        SyncHealthStats
 		secPosture        SecurityPostureStats
+		jevStats          JevStats
 		affectedResources = make(map[string]struct{})
 	)
 
@@ -280,6 +285,18 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleResources[a.Namespace+"/agent/"+a.Name] = struct{}{}
 	}
 
+	// Jev assesses Agents and Skills, which the Version totals above do not include. The Jev
+	// aggregate covers every Version whose owner is visible, so it counts Agent and Skill Versions too.
+	for i := range allVersions {
+		v := &allVersions[i]
+		for _, ref := range v.OwnerReferences {
+			if _, ok := visibleResources[v.Namespace+"/"+strings.ToLower(ref.Kind)+"/"+ref.Name]; ok {
+				accumulateJevStats(&jevStats, v.Status.JevAssessment)
+				break
+			}
+		}
+	}
+
 	skillsSynced := countSyncedAgentNodes(skillNodes)
 	agentsSynced := countSyncedAgentNodes(agentNodes)
 
@@ -322,6 +339,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		DownloadWindow:      prometheusStats.window,
 		SyncHealth:          syncHealth,
 		SecurityPosture:     secPosture,
+		Jev:                 jevStats,
 		StorageDistribution: storageDist,
 		MostDownloaded:      mostDownloaded,
 	}
@@ -356,6 +374,59 @@ func storageBackendName(sc *opendepotv1alpha1.StorageConfig) string {
 		return "fileSystem"
 	default:
 		return "unknown"
+	}
+}
+
+// jevExemptionActive reports whether an exemption is in force. The controller recomputes the exempted flag
+// only on reconcile, so a past expiry is treated as lapsed even while the flag is still set.
+func jevExemptionActive(a *opendepotv1alpha1.JevAssessment, now time.Time) bool {
+	if !a.Exempted {
+		return false
+	}
+
+	return a.ExemptionExpires == nil || a.ExemptionExpires.Time.After(now)
+}
+
+// accumulateJevStats folds one Version's Jev assessment into the aggregate. Token usage and chunk counts are
+// summed even for failed or blocked assessments, because Jev bills every call that returns usage.
+func accumulateJevStats(jevStats *JevStats, a *opendepotv1alpha1.JevAssessment) {
+	if a == nil {
+		return
+	}
+
+	jevStats.AssessedVersions++
+	jevStats.InputTokens += a.InputTokens
+	jevStats.AssessedChunks += int64(a.AssessedChunks)
+
+	if a.Blocked {
+		jevStats.BlockedVersions++
+	}
+
+	if a.Exempted {
+		jevStats.ExemptedVersions++
+	}
+
+	// An active exemption keeps a flagged Version out of the review queue until it expires.
+	if a.NeedsReview && !jevExemptionActive(a, time.Now()) {
+		jevStats.NeedsReviewVersions++
+	}
+
+	if a.Error != "" {
+		jevStats.FailedVersions++
+		return
+	}
+
+	switch strings.ToLower(a.RiskLevel) {
+	case "minimal":
+		jevStats.RiskLevels.Minimal++
+	case "low":
+		jevStats.RiskLevels.Low++
+	case "moderate":
+		jevStats.RiskLevels.Moderate++
+	case "high":
+		jevStats.RiskLevels.High++
+	case "critical":
+		jevStats.RiskLevels.Critical++
 	}
 }
 

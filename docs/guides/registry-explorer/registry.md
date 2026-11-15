@@ -38,8 +38,8 @@ version. Select a row to open the resource details.
 
 | Column | Meaning |
 | --- | --- |
-| Name | The Kubernetes namespace that owns the resource, then the resource name. A globe icon marks a public resource. |
 | Kind | The resource kind: `Module`, `Provider`, `Skill`, or `Agent`. Modules and providers also show the icon of their provider ecosystem, such as AWS. |
+| Name | The Kubernetes namespace that owns the resource, then the resource name. A globe icon marks a public resource. |
 | Version | The latest version currently shown for the resource. |
 | Source | For a Skill or Agent that follows a Git ref, the tracked branch or commit. The column is hidden when no resource on the page has one. |
 | Status | Whether the latest version synchronized. A healthy resource shows **Synced**. A failure, or a version that Jev blocked, is shown in red with its reason in a tooltip. |
@@ -53,7 +53,11 @@ removed there. The view toggle switches between the table and a card grid.
 Narrow screens always use cards.
 
 The footer shows the resource count, the **Per page** setting, and pagination
-controls.
+controls. The page size defaults to 12.
+
+The browser saves your **Per page** choice, sort field and direction, and
+table or card view in local storage, so they persist across visits. Preferences
+are stored per browser, not per account.
 
 ## What users see
 

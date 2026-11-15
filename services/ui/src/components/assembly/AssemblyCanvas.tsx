@@ -1049,7 +1049,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           target: node.id,
           targetHandle: "in",
           animated: true,
-          style: compatible ? { stroke: "#03deb8" } : { stroke: "#f85149", strokeDasharray: "4 3" },
+          style: compatible ? { stroke: "var(--od-accent)" } : { stroke: "#f85149", strokeDasharray: "4 3" },
           label: compatible
             ? `${variable.name}${selectorSuffix}${outputSelectorSuffix}`
             : `${variable.name}${selectorSuffix}${outputSelectorSuffix} (type mismatch?)`,

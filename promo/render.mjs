@@ -66,6 +66,8 @@ const mux = spawnSync('ffmpeg', [
   '-ss', String(TRACK_START), '-i', TRACK,
   '-map', '0:v', '-map', '1:a',
   '-t', String(DURATION),
+  // 27.2 s is a bar line (17 bars at 150 BPM); the fade ends at DURATION.
+  '-af', `afade=t=out:st=27.2:d=${(DURATION - 27.2).toFixed(2)}`,
   '-c:v', 'copy',
   '-c:a', 'aac', '-b:a', '320k', '-ar', '48000',
   '-movflags', '+faststart', FINAL,

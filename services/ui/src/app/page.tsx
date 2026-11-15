@@ -4,7 +4,9 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import ResourceList from "@/components/ResourceList";
 import ResourceListControls from "@/components/ResourceListControls";
+import RegistryPreferencesSync from "@/components/RegistryPreferencesSync";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import { DEFAULT_REGISTRY_PAGE_SIZE } from "@/lib/registryPreferences";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
@@ -41,7 +43,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     sortBy: sp(params["sort_by"]) ?? "name",
     sortDir: (sp(params["sort_dir"]) as "asc" | "desc") ?? "asc",
     page: parseInt(sp(params["page"]) ?? "1", 10),
-    pageSize: parseInt(sp(params["page_size"]) ?? "24", 10),
+    pageSize: parseInt(sp(params["page_size"]) ?? String(DEFAULT_REGISTRY_PAGE_SIZE), 10),
   };
 
   let resourceList;
@@ -58,7 +60,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       redirect("/login");
     }
     fetchError = msg;
-    resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
+    resourceList = { items: [], totalCount: 0, page: 1, pageSize: DEFAULT_REGISTRY_PAGE_SIZE };
   }
 
   // Build a clean search-params string for pagination controls (exclude page/page_size).
@@ -81,6 +83,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         actions={<RefreshIconButton ariaLabel="refresh registry" />}
       />
       <Container maxWidth="xl" sx={{ py: 3 }}>
+        <RegistryPreferencesSync />
         {authError && (
           <Alert severity="warning" sx={{ mb: 3 }}>
             Authentication error: {decodeURIComponent(authError)}
@@ -120,6 +123,7 @@ export default async function HomePage({ searchParams }: PageProps) {
               totalCount={resourceList.totalCount}
               sortBy={listParams.sortBy ?? "name"}
               sortDir={listParams.sortDir === "desc" ? "desc" : "asc"}
+              pageSize={listParams.pageSize ?? DEFAULT_REGISTRY_PAGE_SIZE}
               baseParams={baseParams}
               namespace={listParams.namespace}
               query={listParams.q}
@@ -128,7 +132,7 @@ export default async function HomePage({ searchParams }: PageProps) {
             <ResourceListControls
               totalCount={resourceList.totalCount}
               page={listParams.page ?? 1}
-              pageSize={listParams.pageSize ?? 24}
+              pageSize={listParams.pageSize ?? DEFAULT_REGISTRY_PAGE_SIZE}
               baseParams={baseParams}
             />
           </>

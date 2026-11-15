@@ -12,20 +12,21 @@ import StorageIcon from "@mui/icons-material/Storage";
 import SyncIcon from "@mui/icons-material/Sync";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import PageHeader from "@/components/PageHeader";
 import StatCard, { StatStrip } from "@/components/StatCard";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
-import { NEUTRAL_COLOR, kindColor } from "@/lib/kindColors";
+import { ACCENT_COLOR, kindColor } from "@/lib/kindColors";
 
 const statCards = [
   { label: "Modules", icon: <DepotKindIcon kind="module" fontSize="small" />, accentColor: kindColor("module") },
   { label: "Providers", icon: <DepotKindIcon kind="provider" fontSize="small" />, accentColor: kindColor("provider") },
   { label: "Skills", icon: <DepotKindIcon kind="skill" fontSize="small" />, accentColor: kindColor("skill") },
   { label: "Agents", icon: <DepotKindIcon kind="agent" fontSize="small" />, accentColor: kindColor("agent") },
-  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: kindColor("version") },
+  { label: "Versions", icon: <DepotKindIcon kind="version" fontSize="small" />, accentColor: ACCENT_COLOR },
   { label: "Depots", icon: <DepotKindIcon kind="depot" fontSize="small" /> },
-  { label: "Storage Used", icon: <StorageIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
-  { label: "Downloads", icon: <DownloadIcon fontSize="small" />, accentColor: NEUTRAL_COLOR },
+  { label: "Storage Used", icon: <StorageIcon fontSize="small" />, accentColor: ACCENT_COLOR },
+  { label: "Downloads", icon: <DownloadIcon fontSize="small" />, accentColor: ACCENT_COLOR },
 ];
 
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
@@ -84,6 +85,37 @@ export default function StatsLoading() {
               </Paper>
             </Grid>
           </Grid>
+
+          <Box sx={{ mt: 1 }}>
+            <SectionHeader icon={<VerifiedUserOutlinedIcon />} title="Jev Assessment" />
+            <Paper variant="outlined" sx={{ p: 2.5 }}>
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 12, md: 7 }}>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(132px, 1fr))", gap: 2.5 }}>
+                    {["Assessed", "Estimated cost", "Input tokens", "Chunks assessed"].map((label) => (
+                      <Box key={label}>
+                        <Typography variant="caption" color="text.secondary" component="div">
+                          {label}
+                        </Typography>
+                        <Skeleton variant="text" width={72} height={28} />
+                      </Box>
+                    ))}
+                  </Box>
+                </Grid>
+                <Grid size={{ xs: 12, md: 5 }}>
+                  <Skeleton variant="rounded" height={8} sx={{ borderRadius: 4, mb: 2 }} />
+                  {["Minimal", "Low", "Moderate", "High", "Critical"].map((label) => (
+                    <Box key={label} sx={{ display: "flex", justifyContent: "space-between", py: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {label}
+                      </Typography>
+                      <Skeleton variant="text" width={24} />
+                    </Box>
+                  ))}
+                </Grid>
+              </Grid>
+            </Paper>
+          </Box>
 
           <Box sx={{ mt: 1 }}>
             <SectionHeader icon={<PieChartIcon />} title="Storage Distribution" />
