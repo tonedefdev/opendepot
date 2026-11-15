@@ -23,6 +23,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SyncProblemIcon from "@mui/icons-material/SyncProblem";
 import ErrorIcon from "@mui/icons-material/Error";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import { filterControlSx, filterIconSx } from "./filterControlSx";
 import ClearIcon from "@mui/icons-material/Clear";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { keyframes, styled } from "@mui/system";
@@ -278,17 +279,17 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         alignItems="center"
         sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}
       >
-        <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        <FilterListIcon sx={filterIconSx} />
 
         <TextField
           size="small"
           placeholder="Search versions…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          sx={{ minWidth: 180, "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
+          sx={{ ...filterControlSx(180), "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
         />
 
-        <FormControl size="small" sx={{ minWidth: 130 }}>
+        <FormControl size="small" sx={filterControlSx(130)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Sync status</InputLabel>
           <Select
             value={synced}
@@ -304,7 +305,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         </FormControl>
 
         {isProvider && availableOS.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 110 }}>
+          <FormControl size="small" sx={filterControlSx(110)}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
             <Select
               value={os}
@@ -323,7 +324,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         )}
 
         {isProvider && availableArch.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 110 }}>
+          <FormControl size="small" sx={filterControlSx(110)}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Arch</InputLabel>
             <Select
               value={arch}

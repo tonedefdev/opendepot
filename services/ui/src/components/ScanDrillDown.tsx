@@ -25,6 +25,7 @@ import {
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import { filterControlSx, filterIconSx } from "./filterControlSx";
 import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -317,10 +318,10 @@ function FindingsTable({
         alignItems="center"
         sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}
       >
-        <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        <FilterListIcon sx={filterIconSx} />
 
         {scannableVersions && scannableVersions.length > 1 && onVersionChange && (
-          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(140)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
             <Select
               label="Version"
@@ -336,7 +337,7 @@ function FindingsTable({
         )}
 
         {binaryVersions && binaryVersions.length > 1 && onBinaryVersionChange && (
-          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(140)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
             <Select
               label="Version"
@@ -352,7 +353,7 @@ function FindingsTable({
         )}
 
         {availableOS && availableOS.length > 1 && onOSChange && (
-          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
             <Select
               label="OS"
@@ -370,7 +371,7 @@ function FindingsTable({
         )}
 
         {availableArch && availableArch.length > 1 && onArchChange && (
-          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Arch</InputLabel>
             <Select
               label="Arch"
@@ -390,10 +391,10 @@ function FindingsTable({
           placeholder="Search findings…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          sx={{ minWidth: 180, "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
+          sx={{ ...filterControlSx(180), "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
         />
 
-        <FormControl size="small" sx={{ minWidth: 140 }}>
+        <FormControl size="small" sx={filterControlSx(140)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Severity</InputLabel>
           <Select
             label="Severity"
@@ -410,7 +411,7 @@ function FindingsTable({
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={filterControlSx(120)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Sort by</InputLabel>
           <Select
             label="Sort by"
@@ -424,7 +425,7 @@ function FindingsTable({
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 100 }}>
+        <FormControl size="small" sx={filterControlSx(100)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Order</InputLabel>
           <Select
             label="Order"

@@ -172,14 +172,12 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
       {/* The breadcrumb stops at the kind because the page title directly below it is the resource name. */}
-      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 2, minWidth: 0 }}>
-        <Breadcrumbs sx={{ flex: 1, minWidth: 0, fontSize: "0.875rem", "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
-          <Link href="/">Registry</Link>
-          <Link href={`/?namespace=${namespace}`}>{namespace}</Link>
-          <Link href={`/?kind=${kind}`}>{KIND_PLURALS[kind] ?? capitalizeKind}</Link>
-        </Breadcrumbs>
-        <MobileSidebarButton />
-      </Box>
+      <Breadcrumbs sx={{ mb: 2, fontSize: "0.875rem", "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
+        <Link href="/">Registry</Link>
+        <Link href={`/?namespace=${namespace}`}>{namespace}</Link>
+        <Link href={`/?kind=${kind}`}>{KIND_PLURALS[kind] ?? capitalizeKind}</Link>
+      </Breadcrumbs>
+      <MobileSidebarButton floating />
 
       <Box
         component="header"
