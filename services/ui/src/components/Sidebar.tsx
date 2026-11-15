@@ -674,7 +674,8 @@ export default function Sidebar({
               size="small"
               sx={{ color: "text.secondary", "&:hover": { bgcolor: hoverTintBg, color: "primary.main" } }}
             >
-              {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 16 }} /> : <DarkModeIcon sx={{ fontSize: 16 }} />)}
+              <DarkModeIcon sx={{ fontSize: 16, "[data-mui-color-scheme='dark'] &": { display: "none" } }} />
+              <LightModeIcon sx={{ fontSize: 16, display: "none", "[data-mui-color-scheme='dark'] &": { display: "block" } }} />
             </IconButton>
           </Tooltip>
         </Box>
@@ -981,7 +982,8 @@ export default function Sidebar({
           size="small"
           sx={{ color: "text.secondary", mb: 0.5, "&:hover": { bgcolor: hoverTintBg } }}
         >
-          {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 18 }} /> : <DarkModeIcon sx={{ fontSize: 18 }} />)}
+          <DarkModeIcon sx={{ fontSize: 18, "[data-mui-color-scheme='dark'] &": { display: "none" } }} />
+          <LightModeIcon sx={{ fontSize: 18, display: "none", "[data-mui-color-scheme='dark'] &": { display: "block" } }} />
         </IconButton>
       </Tooltip>
       {userInfo ? (
