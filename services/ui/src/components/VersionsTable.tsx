@@ -430,6 +430,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         page={page - 1}
         rowsPerPage={pageSize}
         rowsPerPageOptions={[...PAGE_SIZE_OPTIONS]}
+        SelectProps={{ id: "versions-rows-per-page", labelId: "versions-rows-per-page-label" }}
         onPageChange={(_, newPage) => setPage(newPage + 1)}
         onRowsPerPageChange={(e) => {
           setPageSize(Number(e.target.value));

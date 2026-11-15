@@ -50,3 +50,9 @@ describe("HCL block headers", () => {
     expect(keywordTokens('agent "accessibility" {\n  version = "1.0.0"\n}')).toEqual(["agent"]);
   });
 });
+
+describe("Prism automatic highlighting", () => {
+  it("is disabled so React-owned code blocks are not rewritten during hydration", () => {
+    expect(Prism.manual).toBe(true);
+  });
+});

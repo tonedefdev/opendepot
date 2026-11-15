@@ -12,6 +12,10 @@ import "prismjs/components/prism-yaml";
 // prism-react-renderer and the grammar files resolve the Prism global, so it must be set before they run.
 (typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
 
+// Prism's automatic pass rewrites any <code class="language-*"> in the document, including React-owned
+// markdown blocks, which causes hydration mismatches. Highlighting here is always explicit.
+Prism.manual = true;
+
 const LANGUAGE_ALIASES: Record<string, string> = {
   sh: "bash",
   shell: "bash",
