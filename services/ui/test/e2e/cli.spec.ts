@@ -19,8 +19,11 @@ test.describe("CLI page", () => {
     // The verify command renders above the install script and also mentions opendepot, so the script is the last code block.
     const script = page.locator("pre").last();
 
-    await osGroup(page).getByRole("button", { name: "Windows" }).click();
-    await expect(script).toContainText("Get-FileHash -Algorithm SHA256");
+    // Retry the click until React has hydrated and the selection takes effect.
+    await expect(async () => {
+      await osGroup(page).getByRole("button", { name: "Windows" }).click();
+      await expect(script).toContainText("Get-FileHash -Algorithm SHA256", { timeout: 1000 });
+    }).toPass();
     await expect(script).toContainText("LOCALAPPDATA");
     await expect(page.getByText("Run in PowerShell")).toBeVisible();
 
@@ -41,7 +44,7 @@ test.describe("CLI page", () => {
       .locator(".MuiCard-root")
       .filter({ has: page.getByRole("heading", { name: "Verify", exact: true }) });
 
-    await expect(verifyCard.locator('[data-testid="VerifiedUserOutlinedIcon"]')).toHaveCount(1);
+    await expect(verifyCard.getByTestId("verify-icon")).toHaveCount(1);
     await expect(verifyCard.locator('[data-testid="DownloadOutlinedIcon"]')).toHaveCount(0);
   });
 });

@@ -113,7 +113,10 @@ export default function CliDownloadSurface() {
         </List>
       </SectionCard>
 
-      <SectionCard icon={<VerifiedUserOutlinedIcon fontSize="small" />} title="Verify">
+      <SectionCard
+        icon={<VerifiedUserOutlinedIcon fontSize="small" data-testid="verify-icon" />}
+        title="Verify"
+      >
         <Typography variant="body2" color="text.secondary">
           Check your download against the{" "}
           <Link href="/api/cli/SHA256SUMS" underline="hover">

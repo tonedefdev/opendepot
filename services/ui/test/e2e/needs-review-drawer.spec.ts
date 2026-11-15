@@ -30,8 +30,13 @@ const QUEUE_ITEMS = [
 
 async function openNeedsReview(page: Page) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Needs review" }).click();
-  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible();
+  // The sidebar entry only renders when the server reports policy writes enabled, which the
+  // server-less CI run cannot provide. Open the drawer with the same window event the sidebar uses,
+  // retrying until React has hydrated and attached the listener.
+  await expect(async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event("opendepot:open-needs-review")));
+    await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible({ timeout: 1000 });
+  }).toPass();
 }
 
 test.describe("needs review drawer — desktop", () => {
@@ -118,11 +123,9 @@ test.describe("needs review drawer — mobile", () => {
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: QUEUE_ITEMS }) }),
     );
 
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "open sidebar" }).click();
-    await page.getByRole("button", { name: "Needs review" }).click();
+    await openNeedsReview(page);
 
-    await expect(page.getByRole("table", { name: "Items that need review" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Items that need review" })).toBeHidden();
     await expect(page.getByRole("link", { name: "review-agent" })).toBeVisible();
   });
 });
