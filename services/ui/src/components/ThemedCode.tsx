@@ -57,6 +57,8 @@ export function ThemedCode({ code, language, preSx, wrapperSx, ariaLabel }: Them
                     overflowX: "auto",
                     whiteSpace: "pre",
                     ...style,
+                    // Night Owl's navy is replaced with the brand black well in dark mode.
+                    ...(scheme === "dark" && { backgroundColor: "background.default" }),
                   },
                   preSx ? preSx(scheme) : {},
                 ]}

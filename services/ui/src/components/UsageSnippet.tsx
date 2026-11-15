@@ -145,7 +145,7 @@ export default function UsageSnippet({
           <Box sx={{ position: "relative" }}>
             {/* Both schemes are rendered and CSS shows the active one, so the code never paints in the wrong palette before React resolves the color mode. */}
             <Box sx={{ "[data-mui-color-scheme='light'] &": { display: "none" } }}>
-              <SnippetCode code={snippet.code} prismTheme={themes.nightOwl} />
+              <SnippetCode code={snippet.code} prismTheme={themes.nightOwl} background="background.default" />
             </Box>
             <Box sx={{ display: "none", "[data-mui-color-scheme='light'] &": { display: "block" } }}>
               <SnippetCode code={snippet.code} prismTheme={lightCodeTheme} background="background.default" />
