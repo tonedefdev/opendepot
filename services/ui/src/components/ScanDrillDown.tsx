@@ -33,6 +33,7 @@ import { keyframes, styled } from "@mui/system";
 import CopyButton from "@/components/CopyButton";
 import type { BrowseScanFindings, BrowseVersionSummary, SecurityFinding } from "@/lib/api";
 import { severityChipSx } from "./severityStyles";
+import MobileRecordCard, { MobileRecordList, type RecordField } from "@/components/MobileRecordCard";
 
 const spin = keyframes`
   from { transform: rotate(0deg); }
@@ -129,6 +130,86 @@ function compareFindings(a: SecurityFinding, b: SecurityFinding, sortBy: Finding
     return findingTitle(a).localeCompare(findingTitle(b)) * direction;
   }
   return findingId(a).localeCompare(findingId(b)) * direction;
+}
+
+function FindingSeverityChip({ severity }: { severity: string }) {
+  return (
+    <Chip
+      size="small"
+      label={severity}
+      color={
+        severity === "CRITICAL"
+          ? "error"
+          : severity === "HIGH"
+            ? "warning"
+            : severity === "MEDIUM"
+              ? "info"
+              : severity === "LOW"
+                ? "success"
+                : "default"
+      }
+      sx={severityChipSx(severity)}
+    />
+  );
+}
+
+function FindingCard({
+  f,
+  fileName,
+  checksum,
+  includeArtifactColumns,
+  includeResolutionColumn,
+}: {
+  f: SecurityFinding;
+  fileName?: string;
+  checksum?: string;
+  includeArtifactColumns: boolean;
+  includeResolutionColumn: boolean;
+}) {
+  const fields: RecordField[] = [
+    { label: "Title", wide: true, value: findingTitle(f) },
+    { label: "Message", wide: true, value: findingMessage(f) },
+    ...(includeArtifactColumns
+      ? [
+          {
+            label: "Filename",
+            wide: true,
+            value: <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)" }}>{fileName || "—"}</Typography>,
+          },
+          {
+            label: "Checksum",
+            wide: true,
+            value: checksum ? (
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-all" }}>
+                  {checksum}
+                </Typography>
+                <CopyButton value={checksum} />
+              </Box>
+            ) : (
+              "—"
+            ),
+          },
+        ]
+      : []),
+    ...(includeResolutionColumn
+      ? [{ label: "Resolution", wide: true, value: findingResolutionContent(f) }]
+      : []),
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-word" }}>
+            {findingId(f)}
+          </Typography>
+          <FindingSeverityChip severity={findingSeverity(f)} />
+        </Box>
+      }
+      fields={fields}
+    />
+  );
 }
 
 function FindingsTable({
@@ -370,7 +451,7 @@ function FindingsTable({
         )}
       </Box>
 
-      <TableContainer sx={{ width: "100%", overflowX: "auto", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
+      <TableContainer sx={{ width: "100%", display: { xs: "none", lg: "block" }, overflowX: "auto", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
         <Table size="small" sx={{ tableLayout: "fixed", minWidth: includeArtifactColumns ? 1060 : 580 }}>
           <TableHead>
             <TableRow>
@@ -392,22 +473,7 @@ function FindingsTable({
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Chip
-                    size="small"
-                    label={findingSeverity(f)}
-                    color={
-                      findingSeverity(f) === "CRITICAL"
-                        ? "error"
-                        : findingSeverity(f) === "HIGH"
-                          ? "warning"
-                          : findingSeverity(f) === "MEDIUM"
-                            ? "info"
-                            : findingSeverity(f) === "LOW"
-                              ? "success"
-                              : "default"
-                    }
-                    sx={severityChipSx(findingSeverity(f))}
-                  />
+                  <FindingSeverityChip severity={findingSeverity(f)} />
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingTitle(f)}</TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingMessage(f)}</TableCell>
@@ -445,6 +511,25 @@ function FindingsTable({
           </TableBody>
         </Table>
       </TableContainer>
+
+      <MobileRecordList>
+        {pagedRows.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+            No findings match the current filters.
+          </Typography>
+        ) : (
+          pagedRows.map((f, idx) => (
+            <FindingCard
+              key={`${findingId(f)}-${idx}`}
+              f={f}
+              fileName={fileName}
+              checksum={checksum}
+              includeArtifactColumns={includeArtifactColumns}
+              includeResolutionColumn={includeResolutionColumn}
+            />
+          ))
+        )}
+      </MobileRecordList>
 
       <TablePagination
         component="div"

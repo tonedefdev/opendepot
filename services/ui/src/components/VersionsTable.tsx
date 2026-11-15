@@ -41,6 +41,11 @@ const SpinIcon = styled("span", {
   animation: spinning ? `${spin} 0.7s linear infinite` : "none",
 }));
 import CopyButton from "@/components/CopyButton";
+import MobileRecordCard, {
+  MobileRecordCardSkeleton,
+  MobileRecordList,
+  type RecordField,
+} from "@/components/MobileRecordCard";
 import type { BrowseVersionSummary } from "@/lib/api";
 
 interface BrowseVersionList {
@@ -65,6 +70,82 @@ function displayVersion(v: string): string {
 
 const SKELETON_ROWS = 5;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+
+function SyncStatus({ v }: { v: BrowseVersionSummary }) {
+  return (
+    <Box display="flex" alignItems="center" gap={0.5}>
+      {v.blocked || /failed|error/i.test(v.syncStatus) ? (
+        <ErrorIcon sx={{ fontSize: 12, color: "error.main" }} />
+      ) : v.synced ? (
+        <CheckCircleIcon sx={{ fontSize: 12, color: "success.main" }} />
+      ) : (
+        <SyncProblemIcon sx={{ fontSize: 12, color: "warning.main" }} />
+      )}
+      {v.blocked ? (
+        <Tooltip title={(v.blockReasons ?? []).join("; ") || "Blocked by Jev"}>
+          <Typography variant="caption" color="error.main">Blocked by Jev</Typography>
+        </Tooltip>
+      ) : (
+        <Typography variant="caption">{v.syncStatus}</Typography>
+      )}
+    </Box>
+  );
+}
+
+function SchemaStatus({ v }: { v: BrowseVersionSummary }) {
+  if (v.schemaState === "Succeeded") return <Chip size="small" color="success" label="Extracted" />;
+  if (v.schemaState === "Failed") {
+    return (
+      <Tooltip title={v.schemaMessage || "Schema extraction failed"}>
+        <Chip size="small" color="error" label="Failed" />
+      </Tooltip>
+    );
+  }
+  return <Typography variant="caption" color="text.secondary">—</Typography>;
+}
+
+function CopyableValue({ value, copyValue }: { value: string; copyValue?: string }) {
+  return (
+    <Box display="flex" alignItems="flex-start" gap={0.5} sx={{ minWidth: 0 }}>
+      <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-all" }}>
+        {value}
+      </Typography>
+      <CopyButton value={copyValue ?? value} />
+    </Box>
+  );
+}
+
+function VersionCard({ v, isProvider, showCommit }: { v: BrowseVersionSummary; isProvider: boolean; showCommit: boolean }) {
+  const fields: RecordField[] = [
+    { label: "Sync status", value: <SyncStatus v={v} />, wide: true },
+    { label: "Resource name", value: v.name ? <CopyableValue value={v.name} /> : "—", wide: true },
+    ...(isProvider
+      ? [
+          { label: "OS", value: v.os || "—" },
+          { label: "Arch", value: v.arch || "—" },
+          { label: "Schema", value: <SchemaStatus v={v} /> },
+        ]
+      : []),
+    { label: "File name", value: v.fileName ? <CopyableValue value={v.fileName} /> : "—", wide: true },
+    ...(showCommit
+      ? [{ label: "Commit", value: v.commit ? <CopyableValue value={v.commit.slice(0, 7)} copyValue={v.commit} /> : "—" }]
+      : []),
+    { label: "Checksum", value: v.checksum ? <CopyableValue value={v.checksum} /> : "—", wide: true },
+    { label: "Last scanned", value: v.lastScanned || "—" },
+    { label: "Findings", value: <SeverityBadge counts={v.scanCounts} /> },
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontWeight: 600 }}>
+          {v.version ? displayVersion(v.version) : "—"}
+        </Typography>
+      }
+      fields={fields}
+    />
+  );
+}
 
 export default function VersionsTable({ namespace, kind, name, onAllSynced }: VersionsTableProps) {
   const isProvider = kind === "provider";
@@ -280,7 +361,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
         </Typography>
       )}
 
-      <Box sx={{ overflowX: "auto", borderRadius: 2, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ display: { xs: "none", lg: "block" }, overflowX: "auto", borderRadius: 2, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <Table size="small" sx={{ minWidth: 860 }}>
           <TableHead>
             <TableRow>
@@ -321,22 +402,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                     <span>{v.version ? displayVersion(v.version) : "—"}</span>
                   </TableCell>
                   <TableCell sx={{ verticalAlign: "top" }}>
-                    <Box display="flex" alignItems="center" gap={0.5}>
-                      {v.blocked || /failed|error/i.test(v.syncStatus) ? (
-                        <ErrorIcon sx={{ fontSize: 12, color: "error.main" }} />
-                      ) : v.synced ? (
-                        <CheckCircleIcon sx={{ fontSize: 12, color: "success.main" }} />
-                      ) : (
-                        <SyncProblemIcon sx={{ fontSize: 12, color: "warning.main" }} />
-                      )}
-                      {v.blocked ? (
-                        <Tooltip title={(v.blockReasons ?? []).join("; ") || "Blocked by Jev"}>
-                          <Typography variant="caption" color="error.main">Blocked by Jev</Typography>
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="caption">{v.syncStatus}</Typography>
-                      )}
-                    </Box>
+                    <SyncStatus v={v} />
                   </TableCell>
                   <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
                     {v.name ? (
@@ -358,15 +424,7 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
                   )}
                   {isProvider && (
                     <TableCell sx={{ verticalAlign: "top" }}>
-                      {v.schemaState === "Succeeded" ? (
-                        <Chip size="small" color="success" label="Extracted" />
-                      ) : v.schemaState === "Failed" ? (
-                        <Tooltip title={v.schemaMessage || "Schema extraction failed"}>
-                          <Chip size="small" color="error" label="Failed" />
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">—</Typography>
-                      )}
+                      <SchemaStatus v={v} />
                     </TableCell>
                   )}
                   <TableCell
@@ -423,6 +481,22 @@ export default function VersionsTable({ namespace, kind, name, onAllSynced }: Ve
           </TableBody>
         </Table>
       </Box>
+
+      <MobileRecordList>
+        {loading ? (
+          Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+            <MobileRecordCardSkeleton key={i} fieldCount={6} />
+          ))
+        ) : items.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+            No versions match the current filters.
+          </Typography>
+        ) : (
+          items.map((v, idx) => (
+            <VersionCard key={`${v.version}-${v.os ?? ""}-${v.arch ?? ""}-${idx}`} v={v} isProvider={isProvider} showCommit={showCommit} />
+          ))
+        )}
+      </MobileRecordList>
 
       <TablePagination
         component="div"

@@ -16,8 +16,9 @@ import {
   Tabs,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
-import { useColorScheme } from "@mui/material/styles";
+import { useColorScheme, useTheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ReactMarkdown from "react-markdown";
@@ -27,6 +28,7 @@ import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
+import MobileRecordCard, { MobileRecordList, type RecordField } from "@/components/MobileRecordCard";
 import type {
   BrowseContract,
   ContractOutput,
@@ -387,14 +389,6 @@ function VariablesTable({
   prismTheme: PrismTheme;
   lightBg: boolean;
 }) {
-  if (variables.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        This module declares no input variables.
-      </Typography>
-    );
-  }
-
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
       <Table size="small" stickyHeader>
@@ -456,14 +450,6 @@ function OutputsTable({
   prismTheme: PrismTheme;
   lightBg: boolean;
 }) {
-  if (outputs.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        This module declares no outputs.
-      </Typography>
-    );
-  }
-
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
       <Table size="small" stickyHeader>
@@ -508,11 +494,108 @@ function OutputsTable({
   );
 }
 
+function VariableCard({
+  v,
+  prismTheme,
+  lightBg,
+}: {
+  v: ContractVariable;
+  prismTheme: PrismTheme;
+  lightBg: boolean;
+}) {
+  const fields: RecordField[] = [
+    {
+      label: "Type",
+      wide: true,
+      value: <TypeCode type={v.type} optionalAttributes={v.optionalAttributes} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+    },
+    {
+      label: "Required",
+      value: (
+        <Chip
+          label={v.required ? "required" : "optional"}
+          size="small"
+          color={v.required ? "primary" : "default"}
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      label: "Default",
+      value: <DefaultCode value={v.default} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+    },
+    { label: "Description", wide: true, value: <MarkdownDescription text={v.description} /> },
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontWeight: 600 }}>
+            {v.name}
+          </Typography>
+          {v.sensitive && <Chip label="sensitive" size="small" color="warning" variant="outlined" />}
+        </Box>
+      }
+      fields={fields}
+    />
+  );
+}
+
+function OutputCard({
+  o,
+  prismTheme,
+  lightBg,
+}: {
+  o: ContractOutput;
+  prismTheme: PrismTheme;
+  lightBg: boolean;
+}) {
+  const fields: RecordField[] = [
+    {
+      label: "Type",
+      wide: true,
+      value: <TypeCode type={o.type} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+    },
+    {
+      label: "Confidence",
+      value: (
+        <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
+          <Chip
+            label={o.confidence}
+            size="small"
+            color={CONFIDENCE_COLOR[o.confidence] ?? "default"}
+            variant="outlined"
+          />
+        </Tooltip>
+      ),
+    },
+    { label: "Description", wide: true, value: <MarkdownDescription text={o.description} /> },
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontWeight: 600 }}>
+            {o.name}
+          </Typography>
+          {o.sensitive && <Chip label="sensitive" size="small" color="warning" variant="outlined" />}
+        </Box>
+      }
+      fields={fields}
+    />
+  );
+}
+
 export default function ContractTable({ contract }: Props) {
   const [tab, setTab] = React.useState(0);
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const theme = useTheme();
+  // Below lg the table is replaced by cards, so there is no scroll viewport to measure.
+  const compact = useMediaQuery(theme.breakpoints.down("lg"));
 
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
@@ -527,10 +610,13 @@ export default function ContractTable({ contract }: Props) {
 
   React.useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || compact) {
+      setOverflows(false);
+      return;
+    }
 
     setOverflows(el.scrollHeight > el.clientHeight + 1);
-  }, [tab, variables, outputs, expanded]);
+  }, [tab, variables, outputs, expanded, compact]);
 
   return (
     <Box>
@@ -560,23 +646,42 @@ export default function ContractTable({ contract }: Props) {
         <Tab label={`Outputs (${outputs.length})`} />
       </Tabs>
 
-      {/* The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. Padding is dropped when bordered so the header runs flush to the edge. */}
-      <Box
-        ref={scrollRef}
-        sx={{
-          maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
-          overflowY: "auto",
-          overflowX: "auto",
-          pr: activeCount > 0 ? 0 : 0.5,
-          ...(activeCount > 0 && { border: 1, borderColor: "divider", borderRadius: 1 }),
-        }}
-      >
-        {tab === 0 ? (
-          <VariablesTable variables={variables} prismTheme={prismTheme} lightBg={lightBg} />
-        ) : (
-          <OutputsTable outputs={outputs} prismTheme={prismTheme} lightBg={lightBg} />
-        )}
-      </Box>
+      {activeCount === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          {tab === 0 ? "This module declares no input variables." : "This module declares no outputs."}
+        </Typography>
+      ) : (
+        <>
+          {/* Desktop only. The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. */}
+          <Box
+            ref={scrollRef}
+            sx={{
+              display: { xs: "none", lg: "block" },
+              maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+              overflowY: "auto",
+              overflowX: "auto",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+            }}
+          >
+            {tab === 0 ? (
+              <VariablesTable variables={variables} prismTheme={prismTheme} lightBg={lightBg} />
+            ) : (
+              <OutputsTable outputs={outputs} prismTheme={prismTheme} lightBg={lightBg} />
+            )}
+          </Box>
+          <MobileRecordList>
+            {tab === 0
+              ? variables.map((v) => (
+                  <VariableCard key={v.name} v={v} prismTheme={prismTheme} lightBg={lightBg} />
+                ))
+              : outputs.map((o) => (
+                  <OutputCard key={o.name} o={o} prismTheme={prismTheme} lightBg={lightBg} />
+                ))}
+          </MobileRecordList>
+        </>
+      )}
       {overflows && (
         <Box sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
           <Button

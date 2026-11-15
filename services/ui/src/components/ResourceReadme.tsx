@@ -11,6 +11,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { highlightedMarkdownComponents } from "@/components/HighlightedCodeBlock";
+import { markdownTableSx } from "@/components/MarkdownTable";
 import { buildModuleSource, buildCanonicalProviderSource } from "@/lib/registrySource";
 
 // Height (px) of the README viewport when collapsed/expanded. Both states keep
@@ -129,13 +130,7 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
             ml: 0,
             color: "text.secondary",
           },
-          "& table": { borderCollapse: "collapse", mb: 1.5 },
-          "& th, & td": {
-            border: "1px solid",
-            borderColor: "divider",
-            px: 1.5,
-            py: 0.75,
-          },
+          ...markdownTableSx,
           "& img": { maxWidth: "100%" },
         }}
       >

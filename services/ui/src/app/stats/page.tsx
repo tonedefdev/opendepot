@@ -35,6 +35,7 @@ import { severityChipSx } from "@/components/severityStyles";
 import { ACCENT_COLOR, kindColor } from "@/lib/kindColors";
 import { JEV_INPUT_USD_PER_MILLION_TOKENS, formatJevInputCost } from "@/lib/jevCost";
 import { metaChipSurfaceSx } from "@/components/chipStyles";
+import MobileRecordCard, { MobileRecordList } from "@/components/MobileRecordCard";
 
 // Format bytes into human-readable string.
 function formatBytes(bytes: number): string {
@@ -496,7 +497,8 @@ export default async function StatsPage() {
                         No download events recorded yet.
                       </Typography>
                     ) : (
-                      <TableContainer component={Paper} variant="outlined">
+                      <>
+                      <TableContainer component={Paper} variant="outlined" sx={{ display: { xs: "none", lg: "block" } }}>
                         <Table size="small">
                           <TableHead>
                             <TableRow>
@@ -539,6 +541,39 @@ export default async function StatsPage() {
                           </TableBody>
                         </Table>
                       </TableContainer>
+                      <MobileRecordList>
+                        {rows.map((r) => (
+                          <MobileRecordCard
+                            key={`${r.namespace}/${r.name}`}
+                            title={
+                              <Box>
+                                <Typography variant="body2" fontWeight={500}>
+                                  {r.name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {r.namespace}
+                                </Typography>
+                              </Box>
+                            }
+                            fields={[
+                              {
+                                label: "Version",
+                                value: <Typography component="span" variant="body2" fontFamily="var(--od-font-mono)">{r.version}</Typography>,
+                              },
+                              {
+                                label: "Downloads",
+                                value: <Typography component="span" variant="body2" fontWeight={600}>{r.downloadCount.toLocaleString()}</Typography>,
+                              },
+                              {
+                                label: "Last Downloaded",
+                                wide: true,
+                                value: r.lastDownloadedAt ? new Date(r.lastDownloadedAt).toLocaleString() : "—",
+                              },
+                            ]}
+                          />
+                        ))}
+                      </MobileRecordList>
+                      </>
                     )}
                   </Paper>
                 </Grid>

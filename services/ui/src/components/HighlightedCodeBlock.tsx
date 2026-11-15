@@ -10,6 +10,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { Highlight, type Language, themes } from "prism-react-renderer";
 import { lightCodeTheme } from "@/lib/codeTheme";
 import CopyButton from "@/components/CopyButton";
+import { markdownTableComponents } from "@/components/MarkdownTable";
 import { Prism, resolvePrismLanguage } from "@/lib/codeHighlight";
 
 interface HighlightedCodeBlockProps {
@@ -78,6 +79,7 @@ function EmbeddedMarkdown({ code }: { code: string }) {
 // Fenced blocks with a supported language are highlighted; anything else stays plain monospace.
 export function highlightedMarkdownComponents({ renderEmbeddedMarkdown = false }: MarkdownCodeOptions = {}): Components {
   return {
+    ...markdownTableComponents,
     pre({ children }) {
       const codeElement = React.isValidElement(children) ? children : null;
       const codeProps = codeElement?.props as { className?: string; children?: React.ReactNode } | undefined;

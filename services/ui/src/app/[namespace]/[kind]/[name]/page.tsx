@@ -22,6 +22,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import SeverityBadge from "@/components/SeverityBadge";
 import ScanDrillDown from "@/components/ScanDrillDown";
 import ProviderLogo from "@/components/ProviderLogo";
+import MobileSidebarButton from "@/components/MobileSidebarButton";
 import DrillDownWarningBridge from "@/components/DrillDownWarningBridge";
 import UsageSnippet from "@/components/UsageSnippet";
 import ResourceReadme from "@/components/ResourceReadme";
@@ -171,11 +172,14 @@ export default async function ResourceDetailPage({ params }: PageProps) {
   return (
     <Container maxWidth="xl" sx={{ py: 4, px: { xs: 2, md: 4 } }}>
       {/* The breadcrumb stops at the kind because the page title directly below it is the resource name. */}
-      <Breadcrumbs sx={{ mb: 2, fontSize: "0.875rem", "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
-        <Link href="/">Registry</Link>
-        <Link href={`/?namespace=${namespace}`}>{namespace}</Link>
-        <Link href={`/?kind=${kind}`}>{KIND_PLURALS[kind] ?? capitalizeKind}</Link>
-      </Breadcrumbs>
+      <Box display="flex" alignItems="center" gap={1} sx={{ mb: 2, minWidth: 0 }}>
+        <Breadcrumbs sx={{ flex: 1, minWidth: 0, fontSize: "0.875rem", "& a": { textDecoration: "none", color: "text.secondary", "&:hover": { color: "primary.main" } } }}>
+          <Link href="/">Registry</Link>
+          <Link href={`/?namespace=${namespace}`}>{namespace}</Link>
+          <Link href={`/?kind=${kind}`}>{KIND_PLURALS[kind] ?? capitalizeKind}</Link>
+        </Breadcrumbs>
+        <MobileSidebarButton />
+      </Box>
 
       <Box
         component="header"

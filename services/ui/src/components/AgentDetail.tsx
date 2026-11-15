@@ -25,6 +25,7 @@ import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import CopyButton from "@/components/CopyButton";
 import { highlightedMarkdownComponents } from "@/components/HighlightedCodeBlock";
+import { markdownTableSx } from "@/components/MarkdownTable";
 import { SectionCard } from "@/components/SectionCard";
 import type { AgentMetadata } from "@/lib/api";
 
@@ -63,6 +64,7 @@ export function AgentBody({ content }: AgentBodyProps) {
           "& p, & li": { fontSize: "0.9rem", lineHeight: 1.6 },
           "& pre.md-plain-pre": { p: 1.5, borderRadius: 1, overflowX: "auto", bgcolor: "action.hover", fontSize: "0.8125rem" },
           "& code": { fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" },
+          ...markdownTableSx,
         }}
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={highlightedMarkdownComponents({ renderEmbeddedMarkdown: true })}>
