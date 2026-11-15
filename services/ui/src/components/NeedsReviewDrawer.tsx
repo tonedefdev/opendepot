@@ -89,18 +89,16 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
       sx={{ "& .MuiDrawer-paper": { width: { xs: "100%", sm: 640 }, maxWidth: "100%", boxSizing: "border-box" } }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", gap: 2, p: 3 }}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 2 }}>
-          <Box>
-            <Typography variant="h6">Needs review</Typography>
-            <Typography variant="caption" color="text.secondary" component="p">
-              Jev flags a Skill or Agent when its Critical verdict comes from a fully scored assessment, or when a
-              chunk&apos;s confidence falls below the minimum. Only each resource&apos;s latest assessed version is checked.
-            </Typography>
-          </Box>
-          <IconButton aria-label="Close needs review" onClick={onClose}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+          <Typography variant="h6">Needs review</Typography>
+          <IconButton aria-label="Close needs review" onClick={onClose} sx={{ mr: -1 }}>
             <CloseIcon />
           </IconButton>
         </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: -1.5, lineHeight: 1.6 }}>
+          Jev flags a Skill or Agent when its Critical verdict comes from a fully scored assessment, or when a
+          chunk&apos;s confidence falls below the minimum. Only each resource&apos;s latest assessed version is checked.
+        </Typography>
 
         {error && <Alert severity="error">{error}</Alert>}
 
@@ -111,11 +109,11 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
         )}
 
         {!loading && !error && queue && items.length === 0 && (
-          <Box sx={{ py: 4, textAlign: "center" }}>
-            <Typography variant="body2" color="text.primary" fontWeight={600}>
+          <Box sx={{ pt: 1 }}>
+            <Typography variant="body1" color="text.primary" fontWeight={600}>
               Nothing needs review right now.
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.6 }}>
               Versions appear here when Jev returns a Critical verdict or cannot score a chunk with enough confidence.
               A Version under an active exemption stays out of this list and returns when the exemption expires.
             </Typography>
