@@ -230,7 +230,7 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
             lineHeight: 1.6,
             borderRadius: 1,
             border: 0,
-            ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+            ...(scheme === "light" && { backgroundColor: "background.default" }),
           })}
         />
       </Box>

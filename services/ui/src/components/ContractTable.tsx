@@ -204,7 +204,7 @@ function DefaultCode({
           borderRadius: 1,
           fontSize: "0.75rem",
           lineHeight: 1.5,
-          ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+          ...(scheme === "light" && { backgroundColor: "background.default" }),
         })}
       />
       {copyable && (
@@ -252,7 +252,7 @@ function TypeCode({
             lineHeight: 1.5,
             overflowY: collapsible && !expanded ? "hidden" : "visible",
             maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
-            ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+            ...(scheme === "light" && { backgroundColor: "background.default" }),
           })}
         />
         {copyable && (
