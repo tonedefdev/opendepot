@@ -23,7 +23,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import { DepotKindIcon } from "@/components/DepotKindIcon";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import { useColorScheme } from "@mui/material/styles";
 import Link from "next/link";
 import type { ContractOutput, ContractRequiredProvider, ContractVariable } from "@/lib/api";
 import { GRADE_COLOR, renderTypeCompact, typesRoughlyCompatible } from "@/lib/ctyType";
@@ -139,8 +138,6 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
   const [repeatAnchor, setRepeatAnchor] = useState<HTMLElement | null>(null);
   const identityTextRef = React.useRef<HTMLSpanElement>(null);
   const [identityTruncated, setIdentityTruncated] = useState(false);
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
   const errorCount = Object.keys(fieldErrors).length;
   const configuredProviderCount = requiredProviders.filter(
     (provider) => providerBindings[provider.localName]?.providerNodeId,
@@ -192,10 +189,9 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
   // stacked card read as a bright white slab against the node body/header.
   // A fixed, solid grey fill fixes that on its own — the extra 1px outline
   // layer isn't needed once the fill itself reads as clearly darker.
-  const stackedCardShadow =
-    resolvedMode === "light"
-      ? "4px 4px 0 0 #d0d7de, 0 2px 6px rgba(0,0,0,0.15)"
-      : "4px 4px 0 0 var(--mui-palette-background-default), 4px 4px 0 1px var(--mui-palette-divider), 0 2px 6px rgba(0,0,0,0.4)";
+  const stackedCardShadowDark =
+    "4px 4px 0 0 var(--mui-palette-background-default), 4px 4px 0 1px var(--mui-palette-divider), 0 2px 6px rgba(0,0,0,0.4)";
+  const stackedCardShadowLight = "4px 4px 0 0 #d0d7de, 0 2px 6px rgba(0,0,0,0.15)";
   // Solid offset block with no blur, matching the marketing site's terminal windows (site-root/styles.css .cli-window).
   // --od-accent is mint in dark mode and blue in light mode, as on the marketing site.
   const forEachShadow = "8px 8px 0 0 var(--od-accent)";
@@ -212,7 +208,11 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
         // layered box-shadow stacked-card look rather than extra DOM nodes —
         // percentage/inset positioning doesn't work reliably against a
         // parent whose height is itself auto (content-driven).
-        boxShadow: multiplicity.kind === "for_each" ? forEachShadow : isRepeated ? stackedCardShadow : 3,
+        boxShadow: multiplicity.kind === "for_each" ? forEachShadow : isRepeated ? stackedCardShadowDark : 3,
+        ...(isRepeated &&
+          multiplicity.kind !== "for_each" && {
+            "[data-mui-color-scheme='light'] &": { boxShadow: stackedCardShadowLight },
+          }),
         overflow: "hidden",
       }}
     >

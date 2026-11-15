@@ -3,7 +3,6 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import { useColorScheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ReactMarkdown from "react-markdown";
@@ -65,10 +64,6 @@ interface ResourceReadmeProps {
 }
 
 export default function ResourceReadme({ content, kind, namespace, name, provider, registryHost, providerNamespace = "hashicorp", upstreamRegistry = "registry.opentofu.org" }: ResourceReadmeProps) {
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const codeBg = resolvedMode === "light" ? "#f0f7ff" : "#1e1e1e";
-
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -109,13 +104,15 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
           "& code": {
             fontFamily: "var(--od-font-mono)",
             fontSize: "0.8125rem",
-            bgcolor: codeBg,
+            bgcolor: "#1e1e1e",
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f0f7ff" },
             px: 0.5,
             py: 0.25,
             borderRadius: 0.5,
           },
           "& pre.md-plain-pre": {
-            bgcolor: codeBg,
+            bgcolor: "#1e1e1e",
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f0f7ff" },
             p: 2,
             borderRadius: 1.5,
             border: "1px solid",

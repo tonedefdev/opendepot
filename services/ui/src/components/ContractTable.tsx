@@ -18,13 +18,13 @@ import {
   Typography,
   useMediaQuery,
 } from "@mui/material";
-import { useColorScheme, useTheme } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Highlight, type Language, type PrismTheme, themes } from "prism-react-renderer";
-import { lightCodeTheme } from "@/lib/codeTheme";
+import type { Language } from "prism-react-renderer";
+import { ThemedCode } from "@/components/ThemedCode";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
@@ -173,13 +173,9 @@ function renderDefaultHCL(value: unknown, depth = 0): string {
 
 function DefaultCode({
   value,
-  prismTheme,
-  lightBg,
   copyable = true,
 }: {
   value: unknown;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
   copyable?: boolean;
 }) {
   const code = React.useMemo(() => (value === undefined ? "" : renderDefaultHCL(value)), [value]);
@@ -194,40 +190,23 @@ function DefaultCode({
 
   return (
     <Box sx={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <Box
-            component="pre"
-            sx={{
-              m: 0,
-              pl: 1,
-              pr: copyable ? 4 : 1,
-              py: 0.5,
-              display: "inline-block",
-              width: "fit-content",
-              maxWidth: "100%",
-              borderRadius: 1,
-              border: "1px solid",
-              borderColor: "divider",
-              fontFamily: "var(--od-font-mono)",
-              fontSize: "0.75rem",
-              lineHeight: 1.5,
-              overflowX: "auto",
-              whiteSpace: "pre",
-              ...style,
-              ...(lightBg && { backgroundColor: "#f0f7ff" }),
-            }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => (
-                  <span key={key} {...getTokenProps({ token })} />
-                ))}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
+      <ThemedCode
+        code={code}
+        language={"hcl" as Language}
+        preSx={(scheme) => ({
+          m: 0,
+          pl: 1,
+          pr: copyable ? 4 : 1,
+          py: 0.5,
+          display: "inline-block",
+          width: "fit-content",
+          maxWidth: "100%",
+          borderRadius: 1,
+          fontSize: "0.75rem",
+          lineHeight: 1.5,
+          ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+        })}
+      />
       {copyable && (
         <Box sx={{ position: "absolute", top: 2, right: 2 }}>
           <CopyButton value={code} />
@@ -240,14 +219,10 @@ function DefaultCode({
 function TypeCode({
   type,
   optionalAttributes,
-  prismTheme,
-  lightBg,
   copyable = true,
 }: {
   type: CtyType;
   optionalAttributes?: Record<string, boolean>;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
   copyable?: boolean;
 }) {
   const code = React.useMemo(
@@ -261,42 +236,25 @@ function TypeCode({
   return (
     <Box>
       <Box sx={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-        <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
-          {({ style, tokens, getLineProps, getTokenProps }) => (
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                pl: 1,
-                pr: copyable ? 4 : 1,
-                py: 1,
-                display: "inline-block",
-                width: "fit-content",
-                maxWidth: "100%",
-                borderRadius: 1,
-                border: "1px solid",
-                borderColor: "divider",
-                fontFamily: "var(--od-font-mono)",
-                fontSize: "0.75rem",
-                lineHeight: 1.5,
-                overflowX: "auto",
-                overflowY: collapsible && !expanded ? "hidden" : "visible",
-                maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
-                whiteSpace: "pre",
-                ...style,
-                ...(lightBg && { backgroundColor: "#f0f7ff" }),
-              }}
-            >
-              {tokens.map((line, i) => (
-                <div key={i} {...getLineProps({ line })}>
-                  {line.map((token, key) => (
-                    <span key={key} {...getTokenProps({ token })} />
-                  ))}
-                </div>
-              ))}
-            </Box>
-          )}
-        </Highlight>
+        <ThemedCode
+          code={code}
+          language={"hcl" as Language}
+          preSx={(scheme) => ({
+            m: 0,
+            pl: 1,
+            pr: copyable ? 4 : 1,
+            py: 1,
+            display: "inline-block",
+            width: "fit-content",
+            maxWidth: "100%",
+            borderRadius: 1,
+            fontSize: "0.75rem",
+            lineHeight: 1.5,
+            overflowY: collapsible && !expanded ? "hidden" : "visible",
+            maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
+            ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+          })}
+        />
         {copyable && (
           <Box sx={{ position: "absolute", top: 2, right: 2 }}>
             <CopyButton value={code} />
@@ -382,12 +340,8 @@ function MarkdownDescription({ text }: { text?: string }) {
 
 function VariablesTable({
   variables,
-  prismTheme,
-  lightBg,
 }: {
   variables: ContractVariable[];
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
@@ -414,8 +368,6 @@ function VariablesTable({
                 <TypeCode
                   type={v.type}
                   optionalAttributes={v.optionalAttributes}
-                  prismTheme={prismTheme}
-                  lightBg={lightBg}
                   copyable={false}
                 />
               </TableCell>
@@ -428,7 +380,7 @@ function VariablesTable({
                 />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top" }}>
-                <DefaultCode value={v.default} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />
+                <DefaultCode value={v.default} copyable={false} />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
                 <MarkdownDescription text={v.description} />
@@ -443,12 +395,8 @@ function VariablesTable({
 
 function OutputsTable({
   outputs,
-  prismTheme,
-  lightBg,
 }: {
   outputs: ContractOutput[];
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
@@ -471,7 +419,7 @@ function OutputsTable({
                 )}
               </TableCell>
               <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
-                <TypeCode type={o.type} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />
+                <TypeCode type={o.type} copyable={false} />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top" }}>
                 <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
@@ -496,18 +444,14 @@ function OutputsTable({
 
 function VariableCard({
   v,
-  prismTheme,
-  lightBg,
 }: {
   v: ContractVariable;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
   const fields: RecordField[] = [
     {
       label: "Type",
       wide: true,
-      value: <TypeCode type={v.type} optionalAttributes={v.optionalAttributes} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+      value: <TypeCode type={v.type} optionalAttributes={v.optionalAttributes} copyable={false} />,
     },
     {
       label: "Required",
@@ -522,7 +466,7 @@ function VariableCard({
     },
     {
       label: "Default",
-      value: <DefaultCode value={v.default} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+      value: <DefaultCode value={v.default} copyable={false} />,
     },
     { label: "Description", wide: true, value: <MarkdownDescription text={v.description} /> },
   ];
@@ -544,18 +488,14 @@ function VariableCard({
 
 function OutputCard({
   o,
-  prismTheme,
-  lightBg,
 }: {
   o: ContractOutput;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
   const fields: RecordField[] = [
     {
       label: "Type",
       wide: true,
-      value: <TypeCode type={o.type} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />,
+      value: <TypeCode type={o.type} copyable={false} />,
     },
     {
       label: "Confidence",
@@ -597,10 +537,6 @@ export default function ContractTable({ contract }: Props) {
   // Below lg the table is replaced by cards, so there is no scroll viewport to measure.
   const compact = useMediaQuery(theme.breakpoints.down("lg"));
 
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
-  const lightBg = resolvedMode === "light";
 
   const variables = React.useMemo(() => contract.variables ?? [], [contract.variables]);
   const outputs = React.useMemo(() => contract.outputs ?? [], [contract.outputs]);
@@ -666,18 +602,18 @@ export default function ContractTable({ contract }: Props) {
             }}
           >
             {tab === 0 ? (
-              <VariablesTable variables={variables} prismTheme={prismTheme} lightBg={lightBg} />
+              <VariablesTable variables={variables} />
             ) : (
-              <OutputsTable outputs={outputs} prismTheme={prismTheme} lightBg={lightBg} />
+              <OutputsTable outputs={outputs} />
             )}
           </Box>
           <MobileRecordList>
             {tab === 0
               ? variables.map((v) => (
-                  <VariableCard key={v.name} v={v} prismTheme={prismTheme} lightBg={lightBg} />
+                  <VariableCard key={v.name} v={v} />
                 ))
               : outputs.map((o) => (
-                  <OutputCard key={o.name} o={o} prismTheme={prismTheme} lightBg={lightBg} />
+                  <OutputCard key={o.name} o={o} />
                 ))}
           </MobileRecordList>
         </>

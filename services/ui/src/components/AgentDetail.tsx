@@ -7,7 +7,6 @@ import Chip from "@mui/material/Chip";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
-import { useColorScheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DataObjectIcon from "@mui/icons-material/DataObject";
@@ -15,8 +14,8 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import TuneIcon from "@mui/icons-material/Tune";
 import { SiClaude, SiGithubcopilot, SiOpenai } from "react-icons/si";
 import { load } from "js-yaml";
-import { Highlight, type Language, themes } from "prism-react-renderer";
-import { lightCodeTheme } from "@/lib/codeTheme";
+import type { Language } from "prism-react-renderer";
+import { ThemedCode } from "@/components/ThemedCode";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import "prismjs/components/prism-yaml";
@@ -189,10 +188,6 @@ ${blockType} "${escapedName}" {
 export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
   const [selectedTargets, setSelectedTargets] = React.useState<SnippetTarget[]>([...DEFAULT_SNIPPET_TARGETS]);
   const snippet = buildAgentConfigSnippet({ ...props, targets: selectedTargets });
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
-
   return (
     <Box>
       <ToggleButtonGroup
@@ -227,31 +222,17 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
         <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
           <CopyButton value={snippet} />
         </Box>
-        <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={snippet} language={"hcl" as Language}>
-          {({ style, tokens, getLineProps, getTokenProps }) => (
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                p: 2,
-                pr: 5,
-                borderRadius: 1,
-                overflowX: "auto",
-                fontFamily: "var(--od-font-mono)",
-                fontSize: "0.8125rem",
-                lineHeight: 1.6,
-                ...style,
-                ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-              }}
-            >
-              {tokens.map((line, i) => (
-                <div key={i} {...getLineProps({ line })}>
-                  {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-                </div>
-              ))}
-            </Box>
-          )}
-        </Highlight>
+        <ThemedCode
+          code={snippet}
+          language={"hcl" as Language}
+          preSx={(scheme) => ({
+            pr: 5,
+            lineHeight: 1.6,
+            borderRadius: 1,
+            border: 0,
+            ...(scheme === "light" && { backgroundColor: "#f0f7ff" }),
+          })}
+        />
       </Box>
     </Box>
   );
@@ -324,27 +305,27 @@ interface AgentDefinitionProps {
   title: string;
 }
 
+// Matches the p: 1.5 padding in the frontmatter preSx below.
+const FRONTMATTER_PADDING_X = 12;
+
 interface FrontmatterCodeProps {
   frontmatter: string;
   fileName: string;
 }
 
 function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
-  const preRef = React.useRef<HTMLPreElement>(null);
+  // The folding width is measured on this wrapper. Each copy of the code is a <pre>, and the hidden copy has no width.
+  const containerRef = React.useRef<HTMLDivElement>(null);
   const probeRef = React.useRef<HTMLSpanElement>(null);
   const [code, setCode] = React.useState(frontmatter);
 
   React.useEffect(() => {
-    const pre = preRef.current;
+    const container = containerRef.current;
     const probe = probeRef.current;
-    if (!pre || !probe) return;
+    if (!container || !probe) return;
 
     const compute = () => {
-      const styles = window.getComputedStyle(pre);
-      const inner = pre.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+      const inner = container.clientWidth - FRONTMATTER_PADDING_X * 2;
       if (!Number.isFinite(inner) || inner <= 0) {
         setCode(frontmatter);
         return;
@@ -360,12 +341,12 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
     if (typeof ResizeObserver === "undefined") return;
 
     const observer = new ResizeObserver(compute);
-    observer.observe(pre);
+    observer.observe(container);
     return () => observer.disconnect();
   }, [frontmatter]);
 
   return (
-    <Box sx={{ position: "relative", overflow: "hidden" }}>
+    <Box ref={containerRef} sx={{ position: "relative", overflow: "hidden" }}>
       <Box
         component="span"
         ref={probeRef}
@@ -380,32 +361,12 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
           fontSize: "0.8125rem",
         }}
       />
-      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"yaml" as Language}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <Box
-            component="pre"
-            ref={preRef}
-            aria-label={`${fileName} frontmatter`}
-            sx={{
-              m: 0,
-              p: 1.5,
-              borderRadius: 1,
-              overflowX: "auto",
-              fontFamily: "var(--od-font-mono)",
-              fontSize: "0.8125rem",
-              lineHeight: 1.6,
-              ...style,
-              ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-            }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
+      <ThemedCode
+        code={code}
+        language={"yaml" as Language}
+        ariaLabel={`${fileName} frontmatter`}
+        preSx={() => ({ p: 1.5, pr: 1.5, lineHeight: 1.6, borderRadius: 1, border: 0 })}
+      />
     </Box>
   );
 }

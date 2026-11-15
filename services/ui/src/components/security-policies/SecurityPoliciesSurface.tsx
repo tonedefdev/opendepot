@@ -28,7 +28,6 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { useColorScheme } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import CodeIcon from "@mui/icons-material/Code";
@@ -49,8 +48,8 @@ import utc from "dayjs/plugin/utc";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
-import { Highlight, type Language, type PrismTheme, themes } from "prism-react-renderer";
-import { lightCodeTheme } from "@/lib/codeTheme";
+import type { Language } from "prism-react-renderer";
+import { ThemedCode } from "@/components/ThemedCode";
 import Prism from "prismjs";
 import "prismjs/components/prism-yaml";
 import type {
@@ -252,9 +251,6 @@ interface SurfaceProps {
 
 export default function SecurityPoliciesSurface({ mode, namespace, name, catalog, jevPrefill }: SurfaceProps) {
   const router = useRouter();
-  const { mode: colorMode, systemMode } = useColorScheme();
-  const resolvedMode = colorMode === "system" ? systemMode : colorMode;
-  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const defaultNamespace = catalog.items.some((item) => item.namespace === namespace)
     ? namespace ?? ""
     : catalog.items[0]?.namespace ?? "";
@@ -477,7 +473,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
           </Stack>
           {!selectedNamespace ? <Alert severity="info">Select a namespace to view its policies.</Alert> : loading ? <PolicyListSkeleton /> : policies.length === 0 ? (
             <Card><CardContent sx={{ py: 6, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}><PolicyIconBadge size={56} /><Typography variant="h6" sx={{ mt: 2 }}>No policies in {selectedNamespace}</Typography><Typography color="text.secondary" sx={{ mb: 2, maxWidth: 420 }}>Create a guided ScanPolicy to set severity thresholds and finding exemptions for this namespace.</Typography>{canWrite && <Button component={Link} href={`/security-policies/new?namespace=${encodeURIComponent(selectedNamespace)}`} variant="outlined" startIcon={<AddIcon />}>Create your first policy</Button>}</CardContent></Card>
-          ) : filteredPolicies.length === 0 ? <Alert severity="info">No policies match “{policyQuery}”.</Alert> : <><Grid container spacing={2}>{pagedPolicies.map((item) => <Grid key={`${item.metadata.namespace}/${item.metadata.name}`} size={{ xs: 12, sm: 6, lg: 4 }}><PolicyCard policy={item} darkMode={resolvedMode === "dark"} /></Grid>)}</Grid><ResourceListControls totalCount={filteredPolicies.length} page={currentListPage} pageSize={listPageSize} noun={["policy", "policies"]} onChange={(nextPage, nextPageSize) => { setListPage(nextPage); setListPageSize(nextPageSize); }} /></>}
+          ) : filteredPolicies.length === 0 ? <Alert severity="info">No policies match “{policyQuery}”.</Alert> : <><Grid container spacing={2}>{pagedPolicies.map((item) => <Grid key={`${item.metadata.namespace}/${item.metadata.name}`} size={{ xs: 12, sm: 6, lg: 4 }}><PolicyCard policy={item} /></Grid>)}</Grid><ResourceListControls totalCount={filteredPolicies.length} page={currentListPage} pageSize={listPageSize} noun={["policy", "policies"]} onChange={(nextPage, nextPageSize) => { setListPage(nextPage); setListPageSize(nextPageSize); }} /></>}
         </Container>
       </Box>
     );
@@ -496,7 +492,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       </Box>
       <Grid container spacing={3} alignItems="flex-start">
       <Grid size={{ xs: 12, lg: 7 }}>
-      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ color: resolvedMode === "dark" ? "#fff" : undefined }} />}</Stack></Box>}
+      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ "[data-mui-color-scheme='dark'] &": { color: "#fff" } }} />}</Stack></Box>}
       <Box component="form" onSubmit={save}>
         {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
         {jevResult && <JevSaveResult result={jevResult} onRefresh={() => void refreshJevResult()} />}
@@ -511,7 +507,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       </Box>
       </Grid>
       <Grid size={{ lg: 5 }} sx={{ display: { xs: "none", lg: "block" }, position: "sticky", top: 24 }}>
-        {loading && isEdit ? <Skeleton variant="rounded" height="calc(100vh - 48px)" /> : <LiveYamlPanel code={policyToYaml(form)} fileName={`${form.metadata.name || "scanpolicy"}.yaml`} theme={prismTheme} />}
+        {loading && isEdit ? <Skeleton variant="rounded" height="calc(100vh - 48px)" /> : <LiveYamlPanel code={policyToYaml(form)} fileName={`${form.metadata.name || "scanpolicy"}.yaml`} />}
       </Grid>
       </Grid>
       </Container>
@@ -585,7 +581,7 @@ function ExpiryPicker({ value, onChange, disabled, error }: { value?: string; on
   );
 }
 
-function LiveYamlPanel({ code, fileName, theme }: { code: string; fileName: string; theme: PrismTheme }) {
+function LiveYamlPanel({ code, fileName }: { code: string; fileName: string }) {
   return (
     <Card aria-label="Live YAML" sx={{ height: "calc(100vh - 48px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1, borderBottom: "1px solid", borderColor: "divider" }}>
@@ -594,17 +590,12 @@ function LiveYamlPanel({ code, fileName, theme }: { code: string; fileName: stri
         <Typography variant="caption" color="text.secondary" sx={{ ml: "auto", whiteSpace: "nowrap" }}>Live preview</Typography>
         <CopyButton value={code} />
       </Box>
-      <Highlight prism={Prism as typeof Prism} theme={theme} code={code} language={"yaml" as Language}>
-        {({ className, style, tokens, getLineProps, getTokenProps }) => (
-          <Box component="pre" className={className} sx={{ m: 0, p: 2, flex: 1, overflow: "auto", fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", lineHeight: 1.65, whiteSpace: "pre", ...style, backgroundColor: "transparent" }}>
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
+      <ThemedCode
+        code={code}
+        language={"yaml" as Language}
+        wrapperSx={{ flex: 1, minHeight: 0, overflow: "auto" }}
+        preSx={() => ({ border: 0, borderRadius: 0, pr: 2, backgroundColor: "transparent" })}
+      />
     </Card>
   );
 }
@@ -621,7 +612,7 @@ function plural(count: number, noun: string, pluralNoun = `${noun}s`): string {
   return `${count} ${count === 1 ? noun : pluralNoun}`;
 }
 
-function PolicyCard({ policy, darkMode }: { policy: ScanPolicy; darkMode: boolean }) {
+function PolicyCard({ policy }: { policy: ScanPolicy }) {
   const threshold = policy.spec.severityThreshold;
   const exemptions = policy.status?.activeExemptions ?? 0;
   return (
@@ -643,7 +634,7 @@ function PolicyCard({ policy, darkMode }: { policy: ScanPolicy; darkMode: boolea
           <Stack direction="row" gap={0.75} flexWrap="wrap">
             <Chip size="small" variant="outlined" label={plural(policy.status?.matchedVersions ?? 0, "matched version")} />
             {exemptions > 0 && <Chip size="small" color="secondary" sx={severityChipSx("exempted")} label={plural(exemptions, "exemption")} />}
-            {policy.status?.supersededBy && <Chip size="small" color="warning" sx={{ color: darkMode ? "#fff" : undefined }} label={`Superseded by ${policy.status.supersededBy}`} />}
+            {policy.status?.supersededBy && <Chip size="small" color="warning" sx={{ "[data-mui-color-scheme='dark'] &": { color: "#fff" } }} label={`Superseded by ${policy.status.supersededBy}`} />}
           </Stack>
         </CardContent>
       </CardActionArea>

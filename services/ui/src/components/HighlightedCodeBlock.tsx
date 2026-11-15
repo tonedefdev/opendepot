@@ -2,16 +2,15 @@
 
 import * as React from "react";
 import Box from "@mui/material/Box";
-import { useColorScheme } from "@mui/material/styles";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import { Highlight, type Language, themes } from "prism-react-renderer";
-import { lightCodeTheme } from "@/lib/codeTheme";
+import type { Language } from "prism-react-renderer";
+import { ThemedCode } from "@/components/ThemedCode";
 import CopyButton from "@/components/CopyButton";
 import { markdownTableComponents } from "@/components/MarkdownTable";
-import { Prism, resolvePrismLanguage } from "@/lib/codeHighlight";
+import { resolvePrismLanguage } from "@/lib/codeHighlight";
 
 interface HighlightedCodeBlockProps {
   code: string;
@@ -19,43 +18,14 @@ interface HighlightedCodeBlockProps {
 }
 
 export function HighlightedCodeBlock({ code, language }: HighlightedCodeBlockProps) {
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
-
   return (
     <Box sx={{ position: "relative", mb: 1.5 }}>
-      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={language as Language}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <Box
-            component="pre"
-            sx={{
-              m: 0,
-              p: 2,
-              pr: 6,
-              borderRadius: 1.5,
-              border: "1px solid",
-              borderColor: "divider",
-              fontFamily: "var(--od-font-mono)",
-              fontSize: "0.8125rem",
-              lineHeight: 1.65,
-              overflowX: "auto",
-              whiteSpace: "pre",
-              ...style,
-              // Code sits in a well sunk to the canvas color, like every other inset surface.
-              backgroundColor: "background.default",
-            }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => (
-                  <span key={key} {...getTokenProps({ token })} />
-                ))}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
+      <ThemedCode
+        code={code}
+        language={language as Language}
+        // Code sits in a well sunk to the canvas color, like every other inset surface.
+        preSx={() => ({ backgroundColor: "background.default" })}
+      />
       <Box sx={{ position: "absolute", top: 6, right: 6 }}>
         <CopyButton value={code} />
       </Box>
