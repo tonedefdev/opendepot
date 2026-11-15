@@ -474,9 +474,12 @@ export default async function StatsPage() {
             <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 2 }}>
               <TrendingUpIcon sx={{ fontSize: 22, color: "primary.main" }} />
               <Typography variant="h6" fontWeight={600}>
-                Most Downloaded
+                Top 10 Most Downloaded
               </Typography>
             </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: -1.5, mb: 2 }}>
+              Ranked by total downloads within each kind. Each list shows the top 10 only.
+            </Typography>
             <Grid container spacing={2}>
               {([
                 { label: "Modules", kind: "module", rows: stats.mostDownloaded.modules },
