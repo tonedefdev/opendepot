@@ -30,8 +30,9 @@ const floatingSx: SxProps<Theme> = (theme) => {
     right: 16,
     top: "calc(16px + env(safe-area-inset-top))",
     zIndex: theme.zIndex.appBar,
-    width: 48,
-    height: 48,
+    // Sized to match the repository icon below it so both share one column.
+    width: 38,
+    height: 38,
     color: "text.primary",
     borderRadius: "50%",
     backgroundColor: `color-mix(in srgb, ${paper} 78%, transparent)`,

@@ -352,24 +352,6 @@ function FindingsTable({
           </FormControl>
         )}
 
-        {availableOS && availableOS.length > 1 && onOSChange && (
-          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
-            <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
-            <Select
-              label="OS"
-              value={selectedOS || availableOS[0] || ""}
-              onChange={(e) => {
-                onOSChange(e.target.value);
-              }}
-              sx={{ fontSize: "0.8125rem" }}
-            >
-              {availableOS.map((os) => (
-                <MenuItem key={os} value={os} sx={{ fontSize: "0.8125rem" }}>{os}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-
         {availableArch && availableArch.length > 1 && onArchChange && (
           <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Arch</InputLabel>
@@ -393,6 +375,24 @@ function FindingsTable({
           onChange={(e) => setQuery(e.target.value)}
           sx={{ ...filterControlSx(180), "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
         />
+
+        {availableOS && availableOS.length > 1 && onOSChange && (
+          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
+            <Select
+              label="OS"
+              value={selectedOS || availableOS[0] || ""}
+              onChange={(e) => {
+                onOSChange(e.target.value);
+              }}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {availableOS.map((os) => (
+                <MenuItem key={os} value={os} sx={{ fontSize: "0.8125rem" }}>{os}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
         <FormControl size="small" sx={filterControlSx(140)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Severity</InputLabel>

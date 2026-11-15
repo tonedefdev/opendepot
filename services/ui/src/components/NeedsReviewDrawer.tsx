@@ -124,7 +124,7 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
 
         {!loading && items.length > 0 && (
           <>
-            <Box sx={{ display: { xs: "none", md: "block" }, overflowX: "auto" }}>
+            <Box sx={{ display: { xs: "none", lg: "block" }, overflowX: "auto" }}>
               <Table size="small" aria-label="Items that need review">
                 <TableHead>
                   <TableRow>

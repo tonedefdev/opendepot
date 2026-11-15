@@ -1,4 +1,4 @@
-import { createTheme } from "@mui/material/styles";
+import { createTheme, darken } from "@mui/material/styles";
 import { BRAND_BLUE, BRAND_BRIDGE, BRAND_MINT } from "@/lib/brand";
 
 // Cookie used to persist the user's resolved light/dark preference so the
@@ -30,7 +30,8 @@ const theme = createTheme({
       palette: {
         primary: {
           main: BRAND_MINT,
-          dark: BRAND_BRIDGE,
+          // Contained buttons hover to primary.dark. A deeper shade of mint keeps the hover in the same hue.
+          dark: darken(BRAND_MINT, 0.2),
         },
         secondary: {
           main: BRAND_BRIDGE,

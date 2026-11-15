@@ -47,15 +47,15 @@ describe("NeedsReviewDrawer", () => {
 
     renderDrawer(true);
 
-    await waitFor(() => expect(screen.getByText("deploy-helper")).not.toBeNull());
-    expect(screen.getByRole("table", { name: "Items that need review" })).not.toBeNull();
-    const skillRow = within(screen.getByRole("row", { name: /deploy-helper/ }));
+    await waitFor(() => expect(screen.getAllByText("deploy-helper").length).toBeGreaterThan(0));
+    const table = within(screen.getByRole("table", { name: "Items that need review" }));
+    const skillRow = within(table.getByRole("row", { name: /deploy-helper/ }));
     expect(skillRow.getByText("platform")).not.toBeNull();
     expect(skillRow.getByText("Skill")).not.toBeNull();
     expect(skillRow.getByText("Critical")).not.toBeNull();
     expect(skillRow.getByText("Blocked")).not.toBeNull();
     expect(skillRow.getByText("No")).not.toBeNull();
-    const agentRow = within(screen.getByRole("row", { name: /triage-bot/ }));
+    const agentRow = within(table.getByRole("row", { name: /triage-bot/ }));
     expect(agentRow.getByText("research")).not.toBeNull();
     expect(agentRow.getByText("Agent")).not.toBeNull();
     expect(agentRow.getByText("Low")).not.toBeNull();
@@ -70,8 +70,8 @@ describe("NeedsReviewDrawer", () => {
 
     renderDrawer(true);
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "triage-bot" })).not.toBeNull());
-    expect(screen.getByRole("link", { name: "triage-bot" }).getAttribute("href")).toBe("/research/agent/triage-bot");
+    const table = within(await screen.findByRole("table", { name: "Items that need review" }));
+    expect(table.getByRole("link", { name: "triage-bot" }).getAttribute("href")).toBe("/research/agent/triage-bot");
   });
 
   it("shows the empty state when nothing needs review", async () => {

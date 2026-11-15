@@ -60,7 +60,7 @@ interface Props {
 export default function ResourceList({ items, totalCount, sortBy, sortDir, pageSize, baseParams, namespace, query }: Props) {
   const theme = useTheme();
   const router = useRouter();
-  const compact = useMediaQuery(theme.breakpoints.down("md"));
+  const compact = useMediaQuery(theme.breakpoints.down("lg"));
   const [view, setView] = React.useState<ListView>("rows");
   // Read after mount so the server-rendered markup matches the first client render.
   React.useEffect(() => {
@@ -152,7 +152,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
                 saveRegistryPreferences({ view: next });
               }
             }}
-            sx={{ display: { xs: "none", md: "inline-flex" }, ml: 1, "& .MuiToggleButton-root": { height: 34, px: 1 } }}
+            sx={{ display: { xs: "none", lg: "inline-flex" }, ml: 1, "& .MuiToggleButton-root": { height: 34, px: 1 } }}
           >
             <ToggleButton value="rows" aria-label="Table view">
               <ViewListIcon fontSize="small" />

@@ -69,7 +69,7 @@ describe("ScanDrillDown exemption chip", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(screen.getByText("Exempted")).toBeTruthy();
+    expect(screen.getAllByText("Exempted").length).toBeGreaterThan(0);
     expect(screen.queryByText(/Exempted by/)).toBeNull();
     expect(screen.queryByText(/ScanPolicy/)).toBeNull();
   });
@@ -79,6 +79,6 @@ describe("ScanDrillDown exemption chip", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(screen.getByText("Exempted by platform-baseline")).toBeTruthy();
+    expect(screen.getAllByText("Exempted by platform-baseline").length).toBeGreaterThan(0);
   });
 });
