@@ -66,21 +66,28 @@ export const markdownTableSx = {
   },
   "& thead": { display: { xs: "none", lg: "table-header-group" } },
   "& tbody": { display: { xs: "block", lg: "table-row-group" } },
+  // Longhand border properties only: a `border` shorthand resets the color to currentColor.
   "& tr": {
     display: { xs: "block", lg: "table-row" },
     mb: { xs: 1.5, lg: 0 },
     p: { xs: 1.5, lg: 0 },
-    border: { xs: "1px solid", lg: "none" },
+    borderWidth: { xs: "1px", lg: 0 },
+    borderStyle: { xs: "solid", lg: "none" },
     borderColor: "divider",
-    borderRadius: 1.5,
+    borderRadius: { xs: "10px", lg: 0 },
   },
   "& th, & td": {
     display: { xs: "block", lg: "table-cell" },
-    border: { xs: "none", lg: "1px solid" },
-    borderColor: "divider",
+    borderBottomWidth: { xs: 0, lg: "1px" },
+    borderBottomStyle: { xs: "none", lg: "solid" },
+    borderBottomColor: "divider",
     px: { xs: 0, lg: 1.5 },
     py: { xs: 0.5, lg: 0.75 },
     wordBreak: { xs: "break-word", lg: "normal" },
+  },
+  // Markdown column alignment (e.g. centered Required) arrives as an inline style; cards read left-aligned below lg.
+  "@media (max-width: 1199.95px)": {
+    "& th, & td": { textAlign: "left !important" },
   },
   "& td[data-label]::before": {
     display: { xs: "block", lg: "none" },
