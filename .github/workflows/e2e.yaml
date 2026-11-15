@@ -277,4 +277,5 @@ jobs:
           OPENDEPOT_GH_APP_ID: ${{ secrets.OPENDEPOT_GH_APP_ID }}
           OPENDEPOT_GH_INSTALL_ID: ${{ secrets.OPENDEPOT_GH_INSTALL_ID }}
           OPENDEPOT_GH_PRIVATE_KEY: ${{ secrets.OPENDEPOT_GH_PRIVATE_KEY }}
+          OPENDEPOT_JEV_API_KEY: ${{ secrets.OPENDEPOT_JEV_API_KEY }}
         run: go test ./test/e2e/ -v -ginkgo.v --ginkgo.fail-fast -count=1 -timeout ${{ matrix.test_timeout }}
