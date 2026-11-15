@@ -365,7 +365,7 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
         code={code}
         language={"yaml" as Language}
         ariaLabel={`${fileName} frontmatter`}
-        preSx={() => ({ p: 1.5, pr: 1.5, lineHeight: 1.6, borderRadius: 1, border: 0 })}
+        preSx={(scheme) => ({ p: 1.5, pr: 1.5, lineHeight: 1.6, borderRadius: 1, border: 0, ...(scheme === "light" && { backgroundColor: "background.default" }) })}
       />
     </Box>
   );

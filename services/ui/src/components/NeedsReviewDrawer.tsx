@@ -131,7 +131,7 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
                     <TableCell sx={{ whiteSpace: "nowrap" }}>Kind</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>Risk</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>Blocked</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>Exempted</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>Exemption</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -189,7 +189,7 @@ export default function NeedsReviewDrawer({ open, onClose }: NeedsReviewDrawerPr
                     },
                     { label: "Blocked", value: item.blocked ? <Chip label="Blocked" size="small" color="error" /> : "No" },
                     {
-                      label: "Exempted",
+                      label: "Exemption",
                       value: item.exempted ? (
                         <Chip label="Expired" size="small" color="warning" variant="outlined" title="The exemption has expired, so this Version is back in review." />
                       ) : (

@@ -60,7 +60,7 @@ test.describe("needs review drawer — desktop", () => {
     await expect(agentRow).toContainText("Agent");
     await expect(agentRow).toContainText("High");
     await expect(agentRow).toContainText("No");
-    await expect(agentRow).toContainText("Exempted");
+    await expect(agentRow).toContainText("Expired");
   });
 
   test("item names link to the resource detail page", async ({ page }) => {
