@@ -851,6 +851,29 @@ func TestPendingCandidateDoesNotRefuse(t *testing.T) {
 	}
 }
 
+func TestApplyAssessedItemDoesNotSayContentIsSent(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", assessed: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	var buf bytes.Buffer
+	a := testApp(reg, dir)
+	a.out = &buf
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "TypeSafe Jev assessment") {
+		t.Fatalf("expected the assessment block, got:\n%s", buf.String())
+	}
+
+	if strings.Contains(buf.String(), "sent to TypeSafe") {
+		t.Fatalf("apply output must not say content was sent to TypeSafe:\n%s", buf.String())
+	}
+}
+
 func TestAssessmentFailedRefusesWithoutJevWording(t *testing.T) {
 	isolateHome(t)
 	reg := newFakeRegistry(t)

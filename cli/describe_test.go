@@ -288,7 +288,7 @@ func TestDescribeResourceShowsEveryFieldInTable(t *testing.T) {
 		}
 	}
 
-	for _, banned := range []string{"\x1b", "\x07", "\u2028", "\u202e", "body not printed in table"} {
+	for _, banned := range []string{"\x1b", "\x07", "\u2028", "\u202e", "body not printed in table", "sent to TypeSafe"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("output contains %q:\n%s", banned, out)
 		}
