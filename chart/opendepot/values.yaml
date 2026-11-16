@@ -29,7 +29,10 @@ version:
       cpu: 100m
       memory: 512Mi
     limits:
+      cpu: 1000m
       memory: 4Gi
+  # GID for the version-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -49,7 +52,10 @@ module:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the module-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -90,7 +96,10 @@ depot:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the depot-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -338,6 +347,15 @@ scanning:
     image:
       repository: aquasec/trivy
       tag: "0.76.2"
+    # GID for the trivy-db-updater pod and container.
+    runAsGroup: 65532
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
   tolerations: []
 
 ## Branch sourcing (Skills and Agents that follow a Git branch)

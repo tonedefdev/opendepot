@@ -25,6 +25,7 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.depot.runAsGroup }}
       containers:
       - name: depot-controller
         image: "{{ .Values.depot.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.depot.image.tag }}"

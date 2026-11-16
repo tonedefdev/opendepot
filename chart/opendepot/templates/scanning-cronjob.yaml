@@ -30,6 +30,7 @@ spec:
               type: RuntimeDefault
             runAsNonRoot: true
             runAsUser: 65532
+            runAsGroup: {{ .Values.scanning.dbUpdater.runAsGroup }}
             fsGroup: 65532
           containers:
           - name: trivy-db-updater
@@ -46,6 +47,8 @@ spec:
               capabilities:
                 drop:
                 - ALL
+            resources:
+              {{- toYaml .Values.scanning.dbUpdater.resources | nindent 14 }}
             volumeMounts:
             - name: trivy-cache
               mountPath: {{ .Values.scanning.cacheMountPath }}

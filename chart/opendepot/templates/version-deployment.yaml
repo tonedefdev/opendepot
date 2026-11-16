@@ -28,6 +28,7 @@ spec:
         runAsNonRoot: true
         {{- end }}
         runAsUser: 65532
+        runAsGroup: {{ .Values.version.runAsGroup }}
         fsGroup: 65532
       initContainers:
       - name: init-service-account
