@@ -1550,7 +1550,7 @@ Returned by `GET /opendepot/ui/v1/stats`.
 
 ### PresignConfig fields
 
-Controls pre-signed URL generation for provider and agent downloads. Set on `StorageConfig.presign`.
+Controls pre-signed URL generation for provider and agent downloads. Set on `StorageConfig.presign`. For Agent and Skill sources, the controller copies this setting to each owned Version, and archive downloads use the Version's copy. A change on the source reaches the Versions on the next reconcile.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

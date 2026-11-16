@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -73,8 +74,9 @@ const (
 
 // reconcileAgentVersions creates a Version for each entry that does not already exist. Tag entries are named
 // after their version and branch entries after their commit. Entries that branch mode does not manage are skipped.
-// Existing Versions are never updated because their agentSourceRef is immutable and their spec carries user state
-// such as Yanked. The returned map is keyed by the Version resource name.
+// Existing Versions keep their spec except for agentSourceRef.storageConfig.presign, which is synced from the source
+// so that download behavior follows the source. Their other fields carry state such as Yanked and are left alone.
+// The returned map is keyed by the Version resource name.
 func reconcileAgentVersions(
 	ctx context.Context,
 	c client.Client,
@@ -103,6 +105,15 @@ func reconcileAgentVersions(
 		existing := &opendepotv1alpha1.Version{}
 		err := c.Get(ctx, object, existing)
 		if err == nil {
+			var sourcePresign *opendepotv1alpha1.PresignConfig
+			if sourceConfig.StorageConfig != nil {
+				sourcePresign = sourceConfig.StorageConfig.Presign
+			}
+
+			if err = syncAgentVersionPresign(ctx, c, kind, log, existing, sourcePresign); err != nil {
+				return nil, fmt.Errorf("sync presign for %s version %s: %w", kind.namePrefix, versionName, err)
+			}
+
 			versionObjects[versionName] = existing
 			continue
 		}
@@ -165,6 +176,56 @@ func reconcileAgentVersions(
 	}
 
 	return versionObjects, nil
+}
+
+// agentVersionPresignOutdated reports whether the presign of an existing Version differs from the presign of its
+// source. A nil presign on either side is compared as unset. A Version without an agentSourceRef is not owned by a
+// Skill or Agent, so it is never outdated.
+func agentVersionPresignOutdated(version *opendepotv1alpha1.Version, sourcePresign *opendepotv1alpha1.PresignConfig) bool {
+	if version.Spec.AgentSourceRef == nil || version.Spec.AgentSourceRef.StorageConfig == nil {
+		return false
+	}
+
+	return !equality.Semantic.DeepEqual(version.Spec.AgentSourceRef.StorageConfig.Presign, sourcePresign)
+}
+
+// syncAgentVersionPresign patches agentSourceRef.storageConfig.presign on an existing Version to match its source.
+// Nothing is written when the presign already matches. The patch changes only that subfield.
+func syncAgentVersionPresign(
+	ctx context.Context,
+	c client.Client,
+	kind agentKind,
+	log logr.Logger,
+	version *opendepotv1alpha1.Version,
+	sourcePresign *opendepotv1alpha1.PresignConfig,
+) error {
+	if !agentVersionPresignOutdated(version, sourcePresign) {
+		return nil
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(version), version); err != nil {
+			return err
+		}
+
+		if !agentVersionPresignOutdated(version, sourcePresign) {
+			return nil
+		}
+
+		patch := client.MergeFrom(version.DeepCopy())
+		version.Spec.AgentSourceRef.StorageConfig.Presign = sourcePresign.DeepCopy()
+
+		if err := c.Patch(ctx, version, patch, client.FieldOwner(kind.controllerName)); err != nil {
+			return err
+		}
+
+		log.V(5).Info("Successfully synced presign to version",
+			"kind", kind.versionType,
+			"name", version.Name,
+		)
+
+		return nil
+	})
 }
 
 // reconcileAgentVersionRemovals deletes Versions owned by the Skill or Agent whose name is not in keep.

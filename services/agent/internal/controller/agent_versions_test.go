@@ -190,3 +190,90 @@ func TestBranchVersionChanged(t *testing.T) {
 		t.Error("branchVersionChanged() = true without a change, want false")
 	}
 }
+
+func TestAgentVersionPresignOutdated(t *testing.T) {
+	enabled := true
+	disabled := false
+	fifteen := metav1.Duration{Duration: 15 * time.Minute}
+	hour := metav1.Duration{Duration: time.Hour}
+
+	version := func(presign *opendepotv1alpha1.PresignConfig) *opendepotv1alpha1.Version {
+		return &opendepotv1alpha1.Version{
+			Spec: opendepotv1alpha1.VersionSpec{
+				AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{
+					StorageConfig: &opendepotv1alpha1.StorageConfig{Presign: presign},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		version  *opendepotv1alpha1.Version
+		source   *opendepotv1alpha1.PresignConfig
+		outdated bool
+	}{
+		{
+			name:     "nil to enabled",
+			version:  version(nil),
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled},
+			outdated: true,
+		},
+		{
+			name:     "enabled to nil",
+			version:  version(&opendepotv1alpha1.PresignConfig{Enabled: &enabled}),
+			source:   nil,
+			outdated: true,
+		},
+		{
+			name:     "ttl change",
+			version:  version(&opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &fifteen}),
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &hour},
+			outdated: true,
+		},
+		{
+			name:     "fallbackToProxy change",
+			version:  version(&opendepotv1alpha1.PresignConfig{Enabled: &enabled, FallbackToProxy: &disabled}),
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled, FallbackToProxy: &enabled},
+			outdated: true,
+		},
+		{
+			name:     "identical",
+			version:  version(&opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &fifteen}),
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &fifteen},
+			outdated: false,
+		},
+		{
+			name:     "both nil",
+			version:  version(nil),
+			source:   nil,
+			outdated: false,
+		},
+		{
+			name:     "nil agentSourceRef",
+			version:  &opendepotv1alpha1.Version{},
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled},
+			outdated: false,
+		},
+		{
+			name:     "nil storageConfig with source presign set",
+			version:  &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{}}},
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled},
+			outdated: false,
+		},
+		{
+			name:     "nil storageConfig with nil presign",
+			version:  &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{}}},
+			source:   nil,
+			outdated: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := agentVersionPresignOutdated(tt.version, tt.source); got != tt.outdated {
+				t.Errorf("agentVersionPresignOutdated() = %t, want %t", got, tt.outdated)
+			}
+		})
+	}
+}

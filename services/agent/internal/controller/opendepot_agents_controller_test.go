@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -59,6 +60,15 @@ var _ = Describe("Agent Controller", func() {
 			}
 		}
 
+		newAgentWithStorage := func(versions []opendepotv1alpha1.AgentVersion) *opendepotv1alpha1.Agent {
+			agent := newAgent(versions, nil)
+			agent.Spec.AgentSourceConfig.StorageConfig = &opendepotv1alpha1.StorageConfig{
+				S3: &opendepotv1alpha1.AmazonS3Config{Bucket: "test-bucket", Region: "us-east-1"},
+			}
+
+			return agent
+		}
+
 		reconcileAgent := func() {
 			controllerReconciler := &AgentReconciler{
 				Client: k8sClient,
@@ -69,6 +79,13 @@ var _ = Describe("Agent Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+		}
+
+		setSourcePresign := func(presign *opendepotv1alpha1.PresignConfig) {
+			agent := &opendepotv1alpha1.Agent{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, agent)).To(Succeed())
+			agent.Spec.AgentSourceConfig.StorageConfig.Presign = presign
+			Expect(k8sClient.Update(ctx, agent)).To(Succeed())
 		}
 
 		AfterEach(func() {
@@ -126,6 +143,82 @@ var _ = Describe("Agent Controller", func() {
 
 			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
 			Expect(version.Spec.Yanked).To(BeTrue())
+		})
+
+		It("should sync presign changes from the agent to its existing Versions", func() {
+			enabled := true
+			ttl := metav1.Duration{Duration: 15 * time.Minute}
+			agent := newAgentWithStorage([]opendepotv1alpha1.AgentVersion{{Version: "1.0.0"}})
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			reconcileAgent()
+
+			versionKey := client.ObjectKey{Name: "agent-test-agent-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			checksum := "sha256:0123456789abcdef"
+			version.Status.Checksum = &checksum
+			Expect(k8sClient.Status().Update(ctx, version)).To(Succeed())
+			before := version.DeepCopy()
+
+			presign := &opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &ttl}
+			setSourcePresign(presign)
+			reconcileAgent()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).To(Equal(presign))
+			Expect(*version.Spec.AgentSourceRef.Name).To(Equal(*before.Spec.AgentSourceRef.Name))
+			Expect(version.Spec.AgentSourceRef.Path).To(Equal(before.Spec.AgentSourceRef.Path))
+			Expect(version.Spec.AgentSourceRef.StorageConfig.S3).To(Equal(before.Spec.AgentSourceRef.StorageConfig.S3))
+			Expect(version.Spec.FileName).To(Equal(before.Spec.FileName))
+			Expect(version.Spec.SourceCommit).To(Equal(before.Spec.SourceCommit))
+			Expect(version.Status.Checksum).To(Equal(before.Status.Checksum))
+
+			resourceVersion := version.ResourceVersion
+			reconcileAgent()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.ResourceVersion).To(Equal(resourceVersion))
+		})
+
+		It("should clear presign on the agent Version when presign is removed from the agent", func() {
+			enabled := true
+			agent := newAgentWithStorage([]opendepotv1alpha1.AgentVersion{{Version: "1.0.0"}})
+			agent.Spec.AgentSourceConfig.StorageConfig.Presign = &opendepotv1alpha1.PresignConfig{Enabled: &enabled}
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			reconcileAgent()
+
+			versionKey := client.ObjectKey{Name: "agent-test-agent-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).NotTo(BeNil())
+
+			setSourcePresign(nil)
+			reconcileAgent()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).To(BeNil())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.S3).NotTo(BeNil())
+		})
+
+		It("should sync presign to a yanked Version without changing its yanked state", func() {
+			enabled := true
+			agent := newAgentWithStorage([]opendepotv1alpha1.AgentVersion{{Version: "1.0.0"}})
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			reconcileAgent()
+
+			versionKey := client.ObjectKey{Name: "agent-test-agent-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			version.Spec.Yanked = true
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			setSourcePresign(&opendepotv1alpha1.PresignConfig{Enabled: &enabled})
+			reconcileAgent()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Yanked).To(BeTrue())
+			Expect(*version.Spec.AgentSourceRef.StorageConfig.Presign.Enabled).To(BeTrue())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign.TTL).NotTo(BeNil())
 		})
 
 		It("should trim versions to the version history limit", func() {
