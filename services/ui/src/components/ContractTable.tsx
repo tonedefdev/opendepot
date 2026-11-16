@@ -204,7 +204,8 @@ function DefaultCode({
           borderRadius: 1,
           fontSize: "0.75rem",
           lineHeight: 1.5,
-          ...(scheme === "light" && { backgroundColor: "background.default" }),
+          // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+          ...(scheme === "light" && { backgroundColor: "#f5f5f5" }),
         })}
       />
       {copyable && (
@@ -252,7 +253,8 @@ function TypeCode({
             lineHeight: 1.5,
             overflowY: collapsible && !expanded ? "hidden" : "visible",
             maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
-            ...(scheme === "light" && { backgroundColor: "background.default" }),
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            ...(scheme === "light" && { backgroundColor: "#f5f5f5" }),
           })}
         />
         {copyable && (

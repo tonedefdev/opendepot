@@ -230,7 +230,8 @@ export function AgentConfigSnippet(props: AgentConfigSnippetProps) {
             lineHeight: 1.6,
             borderRadius: 1,
             border: 0,
-            ...(scheme === "light" && { backgroundColor: "background.default" }),
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            ...(scheme === "light" && { backgroundColor: "#f5f5f5" }),
           })}
         />
       </Box>
@@ -365,7 +366,8 @@ function FrontmatterCode({ frontmatter, fileName }: FrontmatterCodeProps) {
         code={code}
         language={"yaml" as Language}
         ariaLabel={`${fileName} frontmatter`}
-        preSx={(scheme) => ({ p: 1.5, pr: 1.5, lineHeight: 1.6, borderRadius: 1, border: 0, ...(scheme === "light" && { backgroundColor: "background.default" }) })}
+        // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+        preSx={(scheme) => ({ p: 1.5, pr: 1.5, lineHeight: 1.6, borderRadius: 1, border: 0, ...(scheme === "light" && { backgroundColor: "#f5f5f5" }) })}
       />
     </Box>
   );

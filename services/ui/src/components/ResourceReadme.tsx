@@ -105,14 +105,16 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
             fontFamily: "var(--od-font-mono)",
             fontSize: "0.8125rem",
             bgcolor: "#1e1e1e",
-            "[data-mui-color-scheme='light'] &": { bgcolor: "background.default" },
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f5f5f5" },
             px: 0.5,
             py: 0.25,
             borderRadius: 0.5,
           },
           "& pre.md-plain-pre": {
             bgcolor: "#1e1e1e",
-            "[data-mui-color-scheme='light'] &": { bgcolor: "background.default" },
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f5f5f5" },
             p: 2,
             borderRadius: 1.5,
             border: "1px solid",

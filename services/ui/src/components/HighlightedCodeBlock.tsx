@@ -23,8 +23,8 @@ export function HighlightedCodeBlock({ code, language }: HighlightedCodeBlockPro
       <ThemedCode
         code={code}
         language={language as Language}
-        // Code sits in a well sunk to the canvas color, like every other inset surface.
-        preSx={() => ({ backgroundColor: "background.default" })}
+        // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+        preSx={(scheme) => ({ backgroundColor: scheme === "light" ? "#f5f5f5" : "background.default" })}
       />
       <Box sx={{ position: "absolute", top: 6, right: 6 }}>
         <CopyButton value={code} />

@@ -148,7 +148,8 @@ export default function UsageSnippet({
               <SnippetCode code={snippet.code} prismTheme={themes.nightOwl} background="background.default" />
             </Box>
             <Box sx={{ display: "none", "[data-mui-color-scheme='light'] &": { display: "block" } }}>
-              <SnippetCode code={snippet.code} prismTheme={lightCodeTheme} background="background.default" />
+              {/* Light mode uses a neutral grey (R = G = B) because background.default reads as blue there. */}
+              <SnippetCode code={snippet.code} prismTheme={lightCodeTheme} background="#f5f5f5" />
             </Box>
             <Box sx={{ position: "absolute", top: 6, right: 6 }}>
               <CopyButton value={snippet.code} size="small" />

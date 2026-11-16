@@ -248,6 +248,9 @@ export default function ProviderConfigurationModal({
                   overflow: "auto",
                   whiteSpace: "pre",
                   ...style,
+                  // Dark keeps the brand black. Light uses a neutral grey (R = G = B) because the blue-tinted
+                  // background.default reads as blue on the Assembly Line code blocks.
+                  backgroundColor: resolvedMode === "light" ? "#f5f5f5" : "background.default",
                 }}
               >
                 {tokens.map((line, lineIndex) => (
