@@ -174,7 +174,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
         </Grid>
       ) : (
         <TableContainer component={Paper} variant="outlined">
-          {/* Risk is content-sized: Name and Source take the remaining width (width 100%, maxWidth 0), so other cells fit their content. */}
+          {/* Name is capped and Risk has a minimum width sized to five chips, so leftover width is shared across the auto columns. */}
           <Table aria-label="Registry resources" sx={{ "& th, & td": { px: 1, whiteSpace: "nowrap" } }}>
             <TableHead>
               <TableRow>

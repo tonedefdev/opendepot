@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 
 const port = Number(process.env.PORT ?? 8787);
 
+// Four-digit counts on every chip are the widest case the Risk column has to fit.
 const worstCaseRow = {
   kind: "agent",
   namespace: "platform",
@@ -16,7 +17,7 @@ const worstCaseRow = {
   providerNamespace: "",
   upstreamRegistry: "",
   platforms: [],
-  scanCounts: { critical: 8888, high: 8888, medium: 8888, low: 8888, unknown: 8888, exempted: 8888 },
+  scanCounts: { critical: 9999, high: 9999, medium: 9999, low: 9999, unknown: 9999, exempted: 9999 },
   lastScanned: "2026-01-01T00:00:00Z",
   sourceRef: "refs/heads/main",
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
@@ -25,8 +26,31 @@ const worstCaseRow = {
   blockReasons: [],
 };
 
+// A provider row has no Jev meter, so its Risk cell holds only the five severity chips.
+const providerRow = {
+  kind: "provider",
+  namespace: "platform",
+  name: "aws",
+  latestVersion: "v5.1.0",
+  syncStatus: "Synced",
+  synced: true,
+  public: true,
+  provider: "",
+  repoUrl: "",
+  providerNamespace: "",
+  upstreamRegistry: "",
+  platforms: [],
+  scanCounts: { critical: 9999, high: 9999, medium: 9999, low: 9999, unknown: 9999, exempted: 0 },
+  lastScanned: "2026-01-01T00:00:00Z",
+  sourceRef: "",
+  sourceCommit: "",
+  jevRiskLevel: "",
+  blocked: false,
+  blockReasons: [],
+};
+
 const responses = {
-  "/opendepot/ui/v1/resources": { items: [worstCaseRow], totalCount: 1, page: 1, pageSize: 12 },
+  "/opendepot/ui/v1/resources": { items: [worstCaseRow, providerRow], totalCount: 2, page: 1, pageSize: 12 },
   "/opendepot/ui/v1/namespaces": { items: [{ name: "platform", public: true }] },
 };
 
