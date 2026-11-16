@@ -70,13 +70,6 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
   const showCards = compact || view === "cards";
   // Only skills and agents carry a source ref. A page of modules or providers would show an empty column.
   const showSource = items.some((r) => !!r.sourceRef);
-  // Kind 132 + Version 104 + Status 156 + Risk floor 472 are fixed. Name gets the rest, capped at 320 with an 80px floor.
-  // Source (128) only takes space at lg+, and only when a row has a sourceRef.
-  const fixedColumnsPx = 132 + 104 + 156 + 472;
-  const sourceColumnPx = showSource ? 128 : 0;
-  const nameWidth = (sourcePx: number) => `clamp(80px, calc(100cqw - ${fixedColumnsPx + sourcePx}px), 320px)`;
-  // Below the table minimum the container scrolls, so Risk keeps its 472px floor instead of clipping its chips.
-  const tableMinWidth = { xs: fixedColumnsPx + 80, lg: fixedColumnsPx + 80 + sourceColumnPx };
 
   const navigate = (updates: Record<string, string | null>) => {
     // Keep the current page size so a sort or filter change does not briefly fall back to the default.
@@ -180,18 +173,18 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
           ))}
         </Grid>
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ containerType: "inline-size" }}>
-          <Table aria-label="Registry resources" sx={{ tableLayout: "fixed", minWidth: tableMinWidth }}>
+        <TableContainer component={Paper} variant="outlined">
+          <Table aria-label="Registry resources" sx={{ tableLayout: "fixed" }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
-                <TableCell sx={{ width: { xs: nameWidth(0), lg: nameWidth(sourceColumnPx) } }}>{sortableHead("name", "Name")}</TableCell>
+                <TableCell>{sortableHead("name", "Name")}</TableCell>
                 <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
                 {showSource && (
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                <TableCell>{sortableHead("risk", "Risk")}</TableCell>
+                <TableCell sx={{ width: 172 }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
