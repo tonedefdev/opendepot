@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -507,6 +509,7 @@ func TestAgentBranchVersionResolvesThroughParentRef(t *testing.T) {
 
 	version := agentTestVersion(agentTestBranchVersionName)
 	version.Labels = map[string]string{"opendepot.defdev.io/agent": "reviewer"}
+	agentTestUseFileSystemArchive(t, version)
 	version.Status.SigningKeyFingerprint = fingerprint
 	api, hits := agentTestAPIServer(t, map[string][]byte{
 		agentTestVersionsPath + "/" + agentTestBranchVersionName: agentTestJSON(t, version),
@@ -954,6 +957,7 @@ func agentTestBearerToken(t *testing.T, groups []string) string {
 
 func TestAgentArtifactEndpointsEnforceGroupBinding(t *testing.T) {
 	version := agentTestVersion("agent-reviewer-1-2-0")
+	agentTestUseFileSystemArchive(t, version)
 	versionPath := "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/versions/" + version.Name
 	versionPayload, err := json.Marshal(version)
 	if err != nil {
@@ -1034,6 +1038,298 @@ func TestAgentArtifactEndpointsEnforceGroupBinding(t *testing.T) {
 				if !tc.denied && response.Code == http.StatusForbidden {
 					t.Fatalf("%s status = %d, want access granted: %s", endpoint, response.Code, response.Body.String())
 				}
+			}
+		})
+	}
+}
+
+// agentTestUseFileSystemArchive stores the reviewer archive under a test-local mount root and points the Version
+// at it. The mount path is restored on cleanup.
+func agentTestUseFileSystemArchive(t *testing.T, version *opendepotv1alpha1.Version) {
+	t.Helper()
+
+	root := t.TempDir()
+	directory := filepath.Join(root, "artifacts")
+	archiveDir := filepath.Join(directory, "agent-reviewer")
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(archiveDir, "reviewer-1.2.0.tar.gz"), []byte("reviewer-1.2.0"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	original := opendepotFilesystemMountPath
+	opendepotFilesystemMountPath = &root
+	t.Cleanup(func() { opendepotFilesystemMountPath = original })
+
+	version.Spec.AgentSourceRef.StorageConfig.FileSystem.DirectoryPath = &directory
+}
+
+// agentTestS3Version returns the reviewer Version stored in S3 with presign enabled.
+func agentTestS3Version(key *string, fallbackToProxy bool) *opendepotv1alpha1.Version {
+	enabled := true
+	fallback := fallbackToProxy
+	version := agentTestVersion("agent-reviewer-1-2-0")
+	version.Spec.AgentSourceRef.StorageConfig = &opendepotv1alpha1.StorageConfig{
+		S3:      &opendepotv1alpha1.AmazonS3Config{Bucket: "archives", Region: "us-east-1", Key: key},
+		Presign: &opendepotv1alpha1.PresignConfig{Enabled: &enabled, FallbackToProxy: &fallback},
+	}
+
+	return version
+}
+
+// agentTestOIDCAuth authenticates requests with OIDC bearer tokens and restores the globals on cleanup.
+func agentTestOIDCAuth(t *testing.T) {
+	t.Helper()
+
+	originalAnonymous := opendepotAnonymousAuth
+	originalVerifier := oidcVerifier
+	originalNamespace := opendepotServerNamespace
+	originalGroupsClaim := opendepotOIDCGroupsClaim
+	t.Cleanup(func() {
+		opendepotAnonymousAuth = originalAnonymous
+		oidcVerifier = originalVerifier
+		opendepotServerNamespace = originalNamespace
+		opendepotOIDCGroupsClaim = originalGroupsClaim
+	})
+
+	anonymous := false
+	opendepotAnonymousAuth = &anonymous
+	oidcVerifier = gooidc.NewVerifier(agentTestIssuer, agentTestKeySet{}, &gooidc.Config{ClientID: "opendepot"})
+	opendepotServerNamespace = &[]string{"opendepot-system"}[0]
+	opendepotOIDCGroupsClaim = &[]string{"groups"}[0]
+}
+
+// agentTestClusterAPI serves the Version and the GroupBinding list to the server's in-cluster client and points
+// inClusterConfig at it. The restore runs on cleanup.
+func agentTestClusterAPI(t *testing.T, version *opendepotv1alpha1.Version, bindings []opendepotv1alpha1.GroupBinding) {
+	t.Helper()
+
+	versionPayload := agentTestJSON(t, version)
+	bindingPayload := agentTestJSON(t, opendepotv1alpha1.GroupBindingList{Items: bindings})
+	versionPath := "/apis/opendepot.defdev.io/v1alpha1/namespaces/team/versions/" + version.Name
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/groupbindings"):
+			_, _ = w.Write(bindingPayload)
+		case r.URL.Path == versionPath:
+			_, _ = w.Write(versionPayload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(api.Close)
+
+	original := inClusterConfig
+	inClusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: api.URL}, nil
+	}
+	t.Cleanup(func() { inClusterConfig = original })
+}
+
+// agentTestServe sends a GET through the agent router with an optional Authorization header.
+func agentTestServe(target, authorization string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+
+	response := httptest.NewRecorder()
+	agentTestRouter().ServeHTTP(response, request)
+
+	return response
+}
+
+const agentTestArchiveURL = "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/archive"
+
+func TestAgentArchiveRequiresTokenForPrivateAgent(t *testing.T) {
+	agentTestOIDCAuth(t)
+
+	response := agentTestServe(agentTestArchiveURL, "")
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+
+	if location := response.Header().Get("Location"); location != "" {
+		t.Fatalf("unauthenticated request redirected to %q", location)
+	}
+}
+
+func TestAgentArchiveAllowsAnonymousPublicAgent(t *testing.T) {
+	fake := newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), agentTestChecksumBase64(), 0)
+	agentTestClusterAPI(t, agentTestS3Version(nil, false), nil)
+	agentTestAnonymousAuth(t)
+
+	response := agentTestServe(agentTestArchiveURL, "")
+	if response.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusTemporaryRedirect, response.Body.String())
+	}
+
+	if requests := fake.requests(); len(requests) != 1 {
+		t.Fatalf("storage requests = %v, want the checksum read only", requests)
+	}
+}
+
+func TestAgentArchiveRevokedGroupBindingDeniedBeforePresign(t *testing.T) {
+	fake := newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), agentTestChecksumBase64(), 0)
+	agentTestOIDCAuth(t)
+
+	binding := opendepotv1alpha1.GroupBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "platform"},
+		Spec: opendepotv1alpha1.GroupBindingSpec{
+			Expression:     `"platform" in groups`,
+			AgentResources: []string{"other-agent"},
+		},
+	}
+	agentTestClusterAPI(t, agentTestS3Version(nil, false), []opendepotv1alpha1.GroupBinding{binding})
+
+	response := agentTestServe(agentTestArchiveURL, "Bearer "+agentTestBearerToken(t, []string{"platform"}))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+
+	if location := response.Header().Get("Location"); location != "" {
+		t.Fatalf("revoked request redirected to %q", location)
+	}
+
+	if requests := fake.requests(); len(requests) != 0 {
+		t.Fatalf("storage requests = %v, want none for a revoked binding", requests)
+	}
+}
+
+func TestAgentArchivePresignRedirectsWithPrivateNoStore(t *testing.T) {
+	prefix := "prefix"
+	fake := newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), agentTestChecksumBase64(), 0)
+	api := agentTestVersionServer(t, agentTestS3Version(&prefix, false))
+	defer api.Close()
+	agentTestUseKubeconfigAuth(t)
+
+	response := agentTestGet(t, api, agentTestArchiveURL)
+	if response.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusTemporaryRedirect, response.Body.String())
+	}
+
+	if cacheControl := response.Header().Get("Cache-Control"); cacheControl != "private, no-store" {
+		t.Fatalf("Cache-Control = %q, want %q", cacheControl, "private, no-store")
+	}
+
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location: %v", err)
+	}
+
+	s3URL, err := url.Parse(fake.url)
+	if err != nil {
+		t.Fatalf("parse fake S3 URL: %v", err)
+	}
+
+	if location.Host != s3URL.Host {
+		t.Fatalf("Location host = %q, want %q", location.Host, s3URL.Host)
+	}
+
+	if location.Path != "/archives/prefix/agent-reviewer/reviewer-1.2.0.tar.gz" {
+		t.Fatalf("Location path = %q, want the controller's S3 key", location.Path)
+	}
+
+	if location.Query().Get("X-Amz-Signature") == "" {
+		t.Fatalf("Location is not presigned: %s", location.String())
+	}
+}
+
+func TestAgentArchiveChecksumMismatchNeverRedirects(t *testing.T) {
+	tamperedSum := sha256.Sum256([]byte("tampered"))
+	tampered := base64.StdEncoding.EncodeToString(tamperedSum[:])
+
+	for _, fallback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fallbackToProxy=%t", fallback), func(t *testing.T) {
+			newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), tampered, 0)
+			agentTestClusterAPI(t, agentTestS3Version(nil, fallback), nil)
+			agentTestAnonymousAuth(t)
+
+			response := agentTestServe(agentTestArchiveURL, "")
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusInternalServerError, response.Body.String())
+			}
+
+			if location := response.Header().Get("Location"); location != "" {
+				t.Fatalf("checksum mismatch redirected to %q", location)
+			}
+		})
+	}
+}
+
+func TestAgentArchivePresignErrorWithoutFallbackFails(t *testing.T) {
+	fake := newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), agentTestChecksumBase64(), 1)
+	agentTestClusterAPI(t, agentTestS3Version(nil, false), nil)
+	agentTestAnonymousAuth(t)
+
+	response := agentTestServe(agentTestArchiveURL, "")
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusInternalServerError, response.Body.String())
+	}
+
+	if location := response.Header().Get("Location"); location != "" {
+		t.Fatalf("presign error redirected to %q", location)
+	}
+
+	if requests := fake.requests(); len(requests) != 1 {
+		t.Fatalf("storage requests = %v, want the failed presign checksum read only", requests)
+	}
+}
+
+func TestAgentArchivePresignErrorFallbackStreamsBytes(t *testing.T) {
+	fake := newAgentTestFakeS3(t, []byte("reviewer-1.2.0"), agentTestChecksumBase64(), 1)
+	agentTestClusterAPI(t, agentTestS3Version(nil, true), nil)
+	agentTestAnonymousAuth(t)
+
+	response := agentTestServe(agentTestArchiveURL, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("archive status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	if location := response.Header().Get("Location"); location != "" {
+		t.Fatalf("fallback redirected to %q", location)
+	}
+
+	if body := response.Body.String(); body != "reviewer-1.2.0" {
+		t.Fatalf("body = %q, want the archive bytes", body)
+	}
+
+	if requests := fake.requests(); len(requests) != 3 {
+		t.Fatalf("storage requests = %v, want the failed presign read plus the proxy checksum and body reads", requests)
+	}
+}
+
+func TestAgentArchiveObjectKeyMatchesControllerLayout(t *testing.T) {
+	key := func(value string) *string { return &value }
+	tests := []struct {
+		name string
+		key  *string
+		want string
+	}{
+		{name: "no S3 key", want: "agent-reviewer/reviewer-1.2.0.tar.gz"},
+		{name: "S3 key prefix", key: key("prefix"), want: "prefix/agent-reviewer/reviewer-1.2.0.tar.gz"},
+		{name: "S3 key with trailing slash", key: key("prefix/"), want: "prefix/agent-reviewer/reviewer-1.2.0.tar.gz"},
+		{name: "nested S3 key", key: key("team/archives"), want: "team/archives/agent-reviewer/reviewer-1.2.0.tar.gz"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			version := agentTestVersion("agent-reviewer-1-2-0")
+			version.Spec.AgentSourceRef.StorageConfig = &opendepotv1alpha1.StorageConfig{
+				S3: &opendepotv1alpha1.AmazonS3Config{Bucket: "archives", Region: "us-east-1", Key: tc.key},
+			}
+
+			got, err := agentArchiveObjectKey(version)
+			if err != nil {
+				t.Fatalf("agentArchiveObjectKey() error = %v", err)
+			}
+
+			if got != tc.want {
+				t.Fatalf("agentArchiveObjectKey() = %q, want %q", got, tc.want)
 			}
 		})
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	opendepotSigning "github.com/tonedefdev/opendepot/pkg/signing"
+	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
 var errAgentSigningKeyNotConfigured = errors.New("agent signing key not configured")
@@ -654,9 +654,10 @@ func authorizeAgentRequest(w http.ResponseWriter, r *http.Request, kind agentKin
 	return clientset, true
 }
 
-// serveAgentArchive redirects to the stored archive of a Skill or Agent Version. The redirect is
-// not cacheable by shared caches. The caller must pass the same GroupBinding check as the metadata
-// endpoint, since the redirect target reveals the archive location and checksum.
+// serveAgentArchive serves the stored archive of a Skill or Agent Version. When presign is enabled it
+// redirects to a pre-signed URL with 307. When presign is disabled, or fails and fallback is enabled, it
+// streams the bytes through the server. A presign failure without fallback is an error and never redirects.
+// The caller must pass the same GroupBinding check as the metadata endpoint.
 func serveAgentArchive(w http.ResponseWriter, r *http.Request) {
 	kind, ok := agentKindFromRequest(r)
 	if !ok {
@@ -679,25 +680,97 @@ func serveAgentArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	downloadPath, err := buildDownloadPathFromVersion(version)
-	if err != nil {
-		logger.Error("unable to build agent download path", "error", err, "version", version.Name)
+	agentSourceRef := version.Spec.AgentSourceRef
+	if agentSourceRef == nil || agentSourceRef.StorageConfig == nil || agentSourceRef.Name == nil || version.Spec.FileName == nil {
+		logger.Error("agent storage configuration not available", "version", version.Name)
 		http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
 		return
+	}
+
+	presignCfg := agentSourceRef.StorageConfig.Presign
+	presignEnabled := presignCfg != nil && presignCfg.Enabled != nil && *presignCfg.Enabled
+	fallbackEnabled := presignCfg != nil && presignCfg.FallbackToProxy != nil && *presignCfg.FallbackToProxy
+
+	var presignedURL string
+	if presignEnabled {
+		url, err := presignAgentArchive(r.Context(), version)
+
+		if err != nil {
+			logger.Error("agent presign failed", "error", err, "version", version.Name)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if url == "" && !fallbackEnabled {
+			logger.Error("agent presign unavailable and fallback disabled", "version", version.Name)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		presignedURL = url
 	}
 
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 	requestedVersion := chi.URLParam(r, "version")
-	err = recordDownload(r.Context(), namespace, kind.prefix, name, requestedVersion)
+	err := recordDownload(r.Context(), namespace, kind.prefix, name, requestedVersion)
+
 	if err != nil {
 		logger.Error("failed to record download", "error", err, "namespace", namespace, "kind", kind.prefix, "name", name, "version", requestedVersion)
 	}
 
-	query := url.Values{}
-	query.Set("fileChecksum", *version.Status.Checksum)
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.Redirect(w, r, "/opendepot/modules/v1/download/"+downloadPath+"?"+query.Encode(), http.StatusFound)
+
+	if presignedURL != "" {
+		http.Redirect(w, r, presignedURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	serveAgentFromStorage(w, r, version)
+}
+
+// serveAgentFromStorage streams a Skill or Agent archive through the server using the storage configuration
+// on the Version. The filesystem path uses the shared serveFileSystemObject helper. Other backends use the
+// same checksum-verified object path as the presign helper.
+func serveAgentFromStorage(w http.ResponseWriter, r *http.Request, version *opendepotv1alpha1.Version) {
+	agentSourceRef := version.Spec.AgentSourceRef
+	storageConfig := agentSourceRef.StorageConfig
+	agentName := strings.ToLower(version.Spec.Type) + "-" + *agentSourceRef.Name
+	checksum := *version.Status.Checksum
+
+	if storageConfig.FileSystem != nil {
+		if storageConfig.FileSystem.DirectoryPath == nil {
+			logger.Error("agent filesystem directory path not configured", "version", version.Name)
+			http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		serveFileSystemObject(w, r, *storageConfig.FileSystem.DirectoryPath, agentName, *version.Spec.FileName, checksum)
+		return
+	}
+
+	backend, err := initStorageBackend(r.Context(), storageConfig)
+
+	if err != nil {
+		logger.Error("unable to init storage backend for agent archive", "error", err, "version", version.Name)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	objectKey, err := agentArchiveObjectKey(version)
+	if err != nil {
+		logger.Error("unable to resolve agent archive object key", "error", err, "version", version.Name)
+		http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	soi := &storageTypes.StorageObjectInput{
+		FilePath:      &objectKey,
+		ContainerName: &agentName,
+		Method:        storageTypes.Get,
+		StorageConfig: storageConfig,
+	}
+	getObjectFromStorageSystem(w, r, backend, soi, checksum)
 }
 
 // serveAgentSHA256SUMS serves the SHA256SUMS file stored at sync. The server never signs on read.

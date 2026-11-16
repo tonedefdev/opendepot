@@ -8,6 +8,7 @@ import (
 	"time"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/storage"
 	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
@@ -46,7 +47,10 @@ func generateAgentPresignedURL(ctx context.Context, versionResource *opendepotv1
 	}
 
 	name := strings.ToLower(versionResource.Spec.Type) + "-" + *versionResource.Spec.AgentSourceRef.Name
-	objectKey := fmt.Sprintf("%s/%s", name, *versionResource.Spec.FileName)
+	objectKey, err := agentArchiveObjectKey(versionResource)
+	if err != nil {
+		return "", err
+	}
 
 	ttl := 15 * time.Minute
 	if presignCfg.TTL != nil {
@@ -84,4 +88,23 @@ func generateAgentPresignedURL(ctx context.Context, versionResource *opendepotv1
 	}
 
 	return *soi.PresignedURL, nil
+}
+
+// agentArchiveObjectKey returns the object key the version controller writes an agent archive to. It mirrors
+// getVersionFilePath in services/version/internal/controller, which prefixes an S3 key with the S3 key when set.
+// Presign and the proxy stream both resolve the archive through this key.
+func agentArchiveObjectKey(versionResource *opendepotv1alpha1.Version) (string, error) {
+	name := strings.ToLower(versionResource.Spec.Type) + "-" + *versionResource.Spec.AgentSourceRef.Name
+	fileName := *versionResource.Spec.FileName
+
+	if s3Config := versionResource.Spec.AgentSourceRef.StorageConfig.S3; s3Config != nil && s3Config.Key != nil {
+		prefix, err := storage.RemoveTrailingSlash(s3Config.Key)
+		if err != nil {
+			return "", fmt.Errorf("invalid S3 key for agent archive: %w", err)
+		}
+
+		return fmt.Sprintf("%s/%s/%s", *prefix, name, fileName), nil
+	}
+
+	return fmt.Sprintf("%s/%s", name, fileName), nil
 }
