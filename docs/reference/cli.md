@@ -149,7 +149,7 @@ agent_skill "registry.example.com/my-org/release-notes" {
 
 Commit this file. Paths for the `copilot` and `claude` targets are absolute home-directory paths, so the lock file is specific to the machine that last ran `apply`. Teammates on other machines get different paths after they run `apply`. Use `path` on an entry when the install must live in the repository.
 
-Use `opendepot verify` in CI to confirm that the installed files match the lock file.
+Use `opendepot verify` in CI to confirm that the installed files match the lock file. To run it before each agent tool call, see [Verify with Agent Hooks](../guides/agents-hooks.md).
 
 ## File safety
 

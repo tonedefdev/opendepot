@@ -32,8 +32,6 @@ theme:
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.tracking
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.path
     - navigation.indexes
     - navigation.top
@@ -88,7 +86,10 @@ nav:
     - Users:
       - Consuming Modules: guides/modules.md
       - Consuming Providers: guides/providers.md
-      - Consuming Agents and Skills: guides/agents.md
+      - Consuming Agents and Skills:
+        - Overview: guides/agents.md
+        - Verify with Agent Hooks: guides/agents-hooks.md
+        - OpenDepot CLI Skill: guides/opendepot-cli/SKILL.md
       - OpenDepot Workshop:
         - OpenDepot Workshop: guides/registry-explorer/index.md
         - Registry Explorer: guides/registry-explorer/registry.md
@@ -144,6 +145,7 @@ plugins:
 markdown_extensions:
   - attr_list
   - md_in_html
+  - meta
   - def_list
   - abbr
   - footnotes

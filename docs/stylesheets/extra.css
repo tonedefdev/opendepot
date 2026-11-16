@@ -87,6 +87,11 @@
   width: auto;
 }
 
+/* Hide the site-name text beside the sidebar logo; the logo already has the wordmark */
+.md-nav--primary .md-nav__title {
+  font-size: 0;
+}
+
 /* The header uses the approved monochrome wordmark for clear contrast. */
 .md-header__button.md-logo img {
   content: url("../img/opendepot_white.svg");
@@ -128,11 +133,6 @@
     content: url("../img/opendepot_white.svg");
   }
 
-  /* Hide the redundant site-name text next to the drawer logo (logo already has the wordmark) */
-  .md-nav--primary .md-nav__title {
-    font-size: 0;
-  }
-
   /* The theme hides the header wordmark logo entirely below the desktop breakpoint
      (it only reappears inside the drawer once opened). Without it, all that's left
      in the mobile header is the page title — so inner pages show no OpenDepot
@@ -167,29 +167,6 @@
 .md-header__button.md-logo {
     margin: .1rem;
     padding: .2rem;
-}
-
-/* ---------------------------------------------------------------------------
-   Navigation tabs
-   --------------------------------------------------------------------------- */
-.md-tabs {
-  background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%);
-}
-
-.md-tabs__link {
-  font-family: "Aspekta", "Avenir Next", "Helvetica Neue", sans-serif;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.md-tabs__link--active {
-  font-weight: 700;
-  color: #ffffff;
-}
-
-.md-tabs__link:hover {
-  color: #ffffff;
 }
 
 /* ---------------------------------------------------------------------------

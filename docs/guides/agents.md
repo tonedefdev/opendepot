@@ -59,6 +59,8 @@ The CLI uses this field to decide whether an older-version fallback needs `--all
 
 ## Next steps
 
+- [Verify with Agent Hooks](agents-hooks.md): run `opendepot verify` before each agent tool call in Claude Code, Codex, and Copilot.
+- [OpenDepot CLI skill](opendepot-cli/SKILL.md): a skill that helps agents use the CLI. A raw copy is at [SKILL.md](https://opendepot.defdev.io/docs/guides/opendepot-cli/SKILL.md).
 - [CLI reference](../reference/cli.md): commands, flags, and install targets.
 - [agents.v1 protocol](../reference/agents-v1.md): the endpoints the CLI calls.
 - [Publishing Agents and Skills](agents-publishing.md): configure a Depot to publish skills and agents.
