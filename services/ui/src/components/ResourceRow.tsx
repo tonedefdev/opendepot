@@ -127,7 +127,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
       </TableCell>
 
       <TableCell>
-        <Box display="flex" alignItems="center" gap={0.5} sx={{ overflow: "hidden" }}>
+        <Box display="flex" alignItems="center" gap={0.5} sx={{ whiteSpace: "nowrap", "& > *": { flexShrink: 0 } }}>
           {isAgentKind(resource.kind) && resource.jevRiskLevel && <RiskMeter level={resource.jevRiskLevel} />}
           {resource.scanCounts && <SeverityBadge counts={resource.scanCounts} />}
         </Box>

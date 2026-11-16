@@ -34,6 +34,11 @@ import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registry
 type ListView = "rows" | "cards";
 type SortDir = "asc" | "desc";
 
+// Fits the worst case of a row: a Jev meter plus every severity chip with a four-digit count, with cell padding.
+const RISK_COLUMN_WIDTH = 460;
+// Keeps the name readable. Below this, the table scrolls horizontally instead of squeezing the name to nothing.
+const NAME_COLUMN_WIDTH = 200;
+
 const SORT_OPTIONS = [
   { value: "name", label: "Name" },
   { value: "namespace", label: "Namespace" },
@@ -178,13 +183,13 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
-                <TableCell>{sortableHead("name", "Name")}</TableCell>
+                <TableCell sx={{ width: NAME_COLUMN_WIDTH }}>{sortableHead("name", "Name")}</TableCell>
                 <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
                 {showSource && (
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                <TableCell sx={{ width: 172 }}>{sortableHead("risk", "Risk")}</TableCell>
+                <TableCell sx={{ width: RISK_COLUMN_WIDTH, whiteSpace: "nowrap" }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
