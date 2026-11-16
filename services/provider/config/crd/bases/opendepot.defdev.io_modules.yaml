@@ -150,18 +150,18 @@ spec:
                         - bucket
                         type: object
                       presign:
-                        description: Presign is the optional configuration for pre-signed
-                          URL generation.
+                        description: |-
+                          Presign is the optional configuration for pre-signed URL generation.
+                          Agents treat an unset fallbackToProxy as false. Providers and modules treat it as true.
                         properties:
                           enabled:
                             description: When true, download requests are redirected
                               to the storage backend via a pre-signed URL.
                             type: boolean
                           fallbackToProxy:
-                            default: true
                             description: |-
                               When true, if pre-sign generation fails the server falls back to proxying the download.
-                              Defaults to true.
+                              No CRD default. Providers and modules treat an unset value as true. Agents treat an unset value as false.
                             type: boolean
                           ttl:
                             default: 15m
