@@ -1610,6 +1610,36 @@ func TestGetAgentDownloadMetadataWithholdsExemptedByFromOIDC(t *testing.T) {
 	}
 }
 
+func TestGetKubeClientFromRequestAnonymousWritesErrorStatusOnClientFailure(t *testing.T) {
+	originalAnonymous := opendepotAnonymousAuth
+	originalInClusterConfig := inClusterConfig
+	defer func() {
+		opendepotAnonymousAuth = originalAnonymous
+		inClusterConfig = originalInClusterConfig
+	}()
+
+	anonymous := true
+	opendepotAnonymousAuth = &anonymous
+	inClusterConfig = func() (*rest.Config, error) {
+		return nil, errors.New("not running in cluster")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download", nil)
+	response := httptest.NewRecorder()
+	clientset, _, _, _, err := getKubeClientFromRequest(response, request)
+	if err == nil {
+		t.Fatal("expected client setup failure")
+	}
+
+	if clientset != nil {
+		t.Fatal("expected no clientset on client setup failure")
+	}
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+}
+
 func TestGetKubeClientFromRequestWritesErrorStatusOnAuthFailure(t *testing.T) {
 	originalAnonymous := opendepotAnonymousAuth
 	originalUseBearerToken := opendepotUseBearerToken

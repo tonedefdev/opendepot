@@ -80,7 +80,12 @@ func getPolicyKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*ku
 func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Request, requireGroupBinding bool) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
 	if *opendepotAnonymousAuth {
 		cs, err := generateKubeClient(nil, nil, false)
-		return cs, nil, nil, "", err
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return nil, nil, nil, "", err
+		}
+
+		return cs, nil, nil, "", nil
 	}
 
 	if oidcVerifier != nil {
