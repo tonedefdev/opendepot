@@ -757,7 +757,13 @@ func serveAgentFromStorage(w http.ResponseWriter, r *http.Request, version *open
 		return
 	}
 
-	objectKey := fmt.Sprintf("%s/%s", agentName, *version.Spec.FileName)
+	objectKey, err := agentArchiveObjectKey(version)
+	if err != nil {
+		logger.Error("unable to resolve agent archive object key", "error", err, "version", version.Name)
+		http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+		return
+	}
+
 	soi := &storageTypes.StorageObjectInput{
 		FilePath:      &objectKey,
 		ContainerName: &agentName,
