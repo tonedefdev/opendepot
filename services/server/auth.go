@@ -216,7 +216,12 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 	}
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
-	return cs, nil, nil, "", err
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, nil, nil, "", err
+	}
+
+	return cs, nil, nil, "", nil
 }
 
 // handleClientCredentialsToken attempts to verify a Dex client-credentials token using the

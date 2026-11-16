@@ -1609,3 +1609,57 @@ func TestGetAgentDownloadMetadataWithholdsExemptedByFromOIDC(t *testing.T) {
 		t.Fatalf("OIDC download metadata exposes the exempting policy: %s", response.Body.String())
 	}
 }
+
+func TestGetKubeClientFromRequestWritesErrorStatusOnAuthFailure(t *testing.T) {
+	originalAnonymous := opendepotAnonymousAuth
+	originalUseBearerToken := opendepotUseBearerToken
+	originalVerifier := oidcVerifier
+	originalInClusterConfig := inClusterConfig
+	defer func() {
+		opendepotAnonymousAuth = originalAnonymous
+		opendepotUseBearerToken = originalUseBearerToken
+		oidcVerifier = originalVerifier
+		inClusterConfig = originalInClusterConfig
+	}()
+
+	anonymous := false
+	useBearerToken := true
+	opendepotAnonymousAuth = &anonymous
+	opendepotUseBearerToken = &useBearerToken
+	oidcVerifier = nil
+	inClusterConfig = func() (*rest.Config, error) {
+		return nil, errors.New("not running in cluster")
+	}
+
+	tests := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+	}{
+		{name: "missing authorization header", authHeader: "", wantStatus: http.StatusUnauthorized},
+		{name: "server client unavailable", authHeader: "Bearer user-token", wantStatus: http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/agents/v1/team/agents/reviewer/1.2.0/download", nil)
+			if tt.authHeader != "" {
+				request.Header.Set("Authorization", tt.authHeader)
+			}
+
+			response := httptest.NewRecorder()
+			clientset, _, _, _, err := getKubeClientFromRequest(response, request)
+			if err == nil {
+				t.Fatal("expected auth failure")
+			}
+
+			if clientset != nil {
+				t.Fatal("expected no clientset on auth failure")
+			}
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+		})
+	}
+}
