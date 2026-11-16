@@ -20,7 +20,7 @@ const colorMap: Record<Props["severity"], "error" | "warning" | "info" | "defaul
   unknown: "default",
 };
 
-export function SeverityChip({ severity, count }: Props) {
+export function SeverityChip({ severity, count, dense = false }: Props & { dense?: boolean }) {
   if (count === 0) return null;
   return (
     <Tooltip title={`${count} ${severity.toUpperCase()}`}>
@@ -28,25 +28,25 @@ export function SeverityChip({ severity, count }: Props) {
         size="small"
         color={colorMap[severity]}
         label={`${severity.charAt(0).toUpperCase()} ${count}`}
-        sx={severityChipSx(severity)}
+        sx={severityChipSx(severity, dense)}
       />
     </Tooltip>
   );
 }
 
 // A list row stretches its name link over the whole row, so the chips lift above that layer to receive hover.
-export default function SeverityBadge({ counts }: { counts: BrowseScanCounts | null }) {
+export default function SeverityBadge({ counts, dense = false }: { counts: BrowseScanCounts | null; dense?: boolean }) {
   if (!counts) return null;
   return (
-    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, position: "relative", zIndex: 1 }}>
-      <SeverityChip severity="critical" count={counts.critical} />
-      <SeverityChip severity="high" count={counts.high} />
-      <SeverityChip severity="medium" count={counts.medium} />
-      <SeverityChip severity="low" count={counts.low} />
-      <SeverityChip severity="unknown" count={counts.unknown} />
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: dense ? 0.25 : 0.5, position: "relative", zIndex: 1 }}>
+      <SeverityChip severity="critical" count={counts.critical} dense={dense} />
+      <SeverityChip severity="high" count={counts.high} dense={dense} />
+      <SeverityChip severity="medium" count={counts.medium} dense={dense} />
+      <SeverityChip severity="low" count={counts.low} dense={dense} />
+      <SeverityChip severity="unknown" count={counts.unknown} dense={dense} />
       {counts.exempted > 0 && (
         <Tooltip title={`${counts.exempted} exempted findings`}>
-          <Chip size="small" color="secondary" label={`E ${counts.exempted}`} sx={severityChipSx("exempted")} />
+          <Chip size="small" color="secondary" label={`E ${counts.exempted}`} sx={severityChipSx("exempted", dense)} />
         </Tooltip>
       )}
     </Box>

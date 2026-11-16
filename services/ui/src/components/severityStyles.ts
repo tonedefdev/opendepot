@@ -23,16 +23,20 @@ const lightMode = '[data-mui-color-scheme="light"] &';
 
 export const unknownSeverityChipSx: SxProps<Theme> = metaChipSx;
 
-export function severityChipSx(severity: string): SxProps<Theme> {
+// Dense chips tighten label padding for the registry Risk column.
+const denseLabelSx = { "& .MuiChip-label": { px: 0.5 } };
+
+export function severityChipSx(severity: string, dense = false): SxProps<Theme> {
   const tone = SEVERITY_TONES[severity.toLowerCase()];
-  if (!tone) return unknownSeverityChipSx;
-  const fill = SOLID_LIGHT_FILL[tone];
-  return {
-    ...(statusChipSx(tone) as object),
-    [lightMode]: {
-      bgcolor: `${fill}.main`,
-      borderColor: `${fill}.main`,
-      color: "common.white",
-    },
-  };
+  const base: SxProps<Theme> = tone
+    ? {
+        ...(statusChipSx(tone) as object),
+        [lightMode]: {
+          bgcolor: `${SOLID_LIGHT_FILL[tone]}.main`,
+          borderColor: `${SOLID_LIGHT_FILL[tone]}.main`,
+          color: "common.white",
+        },
+      }
+    : unknownSeverityChipSx;
+  return dense ? { ...(base as object), ...denseLabelSx } : base;
 }

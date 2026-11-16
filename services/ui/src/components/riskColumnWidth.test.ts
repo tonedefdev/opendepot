@@ -46,10 +46,11 @@ describe("riskColumnWidth", () => {
   });
 
   it("adds the meter width for agent and skill rows", () => {
-    const withoutMeter = resource({ kind: "module", jevRiskLevel: "Critical", scanCounts: counts({ low: 1 }) });
-    const withMeter = resource({ kind: "agent", jevRiskLevel: "Critical", scanCounts: counts({ low: 1 }) });
-    expect(riskColumnWidth([withMeter], measure, "sans-serif")).toBeGreaterThan(
-      riskColumnWidth([withoutMeter], measure, "sans-serif"),
+    const wide = (text: string) => text.length * 12;
+    const withoutMeter = resource({ kind: "module", jevRiskLevel: "Critical", scanCounts: counts({ high: 1000, medium: 1000 }) });
+    const withMeter = resource({ kind: "agent", jevRiskLevel: "Critical", scanCounts: counts({ high: 1000, medium: 1000 }) });
+    expect(riskColumnWidth([withMeter], wide, "sans-serif")).toBeGreaterThan(
+      riskColumnWidth([withoutMeter], wide, "sans-serif"),
     );
   });
 });

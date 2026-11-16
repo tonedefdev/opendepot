@@ -3,16 +3,18 @@ import { isAgentKind } from "./resourceDisplay";
 
 export const RISK_COLUMN_MIN_PX = 172;
 
-const CHIP_FONT_PX = 13;
+// Chip text is 0.75rem at weight 600. Dense chips use 4px label padding on each side plus a 1px border on each side.
+const CHIP_FONT_PX = 12;
 const LABEL_FONT_PX = 14;
-// Small chips use 8px label padding on each side plus a 1px border on each side.
-const CHIP_CHROME_PX = 18;
-const CHIP_GAP_PX = 4;
+const CHIP_CHROME_PX = 10;
+const CHIP_GAP_PX = 2;
+// The meter row sits 4px (gap 0.5) left of the chips.
+const METER_CHIP_GAP_PX = 4;
 // Five 3px bars with 2px gaps, followed by the meter's 8px gap to its label.
 const METER_BARS_PX = 23;
 const METER_LABEL_GAP_PX = 8;
-// TableCell default padding is 16px on each side.
-const CELL_PADDING_PX = 32;
+// Left padding is the TableCell default of 16px. Right padding is 8px on the Risk column.
+const CELL_PADDING_PX = 24;
 const HEADER_PX = 84;
 
 type MeasureText = (text: string, font: string) => number;
@@ -26,18 +28,22 @@ const SEVERITY_LABELS: Array<[keyof BrowseScanCounts, string]> = [
   ["exempted", "E"],
 ];
 
-function rowChipWidths(resource: BrowseResource, measure: MeasureText, chipFont: string, labelFont: string): number[] {
-  const widths: number[] = [];
-  if (isAgentKind(resource.kind) && resource.jevRiskLevel) {
-    widths.push(METER_BARS_PX + METER_LABEL_GAP_PX + measure(resource.jevRiskLevel, labelFont));
-  }
+function rowRiskWidth(resource: BrowseResource, measure: MeasureText, chipFont: string, labelFont: string): number {
+  const meterWidth =
+    isAgentKind(resource.kind) && resource.jevRiskLevel
+      ? METER_BARS_PX + METER_LABEL_GAP_PX + measure(resource.jevRiskLevel, labelFont)
+      : 0;
+  const chipWidths: number[] = [];
   const counts = resource.scanCounts;
-  if (!counts) return widths;
-  for (const [key, letter] of SEVERITY_LABELS) {
-    const count = counts[key];
-    if (count > 0) widths.push(measure(`${letter} ${count}`, chipFont) + CHIP_CHROME_PX);
+  if (counts) {
+    for (const [key, letter] of SEVERITY_LABELS) {
+      const count = counts[key];
+      if (count > 0) chipWidths.push(measure(`${letter} ${count}`, chipFont) + CHIP_CHROME_PX);
+    }
   }
-  return widths;
+  const chipsWidth = chipWidths.reduce((sum, w) => sum + w, 0) + CHIP_GAP_PX * Math.max(0, chipWidths.length - 1);
+  if (meterWidth > 0 && chipWidths.length > 0) return meterWidth + METER_CHIP_GAP_PX + chipsWidth;
+  return meterWidth || chipsWidth;
 }
 
 // Returns the Risk header width needed so the widest row on the page fits without clipping.
@@ -46,10 +52,7 @@ export function riskColumnWidth(items: BrowseResource[], measure: MeasureText, f
   const labelFont = `500 ${LABEL_FONT_PX}px ${fontFamily}`;
   let widest = 0;
   for (const item of items) {
-    const widths = rowChipWidths(item, measure, chipFont, labelFont);
-    if (widths.length === 0) continue;
-    const rowWidth = widths.reduce((sum, w) => sum + w, 0) + CHIP_GAP_PX * (widths.length - 1);
-    widest = Math.max(widest, rowWidth);
+    widest = Math.max(widest, rowRiskWidth(item, measure, chipFont, labelFont));
   }
   return Math.max(RISK_COLUMN_MIN_PX, Math.ceil(widest + CELL_PADDING_PX), HEADER_PX);
 }
