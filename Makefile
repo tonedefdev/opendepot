@@ -73,6 +73,17 @@ build-version-controller-assembly:
 load-version-controller-assembly:
 	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-assembly --name $(KIND_CLUSTER)
 
+## Build the test-only AWS emulator image for e2e, tagged $(TAG)
+build-aws-emulator:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/aws-emulator:$(TAG) \
+		-f services/server/test/e2e/Dockerfile.emulator \
+		services/server/test/e2e
+
+## Load the AWS emulator image into the kind cluster
+load-aws-emulator:
+	kind load docker-image $(REGISTRY)/aws-emulator:$(TAG) --name $(KIND_CLUSTER)
+
 ## Build and load all images into the kind cluster
 deploy: build load
 
