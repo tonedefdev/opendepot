@@ -59,6 +59,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
         <KindLabel resource={resource} />
       </TableCell>
 
+      {/* Takes the width left over after content-sized cells (width 100%, maxWidth 0), so Risk is never squeezed. */}
       <TableCell sx={{ width: "100%", minWidth: NAME_CELL_MIN_WIDTH, maxWidth: 0 }}>
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <Tooltip title={nameTruncated ? address : ""} placement="top" enterDelay={300} disableInteractive>
