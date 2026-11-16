@@ -550,11 +550,16 @@ users:
 		)
 
 		const (
-			dexLocalPort     = 15556
-			testClientSecret = "test-client-secret-for-e2e"
-			testUserEmail    = "test@example.com"
-			testUserPassword = "testpassword"
-			testUserID       = "test-user-oidc-e2e"
+			dexLocalPort  = 15556
+			testUserEmail = "test@example.com"
+			testUserID    = "test-user-oidc-e2e"
+		)
+
+		// testClientSecret and testUserPassword are read from the environment so CI can
+		// supply its own values. Otherwise a random value is generated for each run.
+		var (
+			testClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_OIDC_E2E_CLIENT_SECRET")
+			testUserPassword = agentE2ESecretOr("OPENDEPOT_SERVER_OIDC_E2E_USER_PASSWORD")
 		)
 
 		// startDexPortForward starts a self-restarting kubectl port-forward to the Dex
