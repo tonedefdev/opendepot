@@ -178,7 +178,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
-                <TableCell>{sortableHead("name", "Name")}</TableCell>
+                <TableCell sx={{ width: 320 }}>{sortableHead("name", "Name")}</TableCell>
                 <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
                 {showSource && (
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
