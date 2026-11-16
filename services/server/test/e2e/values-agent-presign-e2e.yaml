@@ -5,9 +5,9 @@ server:
   - name: AWS_ENDPOINT_URL_S3
     value: https://localhost:9297
   - name: AWS_CA_BUNDLE
-    value: /var/run/emulator/ca.pem
+    value: /var/run/emulator/9297/ca.pem
   - name: AWS_SHARED_CREDENTIALS_FILE
-    value: /var/run/emulator/emulator_credentials
+    value: /var/run/emulator/9297/emulator_credentials
   extraVolumes:
   - name: emulator-handoff
     emptyDir: {}
@@ -34,4 +34,4 @@ server:
       failureThreshold: 60
     volumeMounts:
     - name: emulator-handoff
-      mountPath: /home/emulator/.aws/emulator/9297
+      mountPath: /home/emulator/.aws/emulator
