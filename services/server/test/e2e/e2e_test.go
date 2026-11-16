@@ -829,10 +829,13 @@ server:
 		)
 
 		const (
-			proxyTestClientSecret = "test-client-secret-proxy-e2e"
-			proxyTestUserEmail    = "proxy-test@example.com"
-			proxyTestUserPassword = "proxytestpassword"
-			proxyTestUserID       = "proxy-test-user-oidc-e2e"
+			proxyTestUserEmail = "proxy-test@example.com"
+			proxyTestUserID    = "proxy-test-user-oidc-e2e"
+		)
+
+		var (
+			proxyTestClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_PROXY_E2E_CLIENT_SECRET")
+			proxyTestUserPassword = agentE2ESecretOr("OPENDEPOT_SERVER_PROXY_E2E_USER_PASSWORD")
 		)
 
 		// acquireProxiedDexToken performs a Resource Owner Password Credentials grant
@@ -1036,13 +1039,16 @@ server:
 		)
 
 		const (
-			gbDexLocalPort     = 15557
-			gbTestClientSecret = "test-client-secret-gb-e2e"
-			gbTestUserEmail    = "gb-test@example.com"
-			gbTestUserPassword = "gbtestpassword"
-			gbTestUserID       = "gb-test-user-oidc-e2e"
+			gbDexLocalPort  = 15557
+			gbTestUserEmail = "gb-test@example.com"
+			gbTestUserID    = "gb-test-user-oidc-e2e"
 			// groupBindingName is the name used for the test GroupBinding resource.
 			groupBindingName = "e2e-test-groupbinding"
+		)
+
+		var (
+			gbTestClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_GB_E2E_CLIENT_SECRET")
+			gbTestUserPassword = agentE2ESecretOr("OPENDEPOT_SERVER_GB_E2E_USER_PASSWORD")
 		)
 
 		// gbStartDexPortForward starts a self-restarting port-forward to the Dex service
@@ -1456,11 +1462,14 @@ server:
 		)
 
 		const (
-			sfDexLocalPort     = 15558
-			sfTestClientSecret = "test-client-secret-sf-e2e"
-			sfTestUserEmail    = "sf-test@example.com"
-			sfTestUserPassword = "sftestpassword"
-			sfTestUserID       = "sf-test-user-oidc-e2e"
+			sfDexLocalPort  = 15558
+			sfTestUserEmail = "sf-test@example.com"
+			sfTestUserID    = "sf-test-user-oidc-e2e"
+		)
+
+		var (
+			sfTestClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_SF_E2E_CLIENT_SECRET")
+			sfTestUserPassword = agentE2ESecretOr("OPENDEPOT_SERVER_SF_E2E_USER_PASSWORD")
 		)
 
 		// sfStartDexPortForward starts a self-restarting kubectl port-forward to the Dex
@@ -1735,13 +1744,16 @@ server:
 		const (
 			// ccDexLocalPort must not collide with sfDexLocalPort (15558) or gbDexLocalPort (15557).
 			ccDexLocalPort     = 15559
-			ccTestClientSecret = "test-cc-client-secret-e2e"
-			ccOIDCClientSecret = "test-cc-oidc-client-secret-e2e"
 			ccClientID         = "ci-pipeline"
 			ccUserEmail        = "cc-test@example.com"
-			ccUserPassword     = "cctestpassword"
 			ccUserID           = "cc-test-user-oidc-e2e"
 			ccGroupBindingName = "e2e-test-cc-groupbinding"
+		)
+
+		var (
+			ccTestClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_CC_E2E_CLIENT_SECRET")
+			ccOIDCClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_CC_E2E_OIDC_CLIENT_SECRET")
+			ccUserPassword     = agentE2ESecretOr("OPENDEPOT_SERVER_CC_E2E_USER_PASSWORD")
 		)
 
 		ccStartDexPortForward := func(localPort int) context.CancelFunc {
@@ -2422,12 +2434,15 @@ spec:
 
 	Context("with Valkey ACL auth enabled", Ordered, func() {
 		const valkeyAuthSecret = "valkey-auth-test"
-		var pfCancel context.CancelFunc
+		var (
+			pfCancel           context.CancelFunc
+			valkeyAuthPassword = agentE2ESecretOr("OPENDEPOT_SERVER_VALKEY_E2E_PASSWORD")
+		)
 
 		BeforeAll(func() {
 			By("creating valkey ACL password Secret")
 			createCmd := exec.Command("kubectl", "create", "secret", "generic", valkeyAuthSecret,
-				"--from-literal=default=testpassword123",
+				"--from-literal=default="+valkeyAuthPassword,
 				"-n", namespace,
 				"--dry-run=client", "-o", "yaml",
 			)
@@ -2927,13 +2942,16 @@ spec:
 		const (
 			// gbBrowseServerPort is the local port for the server port-forward reused
 			// from the outer Browse API Describe block (startBrowsePortForward → browseLocalPort).
-			gbBrowseServerPort      = browseLocalPort
-			gbBrowseDexPort         = 20082
-			gbBrowseDexClientSecret = "browse-gb-test-secret"
-			gbBrowseUserEmail       = "browse-gb@example.com"
-			gbBrowseUserPassword    = "browsegbtestpassword"
-			gbBrowseUserID          = "browse-gb-user-e2e"
-			gbBrowseGroupBinding    = "browse-gb-e2e"
+			gbBrowseServerPort   = browseLocalPort
+			gbBrowseDexPort      = 20082
+			gbBrowseUserEmail    = "browse-gb@example.com"
+			gbBrowseUserID       = "browse-gb-user-e2e"
+			gbBrowseGroupBinding = "browse-gb-e2e"
+		)
+
+		var (
+			gbBrowseDexClientSecret = agentE2ESecretOr("OPENDEPOT_SERVER_BROWSE_GB_E2E_CLIENT_SECRET")
+			gbBrowseUserPassword    = agentE2ESecretOr("OPENDEPOT_SERVER_BROWSE_GB_E2E_USER_PASSWORD")
 		)
 
 		// gbBrowseURL returns the full URL for a browse API path via the shared
