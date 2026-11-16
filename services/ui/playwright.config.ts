@@ -48,7 +48,7 @@ export default defineConfig({
             OPENDEPOT_SERVER_URL: LAYOUT_STUB_URL,
             OPENDEPOT_UI_DIST_DIR: ".next-layout-test",
           },
-          reuseExistingServer: false,
+          reuseExistingServer: true,
           timeout: 120_000,
         },
       ],
