@@ -46,6 +46,9 @@ type resourceDetail struct {
 	JevExemptionGovernance *opendepotv1alpha1.JevExemptionGovernance `json:"jevExemptionGovernance"`
 	JevUnblock             *opendepotv1alpha1.JevUnblock             `json:"jevUnblock"`
 	JevThresholds          *opendepotv1alpha1.JevPolicy              `json:"jevThresholds"`
+	StorageConfig          *resourceStorageConfig                    `json:"storageConfig"`
+	GithubConfig           *resourceGithubConfig                     `json:"githubConfig"`
+	SourceScanFindings     []resourceFinding                         `json:"sourceScanFindings"`
 }
 
 type resourceMetadata struct {
@@ -85,6 +88,36 @@ type resourceVersion struct {
 	SchemaState       string              `json:"schemaState"`
 	SchemaMessage     string              `json:"schemaMessage"`
 	SchemaAttemptedAt string              `json:"schemaAttemptedAt"`
+}
+
+type resourceStorageConfig struct {
+	Backend        string  `json:"backend"`
+	Bucket         string  `json:"bucket"`
+	Region         string  `json:"region"`
+	Key            *string `json:"key"`
+	DirectoryPath  *string `json:"directoryPath"`
+	AccountName    string  `json:"accountName"`
+	AccountURL     string  `json:"accountUrl"`
+	SubscriptionID string  `json:"subscriptionID"`
+	ResourceGroup  string  `json:"resourceGroup"`
+	PresignEnabled *bool   `json:"presignEnabled"`
+	PresignTTL     string  `json:"presignTTL"`
+}
+
+type resourceGithubConfig struct {
+	UseAuthenticatedClient bool `json:"useAuthenticatedClient"`
+}
+
+type resourceFinding struct {
+	VulnerabilityID  string `json:"vulnerabilityID"`
+	PkgName          string `json:"pkgName"`
+	InstalledVersion string `json:"installedVersion"`
+	FixedVersion     string `json:"fixedVersion"`
+	Severity         string `json:"severity"`
+	Title            string `json:"title"`
+	Exempted         bool   `json:"exempted"`
+	ExemptionReason  string `json:"exemptionReason"`
+	ExemptedBy       string `json:"exemptedBy"`
 }
 
 func (a *app) describeResource(ctx context.Context, kind entryKind, resource, registry string, asJSON bool) error {
@@ -162,6 +195,10 @@ func (a *app) printResourceDetailJSON(detail *resourceDetail) error {
 		detail.AgentMetadata.Tools = []string{}
 	}
 
+	if detail.SourceScanFindings == nil {
+		detail.SourceScanFindings = []resourceFinding{}
+	}
+
 	enc := json.NewEncoder(a.out)
 	enc.SetIndent("", "  ")
 
@@ -206,6 +243,10 @@ func (a *app) printResourceDetail(host string, detail *resourceDetail) {
 	writeDetailRow(a.out, st, "Path", detail.SourcePath, "")
 	writeDetailRow(a.out, st, "Commit", detail.SourceCommit, "")
 	writeDetailRow(a.out, st, "File", detail.DefinitionFileName, "")
+	printStorageDetails(a.out, st, detail.StorageConfig)
+	if gh := detail.GithubConfig; gh != nil {
+		writeDetailRow(a.out, st, "GitHub auth", yesNo(gh.UseAuthenticatedClient), "")
+	}
 
 	if md := detail.AgentMetadata; md != nil {
 		writeDetailRow(a.out, st, "Name", md.Name, "")
@@ -279,6 +320,8 @@ func (a *app) printResourceDetail(host string, detail *resourceDetail) {
 		writeDetailRow(a.out, st, "Schema", joinNonEmpty(" · ", v.SchemaState, v.SchemaMessage, v.SchemaAttemptedAt), "")
 	}
 
+	printFindings(a.out, st, detail.SourceScanFindings)
+
 	as := detail.JevAssessment
 	if as == nil {
 		writeDetailRow(a.out, st, "Assessment", "none reported", ansiDim)
@@ -331,6 +374,73 @@ func printJevPolicyDetails(w io.Writer, st styler, detail *resourceDetail) {
 			}
 		}
 	}
+}
+
+// printStorageDetails writes the storage backend the skill or agent is synced from. Absent values are omitted.
+func printStorageDetails(w io.Writer, st styler, sc *resourceStorageConfig) {
+	if sc == nil {
+		return
+	}
+
+	writeDetailRow(w, st, "Storage", sc.Backend, "")
+	writeDetailRow(w, st, "Bucket", sc.Bucket, "")
+	writeDetailRow(w, st, "Region", sc.Region, "")
+	writeDetailRow(w, st, "Key", derefString(sc.Key), "")
+	writeDetailRow(w, st, "Directory", derefString(sc.DirectoryPath), "")
+	writeDetailRow(w, st, "Account", sc.AccountName, "")
+	writeDetailRow(w, st, "Account URL", sc.AccountURL, "")
+	writeDetailRow(w, st, "Subscription", sc.SubscriptionID, "")
+	writeDetailRow(w, st, "Res. group", sc.ResourceGroup, "")
+	if sc.PresignEnabled != nil {
+		writeDetailRow(w, st, "Presign", enabledLabel(*sc.PresignEnabled), "")
+	}
+
+	writeDetailRow(w, st, "Presign TTL", sc.PresignTTL, "")
+}
+
+// printFindings writes each source scan finding as a short block of rows. Finding text is sanitized by writeDetailRow.
+func printFindings(w io.Writer, st styler, findings []resourceFinding) {
+	if len(findings) == 0 {
+		return
+	}
+
+	writeDetailRow(w, st, "Findings", strconv.Itoa(len(findings))+" from source scan", "")
+	for _, f := range findings {
+		writeDetailRow(w, st, "Finding", joinNonEmpty(" · ", f.Severity, f.VulnerabilityID), "")
+		writeDetailRow(w, st, "Package", joinNonEmpty(" ", f.PkgName, f.InstalledVersion), "")
+		writeDetailRow(w, st, "Fixed in", f.FixedVersion, "")
+		writeDetailRow(w, st, "Title", f.Title, "")
+		if f.Exempted {
+			writeDetailRow(w, st, "Exempted", joinNonEmpty(" · ", "yes", f.ExemptedBy, f.ExemptionReason), ansiYellow)
+		}
+	}
+}
+
+// derefString returns the value of s, or an empty string when s is nil.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+
+	return *s
+}
+
+// yesNo formats a boolean as yes or no.
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+
+	return "no"
+}
+
+// enabledLabel formats a boolean as enabled or disabled.
+func enabledLabel(b bool) string {
+	if b {
+		return "enabled"
+	}
+
+	return "disabled"
 }
 
 // scanCountsLine formats scan counts in severity order.

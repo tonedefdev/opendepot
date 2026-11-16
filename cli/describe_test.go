@@ -244,6 +244,17 @@ func fullDescribeDetail() map[string]any {
 		},
 		"jevUnblock":    map[string]any{"state": "blocked", "digest": "sha256:d1", "governingPolicy": "strict"},
 		"jevThresholds": map[string]any{"minSafeProbability": 0.5, "maxRiskScore": 3},
+		"storageConfig": map[string]any{
+			"backend": "s3", "bucket": "acme-bucket", "region": "us-east-1", "key": "skills/lint.zip",
+			"presignEnabled": true, "presignTTL": "15m",
+		},
+		"githubConfig": map[string]any{"useAuthenticatedClient": true},
+		"sourceScanFindings": []map[string]any{{
+			"vulnerabilityID": "CVE-2026-0001", "pkgName": "lodash", "installedVersion": "4.17.20",
+			"fixedVersion": "4.17.21", "severity": "HIGH",
+			"title":    "Prototype \x1b[31mpollution\x1b[0m\u202e",
+			"exempted": true, "exemptionReason": "accepted\x07", "exemptedBy": "policy-a",
+		}},
 	}
 }
 
@@ -263,6 +274,10 @@ func TestDescribeResourceShowsEveryFieldInTable(t *testing.T) {
 		"Public       yes", "Risk         High", "https://github.com/acme/agents", "agents/reviewer.md", "abc123",
 		"Owner        acme", "Ref          main", "File         AGENT.md", "Name         Reviewer", "Model        gpt-test",
 		"Tools        read, grep", "Description  Reviews code. Red Second paragraph", "Third line",
+		"Storage      s3", "Bucket       acme-bucket", "Region       us-east-1", "Key          skills/lint.zip",
+		"Presign      enabled", "Presign TTL  15m", "GitHub auth  yes", "Findings     1 from source scan",
+		"Finding      HIGH · CVE-2026-0001", "Package      lodash 4.17.20", "Fixed in     4.17.21",
+		"Title        Prototype pollution", "Exempted     yes · policy-a · accepted",
 		"Downloads    42", "critical 0 · high 1 · medium 2 · low 3 · unknown 0 · exempted 1", "2026-01-02T03:04:05Z",
 		"2.0.0 · synced", "sha256:abc", "2048 bytes", "Schema       Valid · ok · 2026-01-02T03:00:00Z",
 		"Governed by  strict", "Expires      2030-01-01T00:00:00Z", "Superseded   yes", "Unblock      blocked",
@@ -300,6 +315,7 @@ func TestDescribeResourceJSONHasStableKeys(t *testing.T) {
 		"blocked", "blockReasons", "jevRiskLevel", "sourceRef", "sourceCommit", "sourcePath", "repoUrl", "repoOwner",
 		"scanCounts", "lastScanned", "totalDownloads", "lastDownloadedAt", "definitionFileName", "definitionContent",
 		"agentMetadata", "versions", "jevAssessment", "jevExemptionGovernance", "jevUnblock", "jevThresholds",
+		"storageConfig", "githubConfig", "sourceScanFindings",
 	} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("JSON missing key %q", key)
@@ -313,6 +329,25 @@ func TestDescribeResourceJSONHasStableKeys(t *testing.T) {
 	metadata := got["agentMetadata"].(map[string]any)
 	if metadata["description"] != "Reviews code.\x1b[31m Red\x1b[0m\u2028Second\x07 paragraph\n\nThird\u202e line" {
 		t.Errorf("agentMetadata.description = %q, want the full raw text", metadata["description"])
+	}
+
+	storage := got["storageConfig"].(map[string]any)
+	for _, key := range []string{"backend", "bucket", "region", "key", "directoryPath", "accountName", "accountUrl", "subscriptionID", "resourceGroup", "presignEnabled", "presignTTL"} {
+		if _, ok := storage[key]; !ok {
+			t.Errorf("storageConfig JSON missing key %q", key)
+		}
+	}
+
+	findings := got["sourceScanFindings"].([]any)
+	finding := findings[0].(map[string]any)
+	for _, key := range []string{"vulnerabilityID", "pkgName", "installedVersion", "fixedVersion", "severity", "title", "exempted", "exemptionReason", "exemptedBy"} {
+		if _, ok := finding[key]; !ok {
+			t.Errorf("sourceScanFindings JSON missing key %q", key)
+		}
+	}
+
+	if finding["title"] != "Prototype \x1b[31mpollution\x1b[0m\u202e" {
+		t.Errorf("finding title = %q, want the full raw text", finding["title"])
 	}
 
 	versions := got["versions"].([]any)
@@ -335,7 +370,7 @@ func TestDescribeResourceEmptyFields(t *testing.T) {
 	}
 
 	out := fmt.Sprint(a.out)
-	for _, banned := range []string{"Description", "Downloads", "Checksum", "Governed by", "Threshold", "Tools", "Unsynced", "Blocked", "Public"} {
+	for _, banned := range []string{"Description", "Downloads", "Checksum", "Governed by", "Threshold", "Tools", "Unsynced", "Blocked", "Public", "Storage", "GitHub auth", "Findings"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("empty field %q written:\n%s", banned, out)
 		}
@@ -365,10 +400,14 @@ func TestDescribeResourceEmptyFields(t *testing.T) {
 		t.Errorf("blockReasons = %#v, want empty array", got["blockReasons"])
 	}
 
-	for _, key := range []string{"agentMetadata", "scanCounts", "jevAssessment", "jevUnblock", "jevThresholds"} {
+	for _, key := range []string{"agentMetadata", "scanCounts", "jevAssessment", "jevUnblock", "jevThresholds", "storageConfig", "githubConfig"} {
 		if v, ok := got[key]; !ok || v != nil {
 			t.Errorf("%s = %#v, want present null", key, v)
 		}
+	}
+
+	if findings, ok := got["sourceScanFindings"].([]any); !ok || len(findings) != 0 {
+		t.Errorf("sourceScanFindings = %#v, want empty array", got["sourceScanFindings"])
 	}
 }
 
