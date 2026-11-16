@@ -172,7 +172,7 @@ The registry serves skills and agents under `/opendepot/agents/v1/`. `{kind}` is
 | GET | `/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS.sig` | Return the GPG signature for `SHA256SUMS`. |
 | GET | `/opendepot/agents/v1/catalog` | List the skills and agents the caller can see. Used by `opendepot list`. |
 
-The service discovery document advertises the base path as `agents.v1`. Requests are subject to GroupBinding authorization. Archive requests return a `302` redirect to a checksum-keyed download URL. The redirect URL remains valid after GroupBinding access is revoked. See [agents.v1 protocol](agents-v1.md) for details.
+The service discovery document advertises the base path as `agents.v1`. Requests are subject to GroupBinding authorization. Archive requests return a `307` redirect to a presigned URL when presign is enabled for the agent source. Otherwise the server streams the archive. A presigned URL remains valid until it expires, even after GroupBinding access is revoked. See [agents.v1 protocol](agents-v1.md) for details.
 
 ## Signing key trust
 

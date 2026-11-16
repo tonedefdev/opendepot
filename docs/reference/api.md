@@ -1550,10 +1550,10 @@ Returned by `GET /opendepot/ui/v1/stats`.
 
 ### PresignConfig fields
 
-Controls pre-signed URL generation for provider downloads. Set on `StorageConfig.presign`.
+Controls pre-signed URL generation for provider and agent downloads. Set on `StorageConfig.presign`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | `bool` | `false` | When `true`, download requests are redirected to the storage backend via a pre-signed URL instead of proxied through the server. |
 | `ttl` | `duration` | `15m` | How long the pre-signed URL remains valid (e.g. `"15m"`, `"1h"`). |
-| `fallbackToProxy` | `bool` | `true` | When `true`, if pre-sign generation fails the server falls back to proxying the download. Set to `false` to make pre-signing strictly required. |
+| `fallbackToProxy` | `bool` | `true` | When `true`, if pre-sign generation fails the server falls back to proxying the download. Set to `false` to make pre-signing strictly required. For Agent objects, the default is `false`. See [agents.v1 Protocol](agents-v1.md). |

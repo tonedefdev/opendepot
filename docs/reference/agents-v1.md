@@ -13,7 +13,11 @@ The `server` exposes skills and agents under the agents.v1 protocol at `/opendep
 
 When OIDC is enabled, GroupBinding authorization gates the artifact handlers. These include the agent and skill metadata, the versions, `SHA256SUMS`, `SHA256SUMS.sig`, and archive requests. The `skillResources` and `agentResources` fields of a GroupBinding control which skills and agents a group can read. A denied request returns `403 Forbidden`.
 
-The archive endpoint returns a `302` redirect to the checksum-keyed public route `/opendepot/modules/v1/download/...`. This is the same design that modules and providers use. The redirect URL is a checksum-bound capability. Revoking GroupBinding access does not invalidate a redirect URL that was already issued. This is an accepted, shared design limitation. The `302` response is sent with `Cache-Control: private, no-store`, so shared caches must not store it.
+The archive endpoint authorizes the request before it serves the archive. For a private agent, the request needs a bearer token and a GroupBinding that allows the agent. A request without a token returns `401 Unauthorized`. With `server.anonymousAuth` enabled, the archive downloads without a token.
+
+When presign is enabled for the agent source, the archive endpoint returns a `307 Temporary Redirect` to a presigned URL from the storage backend. The response has `Cache-Control: private, no-store`. The URL TTL defaults to `15m`. Revoking a GroupBinding stops new redirects. A URL that was already issued stays valid until it expires. This is an accepted window.
+
+If presign fails and `fallbackToProxy` is `false`, the endpoint returns `500 Internal Server Error` and does not redirect. This applies to a checksum mismatch too. If `fallbackToProxy` is `true`, the server streams the archive bytes instead. The FileSystem backend always fails the presign step, so it streams only when fallback is on. `fallbackToProxy` defaults to `false` for new Agent objects. Existing Agent objects keep the value they were stored with. See [Pre-signed URL Redirects](../storage/presigned-urls.md#agent-archives).
 
 Archive extraction enforces a decompressed-size budget of 2 GiB and a cap of 10,000 entries. An archive that exceeds either limit fails. Symbolic links and hard links are refused. The total decompressed stream, including tar headers, is capped at the 2 GiB budget plus a 64 MiB allowance for headers. The CLI verifies the `SHA256SUMS` signature against the pinned signing key before it installs anything.
 
@@ -46,6 +50,9 @@ Auth follows the same policy as the UI browse endpoints. With anonymous auth ena
 ## Known limitations
 
 - **Name collisions.** Version names use a `prefix-name-version` pattern without escaping. A Skill and an Agent that produce the same Version name can collide. A collision returns `404` and never serves the wrong object.
+- **Checksum source.** On S3, the archive checksum check uses the object's SHA-256 checksum metadata. It does not hash the archive bytes.
+- **Anonymous download.** On an OIDC-only server, a public agent still needs a bearer token. Anonymous download is available only when `server.anonymousAuth` is enabled.
+- **Revocation window.** A revoked GroupBinding does not invalidate a presigned URL that was already issued. The URL stays valid until its TTL expires.
 
 ## Next steps
 

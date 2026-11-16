@@ -25,6 +25,28 @@ The version-controller image bundles Trivy, downloaded from the `TRIVY_VERSION` 
 
 `make manifests` in `api/v1alpha1` runs `controller-gen` with `crd:allowDangerousTypes=true`. The flag is required because `types.go` has `float64` fields, such as the Jev policy thresholds and assessment scores. Without it, `controller-gen` fails on those fields. Do not remove the flag. After changing `types.go`, run `make manifests` to regenerate the CRDs and `make generate` to regenerate `zz_generated.deepcopy.go`.
 
+## Agent Presign E2E Testing
+
+The agent presign e2e scenarios use an AWS emulator sidecar. The emulator is test-only. It is not part of the chart or the released images. The scenarios are skipped unless `E2E_AWS_EMULATOR=true` is set.
+
+The run needs an isolated Kind cluster. The test fails when `KIND_CLUSTER` is unset or set to the shared `opendepot` cluster. Use a separate name, and keep the cluster with `KEEP_KIND=1` if you want to inspect it.
+
+The `Agent presign` scenarios cover two cases. Anonymous auth serves a public agent. OIDC auth serves a private agent, and it checks a `401` without a token and a `307` for a bound request.
+
+The emulator port-forward uses local port `9297`. Free that port before the run.
+
+`make build-aws-emulator` builds the emulator image for `PLATFORM`, which defaults to `linux/arm64`. The emulator Dockerfile accepts only `arm64`.
+
+```bash
+kind create cluster --name opendepot-agent-presign
+make build-aws-emulator load-aws-emulator KIND_CLUSTER=opendepot-agent-presign
+cd services/server
+make test-e2e KIND_CLUSTER=opendepot-agent-presign KEEP_KIND=1 E2E_AWS_EMULATOR=true E2E_FOCUS="Agent presign"
+make cleanup-test-e2e KIND_CLUSTER=opendepot-agent-presign
+```
+
+The e2e values file, [`values-agent-presign-e2e.yaml`](https://github.com/tonedefdev/opendepot/blob/main/services/server/test/e2e/values-agent-presign-e2e.yaml), sets test-only values such as the emulator sidecar and path-style S3. Do not use it as a production reference.
+
 ## Local OIDC E2E Testing
 
 The repository ships a set of `make` targets for end-to-end OIDC testing against a local Kind cluster. They wire together Kind, Helm, Dex v2.45.0, filesystem storage, mkcert TLS, and a static test user so that you can run `tofu login` without any cloud infrastructure.

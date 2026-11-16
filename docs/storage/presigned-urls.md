@@ -36,6 +36,16 @@ storageConfig:
 | `ttl` | duration | `15m` | URL validity, such as `"15m"` or `"1h"` |
 | `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails. When `false`, a signing failure returns `502 Bad Gateway`. |
 
+## Agent Archives
+
+Agent archives read the same `presign` fields from the agent source `storageConfig`. The behavior differs in three ways:
+
+- `fallbackToProxy` defaults to `false` for new Agent objects. When `false`, a signing failure returns `500 Internal Server Error` and does not redirect. Providers and modules keep the `true` default.
+- The FileSystem backend always fails the signing step. Agent downloads from FileSystem storage stream the archive only when `fallbackToProxy` is `true`.
+- Existing Agent objects keep the stored `fallbackToProxy` value. The changed default applies only to objects created after the change.
+
+A presigned URL redirect uses `307 Temporary Redirect` with `Cache-Control: private, no-store`. The URL TTL defaults to `15m`. Revoking a GroupBinding stops new redirects, but a URL already issued stays valid until it expires. This is an accepted window. For the authorization flow, see [agents.v1 Protocol](../reference/agents-v1.md).
+
 ## Backend Permissions
 
 ### Amazon S3

@@ -48,12 +48,36 @@ The source is in [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tr
 | `server.ingress.istio.hosts` | list | Istio VirtualService hosts. Default: `[opendepot.defdev.io]` |
 | `server.resources.requests.cpu` | string | CPU request. Default: `100m` |
 | `server.resources.requests.memory` | string | Memory request. Default: `128Mi` |
+| `server.resources.limits.cpu` | string | CPU limit. Default: `1000m` |
 | `server.resources.limits.memory` | string | Memory limit. Default: `512Mi` |
+| `server.runAsUser` | int | UID for the server pod and container. Default: `65532` |
+| `server.runAsGroup` | int | GID for the server pod and container. Default: `65532` |
 | `server.nodeSelector` | map | Node selector. Default: `{}` |
 | `server.tolerations` | list | Tolerations. Default: `[]` |
 | `server.affinity` | map | Affinity rules. Default: `{}` |
 | `server.podDisruptionBudget.enabled` | bool | Enable PodDisruptionBudget. Default: `false` |
 | `server.podDisruptionBudget.minAvailable` | int | Minimum available pods. Default: `2` |
+
+### Extension Hooks
+
+These values let operators add settings to the server pod. Each one defaults to an empty list (`[]`).
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.extraEnv` | list | Extra environment variables for the server container. |
+| `server.extraVolumes` | list | Extra pod volumes. |
+| `server.extraVolumeMounts` | list | Extra volume mounts for the server container. |
+| `server.extraContainers` | list | Extra containers added to the server pod after the server container. |
+| `server.extraInitContainers` | list | Extra init containers added after the built-in init containers. Set `restartPolicy: Always` for a native sidecar. |
+
+`extraEnv` renders after the built-in environment variables. An entry with the same name as a built-in variable overrides it. If a name appears more than once, the last value wins.
+
+```yaml
+server:
+  extraEnv:
+    - name: EXAMPLE_VAR
+      value: "example"
+```
 
 ### OIDC Authentication
 
@@ -221,6 +245,10 @@ The server signs `SHA256SUMS` for provider packages with a GPG key you supply. O
 | `storage.filesystem.hostPath` | string | Use a hostPath volume (for local dev with kind). Default: `""` |
 | `storage.filesystem.storageClassName` | string | StorageClass for PVC (requires `ReadWriteMany`). Default: `""` |
 | `storage.filesystem.size` | string | PVC storage size. Default: `10Gi` |
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.s3UsePathStyle` | bool | Sets `OPENDEPOT_S3_USE_PATH_STYLE` on the server. Default: `false` |
 
 See [Storage Backends](storage/index.md) for S3, Azure, and GCS configuration, which are set via environment variables rather than Helm values.
 
