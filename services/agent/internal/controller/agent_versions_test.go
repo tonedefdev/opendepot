@@ -256,6 +256,12 @@ func TestAgentVersionPresignOutdated(t *testing.T) {
 			outdated: false,
 		},
 		{
+			name:     "nil storageConfig with source presign set",
+			version:  &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{}}},
+			source:   &opendepotv1alpha1.PresignConfig{Enabled: &enabled},
+			outdated: false,
+		},
+		{
 			name:     "nil storageConfig with nil presign",
 			version:  &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{}}},
 			source:   nil,

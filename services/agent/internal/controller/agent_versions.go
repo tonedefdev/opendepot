@@ -182,16 +182,11 @@ func reconcileAgentVersions(
 // source. A nil presign on either side is compared as unset. A Version without an agentSourceRef is not owned by a
 // Skill or Agent, so it is never outdated.
 func agentVersionPresignOutdated(version *opendepotv1alpha1.Version, sourcePresign *opendepotv1alpha1.PresignConfig) bool {
-	if version.Spec.AgentSourceRef == nil {
+	if version.Spec.AgentSourceRef == nil || version.Spec.AgentSourceRef.StorageConfig == nil {
 		return false
 	}
 
-	var presign *opendepotv1alpha1.PresignConfig
-	if version.Spec.AgentSourceRef.StorageConfig != nil {
-		presign = version.Spec.AgentSourceRef.StorageConfig.Presign
-	}
-
-	return !equality.Semantic.DeepEqual(presign, sourcePresign)
+	return !equality.Semantic.DeepEqual(version.Spec.AgentSourceRef.StorageConfig.Presign, sourcePresign)
 }
 
 // syncAgentVersionPresign patches agentSourceRef.storageConfig.presign on an existing Version to match its source.
