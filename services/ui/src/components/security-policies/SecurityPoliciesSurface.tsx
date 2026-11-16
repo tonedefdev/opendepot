@@ -492,7 +492,7 @@ export default function SecurityPoliciesSurface({ mode, namespace, name, catalog
       </Box>
       <Grid container spacing={3} alignItems="flex-start">
       <Grid size={{ xs: 12, lg: 7 }}>
-      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={{ "[data-mui-color-scheme='dark'] &": { color: "#fff" } }} />}</Stack></Box>}
+      {isEdit && policy && <Box sx={{ mb: 3 }}><Grid container spacing={2}><Grid size={{ xs: 6 }}><StatCard label="Matched versions" value={policy.status?.matchedVersions ?? 0} icon={<TrackChangesIcon fontSize="small" />} /></Grid><Grid size={{ xs: 6 }}><StatCard label="Active exemptions" value={policy.status?.activeExemptions ?? 0} sub={`of ${policy.spec.exemptions?.length ?? 0} configured`} icon={<RemoveModeratorOutlinedIcon fontSize="small" />} accentColor={accent.exemption} /></Grid></Grid><Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>{policy.status?.expiredExemptions ? <Chip label={`${policy.status.expiredExemptions} expired exemptions`} size="small" color="warning" /> : null}{policy.status?.supersededBy && <Chip label={`Superseded by ${policy.status.supersededBy}`} size="small" color="warning" sx={severityChipSx("high")} />}</Stack></Box>}
       <Box component="form" onSubmit={save}>
         {message && <Alert severity={message.severity} sx={{ mb: 2 }}>{message.text}</Alert>}
         {jevResult && <JevSaveResult result={jevResult} onRefresh={() => void refreshJevResult()} />}
@@ -634,7 +634,7 @@ function PolicyCard({ policy }: { policy: ScanPolicy }) {
           <Stack direction="row" gap={0.75} flexWrap="wrap">
             <Chip size="small" variant="outlined" label={plural(policy.status?.matchedVersions ?? 0, "matched version")} />
             {exemptions > 0 && <Chip size="small" color="secondary" sx={severityChipSx("exempted")} label={plural(exemptions, "exemption")} />}
-            {policy.status?.supersededBy && <Chip size="small" color="warning" sx={{ "[data-mui-color-scheme='dark'] &": { color: "#fff" } }} label={`Superseded by ${policy.status.supersededBy}`} />}
+            {policy.status?.supersededBy && <Chip size="small" color="warning" sx={severityChipSx("high")} label={`Superseded by ${policy.status.supersededBy}`} />}
           </Stack>
         </CardContent>
       </CardActionArea>
