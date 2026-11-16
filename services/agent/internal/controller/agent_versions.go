@@ -213,10 +213,6 @@ func syncAgentVersionPresign(
 		}
 
 		patch := client.MergeFrom(version.DeepCopy())
-		if version.Spec.AgentSourceRef.StorageConfig == nil {
-			version.Spec.AgentSourceRef.StorageConfig = &opendepotv1alpha1.StorageConfig{}
-		}
-
 		version.Spec.AgentSourceRef.StorageConfig.Presign = sourcePresign.DeepCopy()
 
 		if err := c.Patch(ctx, version, patch, client.FieldOwner(kind.controllerName)); err != nil {
