@@ -1,13 +1,19 @@
-go 1.25.5
+go 1.26.0
 
 use (
 	./api/v1alpha1
+	./cli
+	./pkg/agentspec
+	./pkg/archive
 	./pkg/github
 	./pkg/hclschema
+	./pkg/jev
 	./pkg/registry
+	./pkg/signing
 	./pkg/storage
 	./pkg/testutils
 	./pkg/utils
+	./services/agent
 	./services/depot
 	./services/module
 	./services/provider

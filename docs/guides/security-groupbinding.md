@@ -51,10 +51,9 @@ binding discovery fail closed. A later binding cannot bypass an invalid earlier
 binding.
 
 For a scoped operator, a policy must have no selector, at least one `targetRef`,
-and every target must be an allowed Module or Provider. The target must also be
-currently onboarded: the UI catalog lists only authorized Module and Provider
-resources that exist in the selected namespace. The server remains authoritative
-and does not trust names or scope supplied by the UI.
+and every target must be an allowed Module or Provider. The UI offers only
+existing, authorized resources in the selected namespace. The server remains
+authoritative and does not trust names or scope supplied by the UI.
 
 Selectors and empty `targetRefs` are allowed only when
 `namespaceWidePolicyManagement: true`. Updates authorize both the persisted and
@@ -79,16 +78,16 @@ endpoint for policy discovery and does not accept arbitrary target names.
 
 The global `server.policyManagement.enabled` value is a separate write gate and
 defaults to `false`. Enabling it adds write permissions to the server
-ServiceAccount; it does not grant an OIDC user access. Keep it disabled when
+ServiceAccount; it does not grant an OIDC user access. Writes are also disabled
+when `server.anonymousAuth` is `true`. Keep it disabled when
 policies are managed only through GitOps. Kubeconfig and bearer-token requests
 continue to rely on the caller's Kubernetes RBAC, while OIDC requests use the
 SecurityGroupBinding scope described above.
 
 ## Migration and Rollout
 
-Existing `GroupBinding` policy-management fields are not the authorization model
-for this implementation. Create and test SecurityGroupBindings before enabling
-UI writes. A least-privilege migration is:
+Create and test SecurityGroupBindings before enabling UI writes. A
+least-privilege rollout is:
 
 1. Apply the `SecurityGroupBinding` CRD and create a binding with explicit namespaces and resource lists.
 2. Confirm the catalog exposes only the intended namespaces and onboarded targets.

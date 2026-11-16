@@ -215,8 +215,7 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | `server.oidc.enabled` | `false` | Enable OIDC JWT validation |
 | `server.oidc.issuerUrl` | `""` | OIDC issuer URL. When blank and `dex.enabled=true`, the chart auto-derives the in-cluster Dex URL |
 | `server.oidc.clientId` | `opendepot` | Dex client ID. Must match the `id` of the Dex `staticClient` |
-| `server.oidc.clientSecretName` | `""` | Name of an existing `Secret` containing a `clientSecret` key. When blank, the chart creates the Secret from `server.oidc.clientSecret` |
-| `server.oidc.clientSecret` | `""` | Client secret written to a managed Secret. Do not commit in plain text — use an external secret operator in production |
+| `server.oidc.clientSecretName` | `""` | Name of an existing `Secret` containing the `OPENDEPOT_DEX_CLIENT_SECRET` key. The chart does not create it. When Dex and OIDC are enabled, required and must match a `dex.envFrom` `secretRef` name |
 | `server.oidc.groupsClaim` | `""` | JWT claim name for groups. Defaults to `groups`; set to `cognito:groups`, `roles`, etc. for non-standard IdPs |
 | `server.oidc.allowServiceAccountFallback` | `false` | When `true`, Kubernetes ServiceAccount tokens are accepted alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on K8s RBAC directly |
 | `server.oidc.allowClientCredentials` | `false` | When `true`, Dex client credentials tokens are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against GroupBinding resources |
@@ -286,10 +285,18 @@ Provider binary and source scanning (`scanning.providerScanning`) requires an ad
 | `scanning.blockOnHigh` | `false` | Block reconciliation when HIGH vulnerabilities are found |
 | `scanning.cache.storageClassName` | `""` | `StorageClass` for the Trivy DB PVC. Must support `ReadWriteMany` for multi-node clusters |
 | `scanning.cache.accessMode` | `ReadWriteMany` | Access mode for the Trivy DB PVC. Use `ReadWriteOnce` for single-node environments |
-| `scanning.cache.size` | `1Gi` | Size of the Trivy DB cache PVC |
+| `scanning.cache.size` | `5Gi` | Size of the Trivy DB cache PVC. The vulnerability DB and its extracted copy need more than 1Gi |
 | `scanning.dbUpdater.schedule` | `0 2 * * *` | Cron schedule for the Trivy DB update job |
 | `scanning.dbUpdater.image.repository` | `aquasec/trivy` | Image for the DB updater CronJob |
 | `scanning.dbUpdater.image.tag` | `0.70.0` | Tag for the DB updater image |
+
+### Branch Sourcing
+
+Skill and Agent sources can follow a Git branch by setting `ref` on the source. Branch sourcing is off by default. This value sets `--branch-sourcing-enabled` on both the depot and the version controllers. Enable it on both at once, since the flag gates the depot and the version controller together.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `branchSourcing.enabled` | `false` | Pass `--branch-sourcing-enabled` to the depot and version controllers. While `false`, the depot skips branch sources and the version controller rejects branch Versions |
 
 ### Assembly Line
 

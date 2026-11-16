@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -562,6 +564,377 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 	return items, nil
 }
 
+// agentCardStatus holds the status fields a browse card reads from a Skill or Agent.
+type agentCardStatus struct {
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	Synced        bool    `json:"synced"`
+	SyncStatus    string  `json:"syncStatus"`
+}
+
+// agentCardObject is a Skill or Agent as returned by the Kubernetes API.
+type agentCardObject struct {
+	Metadata metav1.ObjectMeta `json:"metadata"`
+	Spec     agentCardSpec     `json:"spec"`
+	Status   agentCardStatus   `json:"status"`
+}
+
+// agentCardSpec is the subset of a Skill or Agent spec used by the browse endpoint.
+type agentCardSpec struct {
+	AgentSourceConfig opendepotv1alpha1.AgentSourceConfig `json:"agentSourceConfig"`
+}
+
+// browseCollectAgentResources fetches and filters Skill or Agent resources for the browse endpoint.
+func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, kind string) ([]BrowseResource, error) {
+	resource := browseAgentResource(kind)
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource(resource).
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", resource, err)
+	}
+
+	var list struct {
+		Items []agentCardObject `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s list: %w", resource, err)
+	}
+
+	dlStats, err := batchResourceDownloadStats(r.Context(), func() []string {
+		keys := make([]string, 0, len(list.Items))
+		for _, a := range list.Items {
+			keys = append(keys, a.Metadata.Namespace+"/"+kind+"/"+a.Metadata.Name)
+		}
+
+		return keys
+	}())
+	if err != nil {
+		// Download counts are supplementary: serve the cards without them rather than
+		// failing the whole listing when the stats backend is unavailable.
+		logger.Error("browse: failed to load "+kind+" download stats", "error", err)
+	}
+
+	jevStates := browseAgentJevStates(cs, r, kind)
+
+	var items []BrowseResource
+	for _, a := range list.Items {
+		ns := a.Metadata.Namespace
+		if len(nsFilter) > 0 && !nsFilter[ns] {
+			continue
+		}
+
+		pub := nsPublic[ns] && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, publicOnly, allAccess, binding, kind, a.Metadata.Name) {
+			continue
+		}
+
+		card := agentToCard(kind, a, pub)
+		state := jevStates[browseAgentRiskKey(ns, kind, a.Metadata.Name, opendepotUtils.SanitizeVersion(card.LatestVersion))]
+		card.JevRiskLevel = state.riskLevel
+		card.Blocked = state.blocked
+		card.BlockReasons = state.blockReasons
+		enrichResourceWithDownloads(&card, dlStats)
+		items = append(items, card)
+	}
+	return items, nil
+}
+
+// browseAgentJevState is the Jev state of a Skill or Agent Version shown on its browse card.
+type browseAgentJevState struct {
+	riskLevel    string
+	blocked      bool
+	blockReasons []string
+	evaluatedAt  time.Time
+}
+
+// browseAgentJevStates maps each assessed Skill or Agent Version to its Jev state, keyed by
+// browseAgentRiskKey. Unversioned Versions are included so a blocked branch Version without a version still
+// surfaces on its card, and the newest assessment wins when several share a key. A failed Version list is
+// logged and yields an empty map so the cards still render without Jev state.
+func browseAgentJevStates(cs *kubernetes.Clientset, r *http.Request, kind string) map[string]browseAgentJevState {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		logger.Error("browse: failed to list versions for "+kind+" jev state", "error", err)
+		return nil
+	}
+
+	var list opendepotv1alpha1.VersionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		logger.Error("browse: failed to unmarshal versions for "+kind+" jev state", "error", err)
+		return nil
+	}
+
+	states := make(map[string]browseAgentJevState)
+	for _, v := range list.Items {
+		assessment := v.Status.JevAssessment
+		if assessment == nil || (assessment.RiskLevel == "" && !assessment.Blocked) {
+			continue
+		}
+
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil || strings.ToLower(v.Spec.Type) != kind {
+			continue
+		}
+
+		evaluatedAt, err := time.Parse(time.RFC3339Nano, assessment.EvaluatedAt)
+		if err != nil {
+			evaluatedAt = time.Time{}
+		}
+
+		key := browseAgentRiskKey(v.Namespace, kind, *v.Spec.AgentSourceRef.Name, opendepotUtils.SanitizeVersion(v.Spec.Version))
+		if existing, ok := states[key]; ok && !evaluatedAt.After(existing.evaluatedAt) {
+			continue
+		}
+
+		states[key] = browseAgentJevState{
+			riskLevel:    assessment.RiskLevel,
+			blocked:      assessment.Blocked,
+			blockReasons: assessment.BlockReasons,
+			evaluatedAt:  evaluatedAt,
+		}
+	}
+
+	return states
+}
+
+// browseAgentRiskKey identifies a Skill or Agent Version for risk level lookups.
+func browseAgentRiskKey(namespace, kind, name, version string) string {
+	return namespace + "/" + kind + "/" + name + "@" + version
+}
+
+// browseAgentResource returns the plural Kubernetes resource name for a Skill or Agent browse kind.
+func browseAgentResource(kind string) string {
+	if kind == "agent" {
+		return "agents"
+	}
+
+	return "skills"
+}
+
+// branchPhaseRejected is the BranchPhase of a branch Version that was rejected and will not be retried.
+const branchPhaseRejected = "Rejected"
+
+// browseListAgentVersions returns the Version resources belonging to the named Skill or Agent
+// that have an assigned version.
+func browseListAgentVersions(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string) ([]opendepotv1alpha1.Version, error) {
+	return browseListAgentVersionsWhere(cs, r, namespace, kind, name, func(v *opendepotv1alpha1.Version) bool {
+		return v.Spec.Version != ""
+	})
+}
+
+// browseListAgentVersionRows returns the Version resources belonging to the named Skill or Agent
+// that have an assigned version, plus branch Versions that were blocked or rejected before one
+// was assigned, so the browse view can show why they were not published.
+func browseListAgentVersionRows(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string) ([]opendepotv1alpha1.Version, error) {
+	return browseListAgentVersionsWhere(cs, r, namespace, kind, name, func(v *opendepotv1alpha1.Version) bool {
+		return v.Spec.Version != "" || agentVersionBlocked(v) || v.Status.BranchPhase == branchPhaseRejected
+	})
+}
+
+// browseListAgentVersionsWhere lists the Versions of the named Skill or Agent that match keep.
+func browseListAgentVersionsWhere(cs *kubernetes.Clientset, r *http.Request, namespace, kind, name string, keep func(*opendepotv1alpha1.Version) bool) ([]opendepotv1alpha1.Version, error) {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list versions in %s: %w", namespace, err)
+	}
+
+	var list opendepotv1alpha1.VersionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal version list: %w", err)
+	}
+
+	var result []opendepotv1alpha1.Version
+	for _, v := range list.Items {
+		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil {
+			continue
+		}
+
+		if *v.Spec.AgentSourceRef.Name != name || strings.ToLower(v.Spec.Type) != kind {
+			continue
+		}
+
+		if !keep(&v) {
+			continue
+		}
+
+		result = append(result, v)
+	}
+
+	return result, nil
+}
+
+// agentVersionsWithVersion returns the Versions that have an assigned version string.
+func agentVersionsWithVersion(versions []opendepotv1alpha1.Version) []opendepotv1alpha1.Version {
+	result := make([]opendepotv1alpha1.Version, 0, len(versions))
+	for _, v := range versions {
+		if v.Spec.Version != "" {
+			result = append(result, v)
+		}
+	}
+
+	return result
+}
+
+// agentToCard converts a Skill or Agent to a BrowseResource card.
+func agentToCard(kind string, a agentCardObject, public bool) BrowseResource {
+	return BrowseResource{
+		Kind:          kind,
+		Namespace:     a.Metadata.Namespace,
+		Name:          a.Metadata.Name,
+		Synced:        a.Status.Synced,
+		SyncStatus:    a.Status.SyncStatus,
+		Public:        public,
+		LatestVersion: derefString(a.Status.LatestVersion),
+		RepoURL:       agentRepoURL(a.Spec.AgentSourceConfig),
+		SourceRef:     derefString(a.Spec.AgentSourceConfig.Ref),
+		SourcePath:    a.Spec.AgentSourceConfig.Path,
+	}
+}
+
+// agentRepoURL returns the GitHub repository URL for a Skill or Agent source. RepoUrl is used when it is
+// already https://github.com/<owner>/<repo>. Otherwise the URL is built from RepoOwner and the repository name.
+func agentRepoURL(cfg opendepotv1alpha1.AgentSourceConfig) string {
+	if cfg.RepoUrl != nil {
+		trimmed := strings.TrimSuffix(strings.TrimSpace(*cfg.RepoUrl), "/")
+		if path, ok := strings.CutPrefix(trimmed, "https://github.com/"); ok {
+			segments := strings.Split(path, "/")
+			if len(segments) == 2 && segments[0] != "" && segments[1] != "" {
+				return trimmed
+			}
+		}
+	}
+
+	repoName := agentSourceRepoName(cfg)
+	if cfg.RepoOwner == "" || repoName == "" {
+		return ""
+	}
+
+	return "https://github.com/" + cfg.RepoOwner + "/" + repoName
+}
+
+// agentSourceRepoName returns the last path segment of RepoUrl, falling back to the source Name.
+func agentSourceRepoName(cfg opendepotv1alpha1.AgentSourceConfig) string {
+	if cfg.RepoUrl != nil && strings.TrimSpace(*cfg.RepoUrl) != "" {
+		segments := strings.Split(strings.TrimSuffix(strings.TrimSpace(*cfg.RepoUrl), "/"), "/")
+		return segments[len(segments)-1]
+	}
+
+	return derefString(cfg.Name)
+}
+
+// agentVersionCommit returns the commit SHA for a Skill or Agent Version, preferring the status value.
+func agentVersionCommit(v *opendepotv1alpha1.Version) string {
+	if v.Status.SourceCommit != "" {
+		return v.Status.SourceCommit
+	}
+
+	return v.Spec.SourceCommit
+}
+
+// agentLatestVersion returns the Version whose sanitized spec.version matches latestVersionStr, or nil.
+func agentLatestVersion(versions []opendepotv1alpha1.Version, latestVersionStr string) *opendepotv1alpha1.Version {
+	if latestVersionStr == "" {
+		return nil
+	}
+
+	for i := range versions {
+		if opendepotUtils.SanitizeVersion(versions[i].Spec.Version) == latestVersionStr {
+			return &versions[i]
+		}
+	}
+
+	return nil
+}
+
+// agentLatestAssessedVersion returns the Version whose Jev assessment was evaluated most recently,
+// or nil when no Version has one.
+func agentLatestAssessedVersion(versions []opendepotv1alpha1.Version) *opendepotv1alpha1.Version {
+	var latest *opendepotv1alpha1.Version
+	var latestAt time.Time
+	for i := range versions {
+		assessment := versions[i].Status.JevAssessment
+		if assessment == nil {
+			continue
+		}
+
+		evaluatedAt, err := time.Parse(time.RFC3339Nano, assessment.EvaluatedAt)
+		if err != nil {
+			evaluatedAt = time.Time{}
+		}
+
+		if latest == nil || evaluatedAt.After(latestAt) {
+			latest = &versions[i]
+			latestAt = evaluatedAt
+		}
+	}
+
+	return latest
+}
+
+// browseAgentKind maps the browse kind segment to the agentKind used by the registry.
+func browseAgentKind(kind string) agentKind {
+	if kind == "agent" {
+		return agentKind{resource: "agents", prefix: "agent", versionType: opendepotv1alpha1.OpenDepotAgent}
+	}
+
+	return agentKind{resource: "skills", prefix: "skill", versionType: opendepotv1alpha1.OpenDepotSkill}
+}
+
+// exemptionPolicyNamePattern matches the ScanPolicy name that jevPublishedStatus writes into Version.status.syncStatus.
+var exemptionPolicyNamePattern = regexp.MustCompile(`exempted by ScanPolicy [^\s:]+`)
+
+// browseSyncStatus withholds the ScanPolicy name that exempted a Jev block from OIDC callers. The name is replaced
+// in a copy of the status, so the cached Version is not modified.
+func browseSyncStatus(syncStatus string) string {
+	if oidcVerifier == nil {
+		return syncStatus
+	}
+
+	return exemptionPolicyNamePattern.ReplaceAllString(syncStatus, "exempted by a ScanPolicy")
+}
+
+// agentVersionSummaries converts Skill or Agent Version resources to BrowseVersionSummary.
+// Versions the registry would not serve keep their row, so the browse view can show
+// status and scan results, but their download metadata is omitted.
+func agentVersionSummaries(kind agentKind, name string, versions []opendepotv1alpha1.Version) []BrowseVersionSummary {
+	summaries := make([]BrowseVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		s := BrowseVersionSummary{
+			Name:        v.Name,
+			Version:     v.Spec.Version,
+			Synced:      v.Status.Synced,
+			SyncStatus:  browseSyncStatus(v.Status.SyncStatus),
+			Commit:      agentVersionCommit(&v),
+			BranchPhase: v.Status.BranchPhase,
+		}
+
+		if agentVersionBlocked(&v) {
+			s.Blocked = true
+			s.BlockReasons = v.Status.JevAssessment.BlockReasons
+		}
+
+		if agentVersionServable(&v, kind, name) {
+			s.FileName = v.Spec.FileName
+			s.Checksum = v.Status.Checksum
+			s.ArchiveSizeBytes = v.Status.ArchiveSizeBytes
+		}
+
+		summaries = append(summaries, s)
+	}
+
+	return summaries
+}
+
 // handleBrowseNamespaces returns the list of namespaces that carry the
 // opendepot.defdev.io/public=true label. The label filter is enforced at the
 // Kubernetes API level in browseListNamespaces, so system namespaces
@@ -605,14 +978,14 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 // Query parameters:
 //
 //	namespace   - repeat for multi-namespace filter (default: all visible namespaces)
-//	kind        - "module" or "provider" (default: both)
+//	kind        - "module", "provider", "skill", or "agent" (default: module and provider)
 //	q           - search text matched against name, namespace, provider, repoUrl
 //	synced      - "true"/"false" filter by sync status
 //	os          - filter providers by supported OS
 //	arch        - filter providers by supported architecture
 //	severity    - minimum severity: CRITICAL/HIGH/MEDIUM/LOW
 //	public_only - "true" show only public resources
-//	sort_by     - name|namespace|latest_version|synced|severity|last_scanned (default: name)
+//	sort_by     - name|namespace|latest_version|kind|source|status|risk|synced|severity|last_scanned (default: name)
 //	sort_dir    - asc|desc (default: asc)
 //	page        - 1-based page number (default: 1)
 //	page_size   - items per page (default: 20, max: 100)
@@ -703,6 +1076,21 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 		}
 
 		items = append(items, providers...)
+	}
+
+	for _, agentKindName := range []string{"skill", "agent"} {
+		if filterKind != "" && filterKind != agentKindName {
+			continue
+		}
+
+		agents, err := browseCollectAgentResources(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, agentKindName)
+		if err != nil {
+			logger.Error("browse: failed to collect "+agentKindName+"s", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		items = append(items, agents...)
 	}
 
 	items = applyBrowseFilters(items, searchText, filterSynced, filterSeverity)
@@ -801,7 +1189,7 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = moduleVersionSummaries(versions)
-		detail.SourceScanFindings = collectModuleSourceFindings(versions)
+		detail.SourceScanFindings = browseScanFindings(collectModuleSourceFindings(versions))
 		detail.StorageConfig = storageConfigToBrowse(m.Spec.ModuleConfig.StorageConfig)
 		detail.RepoOwner = m.Spec.ModuleConfig.RepoOwner
 		detail.VersionHistoryLimit = m.Spec.ModuleConfig.VersionHistoryLimit
@@ -863,10 +1251,10 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail := BrowseResourceDetail{BrowseResource: card}
 		detail.Versions = providerVersionSummaries(p, versions)
 		if latestScan := findProviderSourceScanFromVersions(versions, ""); latestScan != nil {
-			detail.SourceScanFindings = latestScan.Findings
+			detail.SourceScanFindings = browseScanFindings(latestScan.Findings)
 		}
 
-		detail.BinaryScanFindings = collectBinaryFindings(versions)
+		detail.BinaryScanFindings = browseBinaryScanFindings(collectBinaryFindings(versions))
 		detail.StorageConfig = storageConfigToBrowse(p.Spec.ProviderConfig.StorageConfig)
 		detail.VersionHistoryLimit = p.Spec.ProviderConfig.VersionHistoryLimit
 		detail.VersionConstraints = p.Spec.ProviderConfig.VersionConstraints
@@ -886,9 +1274,168 @@ func handleBrowseResourceDetail(w http.ResponseWriter, r *http.Request) {
 		detail.DepotRef = browseDepotForProvider(cs, r, namespace, name)
 		json.NewEncoder(w).Encode(detail)
 
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		card := agentToCard(kind, a, pub)
+
+		rows, err := browseListAgentVersionRows(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		versions := agentVersionsWithVersion(rows)
+
+		detail := BrowseResourceDetail{BrowseResource: card}
+		detail.Versions = agentVersionSummaries(browseAgentKind(kind), name, rows)
+		detail.JevThresholds = a.Spec.AgentSourceConfig.JevPolicy
+		detail.StorageConfig = storageConfigToBrowse(a.Spec.AgentSourceConfig.StorageConfig)
+		detail.RepoOwner = a.Spec.AgentSourceConfig.RepoOwner
+		detail.SourcePath = a.Spec.AgentSourceConfig.Path
+
+		if a.Spec.AgentSourceConfig.GithubClientConfig != nil {
+			detail.GithubConfig = &BrowseGithubConfig{
+				UseAuthenticatedClient: a.Spec.AgentSourceConfig.GithubClientConfig.UseAuthenticatedClient,
+			}
+		}
+
+		latestVersionStr := resolveLatestModuleVersion(&card, versions)
+		detail.DefinitionContent, detail.DefinitionFileName = browseAgentDefinition(cs, r, namespace, versions, latestVersionStr)
+		if latest := agentLatestVersion(versions, latestVersionStr); latest != nil {
+			detail.AgentMetadata = latest.Status.AgentMetadata
+			if latest.Status.SourceScan != nil {
+				detail.SourceScanFindings = browseScanFindings(latest.Status.SourceScan.Findings)
+			}
+
+			if card.SourceRef != "" {
+				detail.SourceCommit = agentVersionCommit(latest)
+			}
+		}
+
+		// The newest Jev assessment can belong to a blocked or rejected attempt, which has no version yet.
+		if assessed := agentLatestAssessedVersion(rows); assessed != nil {
+			detail.JevAssessment = browseJevAssessment(assessed.Status.JevAssessment)
+			detail.JevExemptionGovernance = browseJevExemptionGovernance(assessed.Status.JevExemptionGovernance)
+			detail.JevUnblock = browseJevUnblock(assessed.Status.JevUnblock)
+		}
+
+		json.NewEncoder(w).Encode(detail)
+
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
+}
+
+// browseJevAssessment returns a copy of the assessment for the browse response. For OIDC callers, the name of the
+// ScanPolicy that exempted the assessment is withheld, like the other ScanPolicy names in the response.
+func browseJevAssessment(assessment *opendepotv1alpha1.JevAssessment) *opendepotv1alpha1.JevAssessment {
+	if assessment == nil {
+		return nil
+	}
+
+	out := assessment.DeepCopy()
+	if oidcVerifier != nil {
+		out.ExemptedBy = ""
+	}
+
+	return out
+}
+
+// browseScanFindings returns a copy of the findings for the browse response. For OIDC callers, the name of the
+// ScanPolicy that exempted each finding is withheld, like the ScanPolicy name on the JEV assessment. The copy keeps
+// the cached Version status unchanged.
+func browseScanFindings(findings []opendepotv1alpha1.SecurityFinding) []opendepotv1alpha1.SecurityFinding {
+	if findings == nil {
+		return nil
+	}
+
+	out := make([]opendepotv1alpha1.SecurityFinding, len(findings))
+	copy(out, findings)
+	if oidcVerifier != nil {
+		for i := range out {
+			out[i].ExemptedBy = ""
+		}
+	}
+
+	return out
+}
+
+// browseBinaryScanFindings applies browseScanFindings to each os/arch entry of a provider's binary findings.
+func browseBinaryScanFindings(findings map[string][]opendepotv1alpha1.SecurityFinding) map[string][]opendepotv1alpha1.SecurityFinding {
+	if findings == nil {
+		return nil
+	}
+
+	out := make(map[string][]opendepotv1alpha1.SecurityFinding, len(findings))
+	for key, entries := range findings {
+		out[key] = browseScanFindings(entries)
+	}
+
+	return out
+}
+
+// browseJevExemptionGovernance returns a copy of the governance for the browse response. ScanPolicy names are visible
+// only when OIDC is not configured, which matches the ScanPolicy list. Browse resolves GroupBindings but not
+// SecurityGroupBindings, so it cannot apply the list's per-policy check for OIDC callers. Those callers get no names.
+func browseJevExemptionGovernance(governance *opendepotv1alpha1.JevExemptionGovernance) *opendepotv1alpha1.JevExemptionGovernance {
+	if governance == nil {
+		return nil
+	}
+
+	out := governance.DeepCopy()
+	if oidcVerifier != nil {
+		out.GoverningPolicy = ""
+		out.MatchingPolicy = ""
+	}
+
+	return out
+}
+
+// browseJevUnblock returns a copy of the unblock state for the browse response. For OIDC callers, the policy names are
+// withheld and NamesHidden is set. The state itself is not changed, so the caller still sees what is needed.
+func browseJevUnblock(unblock *opendepotv1alpha1.JevUnblock) *opendepotv1alpha1.JevUnblock {
+	if unblock == nil {
+		return nil
+	}
+
+	out := unblock.DeepCopy()
+	if oidcVerifier != nil {
+		hadName := out.GoverningPolicy != "" || out.MatchingPolicy != ""
+		out.GoverningPolicy = ""
+		out.MatchingPolicy = ""
+		out.NamesHidden = hadName
+	}
+
+	return out
 }
 
 // moduleToCard converts a Module resource to a BrowseResource card.
@@ -1006,6 +1553,46 @@ func browseModuleReadme(cs *kubernetes.Clientset, r *http.Request, namespace str
 
 	content := string(decoded)
 	return &content
+}
+
+// browseAgentDefinition resolves the base64-decoded definition file for a Skill or Agent's latest Version,
+// along with its file name, if that Version has a DefinitionConfigMapRef set. Failures are non-fatal and
+// return empty values so the UI simply omits the definition section.
+func browseAgentDefinition(cs *kubernetes.Clientset, r *http.Request, namespace string, versions []opendepotv1alpha1.Version, latestVersionStr string) (*string, string) {
+	latest := agentLatestVersion(versions, latestVersionStr)
+	if latest == nil || latest.Status.DefinitionConfigMapRef == nil {
+		return nil, ""
+	}
+
+	ref := latest.Status.DefinitionConfigMapRef
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/api/v1").
+		Namespace(namespace).
+		Resource("configmaps").
+		Name(ref.Name).
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, ""
+	}
+
+	var cm k8sConfigMap
+	if err := json.Unmarshal(raw, &cm); err != nil {
+		return nil, ""
+	}
+
+	encoded, ok := cm.Data[ref.Key]
+	if !ok {
+		return nil, ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, ""
+	}
+
+	content := string(decoded)
+	return &content, ref.FileName
 }
 
 // enrichProviderCard sets Platforms, ScanCounts, and LastScanned on a provider card.
@@ -1184,7 +1771,7 @@ func moduleVersionSummaries(versions []opendepotv1alpha1.Version) []BrowseVersio
 			Name:             v.Name,
 			Version:          v.Spec.Version,
 			Synced:           v.Status.Synced,
-			SyncStatus:       v.Status.SyncStatus,
+			SyncStatus:       browseSyncStatus(v.Status.SyncStatus),
 			FileName:         v.Spec.FileName,
 			Checksum:         v.Status.Checksum,
 			ArchiveSizeBytes: v.Status.ArchiveSizeBytes,
@@ -1217,7 +1804,7 @@ func providerVersionSummaries(p opendepotv1alpha1.Provider, versions []opendepot
 			Name:             v.Name,
 			Version:          opendepotUtils.SanitizeVersion(v.Spec.Version),
 			Synced:           v.Status.Synced,
-			SyncStatus:       v.Status.SyncStatus,
+			SyncStatus:       browseSyncStatus(v.Status.SyncStatus),
 			OS:               v.Spec.OperatingSystem,
 			Arch:             v.Spec.Architecture,
 			FileName:         v.Spec.FileName,
@@ -1494,6 +2081,32 @@ func sortBrowseItems(items []BrowseResource, by, dir string) {
 			return a.Name < b.Name
 		case "last_scanned":
 			return a.LastScanned < b.LastScanned
+		case "kind":
+			if a.Kind != b.Kind {
+				return a.Kind < b.Kind
+			}
+
+			return a.Name < b.Name
+		case "source":
+			if a.SourceRef != b.SourceRef {
+				return a.SourceRef < b.SourceRef
+			}
+
+			return a.Name < b.Name
+		case "status":
+			ra, rb := browseStatusRank(a), browseStatusRank(b)
+			if ra != rb {
+				return ra < rb
+			}
+
+			return a.Name < b.Name
+		case "risk":
+			ra, rb := browseRiskRank(a), browseRiskRank(b)
+			if ra != rb {
+				return ra < rb
+			}
+
+			return a.Name < b.Name
 		default: // "name"
 			if a.Name != b.Name {
 				return a.Name < b.Name
@@ -1510,6 +2123,50 @@ func sortBrowseItems(items []BrowseResource, by, dir string) {
 
 		return less(i, j)
 	})
+}
+
+// browseStatusRank orders rows so problems come first: blocked, failed, not synced, then synced.
+func browseStatusRank(r BrowseResource) int {
+	if (r.Kind == "agent" || r.Kind == "skill") && r.Blocked {
+		return 0
+	}
+
+	lower := strings.ToLower(r.SyncStatus)
+	if strings.Contains(lower, "failed") || strings.Contains(lower, "error") {
+		return 1
+	}
+
+	if !r.Synced {
+		return 2
+	}
+
+	return 3
+}
+
+// browseRiskRank orders rows by their most severe signal, either scan findings or the Jev assessment.
+func browseRiskRank(r BrowseResource) int {
+	rank := severityRank(highestSeverity(r.ScanCounts))
+	if jev := jevRiskRank(r.JevRiskLevel); jev < rank {
+		rank = jev
+	}
+
+	return rank
+}
+
+// jevRiskRank maps a Jev risk level to the same ordering as severityRank, with Critical first.
+func jevRiskRank(level string) int {
+	switch level {
+	case "Critical":
+		return 0
+	case "High":
+		return 1
+	case "Moderate":
+		return 2
+	case "Low", "Minimal":
+		return 3
+	default:
+		return 4
+	}
 }
 
 // derefString safely dereferences a *string, returning "" when nil.
@@ -1813,8 +2470,56 @@ func handleBrowseVersionsList(w http.ResponseWriter, r *http.Request) {
 		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
 		json.NewEncoder(w).Encode(result)
 
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		rows, err := browseListAgentVersionRows(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		summaries := agentVersionSummaries(browseAgentKind(kind), name, rows)
+		enrichVersionSummariesWithDownloads(r.Context(), summaries, namespace, kind, name)
+		sort.SliceStable(summaries, func(i, j int) bool {
+			return compareVersionDesc(summaries[i].Version, summaries[j].Version)
+		})
+
+		result := filterAndPaginateVersions(summaries, q, syncedStr, osFilter, archFilter, page, pageSize)
+		json.NewEncoder(w).Encode(result)
+
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
 }
 
@@ -1921,7 +2626,83 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if selectedVersion != nil {
-			result.SourceScanFindings = deduplicateFindings(selectedVersion.Status.SourceScan.Findings)
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(selectedVersion.Status.SourceScan.Findings))
+			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
+		}
+
+		result.ScannedVersions = scannedVersions
+		json.NewEncoder(w).Encode(result)
+
+	case "skill", "agent":
+		rawAgent, err := cs.RESTClient().
+			Get().
+			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+			Namespace(namespace).
+			Resource(browseAgentResource(kind)).
+			Name(name).
+			DoRaw(r.Context())
+		if err != nil {
+			if k8sApiErrors.IsNotFound(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+
+			logger.Error("browse: failed to get "+kind, "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var a agentCardObject
+		if err := json.Unmarshal(rawAgent, &a); err != nil {
+			logger.Error("browse: failed to unmarshal "+kind, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		pub := nsPublic && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		versions, err := browseListAgentVersions(cs, r, namespace, kind, name)
+		if err != nil {
+			logger.Error("browse: failed to list "+kind+" versions", "namespace", namespace, "name", name, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var scannedVersions []string
+		for _, v := range versions {
+			if v.Status.SourceScan != nil {
+				scannedVersions = append(scannedVersions, opendepotUtils.SanitizeVersion(v.Spec.Version))
+			}
+		}
+
+		sort.Slice(scannedVersions, func(i, j int) bool {
+			return compareVersionDesc(scannedVersions[i], scannedVersions[j])
+		})
+
+		var result BrowseScanFindings
+		var selectedVersion *opendepotv1alpha1.Version
+		normalizedRequest := opendepotUtils.SanitizeVersion(requestedVersion)
+		for i := range versions {
+			v := &versions[i]
+			if v.Status.SourceScan == nil {
+				continue
+			}
+
+			if normalizedRequest != "" && opendepotUtils.SanitizeVersion(v.Spec.Version) == normalizedRequest {
+				selectedVersion = v
+				break
+			}
+
+			if selectedVersion == nil || compareVersionDesc(opendepotUtils.SanitizeVersion(v.Spec.Version), opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)) {
+				selectedVersion = v
+			}
+		}
+		if selectedVersion != nil {
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(selectedVersion.Status.SourceScan.Findings))
 			result.SelectedVersion = opendepotUtils.SanitizeVersion(selectedVersion.Spec.Version)
 		}
 
@@ -1969,12 +2750,12 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 
 		versions = providerVersionsFor(versions, p.Name)
 		result := BrowseScanFindings{
-			BinaryScanFindings: collectBinaryFindingsForVersion(versions, requestedBinaryVersion),
+			BinaryScanFindings: browseBinaryScanFindings(collectBinaryFindingsForVersion(versions, requestedBinaryVersion)),
 		}
 
 		requestedSemver := opendepotUtils.SanitizeVersion(requestedVersion)
 		if scan := findProviderSourceScanFromVersions(versions, requestedSemver); scan != nil {
-			result.SourceScanFindings = deduplicateFindings(scan.Findings)
+			result.SourceScanFindings = browseScanFindings(deduplicateFindings(scan.Findings))
 			result.SelectedVersion = requestedSemver
 		}
 
@@ -2033,7 +2814,7 @@ func handleBrowseScanFindings(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(result)
 
 	default:
-		http.Error(w, "kind must be 'module' or 'provider'", http.StatusBadRequest)
+		http.Error(w, "kind must be 'module', 'provider', 'skill', or 'agent'", http.StatusBadRequest)
 	}
 }
 
@@ -2118,6 +2899,50 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(result)
+}
+
+// browseGraphAgentNodes lists Skill or Agent resources as depot graph nodes.
+func browseGraphAgentNodes(ctx context.Context, cs *kubernetes.Clientset, ns string, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess bool, kind string) ([]BrowseGraphAgent, error) {
+	resource := browseAgentResource(kind)
+	req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource(resource)
+	if ns != "" {
+		req = cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Namespace(ns).Resource(resource)
+	}
+
+	raw, err := req.DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %w", resource, err)
+	}
+
+	var list struct {
+		Items []agentCardObject `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s list: %w", resource, err)
+	}
+
+	nodes := make([]BrowseGraphAgent, 0, len(list.Items))
+	for _, a := range list.Items {
+		pub := nsPublic[a.Metadata.Namespace] && isPublicResource(a.Metadata.Labels)
+		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
+			continue
+		}
+
+		node := BrowseGraphAgent{
+			ID:         fmt.Sprintf("%s/%s/%s", kind, a.Metadata.Namespace, a.Metadata.Name),
+			Kind:       kind,
+			Namespace:  a.Metadata.Namespace,
+			Name:       a.Metadata.Name,
+			Synced:     a.Status.Synced,
+			SyncStatus: a.Status.SyncStatus,
+		}
+		if a.Status.LatestVersion != nil {
+			node.LatestVersion = *a.Status.LatestVersion
+		}
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
 }
 
 // handleBrowseDepotsGraph builds and returns the depot relationship graph.
@@ -2257,10 +3082,26 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	skillNodes, err := browseGraphAgentNodes(r.Context(), cs, ns, nsPublic, binding, allAccess, "skill")
+	if err != nil {
+		logger.Error("browse: graph: failed to list skills", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	agentNodes, err := browseGraphAgentNodes(r.Context(), cs, ns, nsPublic, binding, allAccess, "agent")
+	if err != nil {
+		logger.Error("browse: graph: failed to list agents", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	graph := BrowseDepotGraph{
 		Depots:      []BrowseGraphDepot{},
 		Modules:     []BrowseGraphModule{},
 		Providers:   []BrowseGraphProvider{},
+		Skills:      skillNodes,
+		Agents:      agentNodes,
 		Edges:       []BrowseGraphEdge{},
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -2279,6 +3120,8 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 			Name:                 d.Name,
 			ManagedModuleNames:   d.Status.Modules,
 			ManagedProviderNames: d.Status.Providers,
+			ManagedSkillNames:    d.Status.Skills,
+			ManagedAgentNames:    d.Status.Agents,
 		}
 
 		node.PollingIntervalMinutes = d.Spec.PollingIntervalMinutes
@@ -2374,6 +3217,8 @@ func handleBrowseDepotsGraph(w http.ResponseWriter, r *http.Request) {
 		TotalDepots:    len(graph.Depots),
 		TotalModules:   len(graph.Modules),
 		TotalProviders: len(graph.Providers),
+		TotalSkills:    len(graph.Skills),
+		TotalAgents:    len(graph.Agents),
 	}
 
 	json.NewEncoder(w).Encode(graph)

@@ -31,7 +31,7 @@ Thank you for your interest in contributing to OpenDepot! This guide covers the 
 
 | Tool | Minimum version | Notes |
 |------|----------------|-------|
-| Go | 1.25 | All service modules target `go 1.25.5` |
+| Go | 1.26 | All service modules target `go 1.26.0` |
 | Docker | 17.03+ | Used to build controller images |
 | [kind](https://kind.sigs.k8s.io/) | v0.23+ | Local Kubernetes cluster |
 | [ctlptl](https://github.com/tilt-dev/ctlptl) | v0.9+ | Manages the persistent development cluster and registry |
@@ -100,6 +100,15 @@ The launcher performs the following setup before starting Tilt:
 - Selects and verifies the `kind-opendepot` Kubernetes context.
 - Creates the `opendepot-system` namespace and local UI, OIDC, and GPG secrets, including one random OIDC client credential shared by the UI and Dex.
 - Generates the ignored `tilt/.generated/values.yaml` file containing the hashed Dex password.
+
+To enable the TypeSafe Jev assessment in the Tilt cluster, export your key before starting. The launcher creates the `opendepot-jev` Secret with key `jevToken` and enables `scanning.jev` in the generated values:
+
+```bash
+export OPENDEPOT_JEV_API_KEY='your-jev-api-key'
+tilt/scripts/up.sh
+```
+
+Jev still runs only for Skills and Agents that set `spec.jevSecretRef` and a `jevPolicy`. Leaving `OPENDEPOT_JEV_API_KEY` unset keeps Jev disabled.
 
 The scripts set the Docker API compatibility version required by ctlptl automatically. You do not need to export `DOCKER_API_VERSION` yourself.
 

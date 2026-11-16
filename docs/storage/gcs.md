@@ -35,10 +35,11 @@ OpenDepot uses [Application Default Credentials (ADC)](https://cloud.google.com/
 
 The storage identity requires:
 
-- `storage.objects.create`
-- `storage.objects.get`
-- `storage.objects.delete`
-- `storage.objects.getMetadata`, or the `Storage Object Admin` role
+- `storage.objects.create` for uploads
+- `storage.objects.get` for reads and metadata lookups
+- `storage.objects.delete` for removals
+
+The `Storage Object Admin` role includes all three.
 
 See [Pre-signed URL Redirects](presigned-urls.md) for signed provider download
 configuration.

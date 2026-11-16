@@ -9,12 +9,13 @@ import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import WarehouseIcon from "@mui/icons-material/Warehouse";
-import StorageIcon from "@mui/icons-material/Storage";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
 import Link from "next/link";
 import type { BrowseStorageConfig } from "@/lib/api";
+import { kindColor } from "@/lib/kindColors";
+import { metaChipSx } from "./chipStyles";
 
-type NodeKind = "depot" | "module" | "provider" | "version" | "versionOverflow";
+type NodeKind = "depot" | "module" | "provider" | "skill" | "agent" | "version" | "versionOverflow";
 
 interface DepotNodePanelProps {
   node: {
@@ -36,10 +37,6 @@ interface DepotNodePanelProps {
   onClose: () => void;
 }
 
-const DEPOT_COLOR = "#04cfd0";
-const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#047df1";
-const VERSION_COLOR = "#8b949e";
 
 function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) {
   if (!value && value !== 0) return null;
@@ -57,7 +54,7 @@ function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) 
       >
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8rem", mt: 0.25, wordBreak: "break-all" }}>
+      <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8rem", mt: 0.25, wordBreak: "break-all" }}>
         {value}
       </Typography>
     </Box>
@@ -89,20 +86,17 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
         ? "Module"
         : node.kind === "provider"
           ? "Provider"
-          : "Version";
+          : node.kind === "skill"
+            ? "Skill"
+            : node.kind === "agent"
+              ? "Agent"
+              : "Version";
 
-  const kindColor =
-    node.kind === "depot"
-      ? DEPOT_COLOR
-      : node.kind === "module"
-        ? MODULE_COLOR
-        : node.kind === "provider"
-          ? PROVIDER_COLOR
-          : VERSION_COLOR;
+  const nodeColor = kindColor(node.kind);
 
-  // Link to the detail page (only for modules and providers)
+  // Link to the detail page (modules, providers, skills, and agents)
   const detailHref =
-    node.kind === "module" || node.kind === "provider"
+    node.kind === "module" || node.kind === "provider" || node.kind === "skill" || node.kind === "agent"
       ? `/${encodeURIComponent(node.namespace)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`
       : null;
 
@@ -131,23 +125,14 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
       >
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-            {node.kind === "depot" ? (
-              <WarehouseIcon sx={{ fontSize: 14, color: kindColor, flexShrink: 0 }} />
-            ) : (
-              <StorageIcon sx={{ fontSize: 14, color: kindColor, flexShrink: 0 }} />
-            )}
+            <DepotKindIcon
+              kind={node.kind === "versionOverflow" ? "version" : node.kind}
+              sx={{ fontSize: 14, color: nodeColor, flexShrink: 0 }}
+            />
             <Chip
               label={kindLabel}
               size="small"
-              sx={{
-                fontSize: "0.65rem",
-                height: 18,
-                color: kindColor,
-                borderColor: kindColor,
-                "& .MuiChip-label": { px: 0.75 },
-                '[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: kindColor },
-              }}
-              variant="outlined"
+              sx={{ ...(metaChipSx as object), height: 18, fontSize: "0.65rem" }}
             />
           </Box>
           <Typography
@@ -163,7 +148,7 @@ export default function DepotNodePanel({ node, onClose }: DepotNodePanelProps) {
             {node.name}
           </Typography>
 
-          {(node.kind === "module" || node.kind === "provider") && (
+          {(node.kind === "module" || node.kind === "provider" || node.kind === "skill" || node.kind === "agent") && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
               <Box
                 sx={{

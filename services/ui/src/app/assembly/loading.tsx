@@ -10,7 +10,7 @@ export default function AssemblyLoading() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }} role="status" aria-label="Loading assembly line">
       <PageHeader
-        icon={<PrecisionManufacturingIcon color="primary" fontSize="small" />}
+        icon={<PrecisionManufacturingIcon fontSize="small" />}
         title="Assembly Line"
         description="Compose modules visually by wiring outputs to inputs."
       />

@@ -4,6 +4,7 @@ import {
   createScanPolicy,
   getScanPolicyCatalog,
   getScanPolicyCapabilities,
+  listJevReviewQueue,
   previewScanPolicy,
   readAssemblyStream,
   updateScanPolicy,
@@ -61,6 +62,44 @@ describe("scan policy API contract", () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain("/scan-policies/platform/capabilities");
     expect(fetchMock.mock.calls[1][0]).toContain("/scan-policies/platform/preview");
+    vi.unstubAllGlobals();
+  });
+
+  it("returns capabilities for callers who cannot manage namespace-wide policies", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      writesEnabled: true,
+      canRead: true,
+      canWrite: true,
+      canManageNamespaceWidePolicies: false,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      supportsPreview: true,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getScanPolicyCapabilities("platform")).resolves.toMatchObject({
+      canWrite: true,
+      canManageNamespaceWidePolicies: false,
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("sends jevExemptions unchanged so existing Jev exemptions survive a save", async () => {
+    const jevExemptions = [
+      { contentDigest: "a".repeat(64), reason: "Vendor attested", expires: "2027-01-01T00:00:00Z" },
+      { contentDigest: "b".repeat(64), reason: "Reviewed" },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ metadata: { name: "baseline" } }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createScanPolicy("platform", {
+      apiVersion: "opendepot.defdev.io/v1alpha1",
+      kind: "ScanPolicy",
+      metadata: { name: "baseline", namespace: "platform" },
+      spec: { severityThreshold: "HIGH", jevExemptions },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.spec.jevExemptions).toEqual(jevExemptions);
     vi.unstubAllGlobals();
   });
 
@@ -152,5 +191,61 @@ describe("scan policy API contract", () => {
       ),
     ).rejects.toBeInstanceOf(ApiRequestError);
     vi.unstubAllGlobals();
+  });
+});
+describe("listJevReviewQueue", () => {
+  it("keeps Skills and Agents whose assessment needs review, leaving out active exemptions across pages", async () => {
+    const card = (kind: string, name: string) => ({ kind, namespace: "platform", name });
+    const detail = (kind: string, name: string, jevAssessment?: object) => ({ ...card(kind, name), jevAssessment });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/opendepot/ui/v1/resources") {
+        const kind = url.searchParams.get("kind");
+        const page = url.searchParams.get("page");
+        if (kind === "skill" && page === "1") {
+          return new Response(JSON.stringify({ items: [card("skill", "critical-skill"), card("skill", "quiet-skill")], totalCount: 3, page: 1, pageSize: 2 }));
+        }
+        if (kind === "skill" && page === "2") {
+          return new Response(JSON.stringify({
+            items: [card("skill", "exempt-skill"), card("skill", "lapsed-skill"), card("skill", "active-exempt-skill")],
+            totalCount: 5,
+            page: 2,
+            pageSize: 3,
+          }));
+        }
+        return new Response(JSON.stringify({ items: [card("agent", "review-agent")], totalCount: 1, page: 1, pageSize: 100 }));
+      }
+      const name = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      const details: Record<string, object> = {
+        "critical-skill": detail("skill", "critical-skill", { needsReview: true, blocked: true, riskLevel: "Critical", exempted: false }),
+        "quiet-skill": detail("skill", "quiet-skill", { needsReview: false, blocked: false, riskLevel: "Low" }),
+        "exempt-skill": detail("skill", "exempt-skill", { needsReview: true, blocked: false, riskLevel: "Critical", exempted: true }),
+        "lapsed-skill": detail("skill", "lapsed-skill", {
+          needsReview: true,
+          blocked: false,
+          riskLevel: "Critical",
+          exempted: true,
+          exemptionExpires: "2020-01-01T00:00:00Z",
+        }),
+        "active-exempt-skill": detail("skill", "active-exempt-skill", {
+          needsReview: true,
+          blocked: false,
+          riskLevel: "High",
+          exempted: true,
+          exemptionExpires: "2999-01-01T00:00:00Z",
+        }),
+        "review-agent": detail("agent", "review-agent", { needsReview: true, blocked: false, riskLevel: "Moderate" }),
+      };
+      return new Response(JSON.stringify(details[name]));
+    });
+
+    const queue = await listJevReviewQueue("token");
+
+    expect(queue.items).toEqual([
+      { kind: "skill", namespace: "platform", name: "critical-skill", riskLevel: "Critical", blocked: true, exempted: false },
+      { kind: "skill", namespace: "platform", name: "lapsed-skill", riskLevel: "Critical", blocked: false, exempted: true },
+      { kind: "agent", namespace: "platform", name: "review-agent", riskLevel: "Moderate", blocked: false, exempted: false },
+    ]);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("kind=skill&page=2"))).toBe(true);
   });
 });

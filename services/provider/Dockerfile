@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.26.6 AS builder
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -8,6 +8,10 @@ WORKDIR /workspace
 # Copy go.work and all module manifests for workspace-aware builds
 COPY go.work go.work.sum ./
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
+COPY pkg/agentspec/go.mod pkg/agentspec/go.sum pkg/agentspec/
+COPY pkg/archive/go.mod pkg/archive/
+COPY pkg/jev/go.mod pkg/jev/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY services/module/go.mod services/module/go.sum services/module/
@@ -21,7 +25,7 @@ COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
 
 # Download dependencies in workspace mode so replace directives resolve local modules
 RUN cd services/provider && go mod download
@@ -41,7 +45,7 @@ RUN cd services/provider && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGE
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 WORKDIR /
 COPY --from=builder /workspace/provider-controller .
 USER 65532:65532

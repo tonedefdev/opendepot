@@ -7,19 +7,45 @@ tags:
 
 Thank you for your interest in contributing to OpenDepot! Please read our [CONTRIBUTING.md](https://github.com/tonedefdev/opendepot/blob/main/CONTRIBUTING.md) on GitHub for guidelines on opening issues, submitting pull requests, and the development workflow.
 
-Pull requests also run the e2e workflow, which builds the service images and scans them with Trivy before the controller tests execute. A PR fails if the scanner reports critical or high severity vulnerabilities in a built image.
+Pull requests that change service code run the e2e workflow. It builds the service images and fails on fixable `CRITICAL` or `HIGH` findings from `trivy-action` (`.github/workflows/e2e.yaml`). Suppressions for that scan go in `.trivyignore.yaml`.
 
 ## Security Scanning
 
-The security review runs two Trivy scans against every pull request:
+The `security-review` agent (`.github/agents/security-review.agent.md`) runs these scans manually:
 
-- `trivy image` — scans each built service image for OS package and Go module CVEs.
-- `trivy config` — scans the Helm chart templates for Kubernetes misconfigurations.
+- `trivy image --severity CRITICAL,HIGH` against each service image and the Valkey subchart image.
+- `trivy config --severity CRITICAL,HIGH chart/opendepot/` for Kubernetes misconfigurations.
 
-OpenDepot bundles Trivy v0.74.0 in the version-controller image built with `INCLUDE_TRIVY=true`. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Add any suppression to both the repository root and `chart/opendepot/.trivyignore`, and include the tracking issue URL as a comment.
+The version-controller image bundles Trivy, downloaded from the `TRIVY_VERSION` release in `services/version/Dockerfile` and verified against its published SHA256 checksum. Upstream binaries are never built from source. If an upstream Trivy release has a HIGH CVE with no available fix, track it in a GitHub issue before adding a suppression. Include the issue URL as a comment in the ignore file. Chart-level suppressions go in `chart/opendepot/.trivyignore`.
 
 !!! note
-    `.trivyignore` suppressions are scoped to the repository and apply only to findings in the embedded Trivy binary. CVEs in the controller's own dependencies must be resolved, not suppressed.
+    Resolve CVEs in the controller's own dependencies. Do not suppress them.
+
+## Generating API Types
+
+`make manifests` in `api/v1alpha1` runs `controller-gen` with `crd:allowDangerousTypes=true`. The flag is required because `types.go` has `float64` fields, such as the Jev policy thresholds and assessment scores. Without it, `controller-gen` fails on those fields. Do not remove the flag. After changing `types.go`, run `make manifests` to regenerate the CRDs and `make generate` to regenerate `zz_generated.deepcopy.go`.
+
+## Agent Presign E2E Testing
+
+The agent presign e2e scenarios use an AWS emulator sidecar. The emulator is test-only. It is not part of the chart or the released images. The scenarios are skipped unless `E2E_AWS_EMULATOR=true` is set.
+
+The run needs an isolated Kind cluster. The test fails when `KIND_CLUSTER` is unset or set to the shared `opendepot` cluster. Use a separate name, and keep the cluster with `KEEP_KIND=1` if you want to inspect it.
+
+The `Agent presign` scenarios cover two cases. Anonymous auth serves a public agent. OIDC auth serves a private agent, and it checks a `401` without a token and a `307` for a bound request.
+
+The emulator port-forward uses local port `9297`. Free that port before the run.
+
+`make build-aws-emulator` builds the emulator image for `PLATFORM`, which defaults to `linux/arm64`. The emulator Dockerfile accepts only `arm64`.
+
+```bash
+kind create cluster --name opendepot-agent-presign
+make build-aws-emulator load-aws-emulator KIND_CLUSTER=opendepot-agent-presign
+cd services/server
+make test-e2e KIND_CLUSTER=opendepot-agent-presign KEEP_KIND=1 E2E_AWS_EMULATOR=true E2E_FOCUS="Agent presign"
+make cleanup-test-e2e KIND_CLUSTER=opendepot-agent-presign
+```
+
+The e2e values file, [`values-agent-presign-e2e.yaml`](https://github.com/tonedefdev/opendepot/blob/main/services/server/test/e2e/values-agent-presign-e2e.yaml), sets test-only values such as the emulator sidecar and path-style S3. Do not use it as a production reference.
 
 ## Local OIDC E2E Testing
 

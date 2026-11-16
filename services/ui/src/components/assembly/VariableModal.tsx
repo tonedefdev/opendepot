@@ -21,6 +21,7 @@ import DataObjectIcon from "@mui/icons-material/DataObject";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import { useColorScheme, useTheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
@@ -96,7 +97,7 @@ export default function VariableModal({
 
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const typeEditor = <TypeEditor value={type} onChange={onTypeChange} compactRows={previewExpanded && isDesktop} />;
   const descriptionEditor = (
     <TextField
@@ -132,7 +133,7 @@ export default function VariableModal({
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-          <DataObjectIcon sx={{ fontSize: 20, color: "#04cfd0" }} />
+          <DataObjectIcon sx={{ fontSize: 20, color: "var(--od-assembly-variable)" }} />
         </Box>
         <Typography component="span" variant="subtitle1" fontWeight={700} sx={{ flex: 1 }}>
           var.{name || "?"} — Variable Definition
@@ -182,12 +183,15 @@ export default function VariableModal({
                   borderRadius: 1,
                   border: "1px solid",
                   borderColor: "divider",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--od-font-mono)",
                   fontSize: "0.75rem",
                   lineHeight: 1.5,
                   overflow: "auto",
                   whiteSpace: "pre",
                   ...style,
+                  // Dark keeps the brand black. Light uses a neutral grey (R = G = B) because the blue-tinted
+                  // background.default reads as blue on the Assembly Line code blocks.
+                  backgroundColor: resolvedMode === "light" ? "#f5f5f5" : "background.default",
                 }}
               >
                 {tokens.map((line, i) => (

@@ -27,7 +27,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
-        runAsGroup: 101
+        runAsGroup: {{ .Values.ui.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ui
         image: "{{ .Values.ui.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.ui.image.tag }}"
@@ -83,9 +85,13 @@ spec:
               key: sessionPassword
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.ui.runAsGroup }}
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/nginx.conf.template

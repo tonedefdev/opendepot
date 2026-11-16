@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Box from "@mui/material/Box";
-import { useColorScheme } from "@mui/material/styles";
-import { Highlight, type Language, themes } from "prism-react-renderer";
+import { Highlight, type Language, type PrismTheme, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
-import "prismjs/components/prism-hcl";
+import "@/lib/hclGrammar";
 import CopyButton from "@/components/CopyButton";
 import { buildCanonicalProviderSource, buildModuleSource, buildProviderMirrorUrl, stripV } from "@/lib/registrySource";
 
@@ -90,6 +90,30 @@ function buildModuleSnippet(
 
 
 
+function SnippetCode({
+  code,
+  prismTheme,
+  background,
+}: {
+  code: string;
+  prismTheme: PrismTheme;
+  background?: string;
+}) {
+  return (
+    <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
+      {({ style, tokens, getLineProps, getTokenProps }) => (
+        <Box component="pre" sx={{ m: 0, p: 2, pr: 6, borderRadius: 1.5, border: "1px solid", borderColor: "divider", fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", lineHeight: 1.65, overflowX: "auto", whiteSpace: "pre", ...style, ...(background && { backgroundColor: background }) }}>
+          {tokens.map((line, i) => (
+            <div key={i} {...getLineProps({ line })}>
+              {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
+            </div>
+          ))}
+        </Box>
+      )}
+    </Highlight>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function UsageSnippet({
@@ -112,27 +136,21 @@ export default function UsageSnippet({
       ]
     : [{ label: "Module requirement", code: buildModuleSnippet(registryHost, namespace, name, provider, latestVersion, versionConstraints) }];
 
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
-
   return (
-    <Box sx={{ display: "grid", gap: 2 }}>
+    // minmax(0, 1fr) keeps the column at card width so long lines scroll inside the <pre> instead of widening the card.
+    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
       {snippets.map((snippet) => (
         <Box key={snippet.label}>
           <Box sx={{ mb: 0.75, color: "text.secondary", fontSize: "0.75rem", fontWeight: 600 }}>{snippet.label}</Box>
           <Box sx={{ position: "relative" }}>
-            <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={snippet.code} language={"hcl" as Language}>
-              {({ style, tokens, getLineProps, getTokenProps }) => (
-                <Box component="pre" sx={{ m: 0, p: 2, pr: 6, borderRadius: 1.5, border: "1px solid", borderColor: "divider", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.65, overflowX: "auto", whiteSpace: "pre", ...style, ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }) }}>
-                  {tokens.map((line, i) => (
-                    <div key={i} {...getLineProps({ line })}>
-                      {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-                    </div>
-                  ))}
-                </Box>
-              )}
-            </Highlight>
+            {/* Both schemes are rendered and CSS shows the active one, so the code never paints in the wrong palette before React resolves the color mode. */}
+            <Box sx={{ "[data-mui-color-scheme='light'] &": { display: "none" } }}>
+              <SnippetCode code={snippet.code} prismTheme={themes.nightOwl} background="background.default" />
+            </Box>
+            <Box sx={{ display: "none", "[data-mui-color-scheme='light'] &": { display: "block" } }}>
+              {/* Light mode uses a neutral grey (R = G = B) because background.default reads as blue there. */}
+              <SnippetCode code={snippet.code} prismTheme={lightCodeTheme} background="#f5f5f5" />
+            </Box>
             <Box sx={{ position: "absolute", top: 6, right: 6 }}>
               <CopyButton value={snippet.code} size="small" />
             </Box>

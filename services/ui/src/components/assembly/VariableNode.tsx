@@ -78,7 +78,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
       }}
     >
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover", display: "flex", alignItems: "center", gap: 0.5 }}>
-        <DataObjectIcon sx={{ fontSize: 16, opacity: 0.7, color: "#04cfd0" }} />
+        <DataObjectIcon sx={{ fontSize: 16, opacity: 0.7, color: "var(--od-assembly-variable)" }} />
         <Typography variant="caption" color="text.secondary">
           var.
         </Typography>
@@ -123,7 +123,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
                     borderRadius: 0.5,
                     bgcolor: "action.selected",
                     color: "warning.main",
-                    fontFamily: "monospace",
+                    fontFamily: "var(--od-font-mono)",
                     fontSize: "0.6875rem",
                   },
                 }}
@@ -200,7 +200,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
             position={Position.Right}
             id="value"
             isConnectable={false}
-            style={{ position: "relative", transform: "none", width: 8, height: 8, background: "#04cfd0" }}
+            style={{ position: "relative", transform: "none", width: 8, height: 8, background: "var(--mui-palette-primary-main)" }}
           />
         </Box>
         {attributes.map((attr) => (
@@ -218,7 +218,7 @@ function VariableNode({ data }: NodeProps<VariableNodeData>) {
               position={Position.Right}
               id={`attr:${attr.name}`}
               isConnectable={false}
-              style={{ position: "relative", transform: "none", width: 8, height: 8, background: "#04cfd0" }}
+              style={{ position: "relative", transform: "none", width: 8, height: 8, background: "var(--mui-palette-primary-main)" }}
             />
           </Box>
         ))}

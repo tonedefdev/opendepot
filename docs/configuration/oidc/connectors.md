@@ -103,24 +103,26 @@ The Dex client secret authenticates the OpenDepot client application to Dex. It
 is not used by the server to validate tokens; the server validates JWTs through
 the issuer's public JWKS endpoint.
 
-| Scenario | Configuration |
-|----------|--------------|
-| Auto-create from value | Leave `server.oidc.clientSecretName` blank and set `server.oidc.clientSecret`. |
-| Use an existing Secret | Set `server.oidc.clientSecretName` to a Secret containing a `clientSecret` key. |
-
-!!! warning "Production requirement"
-    When both `dex.enabled` and `server.oidc.enabled` are true, set either
-    `server.oidc.clientSecret` or `server.oidc.clientSecretName`. For production,
-    use an external secret operator or an existing Kubernetes Secret.
+The chart does not create the client Secret. Create it before installing. Dex
+reads it through `dex.envFrom`. Use any Secret name, and set the same name in
+`server.oidc.clientSecretName` and in a `dex.envFrom` `secretRef`. The Secret must
+contain the `OPENDEPOT_DEX_CLIENT_SECRET` key.
 
 ```yaml
 server:
   oidc:
-    clientSecretName: my-oidc-client-secret
+    clientSecretName: opendepot-dex-client-secret
 ```
 
-The client secret is injected into the Dex deployment through `envFrom`. The
-OpenDepot server container never receives it.
+!!! warning
+    When `dex.enabled` and `server.oidc.enabled` are `true`, the render fails if
+    `server.oidc.clientSecretName` is empty or does not match a `dex.envFrom`
+    `secretRef` name, and a static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`.
+
+Dex loads its environment from the Secret listed in `dex.envFrom`, which defaults to
+`opendepot-dex-client-secret`. If you override `dex.envFrom`, keep a `secretRef`
+with the same name as `server.oidc.clientSecretName`.
+The OpenDepot server container does not receive the client secret.
 
 ### Connector Secrets
 
@@ -142,11 +144,11 @@ This keeps secret values out of Helm values files and in-cluster ConfigMaps.
 
 ## Security Notes
 
-- Use HTTPS for the Dex issuer in production. HTTP is accepted only for
-  `127.0.0.1` and in-cluster addresses.
+- Use an HTTPS Dex issuer in production. The server accepts `http` or `https`
+  issuer URLs.
 - JWT validation is local after the server fetches and caches Dex's JWKS.
-- JWTs are short-lived, typically one hour. Users can run `tofu login` again to
-  refresh them.
+- Token lifetime is set by Dex. Users can run `tofu login` again to get a new
+  token.
 - Do not enable `dex.config.enablePasswordDB` or `staticPasswords` in production.
-- Dex v2.45.0 or later is required when static-password test users need groups
-  claims for GroupBinding expressions.
+- The local test environment pins Dex v2.45.0 (`make oidc-deploy`). Static-password
+  test users use that version for groups claims in GroupBinding expressions.

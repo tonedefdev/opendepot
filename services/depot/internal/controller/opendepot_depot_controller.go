@@ -43,8 +43,11 @@ var listProviderVersions = registry.ListProviderVersions
 // Depot reconciles a Depot object
 type DepotReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log                   logr.Logger
+	Scheme                *runtime.Scheme
+	BranchSourcingEnabled bool
+	// APIReader reads the GitHub App secret straight from the API server, bypassing the cache.
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -52,6 +55,8 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=skills,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
@@ -74,24 +79,55 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		"depot", depot.ObjectMeta.Name,
 	)
 
+	globalConfig := depot.Spec.GlobalConfig
+	if globalConfig == nil {
+		globalConfig = &opendepotv1alpha1.GlobalConfig{}
+	}
+
+	moduleDefaults := opendepotv1alpha1.ModuleDefaults{}
+	if globalConfig.ModuleConfig != nil {
+		moduleDefaults = *globalConfig.ModuleConfig
+	}
+
+	providerDefaults := opendepotv1alpha1.ProviderDefaults{}
+	if globalConfig.ProviderConfig != nil {
+		providerDefaults = *globalConfig.ProviderConfig
+	}
+
 	var managedModules []string
 	if len(depot.Spec.ModuleConfigs) > 0 {
 		for _, moduleConfig := range depot.Spec.ModuleConfigs {
-			// Set global configs if not set on module config
-			if moduleConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
-				moduleConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+			// Apply the moduleConfig defaults, then the top-level global settings, when not set on the module config.
+			if moduleConfig.FileFormat == nil {
+				moduleConfig.FileFormat = moduleDefaults.FileFormat
 			}
 
-			if moduleConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
-				moduleConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+			if moduleConfig.Immutable == nil {
+				moduleConfig.Immutable = moduleDefaults.Immutable
 			}
 
-			if moduleConfig.FileFormat == nil && depot.Spec.GlobalConfig != nil && depot.Spec.GlobalConfig.ModuleConfig != nil {
-				moduleConfig.FileFormat = depot.Spec.GlobalConfig.ModuleConfig.FileFormat
+			if moduleConfig.StorageConfig == nil {
+				moduleConfig.StorageConfig = moduleDefaults.StorageConfig
 			}
 
-			if moduleConfig.Immutable == nil && depot.Spec.GlobalConfig != nil && depot.Spec.GlobalConfig.ModuleConfig != nil {
-				moduleConfig.Immutable = depot.Spec.GlobalConfig.ModuleConfig.Immutable
+			if moduleConfig.StorageConfig == nil {
+				moduleConfig.StorageConfig = globalConfig.StorageConfig
+			}
+
+			if moduleConfig.GithubClientConfig == nil {
+				moduleConfig.GithubClientConfig = moduleDefaults.GithubClientConfig
+			}
+
+			if moduleConfig.GithubClientConfig == nil {
+				moduleConfig.GithubClientConfig = globalConfig.GithubClientConfig
+			}
+
+			if moduleConfig.VersionHistoryLimit == nil {
+				moduleConfig.VersionHistoryLimit = moduleDefaults.VersionHistoryLimit
+			}
+
+			if moduleConfig.VersionHistoryLimit == nil {
+				moduleConfig.VersionHistoryLimit = globalConfig.VersionHistoryLimit
 			}
 
 			if moduleConfig.RepoUrl == nil {
@@ -123,7 +159,7 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			var githubConfig *opendepotGithub.GithubClientConfig
 			if useAuthClient {
-				githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, depot.Namespace)
+				githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, depot.Namespace)
 				if err != nil {
 					return ctrl.Result{}, err
 				}
@@ -147,6 +183,10 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 			var matchedVersions []string
 			for {
+				if err := opendepotGithub.ValidateRepoName(moduleConfig.RepoOwner, *moduleConfig.Name); err != nil {
+					return ctrl.Result{}, err
+				}
+
 				releases, resp, err := githubClient.Repositories.ListReleases(ctx, moduleConfig.RepoOwner, *moduleConfig.Name, opt)
 				if err != nil {
 					return ctrl.Result{}, err
@@ -187,6 +227,15 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				opt.Page = resp.NextPage
 			}
 
+			if limit := moduleConfig.VersionHistoryLimit; limit != nil && *limit > 0 && int(*limit) < len(matchedVersions) {
+				// Every entry was parsed when it was matched, so parse errors cannot occur here.
+				slices.SortFunc(matchedVersions, func(a, b string) int {
+					va, _ := version.NewVersion(a)
+					vb, _ := version.NewVersion(b)
+					return va.Compare(vb)
+				})
+				matchedVersions = matchedVersions[len(matchedVersions)-int(*limit):]
+			}
 			r.Log.Info("Matched versions for module", "module", moduleConfig.Name, "versions", matchedVersions)
 
 			var versions []opendepotv1alpha1.ModuleVersion
@@ -238,9 +287,37 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	var managedProviders []string
 	if len(depot.Spec.ProviderConfigs) > 0 {
 		for _, providerConfig := range depot.Spec.ProviderConfigs {
-			// Apply global storage config if not set on this provider config.
-			if providerConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
-				providerConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+			// Apply the providerConfig defaults, then the top-level global settings, when not set on the provider config.
+			if len(providerConfig.OperatingSystems) == 0 {
+				providerConfig.OperatingSystems = providerDefaults.OperatingSystems
+			}
+
+			if len(providerConfig.Architectures) == 0 {
+				providerConfig.Architectures = providerDefaults.Architectures
+			}
+
+			if providerConfig.StorageConfig == nil {
+				providerConfig.StorageConfig = providerDefaults.StorageConfig
+			}
+
+			if providerConfig.StorageConfig == nil {
+				providerConfig.StorageConfig = globalConfig.StorageConfig
+			}
+
+			if providerConfig.GithubClientConfig == nil {
+				providerConfig.GithubClientConfig = providerDefaults.GithubClientConfig
+			}
+
+			if providerConfig.GithubClientConfig == nil {
+				providerConfig.GithubClientConfig = globalConfig.GithubClientConfig
+			}
+
+			if providerConfig.VersionHistoryLimit == nil {
+				providerConfig.VersionHistoryLimit = providerDefaults.VersionHistoryLimit
+			}
+
+			if providerConfig.VersionHistoryLimit == nil {
+				providerConfig.VersionHistoryLimit = globalConfig.VersionHistoryLimit
 			}
 
 			providerName := ""
@@ -281,6 +358,15 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				}
 			}
 
+			if limit := providerConfig.VersionHistoryLimit; limit != nil && *limit > 0 && int(*limit) < len(matchedVersions) {
+				// Every entry was parsed when it was matched, so parse errors cannot occur here.
+				slices.SortFunc(matchedVersions, func(a, b string) int {
+					va, _ := version.NewVersion(a)
+					vb, _ := version.NewVersion(b)
+					return va.Compare(vb)
+				})
+				matchedVersions = matchedVersions[len(matchedVersions)-int(*limit):]
+			}
 			r.Log.Info("Matched versions for provider", "provider", providerName, "versions", matchedVersions)
 
 			var providerVersions []opendepotv1alpha1.ProviderVersion
@@ -342,6 +428,199 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
+	var requeueAfter time.Duration
+	var managedSkills []string
+	for _, skillConfig := range depot.Spec.SkillConfigs {
+		// Apply global configs if not set on this skill config.
+		if skillConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			skillConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if skillConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			skillConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		if skillConfig.Name == nil || strings.TrimSpace(*skillConfig.Name) == "" {
+			return ctrl.Result{}, fmt.Errorf("skill config name is required")
+		}
+
+		if skillConfig.Ref != nil {
+			if err := r.validateBranchSource(&skillConfig); err != nil {
+				r.Log.Error(err, "Skipping branch source for skill", "skill", *skillConfig.Name)
+				continue
+			}
+
+			managedSkills = append(managedSkills, *skillConfig.Name)
+			wait, err := r.reconcileBranchSkill(ctx, req.Namespace, &skillConfig)
+			if err != nil {
+				r.Log.Error(err, "Failed to reconcile branch source for skill", "skill", *skillConfig.Name, "repoOwner", skillConfig.RepoOwner, "repo", opendepotGithub.AgentSourceRepoName(&skillConfig), "branch", *skillConfig.Ref)
+			}
+
+			requeueAfter = earliestRequeue(requeueAfter, wait)
+			continue
+		}
+
+		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &skillConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Log.Info("Matched versions for skill", "skill", *skillConfig.Name, "versions", matchedVersions)
+
+		var skillVersions []opendepotv1alpha1.SkillVersion
+		for _, v := range matchedVersions {
+			skillVersions = append(skillVersions, opendepotv1alpha1.SkillVersion{
+				Version: v,
+			})
+		}
+
+		skill := opendepotv1alpha1.Skill{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      *skillConfig.Name,
+				Namespace: req.Namespace,
+			},
+			Spec: opendepotv1alpha1.SkillSpec{
+				AgentSourceConfig: skillConfig,
+				Versions:          skillVersions,
+			},
+		}
+
+		skillObject := client.ObjectKey{
+			Name:      skill.ObjectMeta.Name,
+			Namespace: skill.ObjectMeta.Namespace,
+		}
+
+		var currentSkill opendepotv1alpha1.Skill
+		err = r.Get(ctx, skillObject, &currentSkill)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Create(ctx, &skill); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Get(ctx, skillObject, &currentSkill); err != nil {
+					return err
+				}
+
+				currentSkill.Spec.AgentSourceConfig = skillConfig
+				currentSkill.Spec.Versions = skill.Spec.Versions
+				if err := r.Update(ctx, &currentSkill); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		managedSkills = append(managedSkills, *skillConfig.Name)
+	}
+
+	var managedAgents []string
+	for _, agentConfig := range depot.Spec.AgentConfigs {
+		// Apply global configs if not set on this agent config.
+		if agentConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			agentConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if agentConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			agentConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		if agentConfig.Name == nil || strings.TrimSpace(*agentConfig.Name) == "" {
+			return ctrl.Result{}, fmt.Errorf("agent config name is required")
+		}
+
+		if agentConfig.Ref != nil {
+			if err := r.validateBranchSource(&agentConfig); err != nil {
+				r.Log.Error(err, "Skipping branch source for agent", "agent", *agentConfig.Name)
+				continue
+			}
+
+			managedAgents = append(managedAgents, *agentConfig.Name)
+			wait, err := r.reconcileBranchAgent(ctx, req.Namespace, &agentConfig)
+			if err != nil {
+				r.Log.Error(err, "Failed to reconcile branch source for agent", "agent", *agentConfig.Name, "repoOwner", agentConfig.RepoOwner, "repo", opendepotGithub.AgentSourceRepoName(&agentConfig), "branch", *agentConfig.Ref)
+			}
+
+			requeueAfter = earliestRequeue(requeueAfter, wait)
+			continue
+		}
+
+		matchedVersions, err := r.matchAgentSourceVersions(ctx, req.Namespace, &agentConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Log.Info("Matched versions for agent", "agent", *agentConfig.Name, "versions", matchedVersions)
+
+		var agentVersions []opendepotv1alpha1.AgentVersion
+		for _, v := range matchedVersions {
+			agentVersions = append(agentVersions, opendepotv1alpha1.AgentVersion{
+				Version: v,
+			})
+		}
+
+		agent := opendepotv1alpha1.Agent{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      *agentConfig.Name,
+				Namespace: req.Namespace,
+			},
+			Spec: opendepotv1alpha1.AgentSpec{
+				AgentSourceConfig: agentConfig,
+				Versions:          agentVersions,
+			},
+		}
+
+		agentObject := client.ObjectKey{
+			Name:      agent.ObjectMeta.Name,
+			Namespace: agent.ObjectMeta.Namespace,
+		}
+
+		var currentAgent opendepotv1alpha1.Agent
+		err = r.Get(ctx, agentObject, &currentAgent)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Create(ctx, &agent); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.Get(ctx, agentObject, &currentAgent); err != nil {
+					return err
+				}
+
+				currentAgent.Spec.AgentSourceConfig = agentConfig
+				currentAgent.Spec.Versions = agent.Spec.Versions
+				if err := r.Update(ctx, &currentAgent); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		managedAgents = append(managedAgents, *agentConfig.Name)
+	}
+
 	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if err := r.Get(ctx, req.NamespacedName, &depot); err != nil {
 			return err
@@ -349,6 +628,8 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		depot.Status.Modules = managedModules
 		depot.Status.Providers = managedProviders
+		depot.Status.Skills = managedSkills
+		depot.Status.Agents = managedAgents
 		if err := r.Status().Update(ctx, &depot); err != nil {
 			return err
 		}
@@ -359,10 +640,40 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	if depot.Spec.PollingIntervalMinutes != nil {
-		return ctrl.Result{RequeueAfter: time.Duration(*depot.Spec.PollingIntervalMinutes) * time.Minute}, nil
+		requeueAfter = earliestRequeue(requeueAfter, time.Duration(*depot.Spec.PollingIntervalMinutes)*time.Minute)
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// matchAgentSourceVersions returns the semver tags in the agent source repository that satisfy the version constraints.
+// The GitHub client is authenticated with the GitHub App secret when the source config requests it.
+func (r *DepotReconciler) matchAgentSourceVersions(ctx context.Context, namespace string, sourceConfig *opendepotv1alpha1.AgentSourceConfig) ([]string, error) {
+	useAuthClient := false
+	if sourceConfig.GithubClientConfig != nil {
+		useAuthClient = sourceConfig.GithubClientConfig.UseAuthenticatedClient
+	}
+
+	var githubConfig *opendepotGithub.GithubClientConfig
+	if useAuthClient {
+		var err error
+		githubConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, namespace)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	githubClient, err := opendepotGithub.CreateGithubClient(ctx, useAuthClient, githubConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	tagPrefix := ""
+	if sourceConfig.TagPrefix != nil {
+		tagPrefix = *sourceConfig.TagPrefix
+	}
+
+	return opendepotGithub.ListMatchingTags(ctx, githubClient, sourceConfig.RepoOwner, opendepotGithub.AgentSourceRepoName(sourceConfig), tagPrefix, sourceConfig.VersionConstraints)
 }
 
 // SetupWithManager sets up the controller with the Manager.

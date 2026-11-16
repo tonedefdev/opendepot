@@ -94,8 +94,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="../../api/v1alpha1" output:crd:artifacts:config=config/crd/bases
-	cp config/crd/bases/*.yaml ../../chart/opendepot/crds/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="../../api/v1alpha1" output:crd:artifacts:config=../../chart/opendepot/crds
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -135,8 +134,8 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 60m
-	$(MAKE) cleanup-test-e2e
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 60m $(if $(E2E_FOCUS),-ginkgo.focus="$(E2E_FOCUS)")
+	$(if $(KEEP_KIND),,$(MAKE) cleanup-test-e2e)
 
 .PHONY: test-e2e-assembly
 test-e2e-assembly: setup-test-e2e manifests generate fmt vet ## Run only the Assembly Line e2e tests (contract derivation, provider schema extraction).

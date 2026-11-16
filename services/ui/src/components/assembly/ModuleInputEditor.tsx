@@ -52,10 +52,6 @@ function scalarField(value: ModuleInputValue | undefined): FieldValue {
   return value?.kind === "scalar" ? value.value : { mode: "literal", literal: "" };
 }
 
-function childValue(type: TypeSpec, value: ModuleInputValue | undefined): ModuleInputValue {
-  return value ?? emptyInputValue(type);
-}
-
 function labelFor(type: TypeSpec): string {
   return type.kind === "object" ? "Object" : type.kind === "map" ? "Map entries" : type.kind === "list" || type.kind === "set" ? "Items" : "Value";
 }
@@ -302,6 +298,10 @@ export default function ModuleInputEditor({
   showReferenceControl = true,
   onChange,
 }: Props) {
+  const initiallyShowOptional = type.kind === "object" && value?.kind === "object"
+    && type.attributes.some((attribute) => attribute.optional && value.entries.some((entry) => entry.name === attribute.name));
+  const [localShowOptional, setLocalShowOptional] = React.useState(initiallyShowOptional);
+
   if (type.kind === "string" || type.kind === "number" || type.kind === "bool" || type.kind === "any") {
     return (
       <FieldEditor
@@ -325,9 +325,7 @@ export default function ModuleInputEditor({
 
   if (type.kind === "object") {
     const entries = value?.kind === "object" ? value.entries : [];
-    const entryNames = new Set(entries.map((entry) => entry.name));
     const optional = type.attributes.filter((attribute) => attribute.optional);
-    const [localShowOptional, setLocalShowOptional] = React.useState(optional.some((attribute) => entryNames.has(attribute.name)));
     const showOptional = optionalFieldVisibility[path] ?? localShowOptional;
     const visibleAttributes = orderedObjectAttributes(
       type.attributes.filter((attribute) => !attribute.optional || showOptional),

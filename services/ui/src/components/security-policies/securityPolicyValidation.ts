@@ -1,4 +1,5 @@
 import type { ScanPolicyMutation } from "@/lib/api";
+import { validateJevExemptions } from "./jevExemptions";
 
 export function validateScanPolicy(value: ScanPolicyMutation): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -15,5 +16,5 @@ export function validateScanPolicy(value: ScanPolicyMutation): Record<string, st
       errors[`exemption-${index}`] = "Expiry must be a valid RFC3339 timestamp.";
     }
   });
-  return errors;
+  return { ...errors, ...validateJevExemptions(value.spec.jevExemptions ?? []) };
 }

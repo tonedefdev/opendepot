@@ -215,9 +215,38 @@ extendHclGrammar(refractor.languages.hcl as Grammar);
 export const hclConditionPlugins: Pluggable[] = [[rehypePrismGenerator(refractor), { ignoreMissing: true }]];
 export { refractor as hclConditionRefractor };
 
-export function hclEditorColorVariables(mode: "dark" | "light") {
-  return {
-    "--color-prettylights-syntax-sublimelinter-gutter-mark": mode === "dark" ? "#b1bac4" : "#57606a",
-    "--color-prettylights-syntax-string-regexp": mode === "dark" ? "#d2a8ff" : "#8250df",
-  };
-}
+// Scheme-scoped CSS variables for the editor. Both schemes are emitted and the
+// [data-mui-color-scheme='light'] ancestor selects the light set, so the first paint is correct
+// without reading the color mode in JS.
+const HCL_EDITOR_DARK_VARIABLES = {
+  "--color-fg-default": "#c9d1d9",
+  "--color-canvas-subtle": "#161b22",
+  "--color-prettylights-syntax-comment": "#8b949e",
+  "--color-prettylights-syntax-entity-tag": "#7ee787",
+  "--color-prettylights-syntax-entity": "#d2a8ff",
+  "--color-prettylights-syntax-sublimelinter-gutter-mark": "#b1bac4",
+  "--color-prettylights-syntax-constant": "#79c0ff",
+  "--color-prettylights-syntax-string": "#a5d6ff",
+  "--color-prettylights-syntax-keyword": "#ff7b72",
+  "--color-prettylights-syntax-markup-bold": "#c9d1d9",
+  "--color-prettylights-syntax-string-regexp": "#d2a8ff",
+};
+
+const HCL_EDITOR_LIGHT_VARIABLES = {
+  "--color-fg-default": "#24292f",
+  "--color-canvas-subtle": "#f6f8fa",
+  "--color-prettylights-syntax-comment": "#6e7781",
+  "--color-prettylights-syntax-entity-tag": "#116329",
+  "--color-prettylights-syntax-entity": "#8250df",
+  "--color-prettylights-syntax-sublimelinter-gutter-mark": "#57606a",
+  "--color-prettylights-syntax-constant": "#0550ae",
+  "--color-prettylights-syntax-string": "#0a3069",
+  "--color-prettylights-syntax-keyword": "#cf222e",
+  "--color-prettylights-syntax-markup-bold": "#24292f",
+  "--color-prettylights-syntax-string-regexp": "#8250df",
+};
+
+export const hclEditorColorSx = {
+  "& .w-tc-editor": HCL_EDITOR_DARK_VARIABLES,
+  "[data-mui-color-scheme='light'] & .w-tc-editor": HCL_EDITOR_LIGHT_VARIABLES,
+};

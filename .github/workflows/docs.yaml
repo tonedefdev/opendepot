@@ -47,6 +47,11 @@ jobs:
       - name: Build MkDocs site
         run: mkdocs build --site-dir site/docs
 
+      - name: Publish raw OpenDepot CLI skill
+        run: |
+          mkdir -p site/docs/guides/opendepot-cli
+          cp docs/guides/opendepot-cli/SKILL.md site/docs/guides/opendepot-cli/SKILL.md
+
       - name: Assemble GitHub Pages root
         run: |
           cp -R site-root/. site/

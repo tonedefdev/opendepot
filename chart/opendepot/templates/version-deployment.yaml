@@ -22,10 +22,13 @@ spec:
       serviceAccountName: version-controller
       automountServiceAccountToken: false
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         {{- if not (and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath) }}
         runAsNonRoot: true
         {{- end }}
         runAsUser: 65532
+        runAsGroup: {{ .Values.version.runAsGroup }}
         fsGroup: 65532
       initContainers:
       - name: init-service-account
@@ -106,7 +109,12 @@ spec:
               fieldPath: metadata.namespace
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
+          {{- end }}
           runAsUser: 65532
         resources:
           limits:
@@ -122,8 +130,13 @@ spec:
       - name: version-controller
         image: "{{ .Values.version.image.repository }}:{{ $tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-        {{- if or .Values.scanning.enabled .Values.assembly.enabled .Values.version.zapLogLevel }}
         args:
+        - --scan-agents={{ .Values.scanning.agentScanning }}
+        - "--agent-allowed-domains={{ .Values.scanning.agentAllowedDomains }}"
+        - --jev-enabled={{ .Values.scanning.jev.enabled }}
+        - "--jev-endpoint={{ .Values.scanning.jev.endpoint }}"
+        - --jev-max-retries={{ .Values.scanning.jev.maxRetries }}
+        - --branch-sourcing-enabled={{ .Values.branchSourcing.enabled }}
         {{- if .Values.scanning.enabled }}
         - --scanning-enabled=true
         - --scan-block-on-critical={{ .Values.scanning.blockOnCritical }}
@@ -142,11 +155,11 @@ spec:
         {{- if .Values.version.zapLogLevel }}
         - --zap-log-level={{ .Values.version.zapLogLevel }}
         {{- end }}
-        {{- end }}
-        {{- if .Values.rbac.scopeToNamespace }}
         env:
+        {{- if .Values.rbac.scopeToNamespace }}
         - name: WATCH_NAMESPACE
           value: {{ .Values.global.namespace }}
+        {{- end }}
         - name: POD_NAME
           valueFrom:
             fieldRef:
@@ -155,20 +168,21 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        {{- else }}
-        env:
-        - name: POD_NAME
+        {{- if .Values.version.gpg.secretName }}
+        - name: OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64
           valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
+            secretKeyRef:
+              name: {{ .Values.version.gpg.secretName }}
+              key: OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
+          {{- end }}
         resources:
           {{- toYaml .Values.version.resources | nindent 10 }}
         volumeMounts:

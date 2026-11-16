@@ -32,6 +32,7 @@ var (
 	opendepotServerNamespace              *string
 	opendepotFilesystemMountPath          *string
 	opendepotAssemblyEnabled              *bool
+	opendepotCLIDistDir                   *string
 	opendepotRegistryHost                 *string
 	opendepotAssemblyValidationURL        *string
 	opendepotAssemblyValidationCACertPath *string
@@ -83,6 +84,7 @@ func main() {
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
 	opendepotAssemblyEnabled = flag.Bool("assembly-enabled", false, "enable Assembly Line provider schemas and validated root module export")
+	opendepotCLIDistDir = flag.String("cli-dist-dir", "/opt/opendepot/cli", "directory containing the OpenDepot CLI binaries and SHA256SUMS served at /opendepot/cli/v1; requests return 404 when absent")
 	opendepotRegistryHost = flag.String("registry-host", "", "external OpenDepot registry host used in generated module and provider source addresses")
 	opendepotAssemblyValidationURL = flag.String("assembly-validation-registry-url", "", "OpenDepot registry base URL used only by Assembly Line validation; defaults to the external registry host")
 	opendepotAssemblyValidationCACertPath = flag.String("assembly-validation-ca-cert-path", "", "CA certificate trusted by the Assembly Line OpenTofu validation subprocess")
@@ -265,12 +267,22 @@ func main() {
 	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/{version}/download", getDownloadModuleUrl)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/versions", getProviderVersions)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}", getProviderPackageMetadata)
-	r.Get("/opendepot/providers/v1/download/{namespace}/{type}/{version}", serveProviderPackageDownload)
+	r.Get("/opendepot/providers/v1/download/{namespace}/{type}/{version}/{os}/{arch}", serveProviderPackageDownload)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}", getProviderPackageSHA256SUMS)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}", getProviderPackageSHA256SUMSSignature)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/index.json", getProviderMirrorVersions)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{versionFile}", getProviderMirrorArchives)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{version}/{os}/{arch}/{filename}", serveProviderMirrorArchive)
+
+	r.Get("/opendepot/agents/v1/catalog", handleAgentCatalog)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/versions", getAgentVersions)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/download", getAgentDownloadMetadata)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/archive", serveAgentArchive)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS", serveAgentSHA256SUMS)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS.sig", serveAgentSHA256SUMSSignature)
+
+	r.Get("/opendepot/cli/v1/SHA256SUMS", serveCLIChecksums)
+	r.Get("/opendepot/cli/v1/{os}/{arch}", serveCLIBinary)
 
 	r.Get("/opendepot/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}", serveModuleFromAzureBlob)
 	r.Get("/opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}", serveModuleFromFileSystem)

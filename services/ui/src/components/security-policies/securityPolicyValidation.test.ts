@@ -32,6 +32,25 @@ describe("validateScanPolicy", () => {
     expect(errors["exemption-1"]).toContain("RFC3339");
   });
 
+  it("validates Jev exemption digests, duplicates, and reasons through the policy validator", () => {
+    const errors = validateScanPolicy({
+      ...validPolicy,
+      spec: {
+        ...validPolicy.spec,
+        jevExemptions: [
+          { contentDigest: "a".repeat(64), reason: "Reviewed" },
+          { contentDigest: "a".repeat(64), reason: "Duplicate" },
+          { contentDigest: "sha256:" + "b".repeat(64), reason: "Prefixed" },
+          { contentDigest: "c".repeat(64), reason: "   " },
+        ],
+      },
+    });
+    expect(errors["jev-1-digest"]).toContain("already has a Jev exemption");
+    expect(errors["jev-2-digest"]).toContain("64 lowercase hex");
+    expect(errors["jev-3-reason"]).toContain("reason is required");
+    expect(errors["jev-0-digest"]).toBeUndefined();
+  });
+
   it("rejects names that cannot be addressed as Kubernetes-style resources", () => {
     expect(validateScanPolicy({ ...validPolicy, metadata: { ...validPolicy.metadata, name: "Not A Name" } }).name).toBeTruthy();
   });

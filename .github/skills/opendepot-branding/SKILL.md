@@ -121,6 +121,15 @@ The guide also shows the browser context with the OpenDepot name and website ide
 
 Never stretch, compress, rotate, recolor, redraw, crop, rearrange, or decorate an approved logo asset. When in doubt, use the original high-resolution asset and preserve clear space.
 
+#### Approved exception: Workshop sidebar (light mode)
+
+The Workshop sidebar logo row and collapsed rail tile use the official blue (`#0350C7`) fill with the official all-white alternative logo. This is an approved exception to the "alternative logo only on white or light backgrounds" rule. It applies only to the light-mode sidebar UI, and only with these unmodified assets:
+
+- Expanded logo row: `services/ui/public/img/opendepot_white.svg` (identical to the official `Logo pack/SVG/SVG (4).svg`).
+- Collapsed rail tile: `services/ui/public/img/opendepot_icon_white.svg` (identical to the official `Logo pack/ICON/SVG/SVG (3).svg`).
+
+Dark mode keeps the standard logo assets. Do not use this exception in other surfaces, such as documentation, marketing, or stationery, without a new approval.
+
 ## 3. Typography
 
 OpenDepot uses clean, modern sans-serif typography that conveys clarity, confidence, and trust. Typography should remain simple and consistent, supporting a bold but approachable brand voice without decorative or overly stylized treatments.

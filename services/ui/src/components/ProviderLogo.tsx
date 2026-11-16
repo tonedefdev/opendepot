@@ -3,7 +3,6 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
-import { useColorScheme } from "@mui/material/styles";
 import {
   SiGithub,
   SiKubernetes,
@@ -28,7 +27,7 @@ interface Props {
 }
 
 type ProviderLogoSource =
-  | { type: "img"; src: string; alt: string }
+  | { type: "img"; src: string; lightSrc?: string; alt: string }
   | { type: "icon"; icon: React.ElementType; color: string };
 
 function LogoBadge({ size, child }: { size: number; child: React.ReactNode }) {
@@ -64,7 +63,7 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
             fontSize: size * 0.45,
             fontWeight: 700,
             color: "primary.main",
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
           }}
         >
           {letter}
@@ -76,8 +75,8 @@ function GenericProviderBadge({ size, label }: { size: number; label: string }) 
 
 const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   // Local SVGs — not available on simple-icons
-  aws: { type: "img", src: "/img/aws-dark.svg", alt: "AWS" },
-  awsLight: { type: "img", src: "/img/aws.svg", alt: "AWS" },
+  // Both variants ship in the markup and CSS picks one, so the logo never paints in the wrong scheme.
+  aws: { type: "img", src: "/img/aws-dark.svg", lightSrc: "/img/aws.svg", alt: "AWS" },
   azure: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azurerm: { type: "img", src: "/img/azure.svg", alt: "Azure" },
   azuread: { type: "img", src: "/img/azure.svg", alt: "Azure" },
@@ -110,11 +109,27 @@ const KNOWN_PROVIDERS: Record<string, ProviderLogoSource> = {
   terraform: { type: "icon", icon: SiTerraform, color: "#7B42BC" },
 };
 
+function logoImageSx(size: number) {
+  return {
+    width: Math.max(14, size * 0.68),
+    height: Math.max(14, size * 0.68),
+    objectFit: "contain" as const,
+    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.2))",
+  };
+}
+
+function providerLogoKey(provider: string): string {
+  return provider.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// True when ProviderLogo renders a real brand logo instead of the generic letter badge.
+export function hasProviderLogo(provider: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_PROVIDERS, providerLogoKey(provider));
+}
+
 export default function ProviderLogo({ provider, size = 28 }: Props) {
-  const key = provider.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const entry = key === "aws" && resolvedMode === "light" ? KNOWN_PROVIDERS.awsLight : KNOWN_PROVIDERS[key];
+  const key = providerLogoKey(provider);
+  const entry = KNOWN_PROVIDERS[key];
 
   return (
     <Tooltip title={provider} placement="top">
@@ -124,17 +139,25 @@ export default function ProviderLogo({ provider, size = 28 }: Props) {
             size={size}
             child={
               entry.type === "img" ? (
-                <Box
-                  component="img"
-                  src={entry.src}
-                  alt={entry.alt}
-                  sx={{
-                    width: Math.max(14, size * 0.68),
-                    height: Math.max(14, size * 0.68),
-                    objectFit: "contain",
-                    filter: "drop-shadow(0 0 2px rgba(0,0,0,0.2))",
-                  }}
-                />
+                <>
+                  <Box
+                    component="img"
+                    src={entry.src}
+                    alt={entry.alt}
+                    sx={{
+                      ...logoImageSx(size),
+                      ...(entry.lightSrc && { "[data-mui-color-scheme='light'] &": { display: "none" } }),
+                    }}
+                  />
+                  {entry.lightSrc && (
+                    <Box
+                      component="img"
+                      src={entry.lightSrc}
+                      alt={entry.alt}
+                      sx={{ ...logoImageSx(size), display: "none", "[data-mui-color-scheme='light'] &": { display: "block" } }}
+                    />
+                  )}
+                </>
               ) : (
                 <entry.icon
                   style={{

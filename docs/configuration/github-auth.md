@@ -22,7 +22,7 @@ data:
   githubPrivateKey: <base64-encoded-private-key>
 ```
 !!! warning
-    The private key must be base64-encoded **before** being added to the Secret's `data` field (i.e., it is double base64-encoded: once for the PEM content, once by Kubernetes). The controller decodes both layers automatically.
+    `githubPrivateKey` is base64-encoded twice. First encode the PEM file, then place that value in `data`. Kubernetes decodes the `data` layer on read, and the controller decodes the remaining layer.
 
 Then enable authenticated access in your module config:
 

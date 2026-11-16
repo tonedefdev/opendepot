@@ -25,6 +25,7 @@ import {
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import { filterControlSx, filterIconSx } from "./filterControlSx";
 import ClearIcon from "@mui/icons-material/Clear";
 import IconButton from "@mui/material/IconButton";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -32,7 +33,8 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { keyframes, styled } from "@mui/system";
 import CopyButton from "@/components/CopyButton";
 import type { BrowseScanFindings, BrowseVersionSummary, SecurityFinding } from "@/lib/api";
-import { unknownSeverityChipSx } from "./severityStyles";
+import { severityChipSx } from "./severityStyles";
+import MobileRecordCard, { MobileRecordList, type RecordField } from "@/components/MobileRecordCard";
 
 const spin = keyframes`
   from { transform: rotate(0deg); }
@@ -99,7 +101,7 @@ function findingResolution(f: SecurityFinding): string {
 
 function findingResolutionContent(f: SecurityFinding): React.ReactNode {
   if (f.exempted) {
-    return <Chip size="small" color="secondary" label={`Exempted by ${f.exemptedBy || "ScanPolicy"}`} sx={{ color: "#fff" }} />;
+    return <Chip size="small" color="secondary" label={f.exemptedBy ? `Exempted by ${f.exemptedBy}` : "Exempted"} sx={severityChipSx("exempted")} />;
   }
   return findingResolution(f);
 }
@@ -129,6 +131,86 @@ function compareFindings(a: SecurityFinding, b: SecurityFinding, sortBy: Finding
     return findingTitle(a).localeCompare(findingTitle(b)) * direction;
   }
   return findingId(a).localeCompare(findingId(b)) * direction;
+}
+
+function FindingSeverityChip({ severity }: { severity: string }) {
+  return (
+    <Chip
+      size="small"
+      label={severity}
+      color={
+        severity === "CRITICAL"
+          ? "error"
+          : severity === "HIGH"
+            ? "warning"
+            : severity === "MEDIUM"
+              ? "info"
+              : severity === "LOW"
+                ? "success"
+                : "default"
+      }
+      sx={severityChipSx(severity)}
+    />
+  );
+}
+
+function FindingCard({
+  f,
+  fileName,
+  checksum,
+  includeArtifactColumns,
+  includeResolutionColumn,
+}: {
+  f: SecurityFinding;
+  fileName?: string;
+  checksum?: string;
+  includeArtifactColumns: boolean;
+  includeResolutionColumn: boolean;
+}) {
+  const fields: RecordField[] = [
+    { label: "Title", wide: true, value: findingTitle(f) },
+    { label: "Message", wide: true, value: findingMessage(f) },
+    ...(includeArtifactColumns
+      ? [
+          {
+            label: "Filename",
+            wide: true,
+            value: <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)" }}>{fileName || "—"}</Typography>,
+          },
+          {
+            label: "Checksum",
+            wide: true,
+            value: checksum ? (
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-all" }}>
+                  {checksum}
+                </Typography>
+                <CopyButton value={checksum} />
+              </Box>
+            ) : (
+              "—"
+            ),
+          },
+        ]
+      : []),
+    ...(includeResolutionColumn
+      ? [{ label: "Resolution", wide: true, value: findingResolutionContent(f) }]
+      : []),
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="caption" sx={{ fontFamily: "var(--od-font-mono)", wordBreak: "break-word" }}>
+            {findingId(f)}
+          </Typography>
+          <FindingSeverityChip severity={findingSeverity(f)} />
+        </Box>
+      }
+      fields={fields}
+    />
+  );
 }
 
 function FindingsTable({
@@ -234,12 +316,12 @@ function FindingsTable({
         gap={1.5}
         mb={2}
         alignItems="center"
-        sx={{ p: 1.5, borderRadius: 1.5, background: "action.hover", border: "1px solid", borderColor: "divider" }}
+        sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}
       >
-        <FilterListIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        <FilterListIcon sx={filterIconSx} />
 
         {scannableVersions && scannableVersions.length > 1 && onVersionChange && (
-          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(140)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
             <Select
               label="Version"
@@ -255,7 +337,7 @@ function FindingsTable({
         )}
 
         {binaryVersions && binaryVersions.length > 1 && onBinaryVersionChange && (
-          <FormControl size="small" sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(140)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Version</InputLabel>
             <Select
               label="Version"
@@ -270,26 +352,8 @@ function FindingsTable({
           </FormControl>
         )}
 
-        {availableOS && availableOS.length > 1 && onOSChange && (
-          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
-            <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
-            <Select
-              label="OS"
-              value={selectedOS || availableOS[0] || ""}
-              onChange={(e) => {
-                onOSChange(e.target.value);
-              }}
-              sx={{ fontSize: "0.8125rem" }}
-            >
-              {availableOS.map((os) => (
-                <MenuItem key={os} value={os} sx={{ fontSize: "0.8125rem" }}>{os}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-
         {availableArch && availableArch.length > 1 && onArchChange && (
-          <FormControl size="small" sx={{ minWidth: 120 }} onClick={(e) => e.stopPropagation()}>
+          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
             <InputLabel sx={{ fontSize: "0.8125rem" }}>Arch</InputLabel>
             <Select
               label="Arch"
@@ -309,10 +373,28 @@ function FindingsTable({
           placeholder="Search findings…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          sx={{ minWidth: 180, "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
+          sx={{ ...filterControlSx(180), "& .MuiInputBase-input": { fontSize: "0.8125rem" } }}
         />
 
-        <FormControl size="small" sx={{ minWidth: 140 }}>
+        {availableOS && availableOS.length > 1 && onOSChange && (
+          <FormControl size="small" sx={filterControlSx(120)} onClick={(e) => e.stopPropagation()}>
+            <InputLabel sx={{ fontSize: "0.8125rem" }}>OS</InputLabel>
+            <Select
+              label="OS"
+              value={selectedOS || availableOS[0] || ""}
+              onChange={(e) => {
+                onOSChange(e.target.value);
+              }}
+              sx={{ fontSize: "0.8125rem" }}
+            >
+              {availableOS.map((os) => (
+                <MenuItem key={os} value={os} sx={{ fontSize: "0.8125rem" }}>{os}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+
+        <FormControl size="small" sx={filterControlSx(140)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Severity</InputLabel>
           <Select
             label="Severity"
@@ -329,7 +411,7 @@ function FindingsTable({
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={filterControlSx(120)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Sort by</InputLabel>
           <Select
             label="Sort by"
@@ -343,7 +425,7 @@ function FindingsTable({
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 100 }}>
+        <FormControl size="small" sx={filterControlSx(100)}>
           <InputLabel sx={{ fontSize: "0.8125rem" }}>Order</InputLabel>
           <Select
             label="Order"
@@ -370,7 +452,7 @@ function FindingsTable({
         )}
       </Box>
 
-      <TableContainer sx={{ width: "100%", overflowX: "auto", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
+      <TableContainer sx={{ width: "100%", display: { xs: "none", lg: "block" }, overflowX: "auto", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}>
         <Table size="small" sx={{ tableLayout: "fixed", minWidth: includeArtifactColumns ? 1060 : 580 }}>
           <TableHead>
             <TableRow>
@@ -387,32 +469,17 @@ function FindingsTable({
             {pagedRows.map((f, idx) => (
               <TableRow key={`${findingId(f)}-${idx}`} hover>
                 <TableCell>
-                  <Typography variant="caption" fontFamily="monospace" sx={{ wordBreak: "break-word" }}>
+                  <Typography variant="caption" fontFamily="var(--od-font-mono)" sx={{ wordBreak: "break-word" }}>
                     {findingId(f)}
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Chip
-                    size="small"
-                    label={findingSeverity(f)}
-                    color={
-                      findingSeverity(f) === "CRITICAL"
-                        ? "error"
-                        : findingSeverity(f) === "HIGH"
-                          ? "warning"
-                          : findingSeverity(f) === "MEDIUM"
-                            ? "info"
-                            : findingSeverity(f) === "LOW"
-                              ? "success"
-                              : "default"
-                    }
-                    sx={findingSeverity(f) === "UNKNOWN" ? unknownSeverityChipSx : { color: "#fff" }}
-                  />
+                  <FindingSeverityChip severity={findingSeverity(f)} />
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingTitle(f)}</TableCell>
                 <TableCell sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>{findingMessage(f)}</TableCell>
                 {includeArtifactColumns && (
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "normal", wordBreak: "break-word" }}>
+                  <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.75rem", whiteSpace: "normal", wordBreak: "break-word" }}>
                     {fileName || "—"}
                   </TableCell>
                 )}
@@ -423,7 +490,7 @@ function FindingsTable({
                         <Typography
                           variant="caption"
                           sx={{
-                            fontFamily: "monospace",
+                            fontFamily: "var(--od-font-mono)",
                             whiteSpace: "normal",
                             wordBreak: "break-all",
                             maxWidth: { xs: 110, md: 160 },
@@ -445,6 +512,25 @@ function FindingsTable({
           </TableBody>
         </Table>
       </TableContainer>
+
+      <MobileRecordList>
+        {pagedRows.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+            No findings match the current filters.
+          </Typography>
+        ) : (
+          pagedRows.map((f, idx) => (
+            <FindingCard
+              key={`${findingId(f)}-${idx}`}
+              f={f}
+              fileName={fileName}
+              checksum={checksum}
+              includeArtifactColumns={includeArtifactColumns}
+              includeResolutionColumn={includeResolutionColumn}
+            />
+          ))
+        )}
+      </MobileRecordList>
 
       <TablePagination
         component="div"
@@ -563,7 +649,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
           borderRadius: '8px !important',
           '&::before': { display: 'none' },
           ...theme.applyStyles('light', {
-            backgroundColor: 'transparent',
+            backgroundColor: 'background.paper',
             backgroundImage: 'none',
             boxShadow: 'none',
             border: '1px solid',
@@ -604,7 +690,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
             borderRadius: '8px !important',
             '&::before': { display: 'none' },
             ...theme.applyStyles('light', {
-              backgroundColor: 'transparent',
+              backgroundColor: 'background.paper',
               backgroundImage: 'none',
               boxShadow: 'none',
               border: '1px solid',

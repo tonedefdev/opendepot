@@ -23,7 +23,10 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.provider.runAsGroup }}
         fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: init-restart-proc
         image: busybox:1.37
@@ -35,6 +38,7 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsUser: 65532
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           limits:
             cpu: 100m
@@ -60,9 +64,13 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           {{- toYaml .Values.provider.resources | nindent 10 }}
         volumeMounts:

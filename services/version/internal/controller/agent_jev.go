@@ -1,0 +1,874 @@
+/*
+Copyright 2026 Tony Owens.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/jev"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// defaultJevSecretKey is the Secret key that holds the Jev token when jevSecretRef omits a key.
+const defaultJevSecretKey = "jevToken"
+
+// jevDisabledError is recorded on the assessment when a source sets jevSecretRef but Jev is disabled on the controller.
+const jevDisabledError = "jev is disabled on this controller"
+
+// jevRefRequiredError is returned when Jev is enabled on the controller but a branch source, or a Version already
+// assessed by Jev, no longer sets jevSecretRef.
+const jevRefRequiredError = "jevSecretRef is required for branch sources when Jev is enabled on the controller"
+
+// jevMaxInFlight limits the Jev HTTP attempts in flight across the controller and the parts sent for one Version.
+const jevMaxInFlight = 16
+
+// jevRateLimitPerMinute and jevRateBurst limit the Jev HTTP attempts started by the controller.
+const (
+	jevRateLimitPerMinute = 1000
+	jevRateBurst          = 16
+)
+
+// jevPartDeadline bounds the time spent sending the parts of one Version.
+const jevPartDeadline = 5 * time.Minute
+
+// jevRetryRequeue is how long a Version waits before its failed Jev assessment is re-run (D11).
+const jevRetryRequeue = 15 * time.Second
+
+// jevRetriesExhausted reports whether a failed Jev assessment has used its automatic retries (D11).
+// A nil assessment or a 401/403 failure, which does not increment RetryCount, is never exhausted.
+func jevRetriesExhausted(assessment *opendepotv1alpha1.JevAssessment, maxRetries int) bool {
+	return assessment != nil && int(assessment.RetryCount) > maxRetries
+}
+
+// jevRetryTracker counts failed Jev attempts in controller memory. The stored status can lag behind when the API
+// server rejects its write, so this count is what caps the retries of a Version whose status cannot be persisted.
+type jevRetryTracker struct {
+	mu     sync.Mutex
+	counts map[string]int32
+}
+
+// jevRetryKey identifies one archive of one generation of a Version. A spec change or ForceSync bumps the
+// generation, which starts a fresh retry budget.
+func jevRetryKey(version *opendepotv1alpha1.Version, content *agentContent) string {
+	key := fmt.Sprintf("%s/%s@%d", version.Namespace, version.Name, version.Generation)
+	if content != nil {
+		key += "/" + content.checksum
+	}
+
+	return key
+}
+
+func (t *jevRetryTracker) get(key string) int32 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.counts[key]
+}
+
+func (t *jevRetryTracker) set(key string, count int32) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.counts == nil {
+		t.counts = make(map[string]int32)
+	}
+	t.counts[key] = count
+}
+
+func (t *jevRetryTracker) clear(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.counts, key)
+}
+
+// jevPartOutcome is the result of one part sent to Jev, or of one half of a part that was split after a token limit.
+type jevPartOutcome struct {
+	result  jevPartResult
+	files   []string
+	errText string
+	auth    bool
+}
+
+// jevRun holds the state shared by the goroutines that send the parts of one Version.
+type jevRun struct {
+	client *jev.Client
+	token  string
+	kind   string
+	in     *jevChunkInput
+	total  int
+	calls  atomic.Int64
+}
+
+// hasJevThresholds reports whether any blocking JevPolicy threshold is configured. MinConfidence never blocks.
+func hasJevThresholds(policy *opendepotv1alpha1.JevPolicy) bool {
+	return policy != nil && (policy.MinSafeProbability != nil ||
+		policy.MaxInjectionProbability != nil ||
+		policy.MaxExfiltrationProbability != nil ||
+		policy.MaxDestructiveProbability != nil ||
+		policy.MaxHiddenInstructionsProbability != nil ||
+		policy.MaxScopeMismatchProbability != nil ||
+		policy.MaxRemoteExecutionProbability != nil ||
+		policy.MaxRiskScore != nil)
+}
+
+// jevPublishedStatus returns the SyncStatus of a Skill or Agent Version that is published. assigned is true when the
+// Version was assigned a semver from a branch. An exempted assessment names the policy, the digest and the expiry.
+// When Jev recorded an error that no threshold gates, the error stays visible in SyncStatus and the message says why
+// the Version was published.
+func jevPublishedStatus(jevAssessment *opendepotv1alpha1.JevAssessment, assigned bool) string {
+	status := "Successfully synced version"
+	if assigned {
+		status = "Successfully synced and assigned version"
+	}
+
+	if jevAssessment == nil {
+		return status
+	}
+
+	if jevAssessment.Exempted {
+		status = fmt.Sprintf("%s; Jev block exempted by ScanPolicy %s: %d reason(s) cleared for digest %s; expires %s",
+			status, jevAssessment.ExemptedBy, len(jevAssessment.BlockReasons), jevAssessment.ContentDigest[:12], jevExpiresText(jevAssessment))
+	}
+
+	if jevAssessment.Error == "" {
+		return status
+	}
+
+	if jevAssessment.Exempted {
+		return fmt.Sprintf("%s; Jev assessment did not complete: %s", status, jevAssessment.Error)
+	}
+
+	return fmt.Sprintf("%s; Jev assessment did not complete: %s. Version was published because no Jev thresholds are set", status, jevAssessment.Error)
+}
+
+// jevExemptible reports whether every block reason on the assessment can be cleared by a Jev exemption. Every Jev
+// block reason is exemptible, so the check needs only a reason and a recorded digest. A legacy assessment with no
+// digest cannot be exempted until it has had one forceSync.
+func jevExemptible(assessment *opendepotv1alpha1.JevAssessment) bool {
+	return assessment != nil && len(assessment.BlockReasons) >= 1 && assessment.ContentDigest != ""
+}
+
+// applyJevExemption returns a copy of the assessment with the Jev exemption for digest applied. It never changes the
+// input, because the cached assessment points into the Version status. When the digest matches an exemption in the
+// resolved policy, Blocked is cleared and the reasons stay listed. Otherwise the exemption fields are cleared and the
+// assessment blocks again. The copy records versionName as the Version the assessment belongs to.
+func applyJevExemption(
+	assessment *opendepotv1alpha1.JevAssessment,
+	resolved policy.Resolved,
+	digest string,
+	versionName string,
+) *opendepotv1alpha1.JevAssessment {
+	if assessment == nil {
+		return nil
+	}
+
+	out := assessment.DeepCopy()
+	out.VersionName = versionName
+	out.Exempted = false
+	out.ExemptedBy = ""
+	out.ExemptionReason = ""
+	out.ExemptionExpires = nil
+
+	if !jevExemptible(out) {
+		return out
+	}
+
+	out.Blocked = true
+	if out.ContentDigest != digest {
+		return out
+	}
+
+	entry := resolved.JevExemptionFor(digest)
+	if entry == nil {
+		return out
+	}
+
+	out.Blocked = false
+	out.Exempted = true
+	out.ExemptedBy = resolved.PolicyName
+	out.ExemptionReason = entry.Reason
+	if entry.Expires != nil {
+		expires := *entry.Expires
+		out.ExemptionExpires = &expires
+	}
+
+	return out
+}
+
+// jevExemptionChange reports whether an exemption was applied or revoked between two assessments of the same Version.
+type jevExemptionChange struct {
+	Applied    bool
+	Revoked    bool
+	ExemptedBy string
+}
+
+// jevExemptionTransition compares the Exempted state before and after an overlay so callers can emit events on
+// transitions only.
+func jevExemptionTransition(before, after *opendepotv1alpha1.JevAssessment) jevExemptionChange {
+	change := jevExemptionChange{}
+	if after == nil {
+		return change
+	}
+
+	wasExempted := before != nil && before.Exempted
+	change.Applied = !wasExempted && after.Exempted
+	change.Revoked = wasExempted && !after.Exempted
+	change.ExemptedBy = after.ExemptedBy
+	if change.Revoked {
+		change.ExemptedBy = before.ExemptedBy
+	}
+
+	return change
+}
+
+// recordJevExemptionChange emits a Kubernetes Event for an exemption applied or revoked on a Version. Events are
+// best effort and never include the Jev token or skill content.
+func (r *VersionReconciler) recordJevExemptionChange(version *opendepotv1alpha1.Version, change jevExemptionChange, assessment *opendepotv1alpha1.JevAssessment) {
+	if r.Recorder == nil || version == nil || assessment == nil {
+		return
+	}
+
+	if change.Applied {
+		r.Recorder.Eventf(version, nil, corev1.EventTypeNormal, "JevExemptionApplied", "Reconcile",
+			"Jev block exempted by ScanPolicy %s for digest %s, %d block reasons, expires %s",
+			change.ExemptedBy, assessment.ContentDigest, len(assessment.BlockReasons), jevExpiresText(assessment))
+	}
+
+	if change.Revoked {
+		r.Recorder.Eventf(version, nil, corev1.EventTypeWarning, "JevExemptionRevoked", "Reconcile",
+			"Jev exemption by ScanPolicy %s no longer applies, the Version is blocked again", change.ExemptedBy)
+	}
+}
+
+// storedContentDigest returns the hex SHA-256 of the archive recorded in status.checksum, which is stored as base64.
+// It returns an empty string when the checksum is missing or malformed, so the overlay fails closed.
+func storedContentDigest(checksum *string) string {
+	if checksum == nil {
+		return ""
+	}
+
+	sum, err := base64.StdEncoding.DecodeString(*checksum)
+	if err != nil {
+		return ""
+	}
+
+	return hex.EncodeToString(sum)
+}
+
+// jevExpiresText formats a Jev exemption expiry for logs and status messages.
+func jevExpiresText(assessment *opendepotv1alpha1.JevAssessment) string {
+	if assessment.ExemptionExpires == nil {
+		return "never"
+	}
+
+	return assessment.ExemptionExpires.UTC().Format(time.RFC3339)
+}
+
+// readJevToken reads the Jev token from the Secret referenced by the source. The token is never logged
+// and never included in an error.
+func (r *VersionReconciler) readJevToken(ctx context.Context, namespace string, ref *corev1.SecretKeySelector) (string, error) {
+	key := ref.Key
+	if key == "" {
+		key = defaultJevSecretKey
+	}
+
+	var secret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, &secret); err != nil {
+		return "", fmt.Errorf("read jev secret '%s': %w", ref.Name, err)
+	}
+
+	token := strings.TrimSpace(string(secret.Data[key]))
+	if token == "" {
+		return "", fmt.Errorf("jev secret '%s' has no value for key '%s'", ref.Name, key)
+	}
+
+	return token, nil
+}
+
+// jevFailure records a failed Jev assessment. The error is returned only when a threshold is configured,
+// because a Version with thresholds must stay unsynced until Jev can evaluate them.
+func jevFailure(err error, gated bool) (*opendepotv1alpha1.JevAssessment, error) {
+	assessment := &opendepotv1alpha1.JevAssessment{
+		EvaluatedAt: time.Now().UTC().Format(time.RFC3339),
+		Error:       err.Error(),
+	}
+
+	if gated {
+		return assessment, err
+	}
+
+	return assessment, nil
+}
+
+// jevServiceError marks a Service outcome: a failed part, an unreadable token Secret, or a read error on the extracted
+// content. Only these are retried at jevRetryRequeue. A Content outcome returns no error, so it is never retried.
+type jevServiceError struct {
+	msg string
+}
+
+func (e *jevServiceError) Error() string {
+	return e.msg
+}
+
+// jevIncomplete records a Service outcome that could not finish and blocks the Version. The returned error keeps the
+// Version unsynced, so an incomplete assessment never publishes.
+func jevIncomplete(retries int32, chunks int, msg string) (*opendepotv1alpha1.JevAssessment, error) {
+	return &opendepotv1alpha1.JevAssessment{
+		EvaluatedAt:  time.Now().UTC().Format(time.RFC3339),
+		ChunkCount:   int32(chunks),
+		RetryCount:   retries,
+		Error:        msg,
+		Blocked:      true,
+		BlockReasons: []string{msg},
+	}, &jevServiceError{msg: msg}
+}
+
+// jevRefRequired reports whether a Version without jevSecretRef must fail its Jev check. It applies while Jev is enabled
+// on the controller and the Version is a branch source or was already assessed, so removing the ref cannot skip the check.
+func (r *VersionReconciler) jevRefRequired(version *opendepotv1alpha1.Version) bool {
+	return r.JevEnabled && (version.Spec.SourceCommit != "" || version.Status.JevAssessment != nil)
+}
+
+// acquireJevSlot takes one slot from the semaphore. A nil semaphore means no cap, which unit tests use.
+func acquireJevSlot(ctx context.Context, sem chan struct{}) error {
+	if sem == nil {
+		return ctx.Err()
+	}
+
+	select {
+	case sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// releaseJevSlot returns a slot taken by acquireJevSlot.
+func releaseJevSlot(sem chan struct{}) {
+	if sem != nil {
+		<-sem
+	}
+}
+
+// waitJevRate takes one token from the limiter. A nil limiter means no cap, which unit tests use.
+func waitJevRate(ctx context.Context, limiter *rate.Limiter) error {
+	if limiter == nil {
+		return nil
+	}
+
+	return limiter.Wait(ctx)
+}
+
+// jevAttemptGate returns the gate every HTTP attempt to Jev passes. It takes a semaphore slot and a limiter token,
+// and the caller releases the slot before any backoff sleep.
+func jevAttemptGate(sem chan struct{}, limiter *rate.Limiter) jev.AttemptGate {
+	return func(ctx context.Context) (func(), error) {
+		if err := acquireJevSlot(ctx, sem); err != nil {
+			return nil, err
+		}
+
+		if err := waitJevRate(ctx, limiter); err != nil {
+			releaseJevSlot(sem)
+			return nil, err
+		}
+
+		return func() { releaseJevSlot(sem) }, nil
+	}
+}
+
+// reserveJevHalving takes the two calls a halving needs from the budget. It reports false when fewer than two remain.
+func (run *jevRun) reserveJevHalving() bool {
+	for {
+		left := run.calls.Load()
+		if left < 2 {
+			return false
+		}
+
+		if run.calls.CompareAndSwap(left, left-2) {
+			return true
+		}
+	}
+}
+
+// assess sends one part to Jev. A 400 max_tokens_exceeded halves the part and sends both halves in turn. It always
+// returns outcomes and never an error, so a failing part cannot cancel the others.
+func (run *jevRun) assess(ctx context.Context, part jevChunkPart) []jevPartOutcome {
+	failed := func(status, errText string, auth bool) []jevPartOutcome {
+		return []jevPartOutcome{{
+			result:  jevPartResult{label: part.label, status: status},
+			files:   part.files,
+			errText: errText,
+			auth:    auth,
+		}}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return failed(jevPartNotSent, "deadline exceeded before the part was sent", false)
+	}
+
+	state, err := run.in.build(part, run.total)
+	if err != nil {
+		return failed(jevPartFailed, err.Error(), false)
+	}
+
+	result, err := run.client.Assess(ctx, run.token, run.kind, state)
+	if err == nil {
+		return []jevPartOutcome{{
+			result: jevPartResult{label: part.label, status: jevPartScored, result: *result},
+			files:  part.files,
+		}}
+	}
+
+	if !jev.IsTokenLimitExceeded(err) {
+		var apiErr *jev.APIError
+		auth := errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden)
+
+		return failed(jevPartFailed, err.Error(), auth)
+	}
+
+	first, second, ok, err := run.in.halve(part, run.total)
+	if err != nil {
+		return failed(jevPartFailed, err.Error(), false)
+	}
+
+	if !ok {
+		return failed(jevPartTokenLimitExceeded, "part exceeds the Jev token limit and cannot be split further", false)
+	}
+
+	if !run.reserveJevHalving() {
+		return failed(jevPartTokenLimitExceeded, "no call budget left under the 16-call limit", false)
+	}
+
+	return append(run.assess(ctx, first), run.assess(ctx, second)...)
+}
+
+// jevNewAssessment returns an assessment stamped with the evaluation time and the retry and chunk counts.
+func jevNewAssessment(retries int32, chunks int) *opendepotv1alpha1.JevAssessment {
+	return &opendepotv1alpha1.JevAssessment{
+		EvaluatedAt: time.Now().UTC().Format(time.RFC3339),
+		ChunkCount:  int32(chunks),
+		RetryCount:  retries,
+	}
+}
+
+// jevSkippedFiles converts the skipped files of a layout to the API type.
+func jevSkippedFiles(layout jevChunkLayout) []opendepotv1alpha1.JevSkippedFile {
+	skipped := make([]opendepotv1alpha1.JevSkippedFile, 0, len(layout.skipped))
+	for _, s := range layout.skipped {
+		skipped = append(skipped, opendepotv1alpha1.JevSkippedFile{Path: jevChunkTruncate(s.path, jevChunkPathLimit), Reason: s.reason})
+	}
+
+	return skipped
+}
+
+// jevPlannedOutcomes drops the evidence view. It is not a planned part, so it has no chunk index and is not
+// counted in the chunk fields. Its result still feeds the aggregate and the failure checks.
+func jevPlannedOutcomes(outcomes []jevPartOutcome) []jevPartOutcome {
+	planned := make([]jevPartOutcome, 0, len(outcomes))
+	for _, o := range outcomes {
+		if o.result.label != jevEvidenceLabel {
+			planned = append(planned, o)
+		}
+	}
+
+	return planned
+}
+
+// jevChunks converts sorted part outcomes to the API type. Each entry lists at most the list limit of files.
+func jevChunks(outcomes []jevPartOutcome) []opendepotv1alpha1.JevChunkResult {
+	chunks := make([]opendepotv1alpha1.JevChunkResult, 0, len(outcomes))
+	for _, o := range outcomes {
+		files := o.files
+		if len(files) > jevChunkListLimit {
+			files = files[:jevChunkListLimit]
+		}
+
+		listed := make([]string, 0, len(files))
+		for _, f := range files {
+			listed = append(listed, jevChunkTruncate(f, jevChunkPathLimit))
+		}
+
+		index, _ := jevSplitLabel(o.result.label)
+		chunk := opendepotv1alpha1.JevChunkResult{
+			Index:       int32(index),
+			Label:       o.result.label,
+			Files:       listed,
+			FileCount:   int32(len(o.files)),
+			Status:      o.result.status,
+			InputTokens: o.result.result.InputTokens,
+			Error:       jevChunkTruncate(o.errText, jevChunkErrorLimit),
+		}
+
+		if o.result.status == jevPartScored {
+			chunk.RiskLevel = o.result.result.RiskLevel
+			chunk.RiskScore = ptr.To(o.result.result.RiskScore)
+			chunk.RiskConfidence = ptr.To(o.result.result.RiskConfidence)
+			chunk.SafeProbability = ptr.To(o.result.result.SafeProbability)
+		}
+
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks
+}
+
+// jevInputTokens sums the input tokens Jev reported across the outcomes. A part Jev scored is billed even when it is
+// later marked Failed, so every outcome that reports tokens counts.
+func jevInputTokens(outcomes []jevPartOutcome) int64 {
+	var total int64
+	for _, o := range outcomes {
+		total += o.result.result.InputTokens
+	}
+
+	return total
+}
+
+// jevNotSentOutcomes returns one NotSent outcome for each part, with the given reason.
+func jevNotSentOutcomes(parts []jevChunkPart, errText string) []jevPartOutcome {
+	outcomes := make([]jevPartOutcome, 0, len(parts))
+	for _, part := range parts {
+		outcomes = append(outcomes, jevPartOutcome{
+			result:  jevPartResult{label: part.label, status: jevPartNotSent},
+			files:   part.files,
+			errText: errText,
+		})
+	}
+
+	return outcomes
+}
+
+// runAgentJev runs the TypeSafe Jev assessment for a Skill or Agent Version. It runs when the source sets a
+// JevSecretRef, and only after the deterministic gates have passed. The content is split into parts of at most
+// the Jev state limit, each part is sent concurrently within the controller's Jev limits, and the outcomes are
+// aggregated and gated. A cached assessment is reused unless ForceSync is set, or it failed and its retry budget
+// is not spent, so a failing Jev is retried a bounded number of times.
+//
+// It returns nil when Jev does not apply. An error is returned when the assessment is incomplete and the Version
+// must stay unsynced. A policy block is recorded on the assessment and returns no error. A fresh assessment is
+// stamped with the archive digest, so a ScanPolicy jevExemption can be bound to it.
+func (r *VersionReconciler) runAgentJev(
+	ctx context.Context,
+	version *opendepotv1alpha1.Version,
+	content *agentContent,
+) (*opendepotv1alpha1.JevAssessment, error) {
+	cached := version.Status.JevAssessment
+	assessment, err := r.runAgentJevAssessment(ctx, version, content)
+	if assessment != nil && assessment != cached {
+		assessment.ContentDigest = content.checksum
+	} else if assessment != nil && assessment.ContentDigest == "" && content.checksum != "" && storedContentDigest(version.Status.Checksum) == content.checksum {
+		// A reused assessment written before digest stamping has no ContentDigest. Stamp a copy only when the
+		// archive recorded on the Version matches the content that was checked.
+		assessment = assessment.DeepCopy()
+		assessment.ContentDigest = content.checksum
+	}
+
+	return assessment, err
+}
+
+// runAgentJevAssessment performs the Jev check described on runAgentJev. It returns the cached assessment as the same
+// pointer when it reuses it, so the caller can tell a fresh assessment from a reused one.
+func (r *VersionReconciler) runAgentJevAssessment(
+	ctx context.Context,
+	version *opendepotv1alpha1.Version,
+	content *agentContent,
+) (*opendepotv1alpha1.JevAssessment, error) {
+	sourceRef := version.Spec.AgentSourceRef
+	if sourceRef == nil || sourceRef.JevSecretRef == nil {
+		if r.jevRefRequired(version) {
+			return nil, errors.New(jevRefRequiredError)
+		}
+
+		return nil, nil
+	}
+
+	gated := hasJevThresholds(sourceRef.JevPolicy)
+	cached := version.Status.JevAssessment
+	reuse := cached != nil && !version.Spec.ForceSync && cached.Error != jevDisabledError
+
+	retries := r.jevRetries.get(jevRetryKey(version, content))
+	if reuse && cached.RetryCount > retries {
+		retries = cached.RetryCount
+	}
+
+	if !r.JevEnabled {
+		var carried int32
+		if cached != nil {
+			carried = cached.RetryCount
+		}
+
+		assessment, err := jevFailure(errors.New(jevDisabledError), true)
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{jevDisabledError}
+		assessment.RetryCount = carried
+
+		return assessment, err
+	}
+
+	if reuse && cached.ChunkCount == 0 && len(cached.Chunks) == 0 && !cached.Blocked {
+		if cached.Error != "" && gated {
+			return cached, errors.New(cached.Error)
+		}
+
+		return cached, nil
+	}
+
+	if reuse && (cached.Error == "" || int(retries) > r.JevMaxRetries) {
+		if cached.Error != "" {
+			return cached, errors.New(cached.Error)
+		}
+
+		return cached, nil
+	}
+
+	if int(retries) > r.JevMaxRetries {
+		msg := fmt.Sprintf("Jev could not finish checking this version after %d attempts; set forceSync or change the spec to run again", retries)
+		assessment := jevNewAssessment(retries, 0)
+		assessment.Error = msg
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{msg}
+
+		return assessment, &jevServiceError{msg: msg}
+	}
+
+	kind := strings.ToLower(version.Spec.Type)
+	in := &jevChunkInput{
+		dir:          content.dir,
+		entry:        content.entryRel,
+		entryFlagged: content.entryFlagged,
+		flagged:      content.flaggedFiles,
+		files:        content.files,
+		kind:         kind,
+		name:         content.definition.Name,
+		description:  content.definition.Description,
+		tools:        content.definition.Tools,
+	}
+
+	layout, err := jevChunkPlan(in)
+	if err != nil {
+		if errors.Is(err, errJevChunkIO) {
+			r.Log.Error(err, "Jev split could not read the extracted content", "version", version.Name)
+
+			return jevIncomplete(retries+1, 0, "Jev could not check this version because the extracted content could not be read")
+		}
+
+		assessment := jevNewAssessment(retries, 0)
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{fmt.Sprintf("Jev could not check this version because the content could not be split: %s", err)}
+
+		return assessment, nil
+	}
+
+	if layout.over {
+		reasons := []string{fmt.Sprintf("Jev could not check this version: the content needs %d parts of up to %d bytes, but the limit is %d per Version; no Jev calls were made", layout.count, jev.MaxStateBytes, jevMaxChunks)}
+		if layout.skippedCount > 0 {
+			reasons = append(reasons, fmt.Sprintf("Jev could not check this version: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content", layout.skippedCount))
+		}
+
+		assessment := jevNewAssessment(retries, layout.count)
+		assessment.Blocked = true
+		assessment.BlockReasons = reasons
+
+		return assessment, nil
+	}
+
+	if layout.skippedCount > 0 {
+		assessment := jevNewAssessment(retries, len(layout.parts))
+		assessment.Chunks = jevChunks(jevNotSentOutcomes(layout.parts, "not sent: the content omitted bundled files"))
+		assessment.SkippedFiles = jevSkippedFiles(layout)
+		assessment.SkippedFileCount = int32(layout.skippedCount)
+		assessment.Blocked = true
+		assessment.BlockReasons = []string{fmt.Sprintf("Jev could not check this version: %d bundled file(s) were withheld or skipped, so Jev cannot see the full content; no Jev calls were made", layout.skippedCount)}
+
+		return assessment, nil
+	}
+
+	sent := layout.parts
+	if len(layout.parts) > 1 && len(layout.parts) < jevMaxChunks {
+		evidence, found, err := jevEvidencePart(in)
+		if err != nil {
+			r.Log.Error(err, "Jev evidence view could not read the extracted content", "version", version.Name)
+
+			return jevIncomplete(retries+1, len(layout.parts), "Jev could not check this version because the extracted content could not be read")
+		}
+
+		if found {
+			sent = append(sent, evidence)
+		}
+	}
+
+	token, err := r.readJevToken(ctx, version.Namespace, sourceRef.JevSecretRef)
+	if err != nil {
+		return jevIncomplete(retries+1, len(layout.parts), err.Error())
+	}
+
+	opts := []jev.Option{jev.WithAttemptGate(jevAttemptGate(r.jevSem, r.jevLimiter))}
+	if r.JevEndpoint != "" {
+		opts = append(opts, jev.WithEndpoint(r.JevEndpoint))
+	}
+
+	deadline := jevPartDeadline
+	if r.jevDeadline > 0 {
+		deadline = r.jevDeadline
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+
+	run := &jevRun{
+		client: jev.NewClient(opts...),
+		token:  token,
+		kind:   kind,
+		in:     in,
+		total:  len(layout.parts),
+	}
+	run.calls.Store(int64(jevMaxChunks - len(sent)))
+
+	var g errgroup.Group
+	g.SetLimit(jevMaxInFlight)
+	slots := make([][]jevPartOutcome, len(sent))
+	for i := range sent {
+		g.Go(func() error {
+			slots[i] = run.assess(sendCtx, sent[i])
+
+			return nil
+		})
+	}
+
+	g.Wait()
+
+	var outcomes []jevPartOutcome
+	for _, slot := range slots {
+		outcomes = append(outcomes, slot...)
+	}
+
+	sort.SliceStable(outcomes, func(i, j int) bool {
+		return jevPartLabelLess(outcomes[i].result.label, outcomes[j].result.label)
+	})
+
+	parts := make([]jevPartResult, len(outcomes))
+	for i, o := range outcomes {
+		parts[i] = o.result
+	}
+
+	normalized := jevApplyCompositeRisk(jevNormalizeParts(parts))
+	for i := range outcomes {
+		if outcomes[i].result.status == jevPartScored && normalized[i].status == jevPartFailed {
+			outcomes[i].errText = "unrecognized risk level"
+		}
+
+		outcomes[i].result = normalized[i]
+	}
+
+	result, assessed := aggregateJevParts(normalized)
+	gateReasons, needsReview := evaluateJevPartsGate(sourceRef.JevPolicy, normalized)
+
+	planned := jevPlannedOutcomes(outcomes)
+	plannedScored := 0
+	for _, o := range planned {
+		if o.result.status == jevPartScored {
+			plannedScored++
+		}
+	}
+
+	assessment := jevNewAssessment(retries, len(layout.parts))
+	assessment.NeedsReview = needsReview
+	assessment.Chunks = jevChunks(planned)
+	assessment.AssessedChunks = int32(plannedScored)
+	assessment.InputTokens = jevInputTokens(outcomes)
+	if assessed > 0 {
+		assessment.Model = result.Model
+		assessment.SafeProbability = ptr.To(result.SafeProbability)
+		assessment.InjectionProbability = ptr.To(result.PromptInjectionProbability)
+		assessment.ExfiltrationProbability = ptr.To(result.DataExfiltrationProbability)
+		assessment.DestructiveProbability = ptr.To(result.DestructiveActionsProbability)
+		assessment.HiddenInstructionsProbability = ptr.To(result.HiddenInstructionsProbability)
+		assessment.ScopeMismatchProbability = ptr.To(result.ScopeMismatchProbability)
+		assessment.RemoteExecutionProbability = ptr.To(result.RemoteExecutionProbability)
+		assessment.RiskScore = ptr.To(result.RiskScore)
+		assessment.RiskLevel = result.RiskLevel
+		assessment.RiskConfidence = ptr.To(result.RiskConfidence)
+	}
+
+	nonAuthFailure := false
+	firstFailure := -1
+	tokenLimit := false
+	for i, o := range outcomes {
+		switch o.result.status {
+		case jevPartFailed, jevPartNotSent:
+			if firstFailure < 0 {
+				firstFailure = i
+			}
+
+			if !o.auth {
+				nonAuthFailure = true
+			}
+		case jevPartTokenLimitExceeded:
+			tokenLimit = true
+		}
+	}
+
+	if firstFailure >= 0 {
+		if nonAuthFailure {
+			assessment.RetryCount = retries + 1
+		}
+
+		msg := fmt.Sprintf("Jev could not check part %s: %s", outcomes[firstFailure].result.label, outcomes[firstFailure].errText)
+		assessment.Error = msg
+		assessment.Blocked = true
+		assessment.BlockReasons = append([]string{msg}, gateReasons...)
+
+		return assessment, &jevServiceError{msg: msg}
+	}
+
+	if tokenLimit {
+		var reasons []string
+		for _, o := range outcomes {
+			if o.result.status == jevPartTokenLimitExceeded {
+				reasons = append(reasons, fmt.Sprintf("part %s: %s", o.result.label, o.errText))
+			}
+		}
+
+		assessment.Blocked = true
+		assessment.BlockReasons = append(reasons, gateReasons...)
+
+		return assessment, nil
+	}
+
+	if len(gateReasons) > 0 {
+		assessment.Blocked = true
+		assessment.BlockReasons = gateReasons
+	}
+
+	return assessment, nil
+}

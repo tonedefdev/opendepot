@@ -17,12 +17,20 @@ limitations under the License.
 package policy
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+)
+
+const (
+	digestA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	digestB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	digestC = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
 func providerVersion(name string, version string) *opendepotv1alpha1.Version {
@@ -36,6 +44,22 @@ func providerVersion(name string, version string) *opendepotv1alpha1.Version {
 		},
 		Spec: opendepotv1alpha1.VersionSpec{
 			Type:    opendepotv1alpha1.OpenDepotProvider,
+			Version: version,
+		},
+	}
+}
+
+func agentVersion(kind string, name string, version string) *opendepotv1alpha1.Version {
+	return &opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + "-" + version,
+			Namespace: "opendepot",
+			Labels: map[string]string{
+				"opendepot.defdev.io/" + kind: name,
+			},
+		},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Type:    map[string]string{"skill": opendepotv1alpha1.OpenDepotSkill, "agent": opendepotv1alpha1.OpenDepotAgent}[kind],
 			Version: version,
 		},
 	}
@@ -211,6 +235,30 @@ func TestMatchesTargetRefs(t *testing.T) {
 			version: providerVersion("aws", "5.4.0"),
 			want:    false,
 		},
+		{
+			name:    "skill kind and name match",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "pdf-tools"},
+			version: agentVersion("skill", "pdf-tools", "1.0.0"),
+			want:    true,
+		},
+		{
+			name:    "skill kind does not match an agent",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Skill", Name: "reviewer"},
+			version: agentVersion("agent", "reviewer", "1.0.0"),
+			want:    false,
+		},
+		{
+			name:    "agent kind and wildcard name match",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Agent", Name: "*", Versions: ">= 1.0.0"},
+			version: agentVersion("agent", "reviewer", "1.2.0"),
+			want:    true,
+		},
+		{
+			name:    "agent version constraint not satisfied",
+			ref:     opendepotv1alpha1.ScanPolicyTargetRef{Kind: "Agent", Name: "reviewer", Versions: ">= 2.0.0"},
+			version: agentVersion("agent", "reviewer", "1.2.0"),
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -227,6 +275,69 @@ func TestMatchesTargetRefs(t *testing.T) {
 				t.Errorf("Matches = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMatchesTargetRefFallsBackToSourceRef(t *testing.T) {
+	name := "pdf-tools"
+	version := agentVersion("skill", "pdf-tools", "1.0.0")
+	version.Labels = nil
+	version.Spec.AgentSourceRef = &opendepotv1alpha1.AgentSourceConfig{Name: &name}
+
+	policy := policyNamed("by-ref", 0)
+	policy.Spec.TargetRefs = []opendepotv1alpha1.ScanPolicyTargetRef{{Kind: "Skill", Name: "pdf-tools"}}
+
+	if got, _ := Matches(&policy, version); !got {
+		t.Error("target reference should fall back to the agent source reference when labels are absent")
+	}
+}
+
+func TestResourceNameForAgents(t *testing.T) {
+	name := "reviewer"
+	tests := []struct {
+		name    string
+		version *opendepotv1alpha1.Version
+		want    string
+	}{
+		{name: "skill label", version: agentVersion("skill", "pdf-tools", "1.0.0"), want: "pdf-tools"},
+		{name: "agent label", version: agentVersion("agent", "reviewer", "1.0.0"), want: "reviewer"},
+		{
+			name: "agent source ref fallback",
+			version: &opendepotv1alpha1.Version{
+				Spec: opendepotv1alpha1.VersionSpec{
+					Type:           opendepotv1alpha1.OpenDepotAgent,
+					AgentSourceRef: &opendepotv1alpha1.AgentSourceConfig{Name: &name},
+				},
+			},
+			want: "reviewer",
+		},
+		{
+			name:    "no label or source ref",
+			version: &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Type: opendepotv1alpha1.OpenDepotSkill}},
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resourceName(tt.version); got != tt.want {
+				t.Errorf("resourceName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyAgentScanType(t *testing.T) {
+	resolved := Resolve(nil, true, false, time.Now())
+	findings := []opendepotv1alpha1.SecurityFinding{{VulnerabilityID: "R-1", Severity: "CRITICAL"}}
+
+	annotated, blocking := Apply(resolved, findings, ScanTypeAgent)
+	if blocking == nil || blocking.VulnerabilityID != "R-1" {
+		t.Fatalf("expected agent-scan CRITICAL finding to block, got %v", blocking)
+	}
+
+	if annotated[0].Exempted {
+		t.Error("finding should not be exempted without an exemption")
 	}
 }
 
@@ -495,5 +606,439 @@ func TestCountExemptions(t *testing.T) {
 	active, expired := CountExemptions(&policy, now)
 	if active != 2 || expired != 1 {
 		t.Errorf("CountExemptions = (%d, %d), want (2, 1)", active, expired)
+	}
+}
+
+func TestResolveJevExemptionsDropExpiredAndTrackNextExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-expiring", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "expired", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+		{ContentDigest: digestB, Reason: "later", Expires: &metav1.Time{Time: now.Add(48 * time.Hour)}},
+		{ContentDigest: digestC, Reason: "no expiry"},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if len(resolved.JevExemptions) != 2 {
+		t.Fatalf("expected 2 unexpired Jev exemptions, got %d", len(resolved.JevExemptions))
+	}
+
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(48*time.Hour)) {
+		t.Errorf("expected the Jev expiry as NextExpiry, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestResolveNoExpiryJevExemptionDoesNotSetNextExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-forever", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "no expiry"},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if len(resolved.JevExemptions) != 1 {
+		t.Fatalf("expected the no-expiry Jev exemption to be kept, got %d", len(resolved.JevExemptions))
+	}
+
+	if resolved.NextExpiry != nil {
+		t.Errorf("expected no NextExpiry for a no-expiry entry, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestResolveNextExpiryTakesEarliestAcrossLists(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("both-lists", 0)
+	policy.Spec.Exemptions = []opendepotv1alpha1.ScanExemption{
+		{VulnerabilityIDs: []string{"CVE-LATER"}, Reason: "later", Expires: &metav1.Time{Time: now.Add(10 * time.Hour)}},
+	}
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "sooner", Expires: &metav1.Time{Time: now.Add(2 * time.Hour)}},
+	}
+
+	resolved := Resolve(&policy, true, false, now)
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(2*time.Hour)) {
+		t.Errorf("expected the earliest expiry across both lists, got %v", resolved.NextExpiry)
+	}
+
+	policy.Spec.JevExemptions[0].Expires = &metav1.Time{Time: now.Add(20 * time.Hour)}
+	resolved = Resolve(&policy, true, false, now)
+	if resolved.NextExpiry == nil || !resolved.NextExpiry.Equal(now.Add(10*time.Hour)) {
+		t.Errorf("expected the scanner exemption expiry when it is earliest, got %v", resolved.NextExpiry)
+	}
+}
+
+func TestJevExemptionForMatchesExactDigest(t *testing.T) {
+	resolved := Resolved{
+		PolicyName: "jev-allow",
+		JevExemptions: []opendepotv1alpha1.JevExemption{
+			{ContentDigest: digestA, Reason: "reviewed"},
+		},
+	}
+
+	if got := resolved.JevExemptionFor(digestA); got == nil || got.Reason != "reviewed" {
+		t.Errorf("expected the exemption for the exact digest, got %v", got)
+	}
+
+	if got := resolved.JevExemptionFor(digestB); got != nil {
+		t.Errorf("expected no exemption for a different digest, got %+v", got)
+	}
+
+	if got := resolved.JevExemptionFor(strings.ToUpper(digestA)); got != nil {
+		t.Errorf("expected mixed case digest not to match, got %+v", got)
+	}
+
+	if got := resolved.JevExemptionFor(""); got != nil {
+		t.Errorf("expected empty digest not to match, got %+v", got)
+	}
+}
+
+func TestJevExemptionForRespectsPriorityShadowing(t *testing.T) {
+	high := policyNamed("high", 10)
+	low := policyNamed("low", 1)
+	low.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "only the lower policy holds this"},
+	}
+
+	winner, _ := Select([]opendepotv1alpha1.ScanPolicy{low, high}, providerVersion("demo", "1.0.0"))
+	if winner == nil || winner.Name != "high" {
+		t.Fatalf("expected the high priority policy to win, got %v", winner)
+	}
+
+	resolved := Resolve(winner, true, false, time.Now())
+	if got := resolved.JevExemptionFor(digestA); got != nil {
+		t.Errorf("expected the shadowed policy's Jev exemption not to apply, got %+v", got)
+	}
+}
+
+func TestCountJevExemptions(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	policy := policyNamed("jev-counted", 0)
+	policy.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "no expiry"},
+		{ContentDigest: digestB, Reason: "future", Expires: &metav1.Time{Time: now.Add(time.Hour)}},
+		{ContentDigest: digestC, Reason: "past", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+	}
+
+	active, expired := CountJevExemptions(&policy, now)
+	if active != 2 || expired != 1 {
+		t.Errorf("CountJevExemptions = (%d, %d), want (2, 1)", active, expired)
+	}
+}
+
+func TestRankStartsWithSelectWinner(t *testing.T) {
+	low := policyNamed("low", 10)
+	high := policyNamed("high", 100)
+	version := providerVersion("aws", "5.0.0")
+
+	ranked, errs := Rank([]opendepotv1alpha1.ScanPolicy{low, high}, version)
+	if len(errs) != 0 {
+		t.Fatalf("Rank returned errors: %v", errs)
+	}
+
+	if len(ranked) != 2 || ranked[0].Name != "high" || ranked[1].Name != "low" {
+		t.Errorf("Rank = %v, want high then low", ranked)
+	}
+
+	winner, _ := Select([]opendepotv1alpha1.ScanPolicy{low, high}, version)
+	if winner == nil || winner.Name != ranked[0].Name {
+		t.Errorf("Select winner %v does not match Rank[0] %s", winner, ranked[0].Name)
+	}
+}
+
+func TestJevGovernance(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	future := &metav1.Time{Time: now.Add(time.Hour)}
+	past := &metav1.Time{Time: now.Add(-time.Hour)}
+
+	governing := policyNamed("governing", 100)
+	governing.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "active", Expires: future},
+		{ContentDigest: digestB, Reason: "lapsed", Expires: past},
+	}
+
+	shadowed := policyNamed("shadowed", 10)
+	shadowed.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "not in force"},
+		{ContentDigest: digestC, Reason: "not in force either"},
+	}
+
+	tests := []struct {
+		name   string
+		ranked []opendepotv1alpha1.ScanPolicy
+		digest string
+		want   opendepotv1alpha1.JevExemptionGovernance
+	}{
+		{
+			name:   "no governing policy and no digest",
+			digest: digestA,
+			want:   opendepotv1alpha1.JevExemptionGovernance{MatchingState: opendepotv1alpha1.JevMatchingStateNone},
+		},
+		{
+			name:   "empty digest reports noDigest even when a policy governs",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing},
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateNoDigest,
+			},
+		},
+		{
+			name:   "no entry matches",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestB + "0",
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateNone,
+			},
+		},
+		{
+			name:   "unexpired entry in the governing policy is exempted",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestA,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   future,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExempted,
+			},
+		},
+		{
+			name:   "expired entry in the governing policy is expired",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestB,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   past,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExpired,
+			},
+		},
+		{
+			name:   "entry only in a non-governing policy is superseded",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestC,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "shadowed",
+				MatchingPriority:  10,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateSuperseded,
+				Superseded:        true,
+			},
+		},
+		{
+			name:   "governing policy entry takes precedence over a superseded match",
+			ranked: []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest: digestA,
+			want: opendepotv1alpha1.JevExemptionGovernance{
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				MatchingExpires:   future,
+				MatchingState:     opendepotv1alpha1.JevMatchingStateExempted,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := JevGovernance(tt.ranked, tt.digest, now)
+			if got.GoverningPolicy != tt.want.GoverningPolicy || got.GoverningPriority != tt.want.GoverningPriority ||
+				got.MatchingPolicy != tt.want.MatchingPolicy || got.MatchingPriority != tt.want.MatchingPriority ||
+				got.MatchingState != tt.want.MatchingState || got.Superseded != tt.want.Superseded {
+				t.Errorf("JevGovernance() = %+v, want %+v", got, tt.want)
+			}
+
+			if (got.MatchingExpires == nil) != (tt.want.MatchingExpires == nil) ||
+				(got.MatchingExpires != nil && !got.MatchingExpires.Equal(tt.want.MatchingExpires)) {
+				t.Errorf("JevGovernance() matchingExpires = %v, want %v", got.MatchingExpires, tt.want.MatchingExpires)
+			}
+		})
+	}
+}
+
+func TestJevGovernanceAgreesWithOverlay(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	governing := policyNamed("governing", 100)
+	governing.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "active", Expires: &metav1.Time{Time: now.Add(time.Hour)}},
+		{ContentDigest: digestB, Reason: "lapsed", Expires: &metav1.Time{Time: now.Add(-time.Hour)}},
+	}
+
+	ranked, _ := Rank([]opendepotv1alpha1.ScanPolicy{governing}, providerVersion("demo", "1.0.0"))
+	resolved := Resolve(&ranked[0], true, false, now)
+
+	for _, digest := range []string{digestA, digestB, digestC} {
+		governance := JevGovernance(ranked, digest, now)
+		exempted := resolved.JevExemptionFor(digest) != nil
+		if exempted != (governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted) {
+			t.Errorf("digest %s: overlay exempted=%v but governance state=%s", digest, exempted, governance.MatchingState)
+		}
+	}
+}
+
+func TestJevUnblock(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	future := &metav1.Time{Time: now.Add(time.Hour)}
+	past := &metav1.Time{Time: now.Add(-time.Hour)}
+
+	governing := policyNamed("governing", 100)
+	governing.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestA, Reason: "active", Expires: future},
+		{ContentDigest: digestB, Reason: "lapsed", Expires: past},
+	}
+
+	shadowed := policyNamed("shadowed", 10)
+	shadowed.Spec.JevExemptions = []opendepotv1alpha1.JevExemption{
+		{ContentDigest: digestC, Reason: "not in force"},
+	}
+
+	tests := []struct {
+		name    string
+		ranked  []opendepotv1alpha1.ScanPolicy
+		digest  string
+		blocked bool
+		want    opendepotv1alpha1.JevUnblock
+	}{
+		{
+			name:    "not blocked and no exemption is none",
+			digest:  digestA,
+			blocked: false,
+			want:    opendepotv1alpha1.JevUnblock{State: opendepotv1alpha1.JevUnblockStateNone, Digest: digestA},
+		},
+		{
+			name:    "not blocked with an expired governing entry is none",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing},
+			digest:  digestB,
+			blocked: false,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateNone,
+				Digest:            digestB,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				Expires:           past,
+			},
+		},
+		{
+			name:    "not blocked with an exemption in force is exempted",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing},
+			digest:  digestA,
+			blocked: false,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateExempted,
+				Digest:            digestA,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				Expires:           future,
+			},
+		},
+		{
+			name:    "blocked with an exemption in force is pending",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing},
+			digest:  digestA,
+			blocked: true,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStatePending,
+				Digest:            digestA,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				Expires:           future,
+			},
+		},
+		{
+			name:    "blocked with an expired governing entry is expired",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing},
+			digest:  digestB,
+			blocked: true,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateExpired,
+				Digest:            digestB,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "governing",
+				MatchingPriority:  100,
+				Expires:           past,
+			},
+		},
+		{
+			name:    "blocked with a match only in a lower-ranked policy is superseded",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest:  digestC,
+			blocked: true,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateSuperseded,
+				Digest:            digestC,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+				MatchingPolicy:    "shadowed",
+				MatchingPriority:  10,
+			},
+		},
+		{
+			name:    "blocked with no entry matching the digest needs an entry",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing, shadowed},
+			digest:  digestB + "0",
+			blocked: true,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateNeedsEntry,
+				Digest:            digestB + "0",
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+			},
+		},
+		{
+			name:    "blocked with no governing policy needs an entry",
+			digest:  digestA,
+			blocked: true,
+			want:    opendepotv1alpha1.JevUnblock{State: opendepotv1alpha1.JevUnblockStateNeedsEntry, Digest: digestA},
+		},
+		{
+			name:    "blocked legacy Version without a digest is no-digest",
+			ranked:  []opendepotv1alpha1.ScanPolicy{governing},
+			blocked: true,
+			want: opendepotv1alpha1.JevUnblock{
+				State:             opendepotv1alpha1.JevUnblockStateNoDigest,
+				GoverningPolicy:   "governing",
+				GoverningPriority: 100,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := JevUnblock(tc.ranked, tc.digest, tc.blocked, now)
+			if got.State != tc.want.State || got.Digest != tc.want.Digest ||
+				got.GoverningPolicy != tc.want.GoverningPolicy || got.GoverningPriority != tc.want.GoverningPriority ||
+				got.MatchingPolicy != tc.want.MatchingPolicy || got.MatchingPriority != tc.want.MatchingPriority {
+				t.Fatalf("JevUnblock() = %+v; want %+v", got, tc.want)
+			}
+
+			if !reflect.DeepEqual(got.Expires, tc.want.Expires) {
+				t.Fatalf("JevUnblock() Expires = %v; want %v", got.Expires, tc.want.Expires)
+			}
+
+			if got.NamesHidden {
+				t.Fatalf("JevUnblock() NamesHidden = true; want false before redaction")
+			}
+		})
+	}
+}
+
+func TestUnblockFromGovernanceUnknownMatchingState(t *testing.T) {
+	got := unblockFromGovernance(&opendepotv1alpha1.JevExemptionGovernance{MatchingState: "bogus"}, digestA, true)
+	if got.State != opendepotv1alpha1.JevUnblockStateUnknown {
+		t.Fatalf("State = %q; want %q", got.State, opendepotv1alpha1.JevUnblockStateUnknown)
 	}
 }

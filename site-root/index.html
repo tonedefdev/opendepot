@@ -4,13 +4,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="OpenDepot is a self-hosted Kubernetes-native registry for OpenTofu and Terraform, with continuous reconciliation, Security Policies, and Assembly Line composition.">
+  <meta name="description" content="OpenDepot is a self-hosted Kubernetes-native registry for OpenTofu, Terraform, and the agents and skills your teams publish, with Jev risk scores, signed Versions, Security Policies, and Assembly Line composition.">
   <title>OpenDepot</title>
   <link rel="icon" href="img/opendepot_icon.svg" type="image/svg+xml">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="splash" id="splash" role="dialog" aria-modal="true" aria-label="OpenDepot introduction" hidden>
+    <img class="splash-logo" src="img/opendepot_white.svg" alt="">
+    <button class="splash-continue" type="button">Continue</button>
+    <div class="splash-stage">
+      <div class="splash-a" data-variant="a">
+        <div class="splash-column">
+          <p class="splash-cmd"><span class="splash-type">kubectl apply -f depot.yaml</span></p>
+          <p class="splash-out splash-in" style="--d: 1.5s">depot.opendepot.defdev.io/ui-demo-depot created</p>
+          <p class="splash-poll splash-in" style="--d: 1.9s"><i aria-hidden="true"></i>Polling</p>
+          <ul class="splash-sources">
+            <li class="splash-in is-hit" style="--d: 2s"><code>SKILL.md</code><span class="splash-tag">v1.3.1</span></li>
+            <li class="splash-in" style="--d: 2.1s"><code>code-reviewer.agent.md</code><span>main</span></li>
+            <li class="splash-in" style="--d: 2.2s"><code>triage.toml</code><span>v0.4.0</span></li>
+          </ul>
+        </div>
+        <span class="splash-link" aria-hidden="true"></span>
+        <div class="splash-column">
+          <ul class="splash-chips">
+            <li class="splash-in" style="--d: 3.4s">Checksummed</li>
+            <li class="splash-in" style="--d: 3.9s">Scanned</li>
+            <li class="splash-in" style="--d: 4.4s">Risk Low</li>
+          </ul>
+          <div class="splash-registry splash-in" style="--d: 4.8s">
+            <strong>ui-demo@1.3.1</strong>
+            <span>Skill published with its Jev assessment</span>
+          </div>
+        </div>
+      </div>
+      <div class="splash-b" data-variant="b">
+        <p class="splash-kicker splash-in" style="--d: .2s">Now in OpenDepot: agents and skills</p>
+        <ol class="splash-evo">
+          <li class="splash-in" style="--d: 1s"><i aria-hidden="true"></i><strong>Skills</strong><span>SKILL.md, versioned by tag</span></li>
+          <li class="splash-in" style="--d: 2s"><i aria-hidden="true"></i><strong>Agents</strong><span>Agent files, Jev scored</span></li>
+          <li class="splash-in" style="--d: 3s"><i aria-hidden="true"></i><strong>Versions</strong><span>Polled from Git tags and branches</span></li>
+          <li class="splash-in" style="--d: 4s"><i aria-hidden="true"></i><strong>Gated</strong><span>Security Policies before publish</span></li>
+        </ol>
+      </div>
+    </div>
+    <div class="splash-next">
+      <p class="splash-next-label splash-in" style="--d: 5.4s">Next</p>
+      <ul>
+        <li class="splash-in" style="--d: 5.6s">More agent runtimes</li>
+        <li class="splash-in" style="--d: 5.85s">MCP servers</li>
+        <li class="splash-in" style="--d: 6.1s">OCI artifacts</li>
+        <li class="splash-in" style="--d: 6.35s">Helm charts</li>
+        <li class="splash-in" style="--d: 6.6s">Open-weight models</li>
+      </ul>
+    </div>
+  </div>
   <header class="container-xxl">
     <a href="/"><img src="img/opendepot_white.svg" alt="OpenDepot"></a>
     <a href="https://github.com/tonedefdev/opendepot">
@@ -33,9 +82,9 @@
   <main class="container-xxl">
     <div class="row align-items-start gy-5 gx-5">
     <section class="col-md-5 hero-copy">
-      <p class="eyebrow">Registry · Security · Assembly</p>
-      <h1>Your registry. <span>Your rules.</span></h1>
-      <p class="lede">OpenDepot is a self-hosted, Kubernetes-native registry for OpenTofu and Terraform. Depots reconcile modules and providers, Security Policies gate what ships, and Assembly Line composes clean configurations from trusted versions.</p>
+      <p class="eyebrow">Announcing agents and skills</p>
+      <h1>Agents and skills, <span>in your registry.</span></h1>
+      <p class="lede">OpenDepot now publishes agents and skills alongside OpenTofu and Terraform modules and providers. Depots poll Git tags and branches, version every SKILL.md and agent file, and score each release with Jev for risk and confidence. Security Policies still gate what ships, and Assembly Line composes configurations from trusted versions.</p>
       <nav aria-label="OpenDepot links">
         <a href="/docs/">
           <svg class="docs-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -52,15 +101,15 @@
     </section>
     <figure class="signal col-md-7" aria-label="OpenDepot application screens">
       <button class="screen screen-main" type="button" data-image-modal="img/registry-explorer.png" aria-label="View OpenDepot Registry Explorer screenshot">
-        <img src="img/registry-explorer.png" alt="OpenDepot Registry Explorer showing modules, providers, versions, and scan findings">
+        <img src="img/registry-explorer.png" alt="OpenDepot Registry Explorer listing agents and skills with their versions, risk badges, and sync status">
       </button>
-      <button class="screen screen-secondary" type="button" data-image-modal="img/registry-stats.png" aria-label="View OpenDepot Registry Statistics screenshot">
-        <img src="img/registry-stats.png" alt="OpenDepot Registry Statistics showing sync health and security posture">
+      <button class="screen screen-secondary" type="button" data-image-modal="img/skill-jev-assessment.png" aria-label="View OpenDepot Jev assessment for a skill screenshot">
+        <img src="img/skill-jev-assessment.png" alt="Jev assessment of a skill showing risk level, confidence, and per-category scores">
       </button>
-      <button class="screen screen-tertiary" type="button" data-image-modal="img/registry-depots.png" aria-label="View OpenDepot Depots screenshot">
-        <img src="img/registry-depots.png" alt="OpenDepot Depots showing registry storage locations">
+      <button class="screen screen-tertiary" type="button" data-image-modal="img/agent-jev-assessment.png" aria-label="View OpenDepot Jev assessment for an agent screenshot">
+        <img src="img/agent-jev-assessment.png" alt="Jev assessment of an agent bundle showing risk level, confidence, and each assessed agent file">
       </button>
-      <figcaption>Open source. Kubernetes-native. Ready for OpenTofu and Terraform.</figcaption>
+      <figcaption>Open source. Kubernetes-native. Ready for OpenTofu, Terraform, agents, and skills.</figcaption>
     </figure>
     </div>
   </main>
@@ -184,7 +233,7 @@
       </div>
       <figure class="assembly-visual" aria-label="OpenDepot Assembly Line canvas">
         <button class="screen screen-assembly" type="button" data-image-modal="img/assembly-line-dark.png" aria-label="View OpenDepot Assembly Line screenshot">
-          <img src="img/assembly-line-dark.png" alt="OpenDepot Assembly Line canvas connecting variables, a provider, and multiple modules with for_each">
+          <img src="img/assembly-line-dark.png" alt="OpenDepot Assembly Line canvas wiring variables and an AWS provider into the lambda and api_gateway modules, with outputs feeding inputs">
         </button>
         <button class="screen screen-contract" type="button" data-image-modal="img/module-contracts-dark.png" aria-label="View OpenDepot mobile module contract screenshot">
           <img src="img/module-contracts-dark.png" alt="OpenDepot mobile module Contract panel showing typed inputs, required values, defaults, and outputs">
@@ -222,6 +271,337 @@
       <path transform="scale(8)" fill="#03deb8" d="m19.93 8.21-3.6 1.68L14 7.7V6.3l2.33-2.19 3.6 1.68c.38.18.82.01 1-.36.18-.38.01-.82-.36-1L16.65 2.6c-.38-.18-.83-.1-1.13.2l-1.74 1.6c-.18-.24-.46-.4-.78-.4-.55 0-1 .45-1 1v1H8.82C8.34 4.65 6.98 3.73 5.4 4.07c-1.16.25-2.15 1.25-2.36 2.43-.22 1.32.46 2.47 1.48 3.08L7.08 18H4v3h13v-3h-3.62L8.41 8.77c.17-.24.31-.49.41-.77H12v1c0 .55.45 1 1 1 .32 0 .6-.16.78-.4l1.74 1.6c.3.3.75.38 1.13.2l3.92-1.83c.38-.18.54-.62.36-1-.18-.37-.62-.54-1-.36M6 8c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1"/>
     </svg>
   </section>
+  <section class="agents" aria-labelledby="agents-title">
+    <div class="agents-inner">
+      <div class="agents-intro">
+        <div class="agents-heading">
+          <p class="eyebrow agents-eyebrow">New in 0.12.0 · Agents &amp; Skills</p>
+          <h2 id="agents-title">Agents and skills, <span>shipped like infrastructure.</span></h2>
+          <p>Point a Depot at the Git repositories that hold your skills and agents. OpenDepot turns tags and branch commits into signed, checked Versions and serves them from the same registry as your modules and providers.</p>
+        </div>
+        <figure class="agents-manifest" aria-label="Example Depot that publishes a skill and an agent">
+          <span class="agents-manifest-label">depot.yaml</span>
+<pre><code><b>kind</b>: Depot
+<b>metadata</b>:
+  <b>name</b>: team-agents
+<b>spec</b>:
+  <b>skillConfigs</b>:
+  - <b>name</b>: release-notes
+    <b>repoOwner</b>: acme
+    <b>repoUrl</b>: https://github.com/acme/release-notes
+    <b>versionConstraints</b>: <i>"&gt;= 1.0.0"</i>
+  <b>agentConfigs</b>:
+  - <b>name</b>: code-reviewer
+    <b>repoOwner</b>: acme
+    <b>repoUrl</b>: https://github.com/acme/code-reviewer
+    <b>ref</b>: <i>main</i>
+    <b>jevSecretRef</b>: { <b>name</b>: jev-token }
+    <b>branchPolicy</b>:
+      <b>majorThreshold</b>: <i>0.5</i>
+      <b>minorThreshold</b>: <i>0.5</i></code></pre>
+        </figure>
+      </div>
+      <div class="agents-pipeline" aria-label="How a Depot publishes skills and agents">
+        <div class="agents-stage">
+          <span class="agents-kicker">GIT TAGS &amp; BRANCHES</span>
+          <ul class="agents-files">
+            <li><img src="https://icon.icepanel.io/Technology/svg/GitHub.svg" alt=""><code>SKILL.md</code><span>v1.3.1</span></li>
+            <li><img src="https://icon.icepanel.io/Technology/svg/GitHub.svg" alt=""><code>code-reviewer.agent.md</code><span class="is-branch">main</span></li>
+            <li><img src="https://icon.icepanel.io/Technology/svg/GitHub.svg" alt=""><code>triage.toml</code><span>v0.4.0</span></li>
+          </ul>
+          <p class="agents-stage-note">Copilot, Claude, and Codex formats</p>
+        </div>
+        <span class="agents-arrow is-pull" aria-hidden="true"><b>POLL</b></span>
+        <div class="agents-depot">
+          <span class="depot-ring depot-ring-outer" aria-hidden="true"></span>
+          <span class="depot-ring depot-ring-inner" aria-hidden="true"></span>
+          <img src="img/opendepot_white.svg" alt="">
+          <span class="node-index">DEPOT</span>
+          <strong>Git becomes<br>Versions</strong>
+          <span class="agents-depot-sub">skillConfigs · agentConfigs</span>
+          <span class="depot-status"><i></i>POLLING TAGS + BRANCHES</span>
+        </div>
+        <span class="agents-arrow" aria-hidden="true"></span>
+        <div class="agents-stage">
+          <span class="agents-kicker">VERSION CONTROLLER</span>
+          <ol class="agents-gates">
+            <li><i aria-hidden="true"></i><strong>Package</strong><span>Archive and SHA256SUMS</span></li>
+            <li><i aria-hidden="true"></i><strong>Sign</strong><span>GPG signature on every Version</span></li>
+            <li><i aria-hidden="true"></i><strong>Check</strong><span>Frontmatter and rules. HIGH findings block.</span></li>
+            <li><i aria-hidden="true"></i><strong>Assess</strong><span>Optional TypeSafe Jev risk scores and branch semver bumps</span></li>
+          </ol>
+        </div>
+        <span class="agents-arrow" aria-hidden="true"><b>PUBLISH</b></span>
+        <div class="agents-stage">
+          <span class="agents-kicker">REGISTRY</span>
+          <div class="agents-registry">
+            <strong>agents.v1</strong>
+            <span>Signed Versions, served only to the groups your GroupBindings allow.</span>
+            <ul>
+              <li><code>/versions</code></li>
+              <li><code>/archive</code></li>
+              <li><code>/SHA256SUMS.sig</code></li>
+            </ul>
+          </div>
+          <a class="agents-handoff" href="#agents-cli-title">Install with the CLI <span aria-hidden="true">&#8595;</span></a>
+        </div>
+      </div>
+      <div class="agents-branch">
+        <div class="agents-branch-copy">
+          <p class="agents-kicker">Branch mode</p>
+          <h3>Push to a branch. <span>Jev picks the release.</span></h3>
+          <p class="agents-branch-lede">Point a source at a branch instead of tags. Every commit that passes the checks becomes a Version, and Jev reads the change to decide whether it ships as a patch, minor, or major release.</p>
+          <ul class="agents-branch-facts">
+            <li><strong>Your thresholds</strong><span><code>majorThreshold</code> and <code>minorThreshold</code> turn Jev's probabilities into a semver bump.</span></li>
+            <li><strong>Pinned commits</strong><span>Each Version records its exact commit. Pushes inside <code>minVersionInterval</code> collapse into one Version.</span></li>
+            <li><strong>People stay in charge</strong><span>Low confidence flags a bump for review, and an annotation can override it.</span></li>
+          </ul>
+          <p class="agents-branch-note">Off by default. Enable it with <code>branchSourcing.enabled</code> in the Helm chart. Without Jev, every commit is a patch.</p>
+        </div>
+        <figure class="agents-commits" aria-labelledby="agents-commits-title">
+          <div class="agents-commits-head">
+            <span id="agents-commits-title">code-reviewer · ref: main</span>
+            <span class="agents-commits-legend" aria-hidden="true"><i></i>Threshold 0.5</span>
+          </div>
+          <ol>
+            <li class="is-patch">
+              <div class="agents-commit-msg"><code>3e1a9f2</code><span>Clarify the review comment examples</span></div>
+              <dl class="agents-commit-bars">
+                <div style="--p: .04"><dt>Major</dt><dd><i aria-hidden="true"></i>0.04</dd></div>
+                <div style="--p: .15"><dt>Major + minor</dt><dd><i aria-hidden="true"></i>0.15</dd></div>
+              </dl>
+              <p class="agents-commit-result"><b>Patch</b><span>2.1.1</span></p>
+            </li>
+            <li class="is-minor">
+              <div class="agents-commit-msg"><code>8c4d07b</code><span>Add a security review checklist</span></div>
+              <dl class="agents-commit-bars">
+                <div style="--p: .09"><dt>Major</dt><dd><i aria-hidden="true"></i>0.09</dd></div>
+                <div class="is-hit" style="--p: .78"><dt>Major + minor</dt><dd><i aria-hidden="true"></i>0.78</dd></div>
+              </dl>
+              <p class="agents-commit-result"><b>Minor</b><span>2.2.0</span></p>
+            </li>
+            <li class="is-major">
+              <div class="agents-commit-msg"><code>f62b1e8</code><span>Rename the inputs and remove the legacy tools</span></div>
+              <dl class="agents-commit-bars">
+                <div class="is-hit" style="--p: .86"><dt>Major</dt><dd><i aria-hidden="true"></i>0.86</dd></div>
+                <div class="is-hit" style="--p: .97"><dt>Major + minor</dt><dd><i aria-hidden="true"></i>0.97</dd></div>
+              </dl>
+              <p class="agents-commit-result"><b>Major</b><span>3.0.0</span></p>
+            </li>
+          </ol>
+        </figure>
+      </div>
+      <p class="agents-footnote">Jev is off by default and opt-in per source. When enabled, skill and agent text is sent to TypeSafe for assessment. OpenDepot is not affiliated with TypeSafe. <a href="/docs/guides/agents/">Read the agents guide</a></p>
+    </div>
+  </section>
+  <section class="agents-cli" aria-labelledby="agents-cli-title">
+    <div class="agents-cli-inner">
+      <div class="agents-cli-top">
+        <div class="agents-cli-heading">
+          <p class="eyebrow agents-cli-eyebrow">The opendepot CLI</p>
+          <h2 id="agents-cli-title">Plan your agents. <span>Apply when you're ready.</span></h2>
+          <p>The <code>opendepot</code> CLI works like <code>tofu</code> for skills and agents. Declare what a project needs, review the plan, and apply only when it looks right. Every package is checked against its GPG signature and pinned in a lock file.</p>
+        </div>
+        <div class="cli-targets">
+          <span class="cli-targets-kicker">Install targets</span>
+          <dl>
+            <div><dt>copilot</dt><dd>~/.copilot/skills · agents</dd></div>
+            <div><dt>claude</dt><dd>~/.claude/skills · agents</dd></div>
+            <div><dt>codex</dt><dd>~/.agents/skills · ~/.codex/agents</dd></div>
+            <div><dt>agents-md</dt><dd>Managed blocks in AGENTS.md</dd></div>
+            <div><dt>path</dt><dd>Any path inside the project</dd></div>
+          </dl>
+        </div>
+      </div>
+      <ol class="cli-steps">
+        <li class="cli-step cli-step-declare">
+          <div class="cli-step-label"><span>01</span><strong>Declare</strong><p>Choose install targets and version constraints.</p></div>
+          <div class="cli-window">
+            <div class="cli-window-bar" aria-hidden="true"><i></i><i></i><i></i><span>opendepot.hcl</span></div>
+<pre><code><b>opendepot</b> {
+  <b>targets</b> = [<i>"copilot"</i>, <i>"claude"</i>]
+}
+
+<b>agent_skill</b> <i>"release-notes"</i> {
+  <b>source</b>  = <i>"registry.acme.io/ai/release-notes"</i>
+  <b>version</b> = <i>"~&gt; 1.2"</i>
+}
+
+<b>agent</b> <i>"code-reviewer"</i> {
+  <b>source</b>  = <i>"registry.acme.io/ai/code-reviewer"</i>
+  <b>version</b> = <i>"&gt;= 2.0.0, &lt; 3.0.0"</i>
+}</code></pre>
+          </div>
+        </li>
+        <li class="cli-step cli-step-plan">
+          <div class="cli-step-label"><span>02</span><strong>Plan</strong><p>See every add, change, and overwrite. Nothing is written.</p></div>
+          <div class="cli-window cli-window-terminal">
+            <div class="cli-window-bar" aria-hidden="true"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code><s>$</s> opendepot plan
+
+<b>Plan for opendepot.hcl</b>
+  <ins>+</ins> <b>registry.acme.io/ai/release-notes</b>  new 1.3.1
+      <ins>+</ins> copilot    ~/.copilot/skills/release-notes        <u>create</u>
+      <ins>+</ins> claude     ~/.claude/skills/release-notes         <u>create</u>
+  <em>~</em> <b>registry.acme.io/ai/code-reviewer</b>  2.0.0 → 2.1.0
+      <em>~</em> copilot    ~/.copilot/agents/code-reviewer.agent.md <u>update</u>
+      <em>~</em> claude     ~/.claude/agents/code-reviewer.md        <u>update</u>
+
+Plan: 2 to add, 2 to change.
+No changes written. Run opendepot apply to make them.
+<s>$</s> <span class="cli-cursor" aria-hidden="true"></span></code></pre>
+          </div>
+        </li>
+        <li class="cli-step cli-step-apply">
+          <div class="cli-step-label"><span>03</span><strong>Apply</strong><p>Verify the GPG signature and hashes, install, and pin the signing key in the lock file. <code>opendepot verify</code> catches drift in CI.</p></div>
+          <div class="cli-window">
+            <div class="cli-window-bar" aria-hidden="true"><i></i><i></i><i></i><span>opendepot.lock.hcl</span><em class="cli-seal">GPG verified</em></div>
+<pre><code><b>agent_skill</b> <i>"registry.acme.io/ai/release-notes"</i> {
+  <b>version</b>        = <i>"1.3.1"</i>
+  <b>constraints</b>    = <i>"~&gt; 1.2"</i>
+  <b>signing_key</b>    = <i>"F293651BA42FE9E0C32C8283E17CC7D19FF4697D"</i>
+  <b>signature_hash</b> = <i>"sha256:17c924be8f2f95a638cfd539a780…"</i>
+  <b>hashes</b>         = [<i>"h1:THQgwxu+vlYPt82Bfz3T…"</i>, <i>"zh:a8e5e75a…"</i>]
+
+  <b>installed</b> <i>"copilot"</i> {
+    <b>path</b> = <i>"/Users/you/.copilot/skills/release-notes"</i>
+    <b>hash</b> = <i>"h1:THQgwxu+vlYPt82Bfz3T…"</i>
+  }
+}</code></pre>
+          </div>
+        </li>
+        <li class="cli-step cli-step-resolve">
+          <div class="cli-step-label"><span>04</span><strong>Resolve</strong><p>The highest matching Version wins. Yanked and Jev-blocked Versions are skipped, and the lock holds your version until <code>apply --upgrade</code>.</p></div>
+          <div class="cli-matrix-wrap">
+            <table class="cli-matrix">
+              <caption>How version constraints resolve against published Versions</caption>
+              <thead>
+                <tr>
+                  <th scope="col"><span class="visually-hidden">Constraint</span></th>
+                  <th scope="col">1.0.0</th>
+                  <th scope="col">1.0.3</th>
+                  <th scope="col">1.2.0</th>
+                  <th scope="col">1.3.1</th>
+                  <th scope="col">2.0.0</th>
+                  <th scope="col">2.1.0</th>
+                  <th scope="col" class="is-blocked-col">2.2.0</th>
+                  <th scope="col">3.0.0</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><code>~&gt; 1.0.0</code></th>
+                  <td class="is-match"><span>matches</span></td>
+                  <td class="is-pick"><span>installs</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>~&gt; 1.2</code></th>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td class="is-match"><span>matches</span></td>
+                  <td class="is-pick"><span>installs</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>&gt;= 2.0.0</code></th>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td class="is-match"><span>matches</span></td>
+                  <td class="is-match"><span>matches</span></td>
+                  <td class="is-blocked"><span>blocked, skipped</span></td>
+                  <td class="is-pick"><span>installs</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>&gt;= 2.0.0, &lt; 3.0.0</code></th>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td><span>no match</span></td>
+                  <td class="is-match"><span>matches</span></td>
+                  <td class="is-pick"><span>installs</span></td>
+                  <td class="is-blocked"><span>blocked, skipped</span></td>
+                  <td><span>no match</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <ul class="cli-matrix-legend" aria-hidden="true">
+              <li><i class="is-match"></i>Matches</li>
+              <li><i class="is-pick"></i>Installs</li>
+              <li><i class="is-blocked"></i>Blocked by Jev</li>
+            </ul>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+  <section class="jev" aria-labelledby="jev-title">
+    <div class="jev-inner">
+      <div class="jev-heading">
+        <p class="eyebrow jev-eyebrow">Jev confidence scores</p>
+        <h2 id="jev-title">Read the risk before it ships. <span>Scores, not verdicts.</span></h2>
+        <p>When Jev is enabled on a source, each skill and agent Version is scored for prompt injection, exfiltration, destructive actions, hidden instructions, and scope mismatch. You get probabilities with a confidence value, and your policy decides what gets blocked.</p>
+      </div>
+      <div class="jev-shots">
+        <figure class="jev-shot">
+          <button type="button" data-image-modal="img/skill-jev-assessment.png" aria-label="View gh-actions-debug Jev assessment screenshot">
+            <img src="img/skill-jev-assessment.png" width="2228" height="1252" loading="lazy" alt="Jev Assessment panel for the gh-actions-debug skill version 0.9.0, showing risk level Low, a confidence of 32 percent, and per-category probabilities">
+          </button>
+          <figcaption><strong>Skill</strong>gh-actions-debug 0.9.0 · Risk Low · Confidence 32%</figcaption>
+        </figure>
+        <figure class="jev-shot">
+          <button type="button" data-image-modal="img/agent-jev-assessment.png" aria-label="View planner Jev assessment screenshot">
+            <img src="img/agent-jev-assessment.png" width="2548" height="1572" loading="lazy" alt="Jev Assessment panel for the planner agent version 0.9.0, showing risk level Low, a confidence of 38 percent, and six assessed files">
+          </button>
+          <figcaption><strong>Agent</strong>planner 0.9.0 · Risk Low · Confidence 38%</figcaption>
+        </figure>
+      </div>
+      <ul class="jev-facts">
+        <li><strong>Probabilities, not verdicts</strong><span>Each score is a model estimate. It is not a certification or an OpenDepot verdict.</span></li>
+        <li><strong>Your policy decides</strong><span><code>jevPolicy</code> thresholds block a Version. Low confidence only marks it for review.</span></li>
+        <li><strong>Confidence sits beside risk</strong><span>A Low risk level at 32% confidence reads differently from the same level at 90%.</span></li>
+      </ul>
+      <p class="jev-footnote">Read the <a href="/docs/guides/agents/">agents guide</a> for thresholds, exemptions, and how Jev assesses large Versions.</p>
+    </div>
+  </section>
+  <section class="versioning" aria-labelledby="versioning-title">
+    <div class="versioning-inner">
+      <div class="versioning-heading">
+        <p class="eyebrow versioning-eyebrow">Versioning</p>
+        <h2 id="versioning-title">Constraints you can read. <span>Versions you can verify.</span></h2>
+        <p>Constraints choose which tags become Versions. Every Version is packaged, signed, and checked, and yanked or blocked Versions are handled explicitly.</p>
+      </div>
+      <ul class="versioning-grid">
+        <li>
+          <h3>Constraints for tags</h3>
+          <p>Git tags that match the constraint become Versions. Branch sources set <code>ref</code> instead.</p>
+          <pre><code>versionConstraints: "~> 0.9.0"</code></pre>
+        </li>
+        <li>
+          <h3>Signed on every Version</h3>
+          <p>Each archive gets a <code>SHA256SUMS</code> file signed with your GPG key. The agents.v1 API serves the checksums and signature next to the archive.</p>
+        </li>
+        <li>
+          <h3>Yanked, still downloadable</h3>
+          <p>Set <code>spec.yanked: true</code> to retire a Version. It stays downloadable, and the CLI skips it unless you pass <code>--allow-yanked</code>.</p>
+        </li>
+        <li>
+          <h3>Blocked, never served</h3>
+          <p>A Version that a Jev policy blocks is listed with its reasons. A direct download returns <code>404</code>.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
   <section class="comparison" aria-labelledby="comparison-title">
     <div class="comparison-inner">
       <div class="comparison-heading">
@@ -244,6 +624,7 @@
             <div><dt>Assembly Line</dt><dd>No native visual module composition workflow</dd></div>
             <div><dt>GitOps</dt><dd>CI/CD and API-driven</dd></div>
             <div><dt>Air-gapped</dt><dd>Self-managed deployment can support isolated environments</dd></div>
+          <div><dt>Agents and skills</dt><dd>Generic package repositories with no native skill or agent registry</dd></div>
           </dl>
         </article>
         <article class="comparison-card comparison-card-opendepot">
@@ -260,6 +641,7 @@
             <div><dt>Assembly Line</dt><dd><span class="comparison-check" aria-hidden="true">&#10003;</span>Visually compose trusted modules and export clean OpenTofu</dd></div>
             <div><dt>GitOps</dt><dd><span class="comparison-check" aria-hidden="true">&#10003;</span>Native manifests for Argo CD or Flux</dd></div>
             <div><dt>Air-gapped</dt><dd><span class="comparison-check" aria-hidden="true">&#10003;</span>Filesystem backend and PVC support</dd></div>
+            <div><dt>Agents and skills</dt><dd><span class="comparison-check" aria-hidden="true">&#10003;</span>Git tags and branches become signed Versions, with optional Jev risk scores</dd></div>
           </dl>
         </article>
         <article class="comparison-card comparison-card-terraform">
@@ -276,6 +658,7 @@
             <div><dt>Assembly Line</dt><dd>No equivalent visual, contract-aware module composer</dd></div>
             <div><dt>GitOps</dt><dd>VCS-driven workspace runs</dd></div>
             <div><dt>Air-gapped</dt><dd>Not designed for fully air-gapped operation</dd></div>
+            <div><dt>Agents and skills</dt><dd>Modules and providers with no native skill or agent registry</dd></div>
           </dl>
         </article>
       </div>
@@ -336,15 +719,17 @@
     imageModal.addEventListener("click", (event) => {
       if (event.target === imageModal) closeImageModal();
     });
-    const architectureFlow = document.querySelector(".architecture-flow");
+    const blueSections = document.querySelectorAll(".architecture-flow, .agents");
     let scrollbarFrame;
 
     const updateScrollbarColor = () => {
       scrollbarFrame = undefined;
-      const bounds = architectureFlow.getBoundingClientRect();
       const viewportCenter = window.innerHeight / 2;
-      const isArchitectureActive = bounds.top <= viewportCenter && bounds.bottom >= viewportCenter;
-      document.documentElement.style.setProperty("--scrollbar-thumb", isArchitectureActive ? "var(--teal)" : "var(--blue)");
+      const isBlueActive = [...blueSections].some((section) => {
+        const bounds = section.getBoundingClientRect();
+        return bounds.top <= viewportCenter && bounds.bottom >= viewportCenter;
+      });
+      document.documentElement.style.setProperty("--scrollbar-thumb", isBlueActive ? "var(--teal)" : "var(--blue)");
     };
 
     const scheduleScrollbarColorUpdate = () => {
@@ -358,6 +743,62 @@
       if (event.key === "Escape" && imageModal.classList.contains("is-open")) closeImageModal();
     });
     document.querySelector("#footer-year").textContent = new Date().getFullYear();
+  </script>
+  <script>
+    (() => {
+      const splash = document.querySelector("#splash");
+      const forced = new URLSearchParams(location.search).get("splash");
+      const variantKey = "opendepot-splash-variant";
+      const seenKey = "opendepot-splash-seen";
+      const readStore = (store, key) => {
+        try { return store.getItem(key); } catch { return null; }
+      };
+      const writeStore = (store, key, value) => {
+        try { store.setItem(key, value); } catch { /* storage unavailable: assignment is per load */ }
+      };
+
+      // ?splash=a, ?splash=b, or ?splash=off overrides the assignment for testing.
+      let variant = ["a", "b", "off"].includes(forced) ? forced : readStore(localStorage, variantKey);
+      if (!["a", "b", "off"].includes(variant)) {
+        variant = Math.random() < 0.5 ? "a" : "b";
+        writeStore(localStorage, variantKey, variant);
+      }
+
+      const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const alreadySeen = !forced && readStore(sessionStorage, seenKey) === "1";
+      if (variant === "off" || reducedMotion || alreadySeen) {
+        splash.remove();
+        return;
+      }
+      writeStore(sessionStorage, seenKey, "1");
+
+      splash.querySelectorAll("[data-variant]").forEach((el) => {
+        if (el.dataset.variant !== variant) el.remove();
+      });
+
+      const emit = (action) => {
+        window.dispatchEvent(new CustomEvent("opendepot:splash", { detail: { variant, action } }));
+        window.dataLayer?.push({ event: "opendepot_splash", variant, action });
+      };
+      const skip = splash.querySelector(".splash-continue");
+      const onKeydown = (event) => {
+        if (event.key === "Escape") finish("skipped");
+      };
+      const finish = (action) => {
+        document.removeEventListener("keydown", onKeydown);
+        document.body.style.overflow = "";
+        document.documentElement.classList.add("is-announcing");
+        splash.remove();
+        emit(action);
+      };
+
+      skip.addEventListener("click", () => finish("skipped"));
+      document.addEventListener("keydown", onKeydown);
+      document.body.style.overflow = "hidden";
+      splash.hidden = false;
+      skip.focus();
+      emit("shown");
+    })();
   </script>
 </body>
 </html>

@@ -21,8 +21,11 @@ spec:
     spec:
       serviceAccountName: module-controller
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.module.runAsGroup }}
       containers:
       - name: deployment-controller
         image: "{{ .Values.module.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.module.image.tag }}"
@@ -38,6 +41,9 @@ spec:
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}

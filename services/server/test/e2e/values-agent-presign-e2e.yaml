@@ -1,0 +1,37 @@
+server:
+  runAsUser: 1000
+  s3UsePathStyle: true
+  extraEnv:
+  - name: AWS_ENDPOINT_URL_S3
+    value: https://localhost:9297
+  - name: AWS_CA_BUNDLE
+    value: /var/run/emulator/9297/ca.pem
+  - name: AWS_SHARED_CREDENTIALS_FILE
+    value: /var/run/emulator/9297/emulator_credentials
+  extraVolumes:
+  - name: emulator-handoff
+    emptyDir: {}
+  extraVolumeMounts:
+  - name: emulator-handoff
+    mountPath: /var/run/emulator
+    readOnly: true
+  extraInitContainers:
+  - name: aws-emulator
+    image: ghcr.io/tonedefdev/opendepot/aws-emulator:REPLACE_WITH_TAG
+    imagePullPolicy: Never
+    restartPolicy: Always
+    command: ["aws-emulator", "-b", "0.0.0.0", "--telemetry", "off"]
+    env:
+    - name: EMULATOR_TELEMETRY
+      value: "off"
+    ports:
+    - containerPort: 9297
+      name: https
+    startupProbe:
+      tcpSocket:
+        port: 9297
+      periodSeconds: 1
+      failureThreshold: 60
+    volumeMounts:
+    - name: emulator-handoff
+      mountPath: /home/emulator/.aws/emulator

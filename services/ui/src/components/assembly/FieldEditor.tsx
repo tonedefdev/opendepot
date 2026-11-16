@@ -13,11 +13,10 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import ToggleButton from "@mui/material/ToggleButton";
 import Typography from "@mui/material/Typography";
-import { useColorScheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
 import type { CtyType } from "@/lib/api";
 import type { FieldValue, ReferenceOption } from "./types";
-import { getHclFunctionHint, hclConditionPlugins, hclEditorColorVariables } from "./hclConditionHighlight";
+import { getHclFunctionHint, hclConditionPlugins, hclEditorColorSx } from "./hclConditionHighlight";
 import { monoSx } from "./editorRows";
 
 const expressionSurfaceSx = {
@@ -139,6 +138,7 @@ export function ReferenceSelectorControls({
   compact?: boolean;
   onChange: (value: FieldValue) => void;
 }) {
+  const [pointerActivated, setPointerActivated] = React.useState(false);
   const matchedOption = value?.mode === "reference"
     ? referenceOptions.find((option) => option.nodeId === value.refNodeId && option.output === value.refOutput)
     : undefined;
@@ -152,7 +152,6 @@ export function ReferenceSelectorControls({
     ? collectionElementType(matchedOption.type)
     : undefined;
   const descendantPaths = selectedElementType ? objectDescendantPaths(selectedElementType) : [];
-  const [pointerActivated, setPointerActivated] = React.useState(false);
 
   return (
     <>
@@ -323,8 +322,6 @@ export default function FieldEditor({
   const [referenceSearch, setReferenceSearch] = React.useState("");
   const [hclCaretPosition, setHclCaretPosition] = React.useState<number | null>(null);
   const [hclEditorFocused, setHclEditorFocused] = React.useState(false);
-  const { mode, systemMode } = useColorScheme();
-  const editorMode = (mode === "system" ? systemMode : mode) === "light" ? "light" : "dark";
   const currentValue = currentAutocompleteValue(value, referenceOptions);
   const hclLiteral = value?.mode === "literal" ? value.literal : "";
   const activeFunctionHint = hclEditorFocused && hclCaretPosition !== null
@@ -418,14 +415,13 @@ export default function FieldEditor({
                 borderColor: error ? "error.main" : "divider",
                 "&:focus-within": { borderColor: error ? "error.main" : "primary.main" },
                 overflow: "hidden",
-                "& .w-tc-editor": { ...hclEditorColorVariables(editorMode) },
+                ...hclEditorColorSx,
               }}
             >
               <CodeEditor
                 value={value?.mode === "literal" ? value.literal : ""}
                 language="hcl"
                 rehypePlugins={hclConditionPlugins}
-                data-color-mode={editorMode}
                 minHeight={20}
                 padding={0}
                 indentWidth={2}

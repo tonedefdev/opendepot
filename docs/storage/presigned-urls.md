@@ -34,7 +34,17 @@ storageConfig:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Redirect downloads to the storage backend |
 | `ttl` | duration | `15m` | URL validity, such as `"15m"` or `"1h"` |
-| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails; set to `false` to require signing |
+| `fallbackToProxy` | bool | `true` | Proxy through the Server if signing fails. When `false`, a signing failure returns `502 Bad Gateway`. |
+
+## Agent Archives
+
+Agent archives are served from the Agent Version, not from the agent source. The controller copies the source `presign` into each Version it owns, so the archive handler reads the presign settings from the Version. The sync runs on every reconcile of the Agent or Skill, so a change to `presign` on the source reaches every owned Version in one reconcile, including yanked and rejected Versions. A hand-edited `presign` on a Version is overwritten to match the source. Removing `presign` from the source clears it on the Versions. Other Version fields are not synced by this path. The behavior differs in three ways:
+
+- `fallbackToProxy` defaults to `false` for new Agent objects. When `false`, a signing failure returns `500 Internal Server Error` and does not redirect. Providers and modules keep the `true` default.
+- The FileSystem backend always fails the signing step. Agent downloads from FileSystem storage stream the archive only when `fallbackToProxy` is `true`.
+- Existing Agent objects keep the stored `fallbackToProxy` value. The changed default applies only to objects created after the change.
+
+A presigned URL redirect uses `307 Temporary Redirect` with `Cache-Control: private, no-store`. The URL TTL defaults to `15m`. Revoking a GroupBinding stops new redirects, but a URL already issued stays valid until it expires. This is an accepted window. For the authorization flow, see [agents.v1 Protocol](../reference/agents-v1.md).
 
 ## Backend Permissions
 
@@ -50,6 +60,7 @@ to the controller's identity in addition to `Storage Blob Data Contributor`.
 
 ### Google Cloud Storage
 
-GCS uses HMAC/V4 signing. The workload identity requires
+GCS signs URLs with the Go SDK's default V2 scheme. When the workload identity
+has no private key, the signing call goes through IAM, which requires
 `iam.serviceAccounts.signBlob`, included in the `Service Account Token Creator`
 role, in addition to the existing storage permissions.

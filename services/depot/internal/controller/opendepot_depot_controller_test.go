@@ -17,10 +17,21 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"io"
+	"net/http"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,6 +41,40 @@ import (
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/pkg/registry"
 )
+
+// githubReleasesTransport answers GitHub release listing requests with the given tags and
+// GitHub App installation token requests with a placeholder token.
+type githubReleasesTransport struct {
+	tags []string
+}
+
+func (t githubReleasesTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(req.URL.Path, "/access_tokens") {
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"token":"test-installation-token","expires_at":"2099-01-01T00:00:00Z"}`)),
+			Request:    req,
+		}, nil
+	}
+
+	releases := make([]map[string]string, 0, len(t.tags))
+	for _, tag := range t.tags {
+		releases = append(releases, map[string]string{"tag_name": tag})
+	}
+
+	body, err := json.Marshal(releases)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Request:    req,
+	}, nil
+}
 
 var _ = Describe("Depot Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -121,6 +166,477 @@ var _ = Describe("Depot Controller", func() {
 			Expect(provider.Spec.ProviderConfig.UpstreamRegistry).NotTo(BeNil())
 			Expect(*provider.Spec.ProviderConfig.UpstreamRegistry).To(Equal(opendepotv1alpha1.TerraformRegistryHost))
 			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.2.4"}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("keeps only the newest versions allowed by the global version history limit", func() {
+			providerName := "limited"
+			providerNamespace := "hashicorp"
+			upstreamRegistry := opendepotv1alpha1.TerraformRegistryHost
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4", "1.0.0", "3.0.0", "2.0.0"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			historyLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &historyLimit,
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				UpstreamRegistry:   &upstreamRegistry,
+				OperatingSystems:   []string{"linux"},
+				Architectures:      []string{"amd64"},
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.0.0"}, {Version: "3.2.4"}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("keeps only the newest module versions allowed by the global version history limit", func() {
+			moduleName := "limited-module"
+			originalTransport := http.DefaultTransport
+			http.DefaultTransport = githubReleasesTransport{tags: []string{"v3.2.4", "v1.0.0", "v3.0.0", "v2.0.0"}}
+			DeferCleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			historyLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &historyLimit,
+			}
+			current.Spec.ModuleConfigs = []opendepotv1alpha1.ModuleConfig{{
+				Name:               &moduleName,
+				Provider:           "null",
+				RepoOwner:          "tonedefdev",
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			module := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: moduleName, Namespace: "default"}, module)).To(Succeed())
+			versions := make([]string, 0, len(module.Spec.Versions))
+			for _, v := range module.Spec.Versions {
+				versions = append(versions, v.Version)
+			}
+			Expect(versions).To(Equal([]string{"3.0.0", "3.2.4"}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, module)
+			})
+		})
+
+		It("prefers global.moduleConfig.versionHistoryLimit over global.versionHistoryLimit for modules", func() {
+			moduleName := "precedence-module"
+			originalTransport := http.DefaultTransport
+			http.DefaultTransport = githubReleasesTransport{tags: []string{"v3.2.4", "v1.0.0", "v3.0.0", "v2.0.0"}}
+			DeferCleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			globalLimit := 3
+			moduleLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &globalLimit,
+				ModuleConfig:        &opendepotv1alpha1.ModuleDefaults{VersionHistoryLimit: &moduleLimit},
+			}
+			current.Spec.ModuleConfigs = []opendepotv1alpha1.ModuleConfig{{
+				Name:               &moduleName,
+				Provider:           "null",
+				RepoOwner:          "tonedefdev",
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			module := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: moduleName, Namespace: "default"}, module)).To(Succeed())
+			versions := make([]string, 0, len(module.Spec.Versions))
+			for _, v := range module.Spec.Versions {
+				versions = append(versions, v.Version)
+			}
+			Expect(versions).To(Equal([]string{"3.0.0", "3.2.4"}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, module)
+			})
+		})
+
+		It("prefers global.providerConfig.versionHistoryLimit over global.versionHistoryLimit for providers", func() {
+			providerName := "precedence-provider"
+			providerNamespace := "hashicorp"
+			upstreamRegistry := opendepotv1alpha1.TerraformRegistryHost
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4", "1.0.0", "3.0.0", "2.0.0"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			globalLimit := 3
+			providerLimit := 2
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &globalLimit,
+				ProviderConfig:      &opendepotv1alpha1.ProviderDefaults{VersionHistoryLimit: &providerLimit},
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				UpstreamRegistry:   &upstreamRegistry,
+				OperatingSystems:   []string{"linux"},
+				Architectures:      []string{"amd64"},
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.0.0"}, {Version: "3.2.4"}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("applies moduleConfig defaults to module entries that do not set them and keeps entry values", func() {
+			defaultsModule := "defaults-module"
+			overrideModule := "override-module"
+			originalTransport := http.DefaultTransport
+			http.DefaultTransport = githubReleasesTransport{tags: []string{"v3.2.4", "v1.0.0"}}
+			DeferCleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			globalDirectoryPath := GinkgoT().TempDir()
+			defaultsDirectoryPath := GinkgoT().TempDir()
+			overrideDirectoryPath := GinkgoT().TempDir()
+			fileFormat := "tar"
+			overrideFileFormat := "zip"
+			immutable := true
+			overrideImmutable := false
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+				ModuleConfig: &opendepotv1alpha1.ModuleDefaults{
+					FileFormat:         &fileFormat,
+					Immutable:          &immutable,
+					GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true},
+					StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &defaultsDirectoryPath}},
+				},
+				StorageConfig: &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}},
+			}
+			current.Spec.ModuleConfigs = []opendepotv1alpha1.ModuleConfig{
+				{
+					Name:               &defaultsModule,
+					Provider:           "null",
+					RepoOwner:          "tonedefdev",
+					VersionConstraints: ">= 1.0.0",
+				},
+				{
+					Name:               &overrideModule,
+					Provider:           "null",
+					RepoOwner:          "tonedefdev",
+					VersionConstraints: ">= 1.0.0",
+					FileFormat:         &overrideFileFormat,
+					Immutable:          &overrideImmutable,
+					GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+					StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &overrideDirectoryPath}},
+				},
+			}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			signingKey, err := rsa.GenerateKey(rand.Reader, 2048)
+			Expect(err).NotTo(HaveOccurred())
+			keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signingKey)})
+			appSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opendepotv1alpha1.OpenDepotGithubSecretName,
+					Namespace: "default",
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldAppID:      []byte("1"),
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldInstallID:  []byte("2"),
+					opendepotv1alpha1.OpenDepotGithubSecretDataFieldPrivateKey: []byte(base64.StdEncoding.EncodeToString(keyPEM)),
+				},
+			}
+			Expect(k8sClient.Create(ctx, appSecret)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, appSecret)
+			})
+
+			controllerReconciler := &DepotReconciler{
+				Client:    k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				APIReader: k8sClient,
+			}
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			defaults := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: defaultsModule, Namespace: "default"}, defaults)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, defaults)
+			})
+			Expect(defaults.Spec.ModuleConfig.Name).To(Equal(&defaultsModule))
+			Expect(defaults.Spec.ModuleConfig.Provider).To(Equal("null"))
+			Expect(defaults.Spec.ModuleConfig.RepoOwner).To(Equal("tonedefdev"))
+			Expect(defaults.Spec.ModuleConfig.FileFormat).To(Equal(&fileFormat))
+			Expect(defaults.Spec.ModuleConfig.Immutable).To(Equal(&immutable))
+			Expect(defaults.Spec.ModuleConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true}))
+			Expect(defaults.Spec.ModuleConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &defaultsDirectoryPath}}))
+
+			override := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: overrideModule, Namespace: "default"}, override)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, override)
+			})
+			Expect(override.Spec.ModuleConfig.FileFormat).To(Equal(&overrideFileFormat))
+			Expect(override.Spec.ModuleConfig.Immutable).To(Equal(&overrideImmutable))
+			Expect(override.Spec.ModuleConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false}))
+			Expect(override.Spec.ModuleConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &overrideDirectoryPath}}))
+		})
+
+		It("prefers a moduleConfigs entry versionHistoryLimit over global.moduleConfig, and falls back to top-level global settings", func() {
+			moduleName := "entry-limit-module"
+			originalTransport := http.DefaultTransport
+			http.DefaultTransport = githubReleasesTransport{tags: []string{"v3.2.4", "v1.0.0", "v3.0.0", "v2.0.0"}}
+			DeferCleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			globalLimit := 3
+			moduleLimit := 2
+			entryLimit := 1
+			directoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				GithubClientConfig:  &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+				ModuleConfig:        &opendepotv1alpha1.ModuleDefaults{VersionHistoryLimit: &moduleLimit},
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}},
+				VersionHistoryLimit: &globalLimit,
+			}
+			current.Spec.ModuleConfigs = []opendepotv1alpha1.ModuleConfig{{
+				Name:                &moduleName,
+				Provider:            "null",
+				RepoOwner:           "tonedefdev",
+				VersionConstraints:  ">= 1.0.0",
+				VersionHistoryLimit: &entryLimit,
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			module := &opendepotv1alpha1.Module{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: moduleName, Namespace: "default"}, module)).To(Succeed())
+			Expect(module.Spec.Versions).To(Equal([]opendepotv1alpha1.ModuleVersion{{Version: "3.2.4"}}))
+			Expect(module.Spec.ModuleConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false}))
+			Expect(module.Spec.ModuleConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &directoryPath}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, module)
+			})
+		})
+
+		It("applies providerConfig defaults to provider entries that do not set them, with kind-level values over top-level global", func() {
+			providerName := "defaults-provider"
+			providerNamespace := "hashicorp"
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4", "1.0.0", "3.0.0", "2.0.0"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			globalLimit := 3
+			providerLimit := 2
+			globalDirectoryPath := GinkgoT().TempDir()
+			providerDirectoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+				ProviderConfig: &opendepotv1alpha1.ProviderDefaults{
+					OperatingSystems:    []string{"linux"},
+					Architectures:       []string{"amd64", "arm64"},
+					GithubClientConfig:  &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true},
+					StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &providerDirectoryPath}},
+					VersionHistoryLimit: &providerLimit,
+				},
+				StorageConfig:       &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}},
+				VersionHistoryLimit: &globalLimit,
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.Versions).To(Equal([]opendepotv1alpha1.ProviderVersion{{Version: "3.0.0"}, {Version: "3.2.4"}}))
+			Expect(provider.Spec.ProviderConfig.OperatingSystems).To(Equal([]string{"linux"}))
+			Expect(provider.Spec.ProviderConfig.Architectures).To(Equal([]string{"amd64", "arm64"}))
+			Expect(provider.Spec.ProviderConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true}))
+			Expect(provider.Spec.ProviderConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &providerDirectoryPath}}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("keeps providerConfigs entry values over providerConfig defaults and inherits empty slices and nil pointers", func() {
+			providerName := "entry-provider"
+			providerNamespace := "hashicorp"
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			globalDirectoryPath := GinkgoT().TempDir()
+			providerDirectoryPath := GinkgoT().TempDir()
+			entryDirectoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: false},
+				ProviderConfig: &opendepotv1alpha1.ProviderDefaults{
+					OperatingSystems:   []string{"linux"},
+					Architectures:      []string{"amd64"},
+					GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true},
+					StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &providerDirectoryPath}},
+				},
+				StorageConfig: &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}},
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				OperatingSystems:   []string{"darwin"},
+				Architectures:      []string{},
+				StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &entryDirectoryPath}},
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.ProviderConfig.OperatingSystems).To(Equal([]string{"darwin"}))
+			Expect(provider.Spec.ProviderConfig.Architectures).To(Equal([]string{"amd64"}))
+			Expect(provider.Spec.ProviderConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &entryDirectoryPath}}))
+			Expect(provider.Spec.ProviderConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true}))
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, provider)
+			})
+		})
+
+		It("falls back to top-level global storageConfig and githubClientConfig for providerConfigs when providerConfig does not set them", func() {
+			providerName := "fallback-provider"
+			providerNamespace := "hashicorp"
+			listProviderVersions = func(_ context.Context, _, _, _ string) ([]string, error) {
+				return []string{"3.2.4"}, nil
+			}
+			DeferCleanup(func() {
+				listProviderVersions = registry.ListProviderVersions
+			})
+
+			globalDirectoryPath := GinkgoT().TempDir()
+			current := &opendepotv1alpha1.Depot{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+			current.Spec.GlobalConfig = &opendepotv1alpha1.GlobalConfig{
+				GithubClientConfig: &opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true},
+				StorageConfig:      &opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}},
+			}
+			current.Spec.ProviderConfigs = []opendepotv1alpha1.ProviderConfig{{
+				Name:               &providerName,
+				Namespace:          &providerNamespace,
+				VersionConstraints: ">= 1.0.0",
+			}}
+			Expect(k8sClient.Update(ctx, current)).To(Succeed())
+
+			controllerReconciler := &DepotReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			provider := &opendepotv1alpha1.Provider{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: providerName, Namespace: "default"}, provider)).To(Succeed())
+			Expect(provider.Spec.ProviderConfig.GithubClientConfig).To(Equal(&opendepotv1alpha1.GithubClientConfig{UseAuthenticatedClient: true}))
+			Expect(provider.Spec.ProviderConfig.StorageConfig).To(Equal(&opendepotv1alpha1.StorageConfig{FileSystem: &opendepotv1alpha1.FileSystemConfig{DirectoryPath: &globalDirectoryPath}}))
 			DeferCleanup(func() {
 				_ = k8sClient.Delete(ctx, provider)
 			})

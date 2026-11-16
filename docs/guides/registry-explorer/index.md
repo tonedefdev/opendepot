@@ -2,7 +2,7 @@
 tags:
   - guides
   - ui
-   - opendepot-workshop
+  - opendepot-workshop
 ---
 
 # OpenDepot Workshop
@@ -25,6 +25,9 @@ OpenDepot Workshop brings the following user-facing workflows together:
 - [**Module Details**](module-details.md) and [**Provider Details**](provider-details.md)
   — inspect README content, contracts, schemas, artifacts, versions, and scan
   findings.
+- [**Agent Details**](agent-details.md) and [**Skill Details**](skill-details.md)
+  — inspect client configuration, definitions, versions, Jev assessments, and
+  scan findings.
 - [**Depots**](depots.md) — review where resources are managed and how they are
   discovered.
 - [**Stats**](browse.md) — compare synchronization health, resource counts,
@@ -49,15 +52,19 @@ Use the Workshop components as the starting point for a focused workflow:
 2. Select a **provider** in the Registry Explorer to open [Provider Details](provider-details.md).
    Review provider identity and synchronization status, then drill into
    platform versions and source or binary findings.
-3. Select a **version** from either details page to inspect the exact archive,
+3. Select an **agent** or **skill** in the Registry Explorer to open
+   [Agent Details](agent-details.md) or [Skill Details](skill-details.md).
+   Copy the client configuration, review the definition, and inspect versions
+   and Jev assessments.
+4. Select a **version** from any details page to inspect the exact archive,
    checksum, scan timestamp, and findings associated with that version.
-4. Open a **Depot** to understand which storage backend and discovery settings
+5. Open a **Depot** to understand which storage backend and discovery settings
    manage its modules and providers.
-5. Open **Stats** to compare synchronization health and security posture across
+6. Open **Stats** to compare synchronization health and security posture across
    the resources visible to you.
-6. Open **Assembly Line** to compose onboarded modules and providers into a
+7. Open **Assembly Line** to compose onboarded modules and providers into a
   validated, downloadable root module.
-7. Open **Security Policies** to review or manage scan policies when policy
+8. Open **Security Policies** to review or manage scan policies when policy
   management is enabled and you have the required permissions.
 
 ## Related Guides
@@ -65,6 +72,8 @@ Use the Workshop components as the starting point for a focused workflow:
 - [Registry Explorer](registry.md)
 - [Module Details](module-details.md)
 - [Provider Details](provider-details.md)
+- [Agent Details](agent-details.md)
+- [Skill Details](skill-details.md)
 - [OpenDepot Workshop Administration](administration.md)
 - [Stats](browse.md)
 - [Browse API](api.md)

@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import type { BrowseScanCounts } from "@/lib/api";
-import { unknownSeverityChipSx } from "./severityStyles";
+import { severityChipSx } from "./severityStyles";
 
 interface Props {
   severity: "critical" | "high" | "medium" | "low" | "unknown";
@@ -27,16 +28,17 @@ export function SeverityChip({ severity, count }: Props) {
         size="small"
         color={colorMap[severity]}
         label={`${severity.charAt(0).toUpperCase()} ${count}`}
-        sx={severity === "unknown" ? unknownSeverityChipSx : { color: "#fff" }}
+        sx={severityChipSx(severity)}
       />
     </Tooltip>
   );
 }
 
+// A list row stretches its name link over the whole row, so the chips lift above that layer to receive hover.
 export default function SeverityBadge({ counts }: { counts: BrowseScanCounts | null }) {
   if (!counts) return null;
   return (
-    <React.Fragment>
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, position: "relative", zIndex: 1, "& > *": { flexShrink: 0 } }}>
       <SeverityChip severity="critical" count={counts.critical} />
       <SeverityChip severity="high" count={counts.high} />
       <SeverityChip severity="medium" count={counts.medium} />
@@ -44,9 +46,9 @@ export default function SeverityBadge({ counts }: { counts: BrowseScanCounts | n
       <SeverityChip severity="unknown" count={counts.unknown} />
       {counts.exempted > 0 && (
         <Tooltip title={`${counts.exempted} exempted findings`}>
-          <Chip size="small" color="secondary" label={`E ${counts.exempted}`} sx={{ color: "#fff" }} />
+          <Chip size="small" color="secondary" label={`E ${counts.exempted}`} sx={severityChipSx("exempted")} />
         </Tooltip>
       )}
-    </React.Fragment>
+    </Box>
   );
 }

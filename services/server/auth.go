@@ -18,6 +18,8 @@ import (
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
+var inClusterConfig = rest.InClusterConfig
+
 // generateKubeClient creates a new kubernetes client from either a kubeconfig as a byte slice
 // or from a bearerToken. When using a bearerToken this function will use the in-cluster config
 // to generate the necessary rest.Config settings for TLS connections.
@@ -27,12 +29,12 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 
 	if bearerToken == nil && kubeconfig == nil {
 		// Anonymous auth: use in-cluster config with the server's own service account
-		clientConfig, err = rest.InClusterConfig()
+		clientConfig, err = inClusterConfig()
 		if err != nil {
 			return nil, err
 		}
 	} else if useBearerToken {
-		clientConfig, err = rest.InClusterConfig()
+		clientConfig, err = inClusterConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +80,12 @@ func getPolicyKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*ku
 func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Request, requireGroupBinding bool) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
 	if *opendepotAnonymousAuth {
 		cs, err := generateKubeClient(nil, nil, false)
-		return cs, nil, nil, "", err
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return nil, nil, nil, "", err
+		}
+
+		return cs, nil, nil, "", nil
 	}
 
 	if oidcVerifier != nil {
@@ -120,6 +127,7 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 						return nil, nil, nil, "", saErr
 					}
 					logger.Debug("SA fallback auth accepted", "issuer", iss)
+					// The SA path returns no GroupBinding, so access is governed by the ServiceAccount's RBAC alone.
 					return cs, nil, nil, "", nil
 				}
 			}
@@ -213,7 +221,12 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 	}
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
-	return cs, nil, nil, "", err
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, nil, nil, "", err
+	}
+
+	return cs, nil, nil, "", nil
 }
 
 // handleClientCredentialsToken attempts to verify a Dex client-credentials token using the
@@ -426,6 +439,34 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 				return true
 			}
 		}
+	case "skill":
+		for _, pattern := range binding.Spec.SkillResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed skill resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
+	case "agent":
+		for _, pattern := range binding.Spec.AgentResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed agent resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
 	}
 
 	return false
@@ -447,6 +488,20 @@ func isSecurityResourceAllowed(binding *opendepotv1alpha1.SecurityGroupBinding, 
 	case "provider":
 		for _, name := range binding.Spec.ProviderResources {
 			if name == "*" || name == resourceName {
+				return true
+			}
+		}
+	case "skill":
+		for _, pattern := range binding.Spec.SkillResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err == nil && matched {
+				return true
+			}
+		}
+	case "agent":
+		for _, pattern := range binding.Spec.AgentResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err == nil && matched {
 				return true
 			}
 		}

@@ -35,6 +35,7 @@ therefore receive write permissions.
 | Version | `pods` | delete (namespace-scoped) |
 | Version | `secrets` | get |
 | Version | `configmaps` | create, get, list, patch, update, watch |
+| Version | `events` (`events.k8s.io`) | create, patch |
 | Provider | `providers` | create, delete, get, list, patch, update, watch |
 | Provider | `providers/finalizers` | update |
 | Provider | `providers/status` | get, patch, update |

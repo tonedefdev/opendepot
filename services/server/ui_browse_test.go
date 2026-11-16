@@ -17,9 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"slices"
 	"testing"
 
+	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_anyVersionUnsynced(t *testing.T) {
@@ -320,5 +323,166 @@ func Test_collectBinaryFindingsForVersion_noVersionsWithFindings(t *testing.T) {
 	result := collectBinaryFindingsForVersion(versions, "")
 	if result != nil {
 		t.Errorf("expected nil result when no versions have findings, got %v", result)
+	}
+}
+
+func Test_agentLatestVersion(t *testing.T) {
+	versions := []opendepotv1alpha1.Version{
+		{Spec: opendepotv1alpha1.VersionSpec{Version: "v1.0.0"}},
+		{Spec: opendepotv1alpha1.VersionSpec{Version: "1.1.0"}},
+	}
+
+	if got := agentLatestVersion(versions, "1.1.0"); got == nil || got.Spec.Version != "1.1.0" {
+		t.Errorf("agentLatestVersion(1.1.0) = %v, want the 1.1.0 Version", got)
+	}
+
+	if got := agentLatestVersion(versions, "2.0.0"); got != nil {
+		t.Errorf("agentLatestVersion(2.0.0) = %v, want nil", got)
+	}
+
+	if got := agentLatestVersion(versions, ""); got != nil {
+		t.Errorf("agentLatestVersion(\"\") = %v, want nil", got)
+	}
+}
+
+// TestBrowseModuleAndProviderSyncStatusWithholdsExemptionNameFromOIDC covers the exempting ScanPolicy name in module and
+// provider version summaries. OIDC callers see that the block was exempted, but not which ScanPolicy did it.
+func TestBrowseModuleAndProviderSyncStatusWithholdsExemptionNameFromOIDC(t *testing.T) {
+	const policyName = "release-exemptions"
+	const providerName = "aws"
+	syncStatus := "Successfully synced version; Jev block exempted by ScanPolicy " + policyName + ": 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"
+	withheld := "Successfully synced version; Jev block exempted by a ScanPolicy: 2 reason(s) cleared for digest aaaaaaaaaaaa; expires never"
+
+	providerRefName := providerName
+	module := opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "vpc-1-0-0"},
+		Spec:       opendepotv1alpha1.VersionSpec{Version: "1.0.0"},
+		Status:     opendepotv1alpha1.VersionStatus{SyncStatus: syncStatus},
+	}
+	provider := opendepotv1alpha1.Provider{ObjectMeta: metav1.ObjectMeta{Name: providerName}}
+	providerVersion := opendepotv1alpha1.Version{
+		ObjectMeta: metav1.ObjectMeta{Name: providerName + "-1-0-0"},
+		Spec: opendepotv1alpha1.VersionSpec{
+			Version:           "1.0.0",
+			ProviderConfigRef: &opendepotv1alpha1.ProviderConfig{Name: &providerRefName},
+		},
+		Status: opendepotv1alpha1.VersionStatus{SyncStatus: syncStatus},
+	}
+
+	cases := []struct {
+		name string
+		oidc bool
+		want string
+	}{
+		{name: "OIDC withholds exemption policy name", oidc: true, want: withheld},
+		{name: "non-OIDC returns exemption policy name", want: syncStatus},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalVerifier := oidcVerifier
+			defer func() {
+				oidcVerifier = originalVerifier
+			}()
+
+			oidcVerifier = nil
+			if tc.oidc {
+				oidcVerifier = &gooidc.IDTokenVerifier{}
+			}
+
+			modules := moduleVersionSummaries([]opendepotv1alpha1.Version{module})
+			if len(modules) != 1 || modules[0].SyncStatus != tc.want {
+				t.Fatalf("module SyncStatus = %+v; want %q", modules, tc.want)
+			}
+
+			providers := providerVersionSummaries(provider, []opendepotv1alpha1.Version{providerVersion})
+			if len(providers) != 1 || providers[0].SyncStatus != tc.want {
+				t.Fatalf("provider SyncStatus = %+v; want %q", providers, tc.want)
+			}
+		})
+	}
+}
+
+func namesOf(items []BrowseResource) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+	}
+
+	return names
+}
+
+func TestSortBrowseItemsByColumnKeys(t *testing.T) {
+	scan := func(critical, high int) *BrowseScanCounts {
+		return &BrowseScanCounts{Critical: critical, High: high}
+	}
+
+	cases := []struct {
+		name  string
+		by    string
+		items []BrowseResource
+		want  []string
+	}{
+		{
+			name: "kind orders alphabetically then by name",
+			by:   "kind",
+			items: []BrowseResource{
+				{Kind: "module", Name: "b"},
+				{Kind: "agent", Name: "z"},
+				{Kind: "module", Name: "a"},
+			},
+			want: []string{"z", "a", "b"},
+		},
+		{
+			name: "source orders by source ref then name",
+			by:   "source",
+			items: []BrowseResource{
+				{Kind: "skill", Name: "b", SourceRef: "main"},
+				{Kind: "skill", Name: "a", SourceRef: "dev"},
+				{Kind: "skill", Name: "c", SourceRef: "main"},
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name: "status puts blocked, failed, not synced, then synced first",
+			by:   "status",
+			items: []BrowseResource{
+				{Kind: "module", Name: "synced", Synced: true},
+				{Kind: "module", Name: "pending"},
+				{Kind: "module", Name: "failed", SyncStatus: "Sync failed"},
+				{Kind: "agent", Name: "blocked", Synced: true, Blocked: true},
+			},
+			want: []string{"blocked", "failed", "pending", "synced"},
+		},
+		{
+			name: "status ignores a block on module kinds",
+			by:   "status",
+			items: []BrowseResource{
+				{Kind: "module", Name: "b", Synced: true, Blocked: true},
+				{Kind: "module", Name: "a", Synced: true},
+			},
+			want: []string{"a", "b"},
+		},
+		{
+			name: "risk combines scan findings and Jev level, most severe first",
+			by:   "risk",
+			items: []BrowseResource{
+				{Kind: "agent", Name: "jev-high", JevRiskLevel: "High"},
+				{Kind: "module", Name: "scan-critical", ScanCounts: scan(1, 0)},
+				{Kind: "agent", Name: "jev-critical", JevRiskLevel: "Critical"},
+				{Kind: "module", Name: "clean"},
+				{Kind: "agent", Name: "jev-low", JevRiskLevel: "Low"},
+			},
+			want: []string{"jev-critical", "scan-critical", "jev-high", "jev-low", "clean"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sortBrowseItems(tc.items, tc.by, "asc")
+			if got := namesOf(tc.items); !slices.Equal(got, tc.want) {
+				t.Fatalf("sortBrowseItems(%q) = %v; want %v", tc.by, got, tc.want)
+			}
+		})
 	}
 }

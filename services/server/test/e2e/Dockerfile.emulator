@@ -1,0 +1,28 @@
+# Test-only AWS emulator image. Based on https://docs.aws.amazon.com/emulator/latest/userguide/getting-started-docker.html
+# The RPM is downloaded and checksum-verified at build time; the docs' ADD is replaced so the artifact can be verified.
+ARG EMULATOR_VERSION=1.0.385
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS rpm-download
+ARG TARGETARCH
+# The checksum is for the LTS/latest RPM; the versioned URL returns 403, so the unversioned URL is the verified source.
+ARG EMULATOR_RPM_SHA256=e2f01620e9f4e8c37c0ce7f32381fde3ffb7e8270331c8c23de2ec877b6a9043
+RUN set -eux; \
+	test "${TARGETARCH}" = arm64; \
+	apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl \
+	&& rm -rf /var/lib/apt/lists/*; \
+	curl -fsSL -o /aws-emulator.rpm "https://downloads.aws.com/aws-emulator/packages/aws-emulator/LTS/latest/aws-emulator-aarch64.rpm"; \
+	echo "${EMULATOR_RPM_SHA256}  /aws-emulator.rpm" | sha256sum -c -
+
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:158a9044f9dc0777f098b76c8b54346f6ed4560b9a6a416dec7a5ba3bc483af4
+ARG EMULATOR_VERSION
+LABEL org.opendepot.aws-emulator.version="${EMULATOR_VERSION}"
+
+COPY --from=rpm-download /aws-emulator.rpm /opt/emu-rpm/aws-emulator.rpm
+RUN rpm -i /opt/emu-rpm/aws-emulator.rpm && rm -rf /opt/emu-rpm \
+    && mkdir -p /home/emulator && chown 1000 /home/emulator \
+    && aws-emulator -v
+
+USER 1000
+ENV HOME=/home/emulator
+EXPOSE 9297
+ENTRYPOINT ["aws-emulator", "-b", "0.0.0.0"]

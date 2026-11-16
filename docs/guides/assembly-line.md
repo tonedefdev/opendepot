@@ -12,7 +12,8 @@ Assembly Line composes onboarded OpenDepot modules and providers into a validate
 
 Assembly Line is **OpenTofu-only** and **browser-local/export-only**: canvases persist in the browser's `localStorage` (nothing is saved server-side), and the only server-side artifact is the validated ZIP produced at export time.
 
-![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line-dark.png)
+![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line.png#only-dark)
+![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line-light.png#only-light)
 
 ## The Assembly Line Workflow
 
@@ -24,67 +25,60 @@ Assembly Line turns a visual canvas into a portable OpenTofu root module:
 4. Choose `count` or `for_each` when a module should produce multiple instances.
 5. Export the validated `main.tf` and `variables.tf` files.
 
-The canvas is local to your browser. OpenDepot does not save it as a server-side
-resource, so you can experiment freely and export only when the graph is ready.
-
 ## Build a Root Module
 
-Add module, provider, and variable nodes to the canvas. Module and provider nodes select a specific onboarded release. When exported, module releases use pessimistic constraints and provider releases remain exact. Module inputs and provider configuration fields are rendered only when they are set on the canvas; defaults owned by the child module or provider remain in the child configuration.
+Module and provider nodes select an onboarded release. Export emits module releases as pessimistic constraints and provider releases as exact versions. Inputs and provider arguments render only when set on the canvas, so child-module and provider defaults stay in the child configuration.
 
-Variable nodes become declarations in `variables.tf`. A variable default is emitted only when the canvas defines one. Recursive collection, tuple, object, and optional object attribute types are preserved.
+Variable nodes become declarations in `variables.tf`. A default is emitted only when the canvas defines one. Collection, tuple, object, and optional object types are preserved.
 
-References can connect a root variable or module output to a module input or provider argument. Repeated modules support `count` and `for_each`; references to repeated modules require an explicit all/index/key selector.
+A root variable or module output can connect to a module input or provider argument. References to repeated modules require an explicit all, index, or key selector.
 
-Building a canvas node requires the underlying module or provider version to already have an extracted Assembly artifact. Versions without these artifacts are not offered on the canvas. See [Assembly Line Configuration](../configuration/assembly-line.md#provider-and-module-requirements) for the administrator requirements.
+Only versions with an extracted Assembly artifact appear on the canvas. See [Assembly Line Configuration](../configuration/assembly-line.md#provider-and-module-requirements) for administrator requirements.
 
 ## Define Complex Variables
 
-Variables are first-class canvas nodes. Open **Type** on a variable to choose a
-primitive, collection, tuple, or object type. Add nested object attributes and
-set optional or default values in the type editor. Its syntax-highlighted HCL
-preview shows the equivalent OpenTofu declaration as you build the type.
+Open **Type** on a variable node to pick a primitive, collection, tuple, or object
+type. Add nested attributes and optional or default values in the type editor.
+The HCL preview updates as you build the type.
 
-![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current.png)
+![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current.png#only-dark)
+![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current-light.png#only-light)
 
-This example defines a map whose values contain a nested `spec` object with
-`description` and `timeout` attributes. That shape is useful for `for_each`
-because each map key identifies one module instance and each value carries that
-instance's configuration.
+This map's values contain a nested `spec` object with `description` and
+`timeout` attributes. Each key identifies one `for_each` instance, and each value
+holds that instance's configuration.
 
 ### Validate Variable Values
 
-Add one or more validations to reject invalid input before the generated root
-module is used. Enter each condition as an HCL expression; syntax highlighting
-distinguishes functions, variables, and nested attributes while you edit. Each
-validation has two parts:
+Add validations to reject invalid input. Each validation has two parts:
 
-- A condition written as an HCL expression, such as `length(var.spec.description) > 100`.
+- A condition written as an HCL expression, such as `alltrue([for _, function in var.lambda_functions : length(function.spec.description) <= 100])`.
 - An error message that explains how to correct the value.
 
-The condition can reference the variable and its nested attributes. The HCL
-preview renders the validation block in the generated OpenTofu declaration, so
-the constraint travels with the exported `variables.tf` file.
+The HCL preview renders the `validation` block in the exported `variables.tf`.
 
-![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations.png)
+![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations.png#only-dark)
+![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations-light.png#only-light)
 
-![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code.png)
+![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code.png#only-dark)
+![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code-light.png#only-light)
 
 ## Configure Module Inputs
 
-Select **Inputs** on a module node to open its typed input form. Compact rows
-show each input's required or optional status, accepted type, and value
-controls. Collection entries are grouped under their input, and the generated
-module HCL remains visible beside the form. Use the search box and pagination
-controls when a module exposes many inputs.
+Select **Inputs** on a module node to open its typed input form. Each row shows
+whether the input is required, its type, and its value controls. The generated
+module HCL stays visible beside the form. Use search and pagination for modules
+with many inputs.
 
-![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current.png)
+![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current.png#only-dark)
+![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current-light.png#only-light)
 
-Enter literal values or HCL expressions in the value fields. Expressions are
-syntax highlighted. When a field contains a supported OpenTofu function, the
-editor displays a short function description and a link to the OpenTofu
-documentation beneath the field.
+Enter literal values or HCL expressions. When a field contains a supported
+OpenTofu function, the editor shows its description and a link to the OpenTofu
+documentation.
 
-![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions.png)
+![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions.png#only-dark)
+![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions-light.png#only-light)
 
 Values can come from several places:
 
@@ -93,20 +87,22 @@ Values can come from several places:
 - A module output such as `module.ecr.repo_url`.
 - A repeated value such as `each.key` or `each.value.spec.description`.
 
-![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png)
+![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png#only-dark)
+![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources-light.png#only-light)
 
-Enter literal values directly in an input field. To reference a root variable or
-module output, choose **Use input** and select a source from the menu. When a
-source is repeated or contains a collection, the form provides instance
-selectors and key or index controls.
+To reference a root variable or module output, choose **Use input** and select a
+source. Repeated or collection sources add instance selectors and key or index
+controls.
 
-![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-input-repeated-values.png)
+![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-module-inputs-current.png#only-dark)
+![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-module-inputs-current-light.png#only-light)
 
-Repeated modules can also use `each.key` and `each.value` in HCL expression
-fields. For example, this description input reads a nested value from the
-current `for_each` object:
+Repeated modules can also use `each.key` and `each.value` in expression fields.
+For example, this description input reads a nested value from the current
+`for_each` object:
 
-![Module description input using the each.value.spec.description expression](../img/assembly-line-input-each-value.png)
+![Module inputs with the description input set to the each.value.spec.description expression](../img/assembly-line-module-inputs-current.png#only-dark)
+![Module inputs with the description input set to the each.value.spec.description expression](../img/assembly-line-module-inputs-current-light.png#only-light)
 
 For a variable map or collection reference, choose **One instance** and enter
 the index or key expression to select one entry. When the selected entry is an
@@ -118,26 +114,23 @@ var.lambda_functions[each.key].spec
 ```
 
 Leave the descendant selection at **Whole value** to reference the complete
-entry. Choosing **All instances** clears the descendant selection and passes
-the full collection. Type compatibility checks use the selected entry or
-projected property type.
+entry. **All instances** clears the descendant selection and passes the full
+collection. Type checks use the selected entry or projected property type.
 
-![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png)
+![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png#only-dark)
+![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value-light.png#only-light)
 
-![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png)
-
-The form keeps the expression visible on the canvas, so you can review how
-each module is connected without opening every field. Defaults owned by the
-child module remain there unless you explicitly configure the input.
+![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png#only-dark)
+![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances-light.png#only-light)
 
 ## Repeat Modules with `count` or `for_each`
 
-New module nodes start in **single** mode. Check the mode badge on the module
-card before configuring its inputs. When you need multiple instances, open
-**Repeat this module with `count` or `for_each`** and choose the repetition
-mode that matches your input collection.
+New module nodes start in **single** mode. To create multiple instances, open
+**Repeat this module with `count` or `for_each`** and choose the mode that
+matches your input.
 
-![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count.png)
+![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count.png#only-dark)
+![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count-light.png#only-light)
 
 With `count`, choose **Fixed number** to create the specified number of
 instances. Choose **Conditional (create or not)** to create either zero or one
@@ -145,16 +138,17 @@ instance from a boolean condition. Fixed-count instances use numeric indexes
 such as `module.lambda[0]`; conditional instances use the same indexed form
 when they exist.
 
-![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form.png)
+![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form.png#only-dark)
+![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form-light.png#only-light)
 
 ### Use `for_each` for Keyed Instances
 
-Use `for_each` when each instance should have a stable key or its own value.
-Connect a map or set variable to the module's repetition input. In the example
-canvas, `var.lambda_functions` is a map of objects and drives the Lambda, IAM,
-and ECR modules.
+Use `for_each` when each instance needs a stable key and its own value. Connect a
+map or set variable to the module's repetition input. In the example canvas,
+`var.lambda_functions` drives the Lambda, IAM, and ECR modules.
 
-![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form-crop-tight.png)
+![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form.png#only-dark)
+![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form-light.png#only-light)
 
 Each repeated module exposes the standard OpenTofu instance context:
 
@@ -185,17 +179,16 @@ provide a key expression such as `each.key` to select the matching value.
 For example, a repeated IAM module can provide one role ARN per function:
 
 ```hcl
-iam_role_arn = module.iam.role_arns[each.key]
+iam_role_arn = module.lambda_roles[each.key].role_arns[each.key]
 ```
 
 The same selector appears when connecting an output from a repeated ECR module:
 
 ```hcl
-image_uri = module.ecr.repo_arns[each.key]
+image_uri = module.ecr[each.key].repo_url
 ```
 
-This makes it possible to build a complete fan-out graph while keeping every
-Lambda instance paired with its corresponding IAM role and container image.
+Each Lambda instance stays paired with its own IAM role and container image.
 
 ## Providers
 
@@ -205,15 +198,13 @@ A module's provider selector lists only provider nodes whose upstream identity m
 
 Multiple configurations of one provider share one `required_providers` entry. Give additional configurations an alias, then bind each module-local provider name to the appropriate root configuration.
 
-Select **Configuration** on a provider node to configure provider arguments from
-the extracted schema. The paginated form marks optional attributes and shows
-complex attribute types, such as `map(string)`, alongside their value controls.
-Add or remove nested blocks such as `assume_role` and configure their fields
-inline. A provider-specific HCL preview shows the provider configuration as it
-is assembled. Provider values support the same typed expression references as
-module inputs.
+Select **Configuration** on a provider node to set arguments from the extracted
+schema. The form marks optional attributes and shows complex types such as
+`set(string)`. Add or remove nested blocks such as `assume_role` inline. Provider
+values accept the same typed references as module inputs.
 
-![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration.png)
+![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration.png#only-dark)
+![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration-light.png#only-light)
 
 Provider configuration belongs on the root provider node. Modules then select
 the matching provider configuration through their **Providers** panel, keeping
@@ -226,7 +217,7 @@ OpenDepot's provider registry generally mirrors both `registry.opentofu.org` and
 - The `/assembly` provider palette in the UI filters out any Provider whose upstream registry is not `registry.opentofu.org`, so Terraform-origin providers never appear as candidates.
 - Export resolution enforces the same rule authoritatively on the server: a canvas that references a non-OpenTofu Provider fails with a `provider_registry_unsupported` diagnostic, regardless of what the browser submitted.
 
-Provider schema extraction itself is unaffected by this restriction — the version controller extracts a configuration schema for every provider version using its configured `upstreamRegistry`, so both origins remain fully usable outside Assembly Line.
+When Assembly Line is enabled, the Version controller extracts a configuration schema for each provider version, regardless of upstream registry. Providers from both origins remain usable outside Assembly Line.
 
 ### Generated provider source
 
@@ -254,12 +245,12 @@ Provider versions remain exact and are emitted without a leading `v`.
 
 ## Export
 
-Export sends the typed canvas to the OpenDepot server. OpenDepot validates the
-canvas, resolves the selected versions, runs OpenTofu initialization, and
-returns a ZIP containing the generated root module. Validation failures are
-shown in the export dialog, and no ZIP is returned.
+Export sends the canvas to the server, which validates it, resolves the selected
+versions, runs OpenTofu initialization, and returns a ZIP of the root module.
+Validation failures appear in the export dialog, and no ZIP is returned.
 
-![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete.png)
+![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete.png#only-dark)
+![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete-light.png#only-light)
 
 ### Downloaded files
 
@@ -274,7 +265,10 @@ The archive excludes `.terraform`, lock files, state, CLI configuration, command
 
 ## Export Failures
 
-Client validation blocks export while nodes are loading or have known name, input, provider, reference, or multiplicity errors. Server diagnostics identify a stable error code, node, and field path where available.
+The browser blocks export while nodes are loading or have name, input, provider,
+reference, or multiplicity errors. Server diagnostics include a stable error code,
+the node, and the field path where available, such as `provider_registry_unsupported`
+for a non-OpenTofu provider.
 
 The server returns no ZIP when resource authorization, exact-version resolution,
 provider eligibility, rendering, or OpenTofu initialization fails.

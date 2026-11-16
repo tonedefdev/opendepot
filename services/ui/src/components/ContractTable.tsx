@@ -16,16 +16,19 @@ import {
   Tabs,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
-import { useColorScheme } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Highlight, type Language, type PrismTheme, themes } from "prism-react-renderer";
+import type { Language } from "prism-react-renderer";
+import { ThemedCode } from "@/components/ThemedCode";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
+import MobileRecordCard, { MobileRecordList, type RecordField } from "@/components/MobileRecordCard";
 import type {
   BrowseContract,
   ContractOutput,
@@ -170,13 +173,9 @@ function renderDefaultHCL(value: unknown, depth = 0): string {
 
 function DefaultCode({
   value,
-  prismTheme,
-  lightBg,
   copyable = true,
 }: {
   value: unknown;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
   copyable?: boolean;
 }) {
   const code = React.useMemo(() => (value === undefined ? "" : renderDefaultHCL(value)), [value]);
@@ -191,40 +190,24 @@ function DefaultCode({
 
   return (
     <Box sx={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-      <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <Box
-            component="pre"
-            sx={{
-              m: 0,
-              pl: 1,
-              pr: copyable ? 4 : 1,
-              py: 0.5,
-              display: "inline-block",
-              width: "fit-content",
-              maxWidth: "100%",
-              borderRadius: 1,
-              border: "1px solid",
-              borderColor: "divider",
-              fontFamily: "monospace",
-              fontSize: "0.75rem",
-              lineHeight: 1.5,
-              overflowX: "auto",
-              whiteSpace: "pre",
-              ...style,
-              ...(lightBg && { backgroundColor: "#f0f7ff" }),
-            }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => (
-                  <span key={key} {...getTokenProps({ token })} />
-                ))}
-              </div>
-            ))}
-          </Box>
-        )}
-      </Highlight>
+      <ThemedCode
+        code={code}
+        language={"hcl" as Language}
+        preSx={(scheme) => ({
+          m: 0,
+          pl: 1,
+          pr: copyable ? 4 : 1,
+          py: 0.5,
+          display: "inline-block",
+          width: "fit-content",
+          maxWidth: "100%",
+          borderRadius: 1,
+          fontSize: "0.75rem",
+          lineHeight: 1.5,
+          // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+          ...(scheme === "light" && { backgroundColor: "#f5f5f5" }),
+        })}
+      />
       {copyable && (
         <Box sx={{ position: "absolute", top: 2, right: 2 }}>
           <CopyButton value={code} />
@@ -237,14 +220,10 @@ function DefaultCode({
 function TypeCode({
   type,
   optionalAttributes,
-  prismTheme,
-  lightBg,
   copyable = true,
 }: {
   type: CtyType;
   optionalAttributes?: Record<string, boolean>;
-  prismTheme: PrismTheme;
-  lightBg: boolean;
   copyable?: boolean;
 }) {
   const code = React.useMemo(
@@ -258,42 +237,26 @@ function TypeCode({
   return (
     <Box>
       <Box sx={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-        <Highlight prism={Prism as typeof Prism} theme={prismTheme} code={code} language={"hcl" as Language}>
-          {({ style, tokens, getLineProps, getTokenProps }) => (
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                pl: 1,
-                pr: copyable ? 4 : 1,
-                py: 1,
-                display: "inline-block",
-                width: "fit-content",
-                maxWidth: "100%",
-                borderRadius: 1,
-                border: "1px solid",
-                borderColor: "divider",
-                fontFamily: "monospace",
-                fontSize: "0.75rem",
-                lineHeight: 1.5,
-                overflowX: "auto",
-                overflowY: collapsible && !expanded ? "hidden" : "visible",
-                maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
-                whiteSpace: "pre",
-                ...style,
-                ...(lightBg && { backgroundColor: "#f0f7ff" }),
-              }}
-            >
-              {tokens.map((line, i) => (
-                <div key={i} {...getLineProps({ line })}>
-                  {line.map((token, key) => (
-                    <span key={key} {...getTokenProps({ token })} />
-                  ))}
-                </div>
-              ))}
-            </Box>
-          )}
-        </Highlight>
+        <ThemedCode
+          code={code}
+          language={"hcl" as Language}
+          preSx={(scheme) => ({
+            m: 0,
+            pl: 1,
+            pr: copyable ? 4 : 1,
+            py: 1,
+            display: "inline-block",
+            width: "fit-content",
+            maxWidth: "100%",
+            borderRadius: 1,
+            fontSize: "0.75rem",
+            lineHeight: 1.5,
+            overflowY: collapsible && !expanded ? "hidden" : "visible",
+            maxHeight: collapsible && !expanded ? TYPE_COLLAPSED_HEIGHT : "none",
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            ...(scheme === "light" && { backgroundColor: "#f5f5f5" }),
+          })}
+        />
         {copyable && (
           <Box sx={{ position: "absolute", top: 2, right: 2 }}>
             <CopyButton value={code} />
@@ -351,7 +314,7 @@ function MarkdownDescription({ text }: { text?: string }) {
           "& a": { color: "primary.main", textDecoration: "none" },
           "& a:hover": { textDecoration: "underline" },
           "& code": {
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
             fontSize: "0.75rem",
             color: "warning.main",
             bgcolor: "action.hover",
@@ -379,37 +342,25 @@ function MarkdownDescription({ text }: { text?: string }) {
 
 function VariablesTable({
   variables,
-  prismTheme,
-  lightBg,
 }: {
   variables: ContractVariable[];
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
-  if (variables.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        This module declares no input variables.
-      </Typography>
-    );
-  }
-
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Name</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Type</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Required</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Default</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Description</TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Required</TableCell>
+            <TableCell>Default</TableCell>
+            <TableCell>Description</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {variables.map((v) => (
             <TableRow key={v.name} hover>
-              <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
                 {v.name}
                 {v.sensitive && (
                   <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
@@ -419,8 +370,6 @@ function VariablesTable({
                 <TypeCode
                   type={v.type}
                   optionalAttributes={v.optionalAttributes}
-                  prismTheme={prismTheme}
-                  lightBg={lightBg}
                   copyable={false}
                 />
               </TableCell>
@@ -433,7 +382,7 @@ function VariablesTable({
                 />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top" }}>
-                <DefaultCode value={v.default} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />
+                <DefaultCode value={v.default} copyable={false} />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
                 <MarkdownDescription text={v.description} />
@@ -448,43 +397,31 @@ function VariablesTable({
 
 function OutputsTable({
   outputs,
-  prismTheme,
-  lightBg,
 }: {
   outputs: ContractOutput[];
-  prismTheme: PrismTheme;
-  lightBg: boolean;
 }) {
-  if (outputs.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        This module declares no outputs.
-      </Typography>
-    );
-  }
-
   return (
     <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Name</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Type</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Confidence</TableCell>
-            <TableCell sx={{ bgcolor: "background.paper" }}>Description</TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Confidence</TableCell>
+            <TableCell>Description</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {outputs.map((o) => (
             <TableRow key={o.name} hover>
-              <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
                 {o.name}
                 {o.sensitive && (
                   <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
                 )}
               </TableCell>
               <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
-                <TypeCode type={o.type} prismTheme={prismTheme} lightBg={lightBg} copyable={false} />
+                <TypeCode type={o.type} copyable={false} />
               </TableCell>
               <TableCell sx={{ verticalAlign: "top" }}>
                 <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
@@ -507,28 +444,117 @@ function OutputsTable({
   );
 }
 
+function VariableCard({
+  v,
+}: {
+  v: ContractVariable;
+}) {
+  const fields: RecordField[] = [
+    {
+      label: "Type",
+      wide: true,
+      value: <TypeCode type={v.type} optionalAttributes={v.optionalAttributes} copyable={false} />,
+    },
+    {
+      label: "Required",
+      value: (
+        <Chip
+          label={v.required ? "required" : "optional"}
+          size="small"
+          color={v.required ? "primary" : "default"}
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      label: "Default",
+      value: <DefaultCode value={v.default} copyable={false} />,
+    },
+    { label: "Description", wide: true, value: <MarkdownDescription text={v.description} /> },
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontWeight: 600 }}>
+            {v.name}
+          </Typography>
+          {v.sensitive && <Chip label="sensitive" size="small" color="warning" variant="outlined" />}
+        </Box>
+      }
+      fields={fields}
+    />
+  );
+}
+
+function OutputCard({
+  o,
+}: {
+  o: ContractOutput;
+}) {
+  const fields: RecordField[] = [
+    {
+      label: "Type",
+      wide: true,
+      value: <TypeCode type={o.type} copyable={false} />,
+    },
+    {
+      label: "Confidence",
+      value: (
+        <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
+          <Chip
+            label={o.confidence}
+            size="small"
+            color={CONFIDENCE_COLOR[o.confidence] ?? "default"}
+            variant="outlined"
+          />
+        </Tooltip>
+      ),
+    },
+    { label: "Description", wide: true, value: <MarkdownDescription text={o.description} /> },
+  ];
+
+  return (
+    <MobileRecordCard
+      title={
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={1}>
+          <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontWeight: 600 }}>
+            {o.name}
+          </Typography>
+          {o.sensitive && <Chip label="sensitive" size="small" color="warning" variant="outlined" />}
+        </Box>
+      }
+      fields={fields}
+    />
+  );
+}
+
 export default function ContractTable({ contract }: Props) {
   const [tab, setTab] = React.useState(0);
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const theme = useTheme();
+  // Below lg the table is replaced by cards, so there is no scroll viewport to measure.
+  const compact = useMediaQuery(theme.breakpoints.down("lg"));
 
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
-  const lightBg = resolvedMode === "light";
 
-  const variables = contract.variables ?? [];
-  const outputs = contract.outputs ?? [];
+  const variables = React.useMemo(() => contract.variables ?? [], [contract.variables]);
+  const outputs = React.useMemo(() => contract.outputs ?? [], [contract.outputs]);
   const warnings = contract.compatibility.warnings ?? [];
   const grade = contract.compatibility.grade;
+  const activeCount = tab === 0 ? variables.length : outputs.length;
 
   React.useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || compact) {
+      setOverflows(false);
+      return;
+    }
 
     setOverflows(el.scrollHeight > el.clientHeight + 1);
-  }, [tab, variables, outputs, expanded]);
+  }, [tab, variables, outputs, expanded, compact]);
 
   return (
     <Box>
@@ -558,13 +584,42 @@ export default function ContractTable({ contract }: Props) {
         <Tab label={`Outputs (${outputs.length})`} />
       </Tabs>
 
-      <Box ref={scrollRef} sx={{ maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, overflowY: "auto", overflowX: "auto", pr: 0.5 }}>
-        {tab === 0 ? (
-          <VariablesTable variables={variables} prismTheme={prismTheme} lightBg={lightBg} />
-        ) : (
-          <OutputsTable outputs={outputs} prismTheme={prismTheme} lightBg={lightBg} />
-        )}
-      </Box>
+      {activeCount === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          {tab === 0 ? "This module declares no input variables." : "This module declares no outputs."}
+        </Typography>
+      ) : (
+        <>
+          {/* Desktop only. The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. */}
+          <Box
+            ref={scrollRef}
+            sx={{
+              display: { xs: "none", lg: "block" },
+              maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+              overflowY: "auto",
+              overflowX: "auto",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+            }}
+          >
+            {tab === 0 ? (
+              <VariablesTable variables={variables} />
+            ) : (
+              <OutputsTable outputs={outputs} />
+            )}
+          </Box>
+          <MobileRecordList>
+            {tab === 0
+              ? variables.map((v) => (
+                  <VariableCard key={v.name} v={v} />
+                ))
+              : outputs.map((o) => (
+                  <OutputCard key={o.name} o={o} />
+                ))}
+          </MobileRecordList>
+        </>
+      )}
       {overflows && (
         <Box sx={{ display: "flex", justifyContent: "center", pt: 1 }}>
           <Button
