@@ -27,7 +27,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
-        runAsGroup: 101
+        runAsGroup: {{ .Values.ui.runAsGroup }}
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -91,6 +91,7 @@ spec:
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.ui.runAsGroup }}
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/nginx.conf.template

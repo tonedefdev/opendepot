@@ -77,6 +77,8 @@ agent:
     limits:
       cpu: 500m
       memory: 512Mi
+  # GID for the agent-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -119,7 +121,10 @@ provider:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the provider-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -549,7 +554,11 @@ ui:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the ui pod and container. Must be above 10000 for KSV-0021. The UI
+  # writes only to emptyDir mounts or paths owned by UID 101, so the group is unused.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}

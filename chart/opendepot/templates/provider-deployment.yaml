@@ -23,6 +23,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.provider.runAsGroup }}
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
@@ -37,6 +38,7 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsUser: 65532
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           limits:
             cpu: 100m
@@ -68,6 +70,7 @@ spec:
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           {{- toYaml .Values.provider.resources | nindent 10 }}
         volumeMounts:

@@ -23,6 +23,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.agent.runAsGroup }}
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -41,6 +42,7 @@ spec:
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.agent.runAsGroup }}
         resources:
           {{- toYaml .Values.agent.resources | nindent 10 }}
       {{- with .Values.agent.nodeSelector }}
