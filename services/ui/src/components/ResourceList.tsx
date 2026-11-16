@@ -30,6 +30,7 @@ import ResourceCard from "./ResourceCard";
 import ResourceRow from "./ResourceRow";
 import type { BrowseResource } from "@/lib/api";
 import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registryPreferences";
+import { RISK_COLUMN_MIN_PX, canvasMeasureText, riskColumnWidth } from "./riskColumnWidth";
 
 type ListView = "rows" | "cards";
 type SortDir = "asc" | "desc";
@@ -70,6 +71,12 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
   const showCards = compact || view === "cards";
   // Only skills and agents carry a source ref. A page of modules or providers would show an empty column.
   const showSource = items.some((r) => !!r.sourceRef);
+  const [riskWidth, setRiskWidth] = React.useState(RISK_COLUMN_MIN_PX);
+  React.useEffect(() => {
+    const measure = canvasMeasureText();
+    if (!measure) return;
+    setRiskWidth(riskColumnWidth(items, measure, getComputedStyle(document.body).fontFamily));
+  }, [items]);
 
   const navigate = (updates: Record<string, string | null>) => {
     // Keep the current page size so a sort or filter change does not briefly fall back to the default.
@@ -184,7 +191,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                <TableCell sx={{ width: 230 }}>{sortableHead("risk", "Risk")}</TableCell>
+                <TableCell sx={{ width: riskWidth }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
