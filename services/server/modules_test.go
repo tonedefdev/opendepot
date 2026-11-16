@@ -6,6 +6,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -115,5 +121,78 @@ func TestResolveModuleArchiveWrapperFromFileSystemVersion(t *testing.T) {
 	}
 	if wrapper != "terraform-aws-kms-abc123" {
 		t.Fatalf("resolveModuleArchiveWrapper() = %q, want terraform-aws-kms-abc123", wrapper)
+	}
+}
+
+func TestServeFileSystemObject(t *testing.T) {
+	root := t.TempDir()
+	moduleName := "terraform-aws-kms"
+	fileName := "module.zip"
+	content := []byte("module archive bytes")
+	moduleDirectory := filepath.Join(root, moduleName)
+	if err := os.Mkdir(moduleDirectory, 0700); err != nil {
+		t.Fatalf("os.Mkdir() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(moduleDirectory, fileName), content, 0600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	sum := sha256.Sum256(content)
+	checksum := base64.StdEncoding.EncodeToString(sum[:])
+
+	previousLogger := logger
+	previousMountPath := opendepotFilesystemMountPath
+	logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	opendepotFilesystemMountPath = &root
+	t.Cleanup(func() {
+		logger = previousLogger
+		opendepotFilesystemMountPath = previousMountPath
+	})
+
+	tests := []struct {
+		name       string
+		dir        string
+		checksum   string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "serves verified object under root",
+			dir:        root,
+			checksum:   checksum,
+			wantStatus: http.StatusOK,
+			wantBody:   string(content),
+		},
+		{
+			name:       "rejects path that escapes root",
+			dir:        filepath.Join(root, ".."),
+			checksum:   checksum,
+			wantStatus: http.StatusForbidden,
+			wantBody:   "forbidden\n",
+		},
+		{
+			name:       "rejects checksum mismatch",
+			dir:        root,
+			checksum:   "bogus",
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   "internal server error\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			serveFileSystemObject(rec, req, tt.dir, moduleName, fileName, tt.checksum)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+
+			if rec.Body.String() != tt.wantBody {
+				t.Fatalf("body = %q, want %q", rec.Body.String(), tt.wantBody)
+			}
+		})
 	}
 }

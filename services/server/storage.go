@@ -117,6 +117,27 @@ func getObjectFromStorageSystem(w http.ResponseWriter, r *http.Request, s storag
 	}
 }
 
+// serveFileSystemObject joins dir, moduleName, and fileName, rejects the result unless it stays under
+// the configured filesystem mount path, and otherwise serves it through getObjectFromStorageSystem.
+func serveFileSystemObject(w http.ResponseWriter, r *http.Request, dir, moduleName, fileName, checksum string) {
+	filePath := path.Join(dir, moduleName, fileName)
+	allowedRoot := path.Clean(*opendepotFilesystemMountPath)
+	if !strings.HasPrefix(path.Clean(filePath)+"/", allowedRoot+"/") {
+		logger.Error("filesystem download path escapes allowed root", "path", filePath, "allowedRoot", allowedRoot)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	logger.Info("filesystem download", "dir", dir, "module", moduleName, "file", fileName)
+
+	fsStorage := &storage.FileSystem{}
+	soi := &storageTypes.StorageObjectInput{
+		FilePath: &filePath,
+		Method:   storageTypes.Get,
+	}
+	getObjectFromStorageSystem(w, r, fsStorage, soi, checksum)
+}
+
 // initStorageBackend creates and initializes a storage backend from the provided StorageConfig.
 // It returns an error if the backend cannot be initialized or if no supported backend is configured.
 func initStorageBackend(ctx context.Context, storageConfig *opendepotv1alpha1.StorageConfig) (storage.Storage, error) {

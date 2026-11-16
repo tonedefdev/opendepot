@@ -257,24 +257,7 @@ func serveModuleFromFileSystem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to get module", http.StatusInternalServerError)
 		return
 	}
-	dir := string(dirBytes)
-
-	filePath := path.Join(dir, moduleName, fileName)
-	allowedRoot := path.Clean(*opendepotFilesystemMountPath)
-	if !strings.HasPrefix(path.Clean(filePath)+"/", allowedRoot+"/") {
-		logger.Error("filesystem download path escapes allowed root", "path", filePath, "allowedRoot", allowedRoot)
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
-	logger.Info("filesystem download", "dir", dir, "module", moduleName, "file", fileName)
-
-	fsStorage := &storage.FileSystem{}
-	soi := &storageTypes.StorageObjectInput{
-		FilePath: &filePath,
-		Method:   storageTypes.Get,
-	}
-	getObjectFromStorageSystem(w, r, fsStorage, soi, checksum)
+	serveFileSystemObject(w, r, string(dirBytes), moduleName, fileName, checksum)
 }
 
 func moduleArchiveType(fileName string) string {
