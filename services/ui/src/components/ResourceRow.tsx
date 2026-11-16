@@ -22,8 +22,12 @@ interface Props {
 }
 
 // Name and source are the columns that give way when the table is narrow, so each keeps a floor and truncates above it.
-const NAME_CELL_MIN_WIDTH = 88;
+const NAME_CELL_MIN_WIDTH = 80;
+// Caps Name at what a long namespace/name needs (295px link, public icon, cell padding). Wider rows give the rest to Risk.
+const NAME_CELL_WIDTH = 360;
 const SOURCE_CELL_MIN_WIDTH = 80;
+// Five severity chips at their widest ("M 9999", 56px) plus 4px gaps and cell padding. Risk never shrinks below this.
+const RISK_CELL_MIN_WIDTH = 5 * 56 + 4 * 4 + 2 * 8;
 
 export default function ResourceRow({ resource, showSource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
@@ -59,9 +63,9 @@ export default function ResourceRow({ resource, showSource }: Props) {
         <KindLabel resource={resource} />
       </TableCell>
 
-      {/* Takes the width left over after content-sized cells (width 100%, maxWidth 0), so Risk is never squeezed. */}
-      <TableCell sx={{ width: "100%", minWidth: NAME_CELL_MIN_WIDTH, maxWidth: 0 }}>
-        <Box display="flex" alignItems="center" gap={1} minWidth={0}>
+      <TableCell sx={{ width: NAME_CELL_WIDTH, minWidth: NAME_CELL_MIN_WIDTH }}>
+        {/* width 0 keeps the text's intrinsic width out of the column minimum, so Name can shrink below its content and truncate. */}
+        <Box display="flex" alignItems="center" gap={1} width={0} minWidth="100%">
           <Tooltip title={nameTruncated ? address : ""} placement="top" enterDelay={300} disableInteractive>
             <Typography
               ref={nameRef}
@@ -131,7 +135,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
         <SyncStatus resource={resource} testId="resource-row-sync-status" />
       </TableCell>
 
-      <TableCell>
+      <TableCell sx={{ minWidth: RISK_CELL_MIN_WIDTH }}>
         <Box display="flex" alignItems="center" gap={0.5} sx={{ whiteSpace: "nowrap", "& > *": { flexShrink: 0 } }}>
           {isAgentKind(resource.kind) && resource.jevRiskLevel && <RiskMeter level={resource.jevRiskLevel} />}
           {resource.scanCounts && <SeverityBadge counts={resource.scanCounts} />}
