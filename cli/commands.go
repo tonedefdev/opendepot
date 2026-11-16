@@ -128,25 +128,27 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	root.AddCommand(listCmd)
 
 	var describeRegistry string
+	var describeJSON bool
 	describeCmd := &cobra.Command{
 		Use:   "describe",
 		Short: "Show details for a skill or agent",
 		Args:  cobra.NoArgs,
 	}
 	describeCmd.PersistentFlags().StringVar(&describeRegistry, "registry", "", "registry host to query; defaults to the project registry")
+	describeCmd.PersistentFlags().BoolVar(&describeJSON, "json", false, "print the details as JSON with every field")
 	describeCmd.AddCommand(&cobra.Command{
 		Use:   "skill <namespace/name>",
 		Short: "Show details for one skill",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.describeResource(cmd.Context(), kindSkill, args[0], describeRegistry)
+			return a.describeResource(cmd.Context(), kindSkill, args[0], describeRegistry, describeJSON)
 		},
 	}, &cobra.Command{
 		Use:   "agent <namespace/name>",
 		Short: "Show details for one agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.describeResource(cmd.Context(), kindAgent, args[0], describeRegistry)
+			return a.describeResource(cmd.Context(), kindAgent, args[0], describeRegistry, describeJSON)
 		},
 	})
 	root.AddCommand(describeCmd)

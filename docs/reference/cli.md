@@ -36,7 +36,7 @@ The server image bundles the binaries at `/opt/opendepot/cli/`. The image build 
 | `opendepot validate [path]` | Validate a `SKILL.md`, a skill directory, or an agent `.md` file. Defaults to the current directory when `path` is omitted. Frontmatter keys are checked against the union of all platform key sets. The command has no platform option. |
 | `opendepot verify` | Check the installed targets against `opendepot.lock.hcl` without network access. |
 | `opendepot list skills` or `opendepot list agents` | List the skills or agents on a registry. Read-only. See [List skills and agents](#list-skills-and-agents). |
-| `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` | Show version and assessment details for one resource. |
+| `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` | Show every detail for one resource. `--json` prints them as JSON. |
 
 Command failures are written to standard error in a distinct error section, with the source when available and the underlying details. Jev assessment output includes an `Error` row; `none reported` means the assessment did not report an error.
 
@@ -224,7 +224,7 @@ Each row shows one skill or agent:
 | `STATUS` | Whether the displayed version is available, plus any unavailable candidate's status. |
 | `DESCRIPTION` | The first line of the latest installable version's description, with ANSI escape sequences deleted and other control or format characters replaced by spaces, and the text cut to 80 characters. The text is author-supplied. The table shows it as plain text. `--json` prints the full description. |
 
-Each resource takes one line. Use `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` to inspect a single resource's versions, rejection reasons, and latest Jev assessment. Describe accepts `--registry` and uses the same registry selection and UI browse access rules as list. A version marked `synced` is not necessarily installable. See [Unavailable candidates](../guides/agents.md#unavailable-candidates) for the statuses.
+Each resource takes one line. Use `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` to inspect a single resource. The table shows its source, sync and block state, usage counts, metadata, full description, every version with its status and checksum, the latest Jev assessment, and the exemption, unblock, and threshold details. Empty fields are left out of the table. Description and other author text is shown as plain text, with ANSI escape sequences deleted and other control or format characters replaced by spaces. Lines wrap to the table width. `--json` prints every field, including `definitionContent`, as one object with stable keys. Empty values are `null` or `[]`. The fields are listed in [Detail fields for describe](agents-v1.md#detail-fields-for-describe). Describe accepts `--registry` and uses the same registry selection and UI browse access rules as list. A version marked `synced` is not necessarily installable. See [Unavailable candidates](../guides/agents.md#unavailable-candidates) for the statuses.
 
 If the registry has OIDC enabled, `list` needs a token. Run `opendepot login <host>` first. The listing then shows public resources and the resources that your GroupBindings allow.
 

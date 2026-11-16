@@ -239,21 +239,37 @@ func tableDescription(description string) string {
 		text = text[:i]
 	}
 
-	text = terminalEscapePattern.ReplaceAllString(text, "")
-	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return ' '
-		}
-
-		return r
-	}, text)
-	text = strings.Join(strings.Fields(text), " ")
-
+	text = sanitizeLine(text)
 	if runes := []rune(text); len(runes) > descriptionMaxRunes {
 		text = string(runes[:descriptionMaxRunes-1]) + "…"
 	}
 
 	return text
+}
+
+// sanitizeLine removes escape sequences from one line and replaces control, bidi format, and line or paragraph
+// separator characters with spaces. Runs of spaces collapse to one.
+func sanitizeLine(line string) string {
+	line = terminalEscapePattern.ReplaceAllString(line, "")
+	line = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return ' '
+		}
+
+		return r
+	}, line)
+
+	return strings.Join(strings.Fields(line), " ")
+}
+
+// sanitizeText applies sanitizeLine to each line of a multi-line text and keeps the line breaks.
+func sanitizeText(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = sanitizeLine(line)
+	}
+
+	return strings.Trim(strings.Join(lines, "\n"), "\n")
 }
 
 func catalogStatus(item catalogItem) string {

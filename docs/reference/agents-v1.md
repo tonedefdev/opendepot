@@ -51,6 +51,10 @@ Auth follows the same policy as the UI browse endpoints. With anonymous auth ena
 
 Each item can include `description`. It is the `description` from the frontmatter of the latest installable version, the same version named by `latestVersion`. The field is omitted when that version has no description, and when no version is installable. It is author-declared text and is untrusted. Clients must not render it as markup, and must treat it as plain text. The parser limits descriptions to 1024 bytes. Versions synced before the description was recorded have no `description` until they are synced again.
 
+### Detail fields for describe
+
+`opendepot describe skill` and `opendepot describe agent` read the UI browse detail endpoint, `GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}`, not the catalog. The table and `--json` output show the same fields, under the same visibility rules. The detail includes `latestVersion`, `synced`, `syncStatus`, `hasUnsyncedVersions`, `public`, `blocked`, `blockReasons`, `jevRiskLevel`, `sourceRef`, `sourceCommit`, `sourcePath`, `repoUrl`, `repoOwner`, `scanCounts`, `lastScanned`, `totalDownloads`, `lastDownloadedAt`, `definitionFileName`, `definitionContent`, and `agentMetadata` (`name`, `description`, `tools`, `model`). Each entry in `versions` has `name`, `version`, `synced`, `syncStatus`, `branchPhase`, `blocked`, `blockReasons`, `fileName`, `checksum`, `archiveSizeBytes`, `downloadCount`, `lastDownloadedAt`, `lastScanned`, `scanCounts`, `schemaState`, `schemaMessage`, and `schemaAttemptedAt`. The detail also includes `jevAssessment`, `jevExemptionGovernance`, `jevUnblock`, and `jevThresholds`. Policy names in the governance and unblock fields are omitted for OIDC callers. The table omits empty fields, and `definitionContent` appears only in `--json`. `description` is untrusted author text and is shown as plain text.
+
 ## Known limitations
 
 - **Name collisions.** Version names use a `prefix-name-version` pattern without escaping. A Skill and an Agent that produce the same Version name can collide. A collision returns `404` and never serves the wrong object.
