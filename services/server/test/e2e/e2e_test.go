@@ -19,6 +19,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -3363,10 +3364,10 @@ var _ = Describe("Agent Registry", Ordered, func() {
 	)
 
 	// agentTestUserPassword and agentTestClientSecret are read from the environment so
-	// CI can supply its own values. The defaults are for local runs only.
+	// CI can supply its own values. Otherwise a random value is generated for each run.
 	var (
-		agentTestUserPassword = agentE2EEnvOr("OPENDEPOT_AGENT_E2E_USER_PASSWORD", "agentgbpassword")
-		agentTestClientSecret = agentE2EEnvOr("OPENDEPOT_AGENT_E2E_CLIENT_SECRET", "agent-client-secret-e2e")
+		agentTestUserPassword = agentE2ESecretOr("OPENDEPOT_AGENT_E2E_USER_PASSWORD")
+		agentTestClientSecret = agentE2ESecretOr("OPENDEPOT_AGENT_E2E_CLIENT_SECRET")
 	)
 
 	var (
@@ -4041,6 +4042,14 @@ func agentE2EEnvOr(name, fallback string) string {
 	}
 
 	return fallback
+}
+
+func agentE2ESecretOr(name string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+
+	return rand.Text()
 }
 
 func agentAcquireDexToken(localPort int, clientSecret, username, password string) (string, error) {

@@ -444,8 +444,8 @@ var _ = Describe("Agent presign", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			clientSecret := agentE2EEnvOr("OPENDEPOT_AGENT_PRESIGN_E2E_CLIENT_SECRET", "agent-presign-client-secret-e2e")
-			userPassword := agentE2EEnvOr("OPENDEPOT_AGENT_PRESIGN_E2E_USER_PASSWORD", "agentpresignpassword")
+			clientSecret := agentE2ESecretOr("OPENDEPOT_AGENT_PRESIGN_E2E_CLIENT_SECRET")
+			userPassword := agentE2ESecretOr("OPENDEPOT_AGENT_PRESIGN_E2E_USER_PASSWORD")
 
 			By("uninstalling the previous release to avoid Dex server-side apply conflicts")
 			agentPresignUninstall()
