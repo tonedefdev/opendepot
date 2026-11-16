@@ -21,6 +21,10 @@ interface Props {
   showSource: boolean;
 }
 
+// Name and source are the columns that give way when the table is narrow, so each keeps a floor and truncates above it.
+const NAME_CELL_MIN_WIDTH = 88;
+const SOURCE_CELL_MIN_WIDTH = 80;
+
 export default function ResourceRow({ resource, showSource }: Props) {
   const href = `/${resource.namespace}/${resource.kind}/${resource.name}`;
   const address = `${resource.namespace}/${resource.name}`;
@@ -55,7 +59,8 @@ export default function ResourceRow({ resource, showSource }: Props) {
         <KindLabel resource={resource} />
       </TableCell>
 
-      <TableCell>
+      {/* Takes the width left over after content-sized cells (width 100%, maxWidth 0), so Risk is never squeezed. */}
+      <TableCell sx={{ width: "100%", minWidth: NAME_CELL_MIN_WIDTH, maxWidth: 0 }}>
         <Box display="flex" alignItems="center" gap={1} minWidth={0}>
           <Tooltip title={nameTruncated ? address : ""} placement="top" enterDelay={300} disableInteractive>
             <Typography
@@ -110,7 +115,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
       </TableCell>
 
       {showSource && (
-        <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>
+        <TableCell sx={{ display: { xs: "none", lg: "table-cell" }, minWidth: SOURCE_CELL_MIN_WIDTH, maxWidth: 0 }}>
           <SourceRefChip
             sourceRef={resource.sourceRef}
             sourceCommit={resource.sourceCommit}
@@ -127,7 +132,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
       </TableCell>
 
       <TableCell>
-        <Box display="flex" alignItems="center" gap={0.5} sx={{ overflow: "hidden" }}>
+        <Box display="flex" alignItems="center" gap={0.5} sx={{ whiteSpace: "nowrap", "& > *": { flexShrink: 0 } }}>
           {isAgentKind(resource.kind) && resource.jevRiskLevel && <RiskMeter level={resource.jevRiskLevel} />}
           {resource.scanCounts && <SeverityBadge counts={resource.scanCounts} />}
         </Box>

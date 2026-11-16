@@ -174,17 +174,18 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
         </Grid>
       ) : (
         <TableContainer component={Paper} variant="outlined">
-          <Table aria-label="Registry resources" sx={{ tableLayout: "fixed" }}>
+          {/* Risk is content-sized: Name and Source take the remaining width (width 100%, maxWidth 0), so other cells fit their content. */}
+          <Table aria-label="Registry resources" sx={{ "& th, & td": { px: 1, whiteSpace: "nowrap" } }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
+                <TableCell>{sortableHead("kind", "Kind")}</TableCell>
                 <TableCell>{sortableHead("name", "Name")}</TableCell>
-                <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
+                <TableCell>{sortableHead("latest_version", "Version")}</TableCell>
                 {showSource && (
-                  <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
+                  <TableCell sx={{ display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
-                <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                <TableCell sx={{ width: 172 }}>{sortableHead("risk", "Risk")}</TableCell>
+                <TableCell>{sortableHead("status", "Status")}</TableCell>
+                <TableCell>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

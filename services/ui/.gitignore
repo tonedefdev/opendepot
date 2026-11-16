@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-layout-test/
 .env*.local
 
 # Yarn Berry cache (not committed)

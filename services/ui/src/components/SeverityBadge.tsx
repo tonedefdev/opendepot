@@ -38,7 +38,7 @@ export function SeverityChip({ severity, count }: Props) {
 export default function SeverityBadge({ counts }: { counts: BrowseScanCounts | null }) {
   if (!counts) return null;
   return (
-    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, position: "relative", zIndex: 1 }}>
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, position: "relative", zIndex: 1, "& > *": { flexShrink: 0 } }}>
       <SeverityChip severity="critical" count={counts.critical} />
       <SeverityChip severity="high" count={counts.high} />
       <SeverityChip severity="medium" count={counts.medium} />
