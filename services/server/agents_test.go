@@ -774,7 +774,7 @@ func agentTestSigningKey(t *testing.T) (string, string) {
 		t.Skip("gpg binary not available")
 	}
 
-	gpgHome, err := os.MkdirTemp(".", "gpg-")
+	gpgHome, err := os.MkdirTemp("", "gpg-")
 	if err != nil {
 		t.Fatalf("os.MkdirTemp() error = %v", err)
 	}
