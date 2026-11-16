@@ -33,7 +33,7 @@ Archive extraction enforces a decompressed-size budget of 2 GiB and a cap of 10,
 
 An invalid parameter returns `400`. A page past the end returns `200` with an empty `items` array. The response has `items`, `totalCount`, `page`, and `pageSize`. Items are sorted by namespace, kind, and name. If the server cannot list the resources, it returns `500` and no partial catalog.
 
-Each item has `kind` (`skill` or `agent`), `namespace`, `name`, `status`, `latestVersion`, `riskLevel`, `riskScore`, and `unavailableCandidate`. `latestVersion` is omitted when no version is installable. `unavailableCandidate` is the newest unavailable candidate, in the same shape as the [unavailableCandidates](../guides/agents.md#unavailable-candidates) entries. It is omitted when there is none.
+Each item has `kind` (`skill` or `agent`), `namespace`, `name`, `status`, `latestVersion`, `riskLevel`, `riskScore`, `unavailableCandidate`, and `description`. `latestVersion` is omitted when no version is installable. `unavailableCandidate` is the newest unavailable candidate, in the same shape as the [unavailableCandidates](../guides/agents.md#unavailable-candidates) entries. It is omitted when there is none. `description` is omitted when the latest installable version has none. See [Descriptions](#descriptions).
 
 | Status | Meaning |
 |--------|---------|
@@ -46,6 +46,14 @@ Each item has `kind` (`skill` or `agent`), `namespace`, `name`, `status`, `lates
 An `assessmentFailed` or `pending` candidate does not change an `available` status. `riskLevel` and `riskScore` describe `latestVersion` only. They are omitted when the risk is unknown. An omitted risk field means unknown, not safe.
 
 Auth follows the same policy as the UI browse endpoints. With anonymous auth enabled, every resource is visible. With OIDC not configured, only public resources are listed. With OIDC configured, a missing or invalid Bearer token returns `401`. A valid token shows public resources and the resources its GroupBindings allow. Unlike the artifact endpoints above, the catalog does not return `403`.
+
+### Descriptions
+
+Each item can include `description`. It is the `description` from the frontmatter of the latest installable version, the same version named by `latestVersion`. The field is omitted when that version has no description, and when no version is installable. It is author-declared text and is untrusted. Clients must not render it as markup, and must treat it as plain text. The parser limits descriptions to 1024 bytes. Versions synced before the description was recorded have no `description` until they are synced again.
+
+### Detail fields for describe
+
+`opendepot describe skill` and `opendepot describe agent` read the UI browse detail endpoint, `GET /opendepot/ui/v1/resources/{namespace}/{kind}/{name}`, not the catalog. The table and `--json` output show the same fields, under the same visibility rules. The detail includes `latestVersion`, `synced`, `syncStatus`, `hasUnsyncedVersions`, `public`, `blocked`, `blockReasons`, `jevRiskLevel`, `sourceRef`, `sourceCommit`, `sourcePath`, `repoUrl`, `repoOwner`, `scanCounts`, `lastScanned`, `totalDownloads`, `lastDownloadedAt`, `definitionFileName`, `definitionContent`, `agentMetadata` (`name`, `description`, `tools`, `model`), `storageConfig` (`backend`, `bucket`, `region`, `key`, `directoryPath`, `accountName`, `accountUrl`, `subscriptionID`, `resourceGroup`, `presignEnabled`, `presignTTL`), `githubConfig` (`useAuthenticatedClient`), and `sourceScanFindings`. Each finding has `vulnerabilityID`, `pkgName`, `installedVersion`, `fixedVersion`, `severity`, `title`, `exempted`, `exemptionReason`, and `exemptedBy`. The table shows the storage, GitHub, and finding fields in rows and writes finding text through the same sanitizer as the rest of the table. Unset storage and GitHub settings are `null` in `--json`, and `sourceScanFindings` is `[]` when there are none. Each entry in `versions` has `name`, `version`, `synced`, `syncStatus`, `branchPhase`, `blocked`, `blockReasons`, `fileName`, `checksum`, `archiveSizeBytes`, `downloadCount`, `lastDownloadedAt`, `lastScanned`, `scanCounts`, `schemaState`, `schemaMessage`, and `schemaAttemptedAt`. The detail also includes `jevAssessment`, `jevExemptionGovernance`, `jevUnblock`, and `jevThresholds`. Policy names in the governance and unblock fields are omitted for OIDC callers. The table omits empty fields, and `definitionContent` appears only in `--json`. `description` is untrusted author text and is shown as plain text.
 
 ## Known limitations
 

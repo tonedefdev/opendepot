@@ -80,6 +80,9 @@ type AgentCatalogResponse struct {
 // newest candidate's status when nothing is installable. LatestVersion is the latest installable Version.
 // RiskLevel and RiskScore describe LatestVersion only and never a blocked or rejected candidate. When they
 // are omitted, the assessment is unknown, not safe.
+//
+// Description is the author-declared frontmatter description of LatestVersion. It is untrusted text and is
+// omitted when LatestVersion is omitted or has no description.
 type AgentCatalogItem struct {
 	Kind                 string                     `json:"kind"`
 	Namespace            string                     `json:"namespace"`
@@ -89,6 +92,7 @@ type AgentCatalogItem struct {
 	RiskLevel            string                     `json:"riskLevel,omitempty"`
 	RiskScore            *float64                   `json:"riskScore,omitempty"`
 	UnavailableCandidate *AgentUnavailableCandidate `json:"unavailableCandidate,omitempty"`
+	Description          string                     `json:"description,omitempty"`
 }
 
 // AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.

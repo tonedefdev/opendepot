@@ -230,6 +230,8 @@ func agentCatalogItemFor(kind agentKind, kindName, namespace, name string, versi
 			item.RiskLevel = assessment.RiskLevel
 			item.RiskScore = assessment.RiskScore
 		}
+
+		item.Description = agentDescriptionFor(versions, latest.Spec.Version)
 	}
 
 	switch {

@@ -27,7 +27,11 @@ func TestPrintAssessmentPlainWhenNotTerminal(t *testing.T) {
 		t.Fatalf("expected no ANSI escapes for non-terminal output, got %q", out)
 	}
 
-	for _, want := range []string{"◆ opendepot.localtest.me:8443/opendepot-system/code-review@0.9.0", "Risk", "Minimal", "Safe", "0.77", "Injection", "0.67", "Exfiltration", "n/a", "Error        none reported", "⚠"} {
+	if strings.Contains(out, "sent to TypeSafe") {
+		t.Fatalf("assessment output must not say content was sent to TypeSafe, got:\n%s", out)
+	}
+
+	for _, want := range []string{"◆ opendepot.localtest.me:8443/opendepot-system/code-review@0.9.0", "Risk", "Minimal", "Safe", "0.77", "Injection", "0.67", "Exfiltration", "n/a", "Error        none reported"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

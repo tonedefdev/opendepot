@@ -63,7 +63,6 @@ func (a *app) printAssessment(s *stagedEntry) {
 	} else {
 		writeBlockedRows(a.out, st, "Error", as.Error, ansiRed)
 	}
-	fmt.Fprintln(a.out, st.paint(ansiYellow, "  ⚠ Skill or agent content was sent to TypeSafe for this assessment."))
 }
 
 func (a *app) printAssessmentMetrics(st styler, as *opendepotv1alpha1.JevAssessment) {

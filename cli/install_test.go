@@ -26,6 +26,7 @@ type release struct {
 	version   string
 	yanked    bool
 	blocked   bool
+	assessed  bool
 	protocols []string
 	files     map[string]string
 }
@@ -48,6 +49,7 @@ type fakeVersion struct {
 	version   string
 	yanked    bool
 	blocked   bool
+	assessed  bool
 	protocols []string
 	filename  string
 }
@@ -112,7 +114,7 @@ func (f *fakeRegistry) publish(t *testing.T, kind entryKind, name string, releas
 			protocols = []string{"1.0"}
 		}
 
-		f.packages[key] = append(f.packages[key], fakeVersion{version: r.version, yanked: r.yanked, blocked: r.blocked, protocols: protocols, filename: filename})
+		f.packages[key] = append(f.packages[key], fakeVersion{version: r.version, yanked: r.yanked, blocked: r.blocked, assessed: r.assessed, protocols: protocols, filename: filename})
 	}
 
 	f.resign(t)
@@ -200,8 +202,12 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func fakeAssessment(v fakeVersion) any {
-	if !v.blocked {
+	if !v.blocked && !v.assessed {
 		return nil
+	}
+
+	if !v.blocked {
+		return map[string]any{"evaluatedAt": "2026-10-09T00:00:00Z", "riskLevel": "Low", "riskScore": 0.1, "needsReview": false, "blocked": false}
 	}
 
 	return map[string]any{

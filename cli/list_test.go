@@ -209,6 +209,42 @@ func TestPrintCatalogSeparatesAvailableVersionFromRejectedCandidate(t *testing.T
 	}
 }
 
+func TestPrintCatalogAlignsDescriptionAfterCandidateNote(t *testing.T) {
+	var out bytes.Buffer
+	a := &app{out: &out}
+	a.printCatalog([]catalogItem{
+		{Namespace: "acme", Name: "plain", LatestVersion: "1.0.0", Status: "available", Description: "Plain description"},
+		{
+			Namespace:     "acme",
+			Name:          "reviewer",
+			LatestVersion: "1.0.0",
+			Status:        "rejected",
+			Description:   "Reviewer description",
+			UnavailableCandidate: &unavailableCandidate{
+				Commit: "3f2a9c1",
+				Status: "rejected",
+			},
+		},
+	})
+
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want header and two rows:\n%s", out.String())
+	}
+
+	headerColumn := len([]rune(lines[0][:strings.Index(lines[0], "DESCRIPTION")]))
+	for i, text := range []string{"Plain description", "Reviewer description"} {
+		column := len([]rune(lines[i+1][:strings.Index(lines[i+1], text)]))
+		if column != headerColumn {
+			t.Fatalf("description starts at column %d, want %d:\n%s", column, headerColumn, out.String())
+		}
+	}
+
+	if !strings.Contains(lines[2], "candidate rejected") {
+		t.Fatalf("candidate note missing from row:\n%s", out.String())
+	}
+}
+
 func TestPrintCatalogKeepsLongSourcesOnOneLine(t *testing.T) {
 	var out bytes.Buffer
 	a := &app{out: &out}
@@ -503,4 +539,131 @@ func intsToStrings(vals []int) []string {
 	}
 
 	return out
+}
+
+func TestListJSONCarriesFullDescription(t *testing.T) {
+	full := "Lints code.\nSecond line with detail"
+	described := catalogEntry("skill", "acme", "lint", "available")
+	described["latestVersion"] = "1.0.0"
+	described["description"] = full
+
+	var pages []int
+	var namespaces []string
+	a, host := catalogServer(t, pagedHandler(t, []map[string]any{described, catalogEntry("skill", "acme", "docs", "blocked")}, &pages, &namespaces))
+
+	if err := a.listCatalog(context.Background(), kindSkill, listOptions{registry: host, json: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := a.out.(*bytes.Buffer).String()
+	if strings.Contains(out, "SOURCE") {
+		t.Fatalf("--json printed the table:\n%s", out)
+	}
+
+	var got struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v\n%s", err, out)
+	}
+
+	if len(got.Items) != 2 {
+		t.Fatalf("items = %d, want 2:\n%s", len(got.Items), out)
+	}
+
+	if got.Items[0]["description"] != full {
+		t.Fatalf("description = %q, want full text %q", got.Items[0]["description"], full)
+	}
+
+	if v, ok := got.Items[1]["description"]; !ok || v != "" {
+		t.Fatalf("description for item without one = %v (present %v), want empty string", v, ok)
+	}
+}
+
+func TestListJSONEmptyResultIsEmptyArray(t *testing.T) {
+	a, host := catalogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		catalogJSON(w, nil, 0, 1, 100)
+	})
+
+	if err := a.listCatalog(context.Background(), kindAgent, listOptions{registry: host, json: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Items []catalogItem `json:"items"`
+	}
+	if err := json.Unmarshal(a.out.(*bytes.Buffer).Bytes(), &got); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v", err)
+	}
+
+	if got.Items == nil || len(got.Items) != 0 {
+		t.Fatalf("items = %v, want an empty array", got.Items)
+	}
+}
+
+func TestPrintCatalogShowsDescriptionColumn(t *testing.T) {
+	var out bytes.Buffer
+	a := &app{out: &out}
+	a.printCatalog([]catalogItem{{Namespace: "acme", Name: "lint", LatestVersion: "1.0.0", Status: "available", Description: "Lints code"}})
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "DESCRIPTION") || !strings.HasSuffix(lines[1], "  Lints code") {
+		t.Fatalf("table does not show the description column:\n%s", out.String())
+	}
+}
+
+func TestPrintCatalogDescriptionCannotAddRowsOrEscapes(t *testing.T) {
+	var out bytes.Buffer
+	a := &app{out: &out}
+	a.printCatalog([]catalogItem{{
+		Namespace:     "acme",
+		Name:          "lint",
+		LatestVersion: "1.0.0",
+		Status:        "available",
+		Description:   "\x1b[2J\x1b[31mforged\x1b[0m\nacme/forged  1.0.0  unknown  available",
+	}})
+
+	if strings.Contains(out.String(), "\x1b[2J") || strings.Contains(out.String(), "\x1b[31m") {
+		t.Fatalf("escape sequence reached the table: %q", out.String())
+	}
+
+	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 2 {
+		t.Fatalf("description added rows:\n%s", out.String())
+	}
+}
+
+func TestTableDescriptionSanitizesAndTruncates(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "first line only", in: "Lints code\nsecond line", want: "Lints code"},
+		{name: "carriage return ends the line", in: "Lints\rcode", want: "Lints"},
+		{name: "leading blank lines skipped", in: "\n\n  Real  ", want: "Real"},
+		{name: "SGR colors removed", in: "\x1b[31mRed\x1b[0m text", want: "Red text"},
+		{name: "OSC hyperlink removed", in: "\x1b]8;;https://example.com\x07link\x1b]8;;\x07", want: "link"},
+		{name: "bare escape removed", in: "a\x1b", want: "a"},
+		{name: "control characters become spaces", in: "tab\there\x00nul\x7fdel", want: "tab here nul del"},
+		{name: "C1 control becomes space", in: "a\u009bb", want: "a b"},
+		{name: "bidi override becomes space", in: "safe\u202Eevil", want: "safe evil"},
+		{name: "line separator becomes space", in: "line\u2028sep\u2029end", want: "line sep end"},
+		{name: "runs of spaces collapse", in: "many   spaces", want: "many spaces"},
+		{name: "empty", in: "", want: ""},
+		{name: "long text truncated to 80 runes", in: strings.Repeat("é", 500), want: strings.Repeat("é", 79) + "…"},
+		{name: "80 runes kept whole", in: strings.Repeat("é", 80), want: strings.Repeat("é", 80)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tableDescription(tc.in)
+			if got != tc.want {
+				t.Fatalf("tableDescription(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+
+			if n := len([]rune(got)); n > descriptionMaxRunes {
+				t.Fatalf("tableDescription length = %d runes, want at most %d", n, descriptionMaxRunes)
+			}
+		})
+	}
 }

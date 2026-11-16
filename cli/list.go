@@ -6,21 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
 const (
-	catalogPath     = "/opendepot/agents/v1/catalog"
-	catalogPageSize = 100
-	maxCatalogPages = 1000
+	catalogPath         = "/opendepot/agents/v1/catalog"
+	catalogPageSize     = 100
+	maxCatalogPages     = 1000
+	descriptionMaxRunes = 80
 )
+
+// terminalEscapePattern matches CSI and OSC escape sequences, and a bare escape with the byte after it.
+var terminalEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b.`)
 
 // listOptions are the flags shared by the list subcommands.
 type listOptions struct {
 	registry  string
 	namespace string
+	json      bool
 }
 
 // catalogItem is one entry of the agents.v1 catalog response. RiskLevel and RiskScore are empty when
@@ -34,6 +41,7 @@ type catalogItem struct {
 	RiskLevel            string                `json:"riskLevel"`
 	RiskScore            *float64              `json:"riskScore"`
 	UnavailableCandidate *unavailableCandidate `json:"unavailableCandidate"`
+	Description          string                `json:"description"`
 }
 
 // catalogPage is one page of the agents.v1 catalog response.
@@ -58,6 +66,10 @@ func (a *app) listCatalog(ctx context.Context, kind entryKind, opts listOptions)
 	items, err := a.fetchCatalog(ctx, host, kind, opts.namespace)
 	if err != nil {
 		return err
+	}
+
+	if opts.json {
+		return a.printCatalogJSON(items)
 	}
 
 	if len(items) == 0 {
@@ -121,6 +133,20 @@ func (a *app) fetchCatalog(ctx context.Context, host string, kind entryKind, nam
 	return items, nil
 }
 
+// printCatalogJSON writes the items as {"items": [...]} with each full description. No items is an empty array.
+func (a *app) printCatalogJSON(items []catalogItem) error {
+	if items == nil {
+		items = []catalogItem{}
+	}
+
+	enc := json.NewEncoder(a.out)
+	enc.SetIndent("", "  ")
+
+	return enc.Encode(struct {
+		Items []catalogItem `json:"items"`
+	}{Items: items})
+}
+
 // catalogError maps a failed catalog request to a message that tells the user what to do next.
 func catalogError(host string, err error) error {
 	var statusErr *httpStatusError
@@ -154,7 +180,7 @@ func (a *app) printCatalog(items []catalogItem) {
 		})
 	}
 
-	widths := [3]int{len("SOURCE"), len("VERSION"), len("RISK")}
+	widths := [4]int{len("SOURCE"), len("VERSION"), len("RISK"), len("STATUS")}
 	for _, r := range rows {
 		for i := range widths {
 			width := utf8.RuneCountInString(r[i])
@@ -162,28 +188,88 @@ func (a *app) printCatalog(items []catalogItem) {
 		}
 	}
 
+	for i, item := range items {
+		widths[3] = max(widths[3], utf8.RuneCountInString(rows[i][3]+candidateNote(item, rows[i][3])))
+	}
+
 	header := [4]string{"SOURCE", "VERSION", "RISK", "STATUS"}
-	fmt.Fprintf(a.out, "%s  %s  %s  %s\n",
+	fmt.Fprintf(a.out, "%s  %s  %s  %s  %s\n",
 		padCell(st, ansiBold, header[0], widths[0]),
 		padCell(st, ansiBold, header[1], widths[1]),
 		padCell(st, ansiBold, header[2], widths[2]),
-		st.paint(ansiBold, header[3]))
+		padCell(st, ansiBold, header[3], widths[3]),
+		st.paint(ansiBold, "DESCRIPTION"))
 
 	for i, r := range rows {
 		item := items[i]
+		note := candidateNote(item, r[3])
 		fmt.Fprintf(a.out, "%s  %s  %s  %s",
 			padCell(st, "", r[0], widths[0]),
 			padCell(st, "", r[1], widths[1]),
 			padCell(st, riskColor(item), r[2], widths[2]),
 			st.paint(statusColor(r[3]), r[3]))
 
-		if c := item.UnavailableCandidate; c != nil && statusLabel(c.Status) != r[3] {
-			fmt.Fprint(a.out, st.paint(statusColor(c.Status), " · candidate "+statusLabel(c.Status)))
+		if note != "" {
+			fmt.Fprint(a.out, st.paint(statusColor(item.UnavailableCandidate.Status), note))
 		}
 
+		fmt.Fprint(a.out, strings.Repeat(" ", max(widths[3]-utf8.RuneCountInString(r[3]+note), 0)))
+		fmt.Fprintf(a.out, "  %s", tableDescription(item.Description))
 		fmt.Fprintln(a.out)
 
 	}
+}
+
+// candidateNote is the plain-text note for an unavailable candidate whose status differs from the row status, or "".
+func candidateNote(item catalogItem, status string) string {
+	c := item.UnavailableCandidate
+	if c == nil || statusLabel(c.Status) == status {
+		return ""
+	}
+
+	return " · candidate " + statusLabel(c.Status)
+}
+
+// tableDescription is the first line of an author-declared description, safe for one terminal cell. Escape
+// sequences are removed, control or bidi format characters become spaces, runs of spaces collapse, and the result is
+// at most descriptionMaxRunes runes including the trailing ellipsis.
+func tableDescription(description string) string {
+	text := strings.TrimSpace(description)
+	if i := strings.IndexAny(text, "\r\n"); i >= 0 {
+		text = text[:i]
+	}
+
+	text = sanitizeLine(text)
+	if runes := []rune(text); len(runes) > descriptionMaxRunes {
+		text = string(runes[:descriptionMaxRunes-1]) + "…"
+	}
+
+	return text
+}
+
+// sanitizeLine removes escape sequences from one line and replaces control, bidi format, and line or paragraph
+// separator characters with spaces. Runs of spaces collapse to one.
+func sanitizeLine(line string) string {
+	line = terminalEscapePattern.ReplaceAllString(line, "")
+	line = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return ' '
+		}
+
+		return r
+	}, line)
+
+	return strings.Join(strings.Fields(line), " ")
+}
+
+// sanitizeText applies sanitizeLine to each line of a multi-line text and keeps the line breaks.
+func sanitizeText(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = sanitizeLine(line)
+	}
+
+	return strings.Trim(strings.Join(lines, "\n"), "\n")
 }
 
 func catalogStatus(item catalogItem) string {
