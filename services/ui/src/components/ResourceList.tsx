@@ -30,6 +30,7 @@ import ResourceCard from "./ResourceCard";
 import ResourceRow from "./ResourceRow";
 import type { BrowseResource } from "@/lib/api";
 import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registryPreferences";
+import { isAgentKind } from "./resourceDisplay";
 
 type ListView = "rows" | "cards";
 type SortDir = "asc" | "desc";
@@ -70,6 +71,8 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
   const showCards = compact || view === "cards";
   // Only skills and agents carry a source ref. A page of modules or providers would show an empty column.
   const showSource = items.some((r) => !!r.sourceRef);
+  // Skill and agent rows show a risk meter plus up to six chips. Other rows show at most five chips.
+  const riskColumnPx = items.some((r) => isAgentKind(r.kind)) ? 472 : 312;
 
   const navigate = (updates: Record<string, string | null>) => {
     // Keep the current page size so a sort or filter change does not briefly fall back to the default.
@@ -178,13 +181,13 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 132 }}>{sortableHead("kind", "Kind")}</TableCell>
-                <TableCell sx={{ width: 320 }}>{sortableHead("name", "Name")}</TableCell>
+                <TableCell>{sortableHead("name", "Name")}</TableCell>
                 <TableCell sx={{ width: 104 }}>{sortableHead("latest_version", "Version")}</TableCell>
                 {showSource && (
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                <TableCell sx={{ width: 472 }}>{sortableHead("risk", "Risk")}</TableCell>
+                <TableCell sx={{ width: riskColumnPx }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
