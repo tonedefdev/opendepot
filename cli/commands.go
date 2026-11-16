@@ -109,6 +109,7 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 
 	listCmd.PersistentFlags().StringVar(&listOpts.registry, "registry", "", "registry host to list; defaults to the project registry")
 	listCmd.PersistentFlags().StringVar(&listOpts.namespace, "namespace", "", "only list items in this namespace")
+	listCmd.PersistentFlags().BoolVar(&listOpts.json, "json", false, "print the catalog as JSON with full descriptions")
 	listCmd.AddCommand(&cobra.Command{
 		Use:   "skills",
 		Short: "List the Skills available from a registry",

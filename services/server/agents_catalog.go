@@ -230,6 +230,10 @@ func agentCatalogItemFor(kind agentKind, kindName, namespace, name string, versi
 			item.RiskLevel = assessment.RiskLevel
 			item.RiskScore = assessment.RiskScore
 		}
+
+		if metadata := latest.Status.AgentMetadata; metadata != nil {
+			item.Description = metadata.Description
+		}
 	}
 
 	switch {

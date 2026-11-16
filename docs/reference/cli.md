@@ -204,6 +204,7 @@ When the registry has a newer version than the lock file, the plan shows it with
 |------|---------|
 | `--registry <host>` | The registry host to query. Overrides the project setting. |
 | `--namespace <name>` | List only the resources in one namespace. |
+| `--json` | Print the catalog as JSON, with the full `description` for each item. |
 
 The CLI picks the registry in this order:
 
@@ -221,6 +222,7 @@ Each row shows one skill or agent:
 | `VERSION` | The latest installable version, or `none`. |
 | `RISK` | The risk level and score of the latest version, or `unknown`. |
 | `STATUS` | Whether the displayed version is available, plus any unavailable candidate's status. |
+| `DESCRIPTION` | The first line of the latest installable version's description, with control characters replaced by spaces and the text cut to 80 characters. The text is author-supplied. The table shows it as plain text. `--json` prints the full description. |
 
 Each resource takes one line. Use `opendepot describe skill <namespace/name>` or `opendepot describe agent <namespace/name>` to inspect a single resource's versions, rejection reasons, and latest Jev assessment. Describe accepts `--registry` and uses the same registry selection and UI browse access rules as list. A version marked `synced` is not necessarily installable. See [Unavailable candidates](../guides/agents.md#unavailable-candidates) for the statuses.
 

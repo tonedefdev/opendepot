@@ -47,6 +47,10 @@ An `assessmentFailed` or `pending` candidate does not change an `available` stat
 
 Auth follows the same policy as the UI browse endpoints. With anonymous auth enabled, every resource is visible. With OIDC not configured, only public resources are listed. With OIDC configured, a missing or invalid Bearer token returns `401`. A valid token shows public resources and the resources its GroupBindings allow. Unlike the artifact endpoints above, the catalog does not return `403`.
 
+### Descriptions
+
+Each item can include `description`. It is the `description` from the frontmatter of the latest installable version, the same version named by `latestVersion`. The field is omitted when that version has no description, and when no version is installable. It is author-declared text and is untrusted. Clients must not render it as markup, and must treat it as plain text. The parser limits descriptions to 1024 bytes. Versions synced before the description was recorded have no `description` until they are synced again.
+
 ## Known limitations
 
 - **Name collisions.** Version names use a `prefix-name-version` pattern without escaping. A Skill and an Agent that produce the same Version name can collide. A collision returns `404` and never serves the wrong object.
