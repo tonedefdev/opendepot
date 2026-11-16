@@ -38,7 +38,7 @@ storageConfig:
 
 ## Agent Archives
 
-Agent archives read the same `presign` fields from the agent source `storageConfig`. The behavior differs in three ways:
+Agent archives are served from the Agent Version, not from the agent source. The controller copies the source `presign` into each Version it owns, so the archive handler reads the presign settings from the Version. The sync runs on every reconcile of the Agent or Skill, so a change to `presign` on the source reaches every owned Version in one reconcile, including yanked and rejected Versions. A hand-edited `presign` on a Version is overwritten to match the source. Removing `presign` from the source clears it on the Versions. Other Version fields are not synced by this path. The behavior differs in three ways:
 
 - `fallbackToProxy` defaults to `false` for new Agent objects. When `false`, a signing failure returns `500 Internal Server Error` and does not redirect. Providers and modules keep the `true` default.
 - The FileSystem backend always fails the signing step. Agent downloads from FileSystem storage stream the archive only when `fallbackToProxy` is `true`.

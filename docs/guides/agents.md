@@ -27,6 +27,8 @@ The UI browse view shows the sync status of each Version. It also shows blocked 
 
 For a Skill or Agent that follows a branch, the detail header shows the source repository, the tracked branch, and the source path. It also shows the latest commit as a 7-character SHA. The Versions table lists every Version, including branch Versions in the `Pending` and `Held` phases. Each row shows its commit with a copy button and a branch phase chip. The commit column appears when at least one row has a commit. A Version without a semver shows `—`. See [Agent Details](registry-explorer/agent-details.md) and [Skill Details](registry-explorer/skill-details.md) for the full page layout.
 
+The `presign` setting on an Agent or Skill source is copied to each Version it owns. Changing `presign` on the source updates every existing Version on the next reconcile, including yanked and rejected Versions. Removing `presign` from the source clears it on the Versions. Manual edits to a Version's `presign` are overwritten to match the source. Other Version fields are not changed by this sync.
+
 ## Yanked and blocked Versions
 
 Yank a Version by setting `spec.yanked: true` on the Version resource. Yanked Versions stay listed and downloadable, and the listing includes `yanked: true`. The CLI skips yanked Versions when it resolves a version constraint unless you pass `--allow-yanked`.

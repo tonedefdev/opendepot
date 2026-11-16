@@ -56,6 +56,10 @@ const (
 	agentPresignPrivateNS   = "agent-presign-private-e2e"
 	agentPresignPublicNS    = "agent-presign-public-e2e"
 	agentPresignAgent       = "presign-reviewer-e2e"
+	agentPresignPropNS      = "agent-presign-propagation-e2e"
+	agentPresignPropAgent   = "presign-propagation-e2e"
+	agentPresignPropVersion = "agent-presign-propagation-e2e-1-2-0"
+	agentPresignAgentImage  = "agent-controller:presign-e2e"
 	agentPresignVersion     = "1.2.0"
 	agentPresignVersionName = "agent-presign-reviewer-e2e-1-2-0"
 	agentPresignFileName    = "presign-reviewer-e2e-1.2.0.tar.gz"
@@ -223,9 +227,57 @@ func agentPresignArchivePath(ns string) string {
 	return fmt.Sprintf("/opendepot/agents/v1/%s/agents/%s/%s/archive", ns, agentPresignAgent, agentPresignVersion)
 }
 
+// agentPresignPropArchiveURL returns the archive URL of the propagation Version on the port-forwarded server.
+func agentPresignPropArchiveURL() string {
+	return fmt.Sprintf("http://localhost:%d/opendepot/agents/v1/%s/agents/%s/%s/archive",
+		serverLocalPort, agentPresignPropNS, agentPresignPropAgent, agentPresignVersion)
+}
+
 // agentPresignObjectKey returns the bucket key the version controller writes the archive to.
 func agentPresignObjectKey() string {
 	return fmt.Sprintf("agent-%s/%s", agentPresignAgent, agentPresignFileName)
+}
+
+// agentPresignPropagationManifest returns an Agent whose spec.versions entry matches the presign Version fixture name.
+// Presign is disabled on the source so the Version starts without a presign block.
+func agentPresignPropagationManifest(ns, bucket string) string {
+	return fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
+kind: Agent
+metadata:
+  name: %[1]s
+  namespace: %[2]s
+spec:
+  agentSourceConfig:
+    name: %[1]s
+    repoOwner: tonedefdev
+    repoUrl: https://github.com/tonedefdev/opendepot
+    path: agents/presign-propagation
+    storageConfig:
+      presign:
+        enabled: false
+      s3:
+        bucket: %[3]s
+        region: %[4]s
+  versions:
+    - version: %[5]q
+`, agentPresignPropAgent, ns, bucket, agentPresignRegion, agentPresignVersion)
+}
+
+// agentPresignSetSourcePresign merge-patches the presign block on the Agent source storageConfig.
+func agentPresignSetSourcePresign(ns, enabled string) {
+	patch := fmt.Sprintf(`{"spec":{"agentSourceConfig":{"storageConfig":{"presign":{"enabled":%s,"ttl":"15m"}}}}}`, enabled)
+	cmd := exec.Command("kubectl", "patch", "agent", agentPresignPropAgent, "-n", ns, "--type=merge", "-p", patch)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to patch the Agent presign setting")
+}
+
+// agentPresignVersionField returns a field of the propagation Version with a kubectl JSONPath expression.
+func agentPresignVersionField(ns, name, jsonPath string) string {
+	cmd := exec.Command("kubectl", "get", "version", name, "-n", ns, "-o", "jsonpath="+jsonPath)
+	out, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to read the Version field %s", jsonPath)
+
+	return strings.TrimSpace(out)
 }
 
 // agentPresignEmulatorFiles copies the emulator CA bundle and shared credentials file into dir. The files are read
@@ -276,6 +328,12 @@ func agentPresignS3Client(caPath, credsPath string) *s3.Client {
 // agentPresignStageArchive creates the bucket and uploads the archive with its SHA256 checksum. It returns the
 // base64 encoded checksum the Version status must carry.
 func agentPresignStageArchive(client *s3.Client, bucket string) string {
+	return agentPresignStageArchiveAt(client, bucket, agentPresignObjectKey())
+}
+
+// agentPresignStageArchiveAt creates the bucket and uploads the archive under key. It returns the base64 encoded
+// checksum the Version status must carry.
+func agentPresignStageArchiveAt(client *s3.Client, bucket, key string) string {
 	ctx := context.Background()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -286,7 +344,7 @@ func agentPresignStageArchive(client *s3.Client, bucket string) string {
 
 	_, err = client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:            aws.String(bucket),
-		Key:               aws.String(agentPresignObjectKey()),
+		Key:               aws.String(key),
 		Body:              bytes.NewReader(agentPresignArchive),
 		ChecksumAlgorithm: s3types.ChecksumAlgorithmSha256,
 		ChecksumSHA256:    aws.String(checksum),
@@ -425,6 +483,110 @@ var _ = Describe("Agent presign", Ordered, func() {
 		It("serves a public Agent anonymously with the checksum verified", func() {
 			status, headers, body := agentPresignGet(client,
 				fmt.Sprintf("http://localhost:%d%s", serverLocalPort, agentPresignArchivePath(agentPresignPublicNS)), "")
+			Expect(status).To(Equal(http.StatusOK))
+			Expect(headers.Get("Location")).To(BeEmpty())
+			Expect(agentPresignChecksumOf(body)).To(Equal(checksum))
+		})
+	})
+
+	Context("source presign propagation", Ordered, func() {
+		var (
+			pfServerCancel   context.CancelFunc
+			pfEmulatorCancel context.CancelFunc
+			client           *http.Client
+			checksum         string
+		)
+
+		BeforeAll(func() {
+			By("uninstalling the previous release")
+			agentPresignUninstall()
+
+			By("building the agent controller image from this worktree and loading it on the isolated Kind cluster")
+			agentRepo, agentTag := utils.SplitImageRef(agentPresignAgentImage)
+			buildCmd := exec.Command("docker", "build", "-t", agentPresignAgentImage,
+				"-f", "services/agent/Dockerfile", ".")
+			_, err := utils.RunAt(buildCmd, repoRoot)
+			Expect(err).NotTo(HaveOccurred(), "Failed to build the agent controller image")
+			Expect(utils.LoadImageToKindClusterWithName(agentPresignAgentImage)).To(Succeed(),
+				"Failed to load the agent controller image into Kind")
+
+			By("deploying the server with anonymous auth, the agent controller, and the AWS emulator sidecar")
+			agentPresignInstall(repoRoot, emulatorImage, "--set", "server.anonymousAuth=true",
+				"--set", "agent.enabled=true",
+				"--set", "agent.image.repository="+agentRepo,
+				"--set", "agent.image.tag="+agentTag)
+
+			pfServerCancel = agentPresignPortForward("svc/server", serverLocalPort, 80)
+			pfEmulatorCancel = agentPresignPortForward("deploy/server", agentPresignEmulatorPort, agentPresignEmulatorPort)
+
+			caPath, credsPath := agentPresignEmulatorFiles(GinkgoT().TempDir())
+			client = agentPresignClient(caPath)
+			agentPresignWaitForEndpoint(client, fmt.Sprintf("http://localhost:%d/.well-known/terraform.json", serverLocalPort), "server")
+			agentPresignWaitForEndpoint(client, fmt.Sprintf("https://localhost:%d/", agentPresignEmulatorPort), "emulator")
+
+			By("creating a public Agent whose versions entry matches the presign Version name")
+			agentPresignEnsureNamespace(agentPresignPropNS, true)
+			bucket := fmt.Sprintf("presign-propagation-%d", time.Now().UnixNano())
+			agentPresignApply(agentPresignPropagationManifest(agentPresignPropNS, bucket))
+
+			By("waiting for the controller to create the Version and staging the archive under its fileName")
+			Eventually(func() string {
+				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion, "{.spec.fileName}")
+			}, 2*time.Minute, 2*time.Second).ShouldNot(BeEmpty())
+			fileName := agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion, "{.spec.fileName}")
+
+			checksum = agentPresignStageArchiveAt(agentPresignS3Client(caPath, credsPath), bucket,
+				fmt.Sprintf("agent-%s/%s", agentPresignPropAgent, fileName))
+
+			cmd := exec.Command("kubectl", "patch", "versions", agentPresignPropVersion,
+				"-n", agentPresignPropNS, "--subresource=status", "--type=merge", "-p",
+				fmt.Sprintf(`{"status":{"synced":true,"syncStatus":"Synced","fileName":%q,"checksum":%q}}`,
+					fileName, checksum))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to patch Version status")
+		})
+
+		AfterAll(func() {
+			if pfServerCancel != nil {
+				pfServerCancel()
+			}
+			if pfEmulatorCancel != nil {
+				pfEmulatorCancel()
+			}
+		})
+
+		It("serves the archive proxied while presign is disabled on the source", func() {
+			Expect(agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
+				"{.spec.agentSourceRef.storageConfig.presign.enabled}")).To(Equal("false"))
+
+			status, headers, body := agentPresignGet(client, agentPresignPropArchiveURL(), "")
+			Expect(status).To(Equal(http.StatusOK))
+			Expect(headers.Get("Location")).To(BeEmpty())
+			Expect(agentPresignChecksumOf(body)).To(Equal(checksum))
+		})
+
+		It("redirects to a presigned URL after presign is enabled on the source", func() {
+			agentPresignSetSourcePresign(agentPresignPropNS, "true")
+
+			Eventually(func() string {
+				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
+					"{.spec.agentSourceRef.storageConfig.presign.enabled}")
+			}, 60*time.Second, 1*time.Second).Should(Equal("true"))
+
+			status, headers, _ := agentPresignGet(client, agentPresignPropArchiveURL(), "")
+			Expect(status).To(Equal(http.StatusTemporaryRedirect))
+			Expect(headers.Get("Location")).NotTo(BeEmpty())
+		})
+
+		It("proxies the archive again after presign is disabled on the source", func() {
+			agentPresignSetSourcePresign(agentPresignPropNS, "false")
+
+			Eventually(func() string {
+				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
+					"{.spec.agentSourceRef.storageConfig.presign.enabled}")
+			}, 60*time.Second, 1*time.Second).Should(Equal("false"))
+
+			status, headers, body := agentPresignGet(client, agentPresignPropArchiveURL(), "")
 			Expect(status).To(Equal(http.StatusOK))
 			Expect(headers.Get("Location")).To(BeEmpty())
 			Expect(agentPresignChecksumOf(body)).To(Equal(checksum))
