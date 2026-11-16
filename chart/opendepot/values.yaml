@@ -236,6 +236,13 @@ server:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Set to true to export OPENDEPOT_S3_USE_PATH_STYLE=true, which uses path-style S3 addressing.
+  s3UsePathStyle: false
+  # Generic hooks for the server pod. All are empty by default.
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraContainers: []
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false

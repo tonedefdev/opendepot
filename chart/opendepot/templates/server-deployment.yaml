@@ -139,6 +139,13 @@ spec:
             secretKeyRef:
               name: {{ default (printf "%s-module-download-token" .Release.Name) .Values.server.moduleDownloadTokenSecretName }}
               key: token
+        {{- if .Values.server.s3UsePathStyle }}
+        - name: OPENDEPOT_S3_USE_PATH_STYLE
+          value: "true"
+        {{- end }}
+        {{- with .Values.server.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- if .Values.server.gpg.secretName }}
         envFrom:
         - secretRef:
@@ -184,7 +191,7 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.server.resources | nindent 10 }}
-        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumeMounts }}
         volumeMounts:
         {{- if .Values.server.tls.enabled }}
         - name: tls
@@ -199,8 +206,14 @@ spec:
         - name: assembly-workspace
           mountPath: {{ .Values.assembly.workDir }}
         {{- end }}
+        {{- with .Values.server.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled }}
+        {{- end }}
+      {{- with .Values.server.extraContainers }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumes }}
       volumes:
       {{- if .Values.server.tls.enabled }}
       - name: tls
@@ -222,6 +235,9 @@ spec:
       - name: assembly-workspace
         emptyDir:
           sizeLimit: {{ .Values.assembly.workspaceSizeLimit }}
+      {{- end }}
+      {{- with .Values.server.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
       {{- end }}
       {{- end }}
       {{- with .Values.server.nodeSelector }}
