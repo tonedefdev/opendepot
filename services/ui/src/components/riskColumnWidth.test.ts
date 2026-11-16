@@ -45,6 +45,16 @@ describe("riskColumnWidth", () => {
     expect(riskColumnWidth([small, large], measure, "sans-serif")).toBe(onlyLarge);
   });
 
+  it("measures chip text at the weight the chips render with", () => {
+    const fonts: string[] = [];
+    const recordFont = (text: string, font: string) => {
+      fonts.push(font);
+      return text.length * 8;
+    };
+    riskColumnWidth([resource({ scanCounts: counts({ low: 1 }) })], recordFont, "sans-serif");
+    expect(fonts).toContain("600 12px sans-serif");
+  });
+
   it("adds the meter width for agent and skill rows", () => {
     const wide = (text: string) => text.length * 12;
     const withoutMeter = resource({ kind: "module", jevRiskLevel: "Critical", scanCounts: counts({ high: 1000, medium: 1000 }) });

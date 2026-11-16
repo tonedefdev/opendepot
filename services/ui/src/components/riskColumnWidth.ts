@@ -6,7 +6,10 @@ export const RISK_COLUMN_MIN_PX = 84;
 
 // Chip text is 0.75rem at weight 600. Dense chips use 4px label padding on each side plus a 1px border on each side.
 const CHIP_FONT_PX = 12;
+const CHIP_FONT_WEIGHT = 600;
 const LABEL_FONT_PX = 14;
+// MUI body2 letter-spacing (0.01071em), which canvas measurement does not include.
+const LABEL_LETTER_SPACING_PX = 0.15;
 const CHIP_CHROME_PX = 10;
 const CHIP_GAP_PX = 4;
 // The meter row sits 4px (gap 0.5) left of the chips.
@@ -31,7 +34,10 @@ const SEVERITY_LABELS: Array<[keyof BrowseScanCounts, string]> = [
 function rowRiskWidth(resource: BrowseResource, measure: MeasureText, chipFont: string, labelFont: string): number {
   const meterWidth =
     isAgentKind(resource.kind) && resource.jevRiskLevel
-      ? METER_BARS_PX + METER_LABEL_GAP_PX + measure(resource.jevRiskLevel, labelFont)
+      ? METER_BARS_PX +
+        METER_LABEL_GAP_PX +
+        measure(resource.jevRiskLevel, labelFont) +
+        resource.jevRiskLevel.length * LABEL_LETTER_SPACING_PX
       : 0;
   const chipWidths: number[] = [];
   const counts = resource.scanCounts;
@@ -48,7 +54,7 @@ function rowRiskWidth(resource: BrowseResource, measure: MeasureText, chipFont: 
 
 // Returns the Risk header width needed so the widest row on the page fits without clipping.
 export function riskColumnWidth(items: BrowseResource[], measure: MeasureText, fontFamily: string): number {
-  const chipFont = `500 ${CHIP_FONT_PX}px ${fontFamily}`;
+  const chipFont = `${CHIP_FONT_WEIGHT} ${CHIP_FONT_PX}px ${fontFamily}`;
   const labelFont = `500 ${LABEL_FONT_PX}px ${fontFamily}`;
   let widest = 0;
   for (const item of items) {
