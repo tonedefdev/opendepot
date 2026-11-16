@@ -238,11 +238,15 @@ server:
   affinity: {}
   # Set to true to export OPENDEPOT_S3_USE_PATH_STYLE=true, which uses path-style S3 addressing.
   s3UsePathStyle: false
+  # UID for the server pod and container.
+  runAsUser: 65532
   # Generic hooks for the server pod. All are empty by default.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   extraContainers: []
+  # Init containers appended after the built-in init containers. Set restartPolicy: Always for native sidecars.
+  extraInitContainers: []
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false
