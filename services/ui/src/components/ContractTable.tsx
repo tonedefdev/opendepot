@@ -534,6 +534,8 @@ export default function ContractTable({ contract }: Props) {
   const [tab, setTab] = React.useState(0);
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
+  const [scrollbarWidth, setScrollbarWidth] = React.useState(0);
+  const [headHeight, setHeadHeight] = React.useState(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const theme = useTheme();
   // Below lg the table is replaced by cards, so there is no scroll viewport to measure.
@@ -550,10 +552,13 @@ export default function ContractTable({ contract }: Props) {
     const el = scrollRef.current;
     if (!el || compact) {
       setOverflows(false);
+      setScrollbarWidth(0);
       return;
     }
 
     setOverflows(el.scrollHeight > el.clientHeight + 1);
+    setScrollbarWidth(el.offsetWidth - el.clientWidth - 2 * el.clientLeft);
+    setHeadHeight(el.querySelector("thead")?.offsetHeight ?? 0);
   }, [tab, variables, outputs, expanded, compact]);
 
   return (
@@ -591,22 +596,40 @@ export default function ContractTable({ contract }: Props) {
       ) : (
         <>
           {/* Desktop only. The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. */}
-          <Box
-            ref={scrollRef}
-            sx={{
-              display: { xs: "none", lg: "block" },
-              maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
-              overflowY: "auto",
-              overflowX: "auto",
-              border: 1,
-              borderColor: "divider",
-              borderRadius: 1,
-            }}
-          >
-            {tab === 0 ? (
-              <VariablesTable variables={variables} />
-            ) : (
-              <OutputsTable outputs={outputs} />
+          <Box sx={{ position: "relative", display: { xs: "none", lg: "block" } }}>
+            <Box
+              ref={scrollRef}
+              sx={{
+                maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+                overflowY: "auto",
+                overflowX: "auto",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+              }}
+            >
+              {tab === 0 ? (
+                <VariablesTable variables={variables} />
+              ) : (
+                <OutputsTable outputs={outputs} />
+              )}
+            </Box>
+            {/* The scrollbar spans the full scroll container, so this cap paints the header colour over its top segment. The bar appears to start beneath the header. */}
+            {scrollbarWidth > 0 && (
+              <Box
+                aria-hidden
+                sx={{
+                  position: "absolute",
+                  top: 1,
+                  right: 1,
+                  width: scrollbarWidth,
+                  height: headHeight,
+                  borderTopRightRadius: 3,
+                  bgcolor: "background.paper",
+                  pointerEvents: "none",
+                  [`[data-mui-color-scheme="light"] &`]: { bgcolor: "primary.main" },
+                }}
+              />
             )}
           </Box>
           <MobileRecordList>
