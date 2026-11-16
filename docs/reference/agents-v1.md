@@ -33,7 +33,7 @@ Archive extraction enforces a decompressed-size budget of 2 GiB and a cap of 10,
 
 An invalid parameter returns `400`. A page past the end returns `200` with an empty `items` array. The response has `items`, `totalCount`, `page`, and `pageSize`. Items are sorted by namespace, kind, and name. If the server cannot list the resources, it returns `500` and no partial catalog.
 
-Each item has `kind` (`skill` or `agent`), `namespace`, `name`, `status`, `latestVersion`, `riskLevel`, `riskScore`, and `unavailableCandidate`. `latestVersion` is omitted when no version is installable. `unavailableCandidate` is the newest unavailable candidate, in the same shape as the [unavailableCandidates](../guides/agents.md#unavailable-candidates) entries. It is omitted when there is none.
+Each item has `kind` (`skill` or `agent`), `namespace`, `name`, `status`, `latestVersion`, `riskLevel`, `riskScore`, `unavailableCandidate`, and `description`. `latestVersion` is omitted when no version is installable. `unavailableCandidate` is the newest unavailable candidate, in the same shape as the [unavailableCandidates](../guides/agents.md#unavailable-candidates) entries. It is omitted when there is none. `description` is omitted when the latest installable version has none. See [Descriptions](#descriptions).
 
 | Status | Meaning |
 |--------|---------|

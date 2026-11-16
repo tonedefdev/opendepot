@@ -188,6 +188,10 @@ func (a *app) printCatalog(items []catalogItem) {
 		}
 	}
 
+	for i, item := range items {
+		widths[3] = max(widths[3], utf8.RuneCountInString(rows[i][3]+candidateNote(item, rows[i][3])))
+	}
+
 	header := [4]string{"SOURCE", "VERSION", "RISK", "STATUS"}
 	fmt.Fprintf(a.out, "%s  %s  %s  %s  %s\n",
 		padCell(st, ansiBold, header[0], widths[0]),
@@ -198,24 +202,36 @@ func (a *app) printCatalog(items []catalogItem) {
 
 	for i, r := range rows {
 		item := items[i]
+		note := candidateNote(item, r[3])
 		fmt.Fprintf(a.out, "%s  %s  %s  %s",
 			padCell(st, "", r[0], widths[0]),
 			padCell(st, "", r[1], widths[1]),
 			padCell(st, riskColor(item), r[2], widths[2]),
-			padCell(st, statusColor(r[3]), r[3], widths[3]))
+			st.paint(statusColor(r[3]), r[3]))
 
-		if c := item.UnavailableCandidate; c != nil && statusLabel(c.Status) != r[3] {
-			fmt.Fprint(a.out, st.paint(statusColor(c.Status), " · candidate "+statusLabel(c.Status)))
+		if note != "" {
+			fmt.Fprint(a.out, st.paint(statusColor(item.UnavailableCandidate.Status), note))
 		}
 
+		fmt.Fprint(a.out, strings.Repeat(" ", max(widths[3]-utf8.RuneCountInString(r[3]+note), 0)))
 		fmt.Fprintf(a.out, "  %s", tableDescription(item.Description))
 		fmt.Fprintln(a.out)
 
 	}
 }
 
+// candidateNote is the plain-text note for an unavailable candidate whose status differs from the row status, or "".
+func candidateNote(item catalogItem, status string) string {
+	c := item.UnavailableCandidate
+	if c == nil || statusLabel(c.Status) == status {
+		return ""
+	}
+
+	return " · candidate " + statusLabel(c.Status)
+}
+
 // tableDescription is the first line of an author-declared description, safe for one terminal cell. Escape
-// sequences and control or bidi format characters become spaces, runs of spaces collapse, and the result is
+// sequences are removed, control or bidi format characters become spaces, runs of spaces collapse, and the result is
 // at most descriptionMaxRunes runes including the trailing ellipsis.
 func tableDescription(description string) string {
 	text := strings.TrimSpace(description)
@@ -225,7 +241,7 @@ func tableDescription(description string) string {
 
 	text = terminalEscapePattern.ReplaceAllString(text, "")
 	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return ' '
 		}
 

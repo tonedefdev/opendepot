@@ -209,6 +209,42 @@ func TestPrintCatalogSeparatesAvailableVersionFromRejectedCandidate(t *testing.T
 	}
 }
 
+func TestPrintCatalogAlignsDescriptionAfterCandidateNote(t *testing.T) {
+	var out bytes.Buffer
+	a := &app{out: &out}
+	a.printCatalog([]catalogItem{
+		{Namespace: "acme", Name: "plain", LatestVersion: "1.0.0", Status: "available", Description: "Plain description"},
+		{
+			Namespace:     "acme",
+			Name:          "reviewer",
+			LatestVersion: "1.0.0",
+			Status:        "rejected",
+			Description:   "Reviewer description",
+			UnavailableCandidate: &unavailableCandidate{
+				Commit: "3f2a9c1",
+				Status: "rejected",
+			},
+		},
+	})
+
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want header and two rows:\n%s", out.String())
+	}
+
+	headerColumn := len([]rune(lines[0][:strings.Index(lines[0], "DESCRIPTION")]))
+	for i, text := range []string{"Plain description", "Reviewer description"} {
+		column := len([]rune(lines[i+1][:strings.Index(lines[i+1], text)]))
+		if column != headerColumn {
+			t.Fatalf("description starts at column %d, want %d:\n%s", column, headerColumn, out.String())
+		}
+	}
+
+	if !strings.Contains(lines[2], "candidate rejected") {
+		t.Fatalf("candidate note missing from row:\n%s", out.String())
+	}
+}
+
 func TestPrintCatalogKeepsLongSourcesOnOneLine(t *testing.T) {
 	var out bytes.Buffer
 	a := &app{out: &out}
@@ -611,6 +647,7 @@ func TestTableDescriptionSanitizesAndTruncates(t *testing.T) {
 		{name: "control characters become spaces", in: "tab\there\x00nul\x7fdel", want: "tab here nul del"},
 		{name: "C1 control becomes space", in: "a\u009bb", want: "a b"},
 		{name: "bidi override becomes space", in: "safe\u202Eevil", want: "safe evil"},
+		{name: "line separator becomes space", in: "line\u2028sep\u2029end", want: "line sep end"},
 		{name: "runs of spaces collapse", in: "many   spaces", want: "many spaces"},
 		{name: "empty", in: "", want: ""},
 		{name: "long text truncated to 80 runes", in: strings.Repeat("é", 500), want: strings.Repeat("é", 79) + "…"},
