@@ -1,13 +1,14 @@
 import type { BrowseResource, BrowseScanCounts } from "@/lib/api";
 import { isAgentKind } from "./resourceDisplay";
 
-export const RISK_COLUMN_MIN_PX = 172;
+// Header floor so the "Risk" label and sort control fit when no row has findings.
+export const RISK_COLUMN_MIN_PX = 84;
 
 // Chip text is 0.75rem at weight 600. Dense chips use 4px label padding on each side plus a 1px border on each side.
 const CHIP_FONT_PX = 12;
 const LABEL_FONT_PX = 14;
 const CHIP_CHROME_PX = 10;
-const CHIP_GAP_PX = 2;
+const CHIP_GAP_PX = 4;
 // The meter row sits 4px (gap 0.5) left of the chips.
 const METER_CHIP_GAP_PX = 4;
 // Five 3px bars with 2px gaps, followed by the meter's 8px gap to its label.
@@ -15,7 +16,6 @@ const METER_BARS_PX = 23;
 const METER_LABEL_GAP_PX = 8;
 // Left padding is the TableCell default of 16px. Right padding is 8px on the Risk column.
 const CELL_PADDING_PX = 24;
-const HEADER_PX = 84;
 
 type MeasureText = (text: string, font: string) => number;
 
@@ -54,7 +54,7 @@ export function riskColumnWidth(items: BrowseResource[], measure: MeasureText, f
   for (const item of items) {
     widest = Math.max(widest, rowRiskWidth(item, measure, chipFont, labelFont));
   }
-  return Math.max(RISK_COLUMN_MIN_PX, Math.ceil(widest + CELL_PADDING_PX), HEADER_PX);
+  return Math.max(RISK_COLUMN_MIN_PX, Math.ceil(widest + CELL_PADDING_PX));
 }
 
 export function canvasMeasureText(): MeasureText | null {

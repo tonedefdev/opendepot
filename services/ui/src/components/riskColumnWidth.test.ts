@@ -29,7 +29,7 @@ const counts = (c: Partial<BrowseResource["scanCounts"] & object>) => ({
 });
 
 describe("riskColumnWidth", () => {
-  it("keeps the demo width when no row has findings", () => {
+  it("uses the header minimum when no row has findings", () => {
     expect(riskColumnWidth([resource({})], measure, "sans-serif")).toBe(RISK_COLUMN_MIN_PX);
   });
 
