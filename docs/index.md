@@ -7,118 +7,55 @@ tags:
     - home
 ---
 
-## Why OpenDepot?
+## What OpenDepot serves
 
-Managing artifacts such as modules, providers, skills, and agents often means operating a separate registry, authentication flow, storage layer, and security workflow for each kind. OpenDepot is a **free, open source, Kubernetes-native artifact registry** that brings those concerns into the Kubernetes operating model you already use. Vulnerability scanning, automatic version discovery, a comprehensive User Interface, and OIDC-based SSO are included out of the box. It publishes **OpenTofu and Terraform modules and providers** and **Agent Skills and Agents** from Git repositories, so one registry serves all of them. Support for **MCP servers** and **OCI artifacts** is planned.
+OpenDepot is an open source artifact registry that runs in your Kubernetes cluster. It serves:
 
-The server and UI is read-only by design, and Kubernetes RBAC remains the authorization layer for create, update, and delete operations. Deployment requires nothing beyond a Helm chart and a storage backend.
+- **Modules and providers** for OpenTofu and Terraform, through the registry protocol.
+- **Agent Skills and Agents** published from Git repositories and installed with the `opendepot` CLI.
 
-<div class="grid cards" markdown>
+MCP servers and OCI artifacts are planned. The server and UI are read-only, and Kubernetes RBAC authorizes every create, update, and delete.
 
-- :material-robot-outline: &nbsp;__Agent Skills & Agents__
-
-    ---
-
-    Publish Skills and Agents from Git repositories, either as Skill and Agent resources in a GitOps workflow or through a Depot. Consumers install them with the `opendepot` CLI, which verifies the signed `SHA256SUMS` file and hashes before anything is written to disk. Optionally score each Version with the TypeSafe Jev assessment. See [Consuming Agents and Skills](guides/agents.md).
-
-- :material-view-dashboard-outline: &nbsp;__OpenDepot Workshop__
-
-    ---
-
-    Browse and search modules, providers, versions, READMEs, vulnerability findings, depot relationships, and download statistics from one interface. See the [OpenDepot Workshop guide](guides/registry-explorer/index.md) or [walk through the UI, Dex SSO, and GroupBinding access control](https://www.defdev.io/blog/ui-sso-in-opendepot).
-
-- :material-graph-outline: &nbsp;__Assembly Line__
-
-    ---
-
-    Compose onboarded modules and providers into a validated, downloadable OpenTofu root module with the [Assembly Line](guides/assembly-line.md).
-
-- :material-shield-check-outline: &nbsp;__Security Policies__
-
-    ---
-
-    Define scan thresholds and finding exemptions for matched resources through [OpenDepot Workshop Security Policies](guides/registry-explorer/security-policies.md).
-
-- :material-login: &nbsp;__OIDC Single Sign-On (SSO)__
-
-    ---
-
-    First-class support for the OpenTofu login flow via the bundled [Dex](https://dexidp.io/) subchart. Connect any OIDC-compatible identity provider — GitHub, Entra ID, Okta, or static passwords — and let `tofu login` handle credential acquisition automatically.
-
-- :material-tag-check: &nbsp;__Automatic Discovery & Provider Mirroring__
-
-    ---
-
-    The Depot controller discovers module releases, provider versions, and Skill and Agent tags from their configured sources. Use the [Provider Network Mirror Protocol](guides/providers.md#default-workflow-network-mirror) to install mirrored providers through OpenDepot while keeping canonical provider source addresses unchanged in module configurations and lockfiles.
-
-- :material-shield-check: &nbsp;__Security First__
-
-    ---
-
-    OIDC is the preferred authentication path (via Dex and your upstream IdP), while the server stays read-only by design. Kubernetes RBAC authorizes create, update, and delete operations — no proprietary tokens, no user database, no extra identity store.
-
-
-- :material-database-off: &nbsp;__No External Database__
-
-    ---
-
-    Declarative controllers continuously reconcile toward desired state. Transient errors retry with exponential backoff. Applying the same manifest twice is a no-op.
-
-- :material-cloud-check: &nbsp;__Multi-Cloud Storage__
-
-    ---
-
-    S3, Azure Blob, Google Cloud Storage, and local filesystem — all supported out of the box with SDK-native authentication chains.
-
-- :material-shield-refresh: &nbsp;__Self-Healing & Tamper Resistance__
-
-    ---
-
-    Declarative controllers continuously reconcile toward desired state and retry transient failures. For immutable versions, RBAC-protected checksums are verified on every reconciliation to detect artifact replacement.
-
-- :material-magnify-scan: &nbsp;__Built-In Vulnerability Scanning__
-
-    ---
-
-    The Version controller runs [Trivy](https://trivy.dev/) automatically on every provider binary, provider source (`go.mod`), and module archive. Findings are stored on the Kubernetes resource and can optionally block promotion of critical or high severity artifacts.
-
-- :material-link-variant: &nbsp;__Zero-Egress Provider Downloads__
-
-    ---
-
-    Enable pre-signed URL redirects so OpenTofu and Terraform fetch provider binaries directly from S3, GCS, or Azure Blob — no bandwidth through the server, no extra hops, no infrastructure bottleneck.
-
-</div>
-
-!!! tip
-    If you're already running Kubernetes, OpenDepot gives you automatic version discovery, built-in vulnerability scanning, and Kubernetes-native auth without adding a license fee or a new piece of infrastructure to operate.
-
-## Next Steps
+## Where to start
 
 <div class="grid cards" markdown>
 
-- :material-rocket-launch: &nbsp;[__Install with Helm__](getting-started/installation.md)
+- :material-rocket-launch: &nbsp;__Install__
 
-    Deploy OpenDepot to your cluster in minutes.
+    ---
 
-- :material-laptop: &nbsp;[__Local Quickstart__](getting-started/quickstart.md)
+    Deploy with the Helm chart, or run a local registry with `kind` using the [quickstart](getting-started/quickstart.md). See [installation](getting-started/installation.md).
 
-    Run a fully functional registry locally with `kind` — no cloud account needed.
+- :material-package-variant: &nbsp;__Publish modules and providers__
 
-- :material-sitemap: &nbsp;[__Architecture__](architecture.md)
+    ---
 
-    Understand how the controllers, server, and storage interact and reconcile.
+    Create a Depot that polls your module and provider sources, or manage them declaratively with [GitOps](guides/gitops.md). See the [Depot workflow](guides/depot.md).
 
-- :material-cog-outline: &nbsp;[__Configuration__](configuration/index.md)
+- :material-package-down: &nbsp;__Consume modules and providers__
 
-    Configure authentication, storage, TLS, scanning, and other deployment options.
+    ---
 
-- :material-book-open-variant: &nbsp;[__Guides__](guides/index.md)
+    Point OpenTofu or Terraform at the registry. See [consuming modules](guides/modules.md) and [consuming providers](guides/providers.md), or compose them into a validated root module with the [Assembly Line](guides/assembly-line.md).
 
-    GitOps, CI/CD, Depot, provider consumption, Skill and Agent consumption, migration, and upgrade workflows.
+- :material-robot-outline: &nbsp;__Publish Skills and Agents__
 
-- :material-book-check: &nbsp;[__Reference__](reference/index.md)
+    ---
 
-    APIs, version constraints, Helm values, and Kubernetes RBAC reference material.
+    Publish Skills and Agents from Git tags or branches, either as standalone resources or through a Depot. See [publishing Agents and Skills](guides/agents-publishing.md).
+
+- :material-console: &nbsp;__Consume Skills and Agents__
+
+    ---
+
+    Install versioned Skills and Agents with the `opendepot` CLI, which verifies signed checksums before use. See [consuming Agents and Skills](guides/agents.md).
+
+- :material-shield-check-outline: &nbsp;__Browse and secure__
+
+    ---
+
+    Browse artifacts in the [OpenDepot Workshop](guides/registry-explorer/index.md), manage [Security Policies](guides/registry-explorer/security-policies.md), and review [vulnerability scanning](configuration/scanning.md).
 
 </div>
+
+For how the system fits together, see [Architecture](architecture.md). For deployment options, see [Configuration](configuration/index.md). For API and CLI details, see [Reference](reference/index.md).

@@ -11,7 +11,8 @@ Stats provides an operational view of synchronization health, security posture,
 storage, and resource usage across the OpenDepot Workshop resources visible to
 you.
 
-![OpenDepot Workshop Stats dashboard showing sync health and security posture](../../img/registry-stats.png)
+![OpenDepot Workshop Stats dashboard showing sync health and security posture](../../img/registry-stats.png#only-dark)
+![OpenDepot Workshop Stats dashboard showing sync health and security posture](../../img/registry-stats-light.png#only-light)
 
 ## Dashboard
 

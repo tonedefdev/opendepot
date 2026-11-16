@@ -12,7 +12,8 @@ Assembly Line composes onboarded OpenDepot modules and providers into a validate
 
 Assembly Line is **OpenTofu-only** and **browser-local/export-only**: canvases persist in the browser's `localStorage` (nothing is saved server-side), and the only server-side artifact is the validated ZIP produced at export time.
 
-![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line-dark.png)
+![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line.png#only-dark)
+![Assembly Line canvas connecting typed variables, a provider, and repeated modules](../img/assembly-line-light.png#only-light)
 
 ## The Assembly Line Workflow
 
@@ -40,7 +41,8 @@ Open **Type** on a variable node to pick a primitive, collection, tuple, or obje
 type. Add nested attributes and optional or default values in the type editor.
 The HCL preview updates as you build the type.
 
-![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current.png)
+![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current.png#only-dark)
+![Assembly Line variable editor showing nested map and object types beside the generated HCL preview](../img/assembly-line-variable-current-light.png#only-light)
 
 This map's values contain a nested `spec` object with `description` and
 `timeout` attributes. Each key identifies one `for_each` instance, and each value
@@ -50,14 +52,16 @@ holds that instance's configuration.
 
 Add validations to reject invalid input. Each validation has two parts:
 
-- A condition written as an HCL expression, such as `length(var.spec.description) > 100`.
+- A condition written as an HCL expression, such as `alltrue([for _, function in var.lambda_functions : length(function.spec.description) <= 100])`.
 - An error message that explains how to correct the value.
 
 The HCL preview renders the `validation` block in the exported `variables.tf`.
 
-![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations.png)
+![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations.png#only-dark)
+![Assembly Line validation editor with a syntax-highlighted condition and error message](../img/assembly-line-variable-validations-light.png#only-light)
 
-![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code.png)
+![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code.png#only-dark)
+![Expanded HCL preview for var.lambda_functions showing its nested type and validation block](../img/assembly-line-variable-generated-code-light.png#only-light)
 
 ## Configure Module Inputs
 
@@ -66,13 +70,15 @@ whether the input is required, its type, and its value controls. The generated
 module HCL stays visible beside the form. Use search and pagination for modules
 with many inputs.
 
-![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current.png)
+![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current.png#only-dark)
+![Compact Assembly Line module input form with typed fields and a generated HCL preview](../img/assembly-line-module-inputs-current-light.png#only-light)
 
 Enter literal values or HCL expressions. When a field contains a supported
 OpenTofu function, the editor shows its description and a link to the OpenTofu
 documentation.
 
-![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions.png)
+![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions.png#only-dark)
+![Assembly Line HCL expression field showing the replace function hint and OpenTofu documentation link](../img/assembly-line-hcl-expression-functions-light.png#only-light)
 
 Values can come from several places:
 
@@ -81,19 +87,22 @@ Values can come from several places:
 - A module output such as `module.ecr.repo_url`.
 - A repeated value such as `each.key` or `each.value.spec.description`.
 
-![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png)
+![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources.png#only-dark)
+![The Use input menu lists root variables and module outputs available to a module input](../img/assembly-line-input-value-sources-light.png#only-light)
 
 To reference a root variable or module output, choose **Use input** and select a
 source. Repeated or collection sources add instance selectors and key or index
 controls.
 
-![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-input-repeated-values.png)
+![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-module-inputs-current.png#only-dark)
+![Module inputs showing a literal value, repeated instance selectors, and selected module outputs](../img/assembly-line-module-inputs-current-light.png#only-light)
 
 Repeated modules can also use `each.key` and `each.value` in expression fields.
 For example, this description input reads a nested value from the current
 `for_each` object:
 
-![Module description input using the each.value.spec.description expression](../img/assembly-line-input-each-value.png)
+![Module inputs with the description input set to the each.value.spec.description expression](../img/assembly-line-module-inputs-current.png#only-dark)
+![Module inputs with the description input set to the each.value.spec.description expression](../img/assembly-line-module-inputs-current-light.png#only-light)
 
 For a variable map or collection reference, choose **One instance** and enter
 the index or key expression to select one entry. When the selected entry is an
@@ -108,9 +117,11 @@ Leave the descendant selection at **Whole value** to reference the complete
 entry. **All instances** clears the descendant selection and passes the full
 collection. Type checks use the selected entry or projected property type.
 
-![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png)
+![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value.png#only-dark)
+![One instance of var.lambda_functions selected with each.key and the descendant set to Whole value](../img/assembly-line-variable-whole-value-light.png#only-light)
 
-![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png)
+![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances.png#only-dark)
+![All instances selected for var.lambda_functions with no descendant selector](../img/assembly-line-variable-all-instances-light.png#only-light)
 
 ## Repeat Modules with `count` or `for_each`
 
@@ -118,7 +129,8 @@ New module nodes start in **single** mode. To create multiple instances, open
 **Repeat this module with `count` or `for_each`** and choose the mode that
 matches your input.
 
-![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count.png)
+![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count.png#only-dark)
+![Assembly Line module in single mode with the repeat control](../img/assembly-line-pre-count-light.png#only-light)
 
 With `count`, choose **Fixed number** to create the specified number of
 instances. Choose **Conditional (create or not)** to create either zero or one
@@ -126,7 +138,8 @@ instance from a boolean condition. Fixed-count instances use numeric indexes
 such as `module.lambda[0]`; conditional instances use the same indexed form
 when they exist.
 
-![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form.png)
+![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form.png#only-dark)
+![Assembly Line count form showing fixed-number and conditional modes](../img/assembly-line-count-form-light.png#only-light)
 
 ### Use `for_each` for Keyed Instances
 
@@ -134,7 +147,8 @@ Use `for_each` when each instance needs a stable key and its own value. Connect 
 map or set variable to the module's repetition input. In the example canvas,
 `var.lambda_functions` drives the Lambda, IAM, and ECR modules.
 
-![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form-crop-tight.png)
+![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form.png#only-dark)
+![Assembly Line for_each form showing the selected repetition variable](../img/assembly-line-foreach-form-light.png#only-light)
 
 Each repeated module exposes the standard OpenTofu instance context:
 
@@ -165,13 +179,13 @@ provide a key expression such as `each.key` to select the matching value.
 For example, a repeated IAM module can provide one role ARN per function:
 
 ```hcl
-iam_role_arn = module.iam.role_arns[each.key]
+iam_role_arn = module.lambda_roles[each.key].role_arns[each.key]
 ```
 
 The same selector appears when connecting an output from a repeated ECR module:
 
 ```hcl
-image_uri = module.ecr.repo_arns[each.key]
+image_uri = module.ecr[each.key].repo_url
 ```
 
 Each Lambda instance stays paired with its own IAM role and container image.
@@ -186,10 +200,11 @@ Multiple configurations of one provider share one `required_providers` entry. Gi
 
 Select **Configuration** on a provider node to set arguments from the extracted
 schema. The form marks optional attributes and shows complex types such as
-`map(string)`. Add or remove nested blocks such as `assume_role` inline. Provider
+`set(string)`. Add or remove nested blocks such as `assume_role` inline. Provider
 values accept the same typed references as module inputs.
 
-![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration.png)
+![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration.png#only-dark)
+![Assembly Line provider configuration form showing nested blocks, complex attribute types, and its HCL preview](../img/assembly-line-provider-configuration-light.png#only-light)
 
 Provider configuration belongs on the root provider node. Modules then select
 the matching provider configuration through their **Providers** panel, keeping
@@ -234,7 +249,8 @@ Export sends the canvas to the server, which validates it, resolves the selected
 versions, runs OpenTofu initialization, and returns a ZIP of the root module.
 Validation failures appear in the export dialog, and no ZIP is returned.
 
-![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete.png)
+![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete.png#only-dark)
+![Assembly Line export complete dialog showing validated OpenTofu initialization](../img/assembly-line-export-complete-light.png#only-light)
 
 ### Downloaded files
 

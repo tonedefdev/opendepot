@@ -245,5 +245,7 @@ syntax, client credentials, and first-match semantics.
 - [OpenDepot Workshop](index.md)
 - [Module Details](module-details.md)
 - [Provider Details](provider-details.md)
+- [Agent Details](agent-details.md)
+- [Skill Details](skill-details.md)
 - [Workshop authentication](../../authentication/registry-explorer.md)
 - [Assembly Line Administration](../../configuration/assembly-line.md)

@@ -12,7 +12,8 @@ The Registry Explorer is OpenDepot Workshop's discovery surface. It gives users
 an overview of the modules, providers, skills, and agents available to them and
 lets them open resource details, versions, and security information.
 
-![OpenDepot Workshop Registry Explorer showing agents, skills, modules, providers, risk badges, and sync status](../../img/registry-explorer.png)
+![OpenDepot Workshop Registry Explorer table view listing resources with kind, name, version, source, status, and risk](../../img/registry-explorer.png#only-dark)
+![OpenDepot Workshop Registry Explorer table view listing resources with kind, name, version, source, status, and risk](../../img/registry-explorer-light.png#only-light)
 
 ## Sidebar
 
@@ -81,6 +82,8 @@ and any applicable `GroupBinding`.
 - [OpenDepot Workshop](index.md)
 - [Module Details](module-details.md)
 - [Provider Details](provider-details.md)
+- [Agent Details](agent-details.md)
+- [Skill Details](skill-details.md)
 - [Consuming Agents and Skills](../agents.md)
 - [OpenDepot Workshop Administration](administration.md)
 - [OpenDepot Workshop authentication](../../authentication/registry-explorer.md)

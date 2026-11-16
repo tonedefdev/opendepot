@@ -25,7 +25,7 @@ For every command and flag, see the [CLI reference](../reference/cli.md).
 
 The UI browse view shows the sync status of each Version. It also shows blocked and unsynced Versions, and the scan and Jev findings for them. Anyone who can see the parent Agent or Skill can see this data. Browse is filtered per Agent through the caller's GroupBinding. This is intentional, so operators can see why a Version was blocked.
 
-For a Skill or Agent that follows a branch, the detail header shows the source repository, the tracked branch, and the source path. It also shows the latest commit as a 7-character SHA. The Versions table lists every Version, including branch Versions in the `Pending` and `Held` phases. Each row shows its commit with a copy button and a branch phase chip. The commit column appears when at least one row has a commit. A Version without a semver shows `—`.
+For a Skill or Agent that follows a branch, the detail header shows the source repository, the tracked branch, and the source path. It also shows the latest commit as a 7-character SHA. The Versions table lists every Version, including branch Versions in the `Pending` and `Held` phases. Each row shows its commit with a copy button and a branch phase chip. The commit column appears when at least one row has a commit. A Version without a semver shows `—`. See [Agent Details](registry-explorer/agent-details.md) and [Skill Details](registry-explorer/skill-details.md) for the full page layout.
 
 ## Yanked and blocked Versions
 

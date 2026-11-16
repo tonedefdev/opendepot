@@ -345,7 +345,7 @@ No action is required to keep existing behavior — `dexProxy.enabled` defaults 
 
 ## v0.8.0
 
-v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [OpenDepot Workshop README rendering](guides/registry-explorer/module-details.md#readme-and-usage).
+v0.8.0 adds automatic README resolution for modules. See [Module READMEs](guides/operations.md#module-readmes) and the [OpenDepot Workshop README rendering](guides/registry-explorer/module-details.md#usage-and-readme).
 
 ### New RBAC Permissions
 

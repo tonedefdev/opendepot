@@ -130,13 +130,15 @@ The Jev panel colors each probability bar by risk, using the same bands as the C
 
 For the Safe row, a value above 0.75 is green, and a value of 0.50 or lower is red. A bar is always red when its threshold is breached, regardless of its band. The risk level uses the same colors: `Minimal` and `Low` are green, `Moderate` is yellow, and `High` and `Critical` are red.
 
-The Jev panel on a Skill or Agent Version shows the overall risk, the risk score, the confidence, and a probability bar for each question. The planner Agent Version below has a `Low` risk level with a 1.44 risk score and 38.0% confidence. Its injection and scope mismatch bars are yellow:
+The Jev panel on a Skill or Agent Version shows the overall risk, the risk score, the confidence, and a probability bar for each question. The accessibility Agent Version below has a `Low` risk level with a 0.69 risk score and 88.0% confidence. Every probability bar is green:
 
-![Jev assessment panel for the planner Agent Version in dark mode showing Low risk, a 1.44 risk score, and 38.0% confidence](../img/agent-jev-assessment.png)
+![Jev assessment panel for the accessibility Agent Version in dark mode showing Low risk, a 0.69 risk score, and 88.0% confidence](../img/agent-jev-assessment.png#only-dark)
+![Jev assessment panel for the accessibility Agent Version in dark mode showing Low risk, a 0.69 risk score, and 88.0% confidence](../img/agent-jev-assessment-light.png#only-light)
 
-The gh-actions-debug Skill Version below has a `Low` risk level with a 1.47 risk score and 32.0% confidence. Its safe and destructive actions bars are yellow:
+The gh-actions-debug Skill Version below has a `Low` risk level with a 1.45 risk score and 32.0% confidence. Its safe and destructive actions bars are yellow:
 
-![Jev assessment panel for the gh-actions-debug Skill Version in dark mode showing Low risk, a 1.47 risk score, and 32.0% confidence](../img/skill-jev-assessment.png)
+![Jev assessment panel for the gh-actions-debug Skill Version in dark mode showing Low risk, a 1.45 risk score, and 32.0% confidence](../img/skill-jev-assessment.png#only-dark)
+![Jev assessment panel for the gh-actions-debug Skill Version in dark mode showing Low risk, a 1.45 risk score, and 32.0% confidence](../img/skill-jev-assessment-light.png#only-light)
 
 ## Needs review
 

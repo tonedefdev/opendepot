@@ -48,7 +48,7 @@
    Header
    --------------------------------------------------------------------------- */
 .md-header {
-  background: linear-gradient(135deg, #047df1 0%, #03deb8 100%);
+  background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%);
 }
 
 /* Keep header icons white regardless of palette */
@@ -173,7 +173,7 @@
    Navigation tabs
    --------------------------------------------------------------------------- */
 .md-tabs {
-  background: linear-gradient(135deg, #0468cc 0%, #04cfd0 100%);
+  background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%);
 }
 
 .md-tabs__link {
@@ -341,7 +341,7 @@ body:has(.mdx-container) .md-content__inner > h1 {
 .md-button--primary:hover,
 .md-button--primary:focus,
 .md-button--primary:focus-visible {
-  background: linear-gradient(135deg, #0365cc 0%, #0468cc 100%) !important;
+  background: linear-gradient(118deg, #0350c7 0%, #048fc3 46%, #03deb8 100%) !important;
   border: none !important;
   outline: none !important;
   box-shadow: 0 6px 20px rgba(3, 80, 199, 0.45) !important;

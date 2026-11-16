@@ -13,7 +13,8 @@ resources and the `Module`, `Provider`, `Skill`, and `Agent` resources each depo
 manages. Every Module, Provider, Skill, and Agent with versions fans out to one
 node per version.
 
-![OpenDepot Workshop Depots graph linking a depot to its modules, providers, skills, agents, and versions](../../img/registry-depots.png)
+![OpenDepot Workshop Depots graph linking a depot to its skills and their versions](../../img/registry-depots.png#only-dark)
+![OpenDepot Workshop Depots graph linking a depot to its skills and their versions](../../img/registry-depots-light.png#only-light)
 
 ```mermaid
 graph LR

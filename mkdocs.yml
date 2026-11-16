@@ -94,6 +94,8 @@ nav:
         - Registry Explorer: guides/registry-explorer/registry.md
         - Module Details: guides/registry-explorer/module-details.md
         - Provider Details: guides/registry-explorer/provider-details.md
+        - Agent Details: guides/registry-explorer/agent-details.md
+        - Skill Details: guides/registry-explorer/skill-details.md
         - Depots: guides/registry-explorer/depots.md
         - Assembly Line: guides/assembly-line.md
         - Stats: guides/registry-explorer/browse.md
