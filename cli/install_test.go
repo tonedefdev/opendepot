@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -322,5 +323,49 @@ func (f *fakeRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func TestFetchOmitsAuthorizationOnCrossHostRedirect(t *testing.T) {
+	const token = "registry-token"
+	targetAuth := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetAuth <- r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("archive"))
+	}))
+	t.Cleanup(target.Close)
+
+	registryAuth := make(chan string, 1)
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		registryAuth <- r.Header.Get("Authorization")
+
+		// The redirect target is on a different hostname, so the client must not forward credentials.
+		location := strings.Replace(target.URL, "127.0.0.1", "localhost", 1) + "/archive.tar.gz"
+		http.Redirect(w, r, location, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(registry.Close)
+
+	a := &app{
+		httpClient: registry.Client(),
+		scheme:     "http",
+		tokenFor:   func(string) string { return token },
+	}
+
+	authHost := strings.TrimPrefix(registry.URL, "http://")
+	body, err := a.fetch(context.Background(), registry.URL+"/opendepot/agents/v1/acme/demo/1.0.0/archive", authHost, maxMetadataBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(body) != "archive" {
+		t.Fatalf("body = %q, want %q", body, "archive")
+	}
+
+	if got := <-registryAuth; got != "Bearer "+token {
+		t.Fatalf("registry Authorization = %q, want %q", got, "Bearer "+token)
+	}
+
+	if got := <-targetAuth; got != "" {
+		t.Fatalf("redirect target Authorization = %q, want none", got)
 	}
 }
