@@ -126,7 +126,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
         <SyncStatus resource={resource} testId="resource-row-sync-status" />
       </TableCell>
 
-      <TableCell sx={{ pr: "5px" }}>
+      <TableCell sx={{ pr: "12px" }}>
         <Box display="flex" alignItems="center" gap={0.5} sx={{ overflow: "hidden" }}>
           {isAgentKind(resource.kind) && resource.jevRiskLevel && <RiskMeter level={resource.jevRiskLevel} />}
           {resource.scanCounts && <SeverityBadge counts={resource.scanCounts} dense />}
