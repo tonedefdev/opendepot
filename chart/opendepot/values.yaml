@@ -232,6 +232,7 @@ server:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
   nodeSelector: {}
   tolerations: []
@@ -240,6 +241,8 @@ server:
   s3UsePathStyle: false
   # UID for the server pod and container.
   runAsUser: 65532
+  # GID for the server pod and container.
+  runAsGroup: 65532
   # Generic hooks for the server pod. All are empty by default.
   extraEnv: []
   extraVolumes: []

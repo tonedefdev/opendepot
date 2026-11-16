@@ -22,6 +22,7 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: {{ .Values.server.runAsUser }}
+        runAsGroup: {{ .Values.server.runAsGroup }}
         {{- if or .Values.storage.filesystem.enabled .Values.assembly.enabled }}
         fsGroup: 65532
         {{- end }}
