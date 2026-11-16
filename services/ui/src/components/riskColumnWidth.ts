@@ -14,8 +14,8 @@ const METER_CHIP_GAP_PX = 4;
 // Five 3px bars with 2px gaps, followed by the meter's 8px gap to its label.
 const METER_BARS_PX = 23;
 const METER_LABEL_GAP_PX = 8;
-// Left padding is the TableCell default of 16px. Right padding is 12px on the Risk column.
-const CELL_PADDING_PX = 28;
+// Left and right padding are both 16px on the Risk column.
+const CELL_PADDING_PX = 32;
 
 type MeasureText = (text: string, font: string) => number;
 
