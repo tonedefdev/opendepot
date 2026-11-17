@@ -9,7 +9,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   Tab,
@@ -56,6 +55,9 @@ const TYPE_COLLAPSED_HEIGHT = 160;
 // show more/less toggle, so a long markdown blurb doesn't blow out the row.
 const DESCRIPTION_COLLAPSED_HEIGHT = 120;
 const DESCRIPTION_EXPANDED_HEIGHT = 400;
+
+const VARIABLE_HEADERS = ["Name", "Type", "Required", "Default", "Description"];
+const OUTPUT_HEADERS = ["Name", "Type", "Confidence", "Description"];
 
 interface Props {
   contract: BrowseContract;
@@ -340,107 +342,82 @@ function MarkdownDescription({ text }: { text?: string }) {
   );
 }
 
-function VariablesTable({
+function VariableRows({
   variables,
 }: {
   variables: ContractVariable[];
 }) {
   return (
-    <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Required</TableCell>
-            <TableCell>Default</TableCell>
-            <TableCell>Description</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {variables.map((v) => (
-            <TableRow key={v.name} hover>
-              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                {v.name}
-                {v.sensitive && (
-                  <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
-                )}
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
-                <TypeCode
-                  type={v.type}
-                  optionalAttributes={v.optionalAttributes}
-                  copyable={false}
-                />
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top" }}>
-                <Chip
-                  label={v.required ? "required" : "optional"}
-                  size="small"
-                  color={v.required ? "primary" : "default"}
-                  variant="outlined"
-                />
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top" }}>
-                <DefaultCode value={v.default} copyable={false} />
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
-                <MarkdownDescription text={v.description} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <>
+      {variables.map((v) => (
+        <TableRow key={v.name} hover>
+          <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+            {v.name}
+            {v.sensitive && (
+              <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
+            )}
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
+            <TypeCode
+              type={v.type}
+              optionalAttributes={v.optionalAttributes}
+              copyable={false}
+            />
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top" }}>
+            <Chip
+              label={v.required ? "required" : "optional"}
+              size="small"
+              color={v.required ? "primary" : "default"}
+              variant="outlined"
+            />
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top" }}>
+            <DefaultCode value={v.default} copyable={false} />
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
+            <MarkdownDescription text={v.description} />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
   );
 }
 
-function OutputsTable({
+function OutputRows({
   outputs,
 }: {
   outputs: ContractOutput[];
 }) {
   return (
-    <TableContainer sx={{ overflowX: "visible", overflowY: "visible" }}>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Confidence</TableCell>
-            <TableCell>Description</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {outputs.map((o) => (
-            <TableRow key={o.name} hover>
-              <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                {o.name}
-                {o.sensitive && (
-                  <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
-                )}
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
-                <TypeCode type={o.type} copyable={false} />
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top" }}>
-                <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
-                  <Chip
-                    label={o.confidence}
-                    size="small"
-                    color={CONFIDENCE_COLOR[o.confidence] ?? "default"}
-                    variant="outlined"
-                  />
-                </Tooltip>
-              </TableCell>
-              <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
-                <MarkdownDescription text={o.description} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <>
+      {outputs.map((o) => (
+        <TableRow key={o.name} hover>
+          <TableCell sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", whiteSpace: "nowrap", verticalAlign: "top" }}>
+            {o.name}
+            {o.sensitive && (
+              <Chip label="sensitive" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
+            )}
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top", minWidth: 220 }}>
+            <TypeCode type={o.type} copyable={false} />
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top" }}>
+            <Tooltip title={o.confidence === "exact" ? "" : o.reason || ""} placement="top">
+              <Chip
+                label={o.confidence}
+                size="small"
+                color={CONFIDENCE_COLOR[o.confidence] ?? "default"}
+                variant="outlined"
+              />
+            </Tooltip>
+          </TableCell>
+          <TableCell sx={{ verticalAlign: "top", minWidth: 200 }}>
+            <MarkdownDescription text={o.description} />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
   );
 }
 
@@ -534,9 +511,14 @@ export default function ContractTable({ contract }: Props) {
   const [tab, setTab] = React.useState(0);
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
-  const [scrollbarWidth, setScrollbarWidth] = React.useState(0);
-  const [headHeight, setHeadHeight] = React.useState(0);
+  // Pinned column widths shared by the header and body tables. Null while the columns are measured.
+  const [columnWidths, setColumnWidths] = React.useState<number[] | null>(null);
+  const [layoutVersion, setLayoutVersion] = React.useState(0);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const headScrollRef = React.useRef<HTMLDivElement>(null);
+  const headTableRef = React.useRef<HTMLTableElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const bodyTableRef = React.useRef<HTMLTableElement>(null);
   const theme = useTheme();
   // Below lg the table is replaced by cards, so there is no scroll viewport to measure.
   const compact = useMediaQuery(theme.breakpoints.down("lg"));
@@ -546,20 +528,59 @@ export default function ContractTable({ contract }: Props) {
   const outputs = React.useMemo(() => contract.outputs ?? [], [contract.outputs]);
   const warnings = contract.compatibility.warnings ?? [];
   const grade = contract.compatibility.grade;
+  const headers = tab === 0 ? VARIABLE_HEADERS : OUTPUT_HEADERS;
   const activeCount = tab === 0 ? variables.length : outputs.length;
 
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el || compact) {
       setOverflows(false);
-      setScrollbarWidth(0);
       return;
     }
 
     setOverflows(el.scrollHeight > el.clientHeight + 1);
-    setScrollbarWidth(el.offsetWidth - el.clientWidth - 2 * el.clientLeft);
-    setHeadHeight(el.querySelector("thead")?.offsetHeight ?? 0);
   }, [tab, variables, outputs, expanded, compact]);
+
+  // The header is a separate table, so any width change re-measures the columns.
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let lastWidth = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      if (width === lastWidth) return;
+
+      lastWidth = width;
+      setLayoutVersion((version) => version + 1);
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Pinned widths are dropped whenever the content changes so the next pass measures natural widths.
+  React.useLayoutEffect(() => {
+    setColumnWidths(null);
+  }, [layoutVersion, tab, variables, outputs]);
+
+  // Natural widths come from the body's auto layout, which fills the available width exactly. The header is pinned to the same widths.
+  React.useLayoutEffect(() => {
+    const bodyTable = bodyTableRef.current;
+    if (columnWidths !== null || !bodyTable || bodyTable.offsetWidth === 0) return;
+
+    const bodyCells = bodyTable.querySelectorAll<HTMLTableCellElement>("tbody tr:first-child td");
+    setColumnWidths(Array.from(bodyCells, (cell) => cell.getBoundingClientRect().width));
+  }, [columnWidths, layoutVersion, tab, variables, outputs]);
+
+  const pinnedColumns = columnWidths && (
+    <Box component="colgroup">
+      {columnWidths.map((width, i) => (
+        <Box key={headers[i]} component="col" sx={{ width }} />
+      ))}
+    </Box>
+  );
+  const tableSx = { tableLayout: columnWidths ? "fixed" : "auto" } as const;
 
   return (
     <Box>
@@ -595,42 +616,58 @@ export default function ContractTable({ contract }: Props) {
         </Typography>
       ) : (
         <>
-          {/* Desktop only. The scroll container carries the rounded outline. It already clips overflow, so the sticky header's blue fill stays inside the corners. */}
-          <Box sx={{ position: "relative", display: { xs: "none", lg: "block" } }}>
+          {/* Desktop only. The header is a separate table above the body, so the scrollbar only runs beneath it and can never paint over it. The outline clips both, and the body shrinks to fit the maxHeight. */}
+          <Box
+            ref={containerRef}
+            sx={{
+              display: { xs: "none", lg: "flex" },
+              flexDirection: "column",
+              maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+              overflow: "hidden",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+            }}
+          >
+            {/* Both tables share pinned column widths. The gutter keeps the header the same width as the body when a classic scrollbar takes space. */}
+            <Box ref={headScrollRef} sx={{ flex: "none", overflow: "hidden", scrollbarGutter: "stable" }}>
+              <Table ref={headTableRef} size="small" stickyHeader sx={tableSx}>
+                {pinnedColumns}
+                <TableHead>
+                  <TableRow>
+                    {headers.map((header) => (
+                      <TableCell key={header}>{header}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+              </Table>
+            </Box>
             <Box
               ref={scrollRef}
+              onScroll={(event) => {
+                if (headScrollRef.current) {
+                  headScrollRef.current.scrollLeft = event.currentTarget.scrollLeft;
+                }
+              }}
               sx={{
-                maxHeight: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
+                flex: "1 1 auto",
+                minHeight: 0,
                 overflowY: "auto",
                 overflowX: "auto",
-                border: 1,
-                borderColor: "divider",
-                borderRadius: 1,
+                scrollbarGutter: "stable",
               }}
             >
-              {tab === 0 ? (
-                <VariablesTable variables={variables} />
-              ) : (
-                <OutputsTable outputs={outputs} />
-              )}
+              <Table ref={bodyTableRef} size="small" sx={tableSx}>
+                {pinnedColumns}
+                <TableBody>
+                  {tab === 0 ? (
+                    <VariableRows variables={variables} />
+                  ) : (
+                    <OutputRows outputs={outputs} />
+                  )}
+                </TableBody>
+              </Table>
             </Box>
-            {/* The scrollbar spans the full scroll container, so this cap paints the header colour over its top segment. The bar appears to start beneath the header. */}
-            {scrollbarWidth > 0 && (
-              <Box
-                aria-hidden
-                sx={{
-                  position: "absolute",
-                  top: 1,
-                  right: 1,
-                  width: scrollbarWidth,
-                  height: headHeight,
-                  borderTopRightRadius: 3,
-                  bgcolor: "background.paper",
-                  pointerEvents: "none",
-                  [`[data-mui-color-scheme="light"] &`]: { bgcolor: "primary.main" },
-                }}
-              />
-            )}
           </Box>
           <MobileRecordList>
             {tab === 0
