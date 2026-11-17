@@ -1,6 +1,6 @@
 ---
 name: zeta-discovery-canary
-description: Use when: a task asks for the zeta discovery canary code word, or for the ZETA-DISCOVERY test answer. Provides the one-time canary code word used to measure skill discovery in the OpenDepot CLI test.
+description: "Use when: a task asks for the zeta discovery canary code word, or for the ZETA-DISCOVERY test answer. Provides the one-time canary code word used to measure skill discovery in the OpenDepot CLI test."
 ---
 
 # Zeta Discovery Canary
