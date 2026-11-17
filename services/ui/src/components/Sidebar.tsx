@@ -560,7 +560,7 @@ export default function Sidebar({
           <ListItem disablePadding>
             <ListItemButton
               component="a"
-              href="https://tonedefdev.github.io/opendepot"
+              href="/docs"
               target="_blank"
               rel="noopener noreferrer"
               sx={{ mx: 1, borderRadius: "6px", py: 0.5 }}
@@ -952,7 +952,7 @@ export default function Sidebar({
       <Tooltip title="Documentation" placement="right">
         <IconButton
           component="a"
-          href="https://tonedefdev.github.io/opendepot"
+          href="/docs"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Open documentation"
