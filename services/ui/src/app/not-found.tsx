@@ -20,7 +20,7 @@ export default function NotFound() {
           Resource not found
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-          The module or provider you&apos;re looking for doesn&apos;t exist or may have been removed.
+          The resource you&apos;re looking for doesn&apos;t exist or may have been removed.
         </Typography>
         <Button
           component={Link}
