@@ -130,16 +130,41 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build a set of visible parent (module/provider) resource keys so version
+	// List visible Skills and Agents using the same visibility rules as the depots graph. They are listed before
+	// the Versions so that their Versions pass the visibility filter below.
+	skillCards, err := browseListVisibleAgentCards(r.Context(), cs, namespace, nsPublic, binding, allAccess, "skill")
+	if err != nil {
+		logger.Error("stats: failed to list skills", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	agentCards, err := browseListVisibleAgentCards(r.Context(), cs, namespace, nsPublic, binding, allAccess, "agent")
+	if err != nil {
+		logger.Error("stats: failed to list agents", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Build a set of visible parent (module/provider/skill/agent) resource keys so version
 	// visibility can be derived from the parent, which is what GroupBinding controls.
 	// Key format: "<namespace>/<Kind>/<name>"
-	visibleParents := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items))
+	visibleParents := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items)+
+		len(skillCards)+len(agentCards))
 	for _, m := range moduleList.Items {
 		visibleParents[m.Namespace+"/Module/"+m.Name] = struct{}{}
 	}
 
 	for _, p := range providerList.Items {
 		visibleParents[p.Namespace+"/Provider/"+p.Name] = struct{}{}
+	}
+
+	for _, s := range skillCards {
+		visibleParents[s.Metadata.Namespace+"/Skill/"+s.Metadata.Name] = struct{}{}
+	}
+
+	for _, a := range agentCards {
+		visibleParents[a.Metadata.Namespace+"/Agent/"+a.Metadata.Name] = struct{}{}
 	}
 
 	// List all versions — a version is visible if its owner module/provider is visible.
@@ -189,6 +214,16 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 
 	for _, p := range providerList.Items {
 		backend := storageBackendName(p.Spec.ProviderConfig.StorageConfig)
+		backendCounts[backend]++
+	}
+
+	for _, s := range skillCards {
+		backend := storageBackendName(s.Spec.AgentSourceConfig.StorageConfig)
+		backendCounts[backend]++
+	}
+
+	for _, a := range agentCards {
+		backend := storageBackendName(a.Spec.AgentSourceConfig.StorageConfig)
 		backendCounts[backend]++
 	}
 
@@ -262,27 +297,12 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
 	}
 
-	// List visible Skills and Agents using the same visibility rules as the depots graph.
-	skillNodes, err := browseGraphAgentNodes(r.Context(), cs, namespace, nsPublic, binding, allAccess, "skill")
-	if err != nil {
-		logger.Error("stats: failed to list skills", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+	for _, s := range skillCards {
+		visibleResources[s.Metadata.Namespace+"/skill/"+s.Metadata.Name] = struct{}{}
 	}
 
-	agentNodes, err := browseGraphAgentNodes(r.Context(), cs, namespace, nsPublic, binding, allAccess, "agent")
-	if err != nil {
-		logger.Error("stats: failed to list agents", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	for _, s := range skillNodes {
-		visibleResources[s.Namespace+"/skill/"+s.Name] = struct{}{}
-	}
-
-	for _, a := range agentNodes {
-		visibleResources[a.Namespace+"/agent/"+a.Name] = struct{}{}
+	for _, a := range agentCards {
+		visibleResources[a.Metadata.Namespace+"/agent/"+a.Metadata.Name] = struct{}{}
 	}
 
 	// Jev assesses Agents and Skills, which the Version totals above do not include. The Jev
@@ -297,8 +317,8 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	skillsSynced := countSyncedAgentNodes(skillNodes)
-	agentsSynced := countSyncedAgentNodes(agentNodes)
+	skillsSynced := countSyncedAgentCards(skillCards)
+	agentsSynced := countSyncedAgentCards(agentCards)
 
 	modulesSynced := 0
 	for _, m := range moduleList.Items {
@@ -328,9 +348,9 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		ModulesSynced:       modulesSynced,
 		TotalProviders:      len(providerList.Items),
 		ProvidersSynced:     providersSynced,
-		TotalSkills:         len(skillNodes),
+		TotalSkills:         len(skillCards),
 		SkillsSynced:        skillsSynced,
-		TotalAgents:         len(agentNodes),
+		TotalAgents:         len(agentCards),
 		AgentsSynced:        agentsSynced,
 		TotalVersions:       len(versionList.Items),
 		VersionsSynced:      syncHealth.SyncedVersions,
@@ -347,11 +367,11 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
-// countSyncedAgentNodes returns how many Skill or Agent nodes report Synced.
-func countSyncedAgentNodes(nodes []BrowseGraphAgent) int {
+// countSyncedAgentCards returns how many Skill or Agent resources report Synced.
+func countSyncedAgentCards(cards []agentCardObject) int {
 	synced := 0
-	for _, n := range nodes {
-		if n.Synced {
+	for _, c := range cards {
+		if c.Status.Synced {
 			synced++
 		}
 	}

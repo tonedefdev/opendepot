@@ -248,6 +248,9 @@ type BrowseResource struct {
 	// Download stats (populated from Prometheus over the configured lookback).
 	TotalDownloads   int64  `json:"totalDownloads,omitempty"`
 	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
+	// LastUpdated is the RFC 3339 UTC creation time of the newest Version, or of the resource itself when it has
+	// no Versions. It is omitted when unknown.
+	LastUpdated string `json:"lastUpdated,omitempty"`
 }
 
 // BrowseResourceList is the JSON body returned by the browse resources list endpoint.

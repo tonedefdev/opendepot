@@ -452,8 +452,61 @@ func isBrowseVisible(pub, publicOnly, allAccess bool, binding *opendepotv1alpha1
 	return true
 }
 
+// browseVersionTimes maps "<namespace>/<kind>/<name>" to the newest creationTimestamp of the Versions
+// owned by that Module, Provider, Skill, or Agent. The kind is lowercase.
+type browseVersionTimes map[string]metav1.Time
+
+// browseListVersionTimes lists every Version once and indexes its creationTimestamp by owner reference.
+func browseListVersionTimes(cs *kubernetes.Clientset, r *http.Request) (browseVersionTimes, error) {
+	raw, err := cs.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list versions: %w", err)
+	}
+
+	var list opendepotv1alpha1.VersionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal version list: %w", err)
+	}
+
+	times := make(browseVersionTimes)
+	for i := range list.Items {
+		v := &list.Items[i]
+		for _, ref := range v.OwnerReferences {
+			key := v.Namespace + "/" + strings.ToLower(ref.Kind) + "/" + ref.Name
+			if v.CreationTimestamp.After(times[key].Time) {
+				times[key] = v.CreationTimestamp
+			}
+		}
+	}
+
+	return times, nil
+}
+
+// browseLastUpdated returns the RFC 3339 UTC time of the newest Version owned by a resource. When the resource
+// has no Versions, it falls back to the resource's own creationTimestamp. It returns an empty string when neither
+// is known, so the field is omitted from the card.
+func browseLastUpdated(times browseVersionTimes, kind, namespace, name string, created metav1.Time) string {
+	latest := times[namespace+"/"+kind+"/"+name]
+	if latest.IsZero() {
+		latest = created
+	}
+
+	if latest.IsZero() {
+		return ""
+	}
+
+	return latest.UTC().Format(time.RFC3339)
+}
+
 // browseCollectModules fetches and filters Module resources for the browse endpoint.
-func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool) ([]BrowseResource, error) {
+func browseCollectModules(
+	cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool,
+	binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, versionTimes browseVersionTimes,
+) ([]BrowseResource, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -495,6 +548,7 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 		}
 
 		resource := moduleToCard(m, pub)
+		resource.LastUpdated = browseLastUpdated(versionTimes, "module", ns, m.Name, m.CreationTimestamp)
 
 		versionData, err := browseListModuleVersions(cs, r, ns, m.Name)
 		if err != nil {
@@ -509,7 +563,11 @@ func browseCollectModules(cs *kubernetes.Clientset, r *http.Request, nsFilter, n
 }
 
 // browseCollectProviders fetches and filters Provider resources for the browse endpoint.
-func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, filterOS, filterArch string) ([]BrowseResource, error) {
+func browseCollectProviders(
+	cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool,
+	binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, filterOS, filterArch string,
+	versionTimes browseVersionTimes,
+) ([]BrowseResource, error) {
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -551,6 +609,7 @@ func browseCollectProviders(cs *kubernetes.Clientset, r *http.Request, nsFilter,
 		}
 
 		resource := providerToCard(p, pub)
+		resource.LastUpdated = browseLastUpdated(versionTimes, "provider", ns, p.Name, p.CreationTimestamp)
 
 		versionData, err := browseListProviderVersions(cs, r, ns)
 		if err != nil {
@@ -584,7 +643,11 @@ type agentCardSpec struct {
 }
 
 // browseCollectAgentResources fetches and filters Skill or Agent resources for the browse endpoint.
-func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, kind string) ([]BrowseResource, error) {
+func browseCollectAgentResources(
+	cs *kubernetes.Clientset, r *http.Request, nsFilter, nsPublic map[string]bool,
+	binding *opendepotv1alpha1.GroupBinding, allAccess, publicOnly bool, kind string,
+	versionTimes browseVersionTimes,
+) ([]BrowseResource, error) {
 	resource := browseAgentResource(kind)
 	raw, err := cs.RESTClient().
 		Get().
@@ -631,6 +694,7 @@ func browseCollectAgentResources(cs *kubernetes.Clientset, r *http.Request, nsFi
 		}
 
 		card := agentToCard(kind, a, pub)
+		card.LastUpdated = browseLastUpdated(versionTimes, kind, ns, a.Metadata.Name, a.Metadata.CreationTimestamp)
 		state := jevStates[browseAgentRiskKey(ns, kind, a.Metadata.Name, opendepotUtils.SanitizeVersion(card.LatestVersion))]
 		card.JevRiskLevel = state.riskLevel
 		card.Blocked = state.blocked
@@ -1054,10 +1118,17 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 		nsPublic[ns.Metadata.Name] = isPublicNamespace(ns.Metadata.Labels)
 	}
 
+	versionTimes, err := browseListVersionTimes(cs, r)
+	if err != nil {
+		logger.Error("browse: failed to index version times", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	var items []BrowseResource
 
 	if filterKind == "" || filterKind == "module" {
-		modules, err := browseCollectModules(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly)
+		modules, err := browseCollectModules(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, versionTimes)
 		if err != nil {
 			logger.Error("browse: failed to collect modules", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1068,7 +1139,9 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if filterKind == "" || filterKind == "provider" {
-		providers, err := browseCollectProviders(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, filterOS, filterArch)
+		providers, err := browseCollectProviders(
+			cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, filterOS, filterArch, versionTimes,
+		)
 		if err != nil {
 			logger.Error("browse: failed to collect providers", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1083,7 +1156,9 @@ func handleBrowseResources(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		agents, err := browseCollectAgentResources(cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, agentKindName)
+		agents, err := browseCollectAgentResources(
+			cs, r, nsFilter, nsPublic, binding, allAccess, publicOnly, agentKindName, versionTimes,
+		)
 		if err != nil {
 			logger.Error("browse: failed to collect "+agentKindName+"s", "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -2901,8 +2976,12 @@ func handleBrowseDepots(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// browseGraphAgentNodes lists Skill or Agent resources as depot graph nodes.
-func browseGraphAgentNodes(ctx context.Context, cs *kubernetes.Clientset, ns string, nsPublic map[string]bool, binding *opendepotv1alpha1.GroupBinding, allAccess bool, kind string) ([]BrowseGraphAgent, error) {
+// browseListVisibleAgentCards lists the Skill or Agent resources the caller can see, using the same visibility
+// rules as the browse resources list.
+func browseListVisibleAgentCards(
+	ctx context.Context, cs *kubernetes.Clientset, ns string, nsPublic map[string]bool,
+	binding *opendepotv1alpha1.GroupBinding, allAccess bool, kind string,
+) ([]agentCardObject, error) {
 	resource := browseAgentResource(kind)
 	req := cs.RESTClient().Get().AbsPath("/apis/opendepot.defdev.io/v1alpha1").Resource(resource)
 	if ns != "" {
@@ -2921,13 +3000,31 @@ func browseGraphAgentNodes(ctx context.Context, cs *kubernetes.Clientset, ns str
 		return nil, fmt.Errorf("failed to unmarshal %s list: %w", resource, err)
 	}
 
-	nodes := make([]BrowseGraphAgent, 0, len(list.Items))
+	visible := make([]agentCardObject, 0, len(list.Items))
 	for _, a := range list.Items {
 		pub := nsPublic[a.Metadata.Namespace] && isPublicResource(a.Metadata.Labels)
 		if !isBrowseVisible(pub, false, allAccess, binding, kind, a.Metadata.Name) {
 			continue
 		}
 
+		visible = append(visible, a)
+	}
+
+	return visible, nil
+}
+
+// browseGraphAgentNodes lists Skill or Agent resources as depot graph nodes.
+func browseGraphAgentNodes(
+	ctx context.Context, cs *kubernetes.Clientset, ns string, nsPublic map[string]bool,
+	binding *opendepotv1alpha1.GroupBinding, allAccess bool, kind string,
+) ([]BrowseGraphAgent, error) {
+	cards, err := browseListVisibleAgentCards(ctx, cs, ns, nsPublic, binding, allAccess, kind)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make([]BrowseGraphAgent, 0, len(cards))
+	for _, a := range cards {
 		node := BrowseGraphAgent{
 			ID:         fmt.Sprintf("%s/%s/%s", kind, a.Metadata.Namespace, a.Metadata.Name),
 			Kind:       kind,

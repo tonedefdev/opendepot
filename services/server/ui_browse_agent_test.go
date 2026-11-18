@@ -19,6 +19,9 @@ import (
 
 const browseAgentTestNamespace = "team"
 
+// browseAgentTestClusterVersionsPath is the cluster-wide Version list path read by the browse list handler.
+const browseAgentTestClusterVersionsPath = "/apis/opendepot.defdev.io/v1alpha1/versions"
+
 func browseAgentTestObject(kind, name string, labels map[string]string, storage *opendepotv1alpha1.StorageConfig) any {
 	meta := metav1.ObjectMeta{Name: name, Namespace: browseAgentTestNamespace, Labels: labels}
 	source := opendepotv1alpha1.AgentSourceConfig{StorageConfig: storage}
@@ -89,7 +92,7 @@ func browseAgentTestServerWithConfigMaps(t *testing.T, kind, name string, nsLabe
 			_, _ = w.Write(namespacePayload)
 		case r.URL.Path == resourcePath:
 			_, _ = w.Write(resourcePayload)
-		case r.URL.Path == namespacePath+"/versions":
+		case r.URL.Path == namespacePath+"/versions", r.URL.Path == browseAgentTestClusterVersionsPath:
 			_, _ = w.Write(versionPayload)
 		case strings.HasSuffix(r.URL.Path, "/groupbindings"):
 			_, _ = w.Write(bindingPayload)
@@ -842,6 +845,7 @@ func TestBrowseResourcesUnfilteredIncludesAllKinds(t *testing.T) {
 		"/apis/opendepot.defdev.io/v1alpha1/skills":                                               {listItem("c-skill")},
 		"/apis/opendepot.defdev.io/v1alpha1/agents":                                               {listItem("d-agent")},
 		"/apis/opendepot.defdev.io/v1alpha1/namespaces/" + browseAgentTestNamespace + "/versions": nil,
+		browseAgentTestClusterVersionsPath:                                                        nil,
 		"/apis/opendepot.defdev.io/v1alpha1/groupbindings":                                        nil,
 	}
 
@@ -984,7 +988,9 @@ func TestBrowseAgentCardsCarryLatestJevRiskLevel(t *testing.T) {
 			}
 
 			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources", nil)
-			items, err := browseCollectAgentResources(cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind)
+			items, err := browseCollectAgentResources(
+				cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind, nil,
+			)
 			if err != nil {
 				t.Fatalf("browseCollectAgentResources: %v", err)
 			}
@@ -1113,7 +1119,9 @@ func TestBrowseAgentCardsCarryBlockedState(t *testing.T) {
 			}
 
 			request := httptest.NewRequest(http.MethodGet, "http://registry.example.com/opendepot/ui/v1/resources", nil)
-			items, err := browseCollectAgentResources(cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind)
+			items, err := browseCollectAgentResources(
+				cs, request, nil, map[string]bool{browseAgentTestNamespace: true}, nil, true, false, tc.kind, nil,
+			)
 			if err != nil {
 				t.Fatalf("browseCollectAgentResources: %v", err)
 			}
