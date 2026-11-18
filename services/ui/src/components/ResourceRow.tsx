@@ -12,9 +12,9 @@ import { useRouter } from "next/navigation";
 import SeverityBadge from "./SeverityBadge";
 import SourceRefChip from "./SourceRefChip";
 import RiskMeter from "./RiskMeter";
+import { LastUpdated } from "./LastUpdated";
 import { KindLabel, SyncStatus, displayVersion, isAgentKind } from "./resourceDisplay";
 import type { BrowseResource } from "@/lib/api";
-import { formatFullDateTime, formatRelativeTime } from "@/lib/relativeTime";
 import { LAST_UPDATED_COLUMN_PX } from "./resourceListLayout";
 
 interface Props {
@@ -129,11 +129,7 @@ export default function ResourceRow({ resource, showSource }: Props) {
       </TableCell>
 
       <TableCell sx={{ width: LAST_UPDATED_COLUMN_PX }}>
-        <Tooltip title={formatFullDateTime(resource.lastUpdated)} placement="top" enterDelay={300} disableInteractive>
-          <Typography variant="body2" noWrap color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
-            {formatRelativeTime(resource.lastUpdated)}
-          </Typography>
-        </Tooltip>
+        <LastUpdated value={resource.lastUpdated} variant="body2" />
       </TableCell>
 
       <TableCell sx={{ pr: "16px" }}>

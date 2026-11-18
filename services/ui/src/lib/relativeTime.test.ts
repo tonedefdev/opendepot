@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFullDateTime, formatRelativeTime } from "./relativeTime";
+import { displayLastUpdated, formatFullDateTime, formatRelativeTime } from "./relativeTime";
 
 const NOW = Date.parse("2026-05-20T12:00:00Z");
 
@@ -36,5 +36,34 @@ describe("formatFullDateTime", () => {
 
   it("returns the locale date-time for a valid RFC 3339 value", () => {
     expect(formatFullDateTime("2026-05-20T12:00:00Z")).toBe(new Date("2026-05-20T12:00:00Z").toLocaleString());
+  });
+});
+
+describe("displayLastUpdated", () => {
+  it("shows a fixed UTC date and never a relative phrase before mount", () => {
+    const display = displayLastUpdated("2026-05-19T12:00:00Z", null);
+
+    expect(display.text).toBe("May 19, 2026");
+    expect(display.title).toContain("May 19, 2026");
+    expect(display.text).not.toContain("ago");
+  });
+
+  it("reads the date in UTC so every time zone renders the same text", () => {
+    // 23:30 UTC is still May 20 in UTC but already May 21 in UTC+1 and later zones.
+    expect(displayLastUpdated("2026-05-20T23:30:00Z", null).text).toBe("May 20, 2026");
+  });
+
+  it("shows the relative time and the locale date-time after mount", () => {
+    const display = displayLastUpdated("2026-05-19T12:00:00Z", NOW);
+
+    expect(display.text).toBe("1 day ago");
+    expect(display.title).toBe(new Date("2026-05-19T12:00:00Z").toLocaleString());
+  });
+
+  it("shows an em dash and no tooltip when the value is missing or invalid, before and after mount", () => {
+    for (const now of [null, NOW]) {
+      expect(displayLastUpdated(undefined, now)).toEqual({ text: "\u2014", title: "" });
+      expect(displayLastUpdated("not a date", now)).toEqual({ text: "\u2014", title: "" });
+    }
   });
 });

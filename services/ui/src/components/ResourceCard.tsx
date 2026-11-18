@@ -12,9 +12,9 @@ import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
 import SourceRefChip from "./SourceRefChip";
 import RiskMeter from "./RiskMeter";
+import { LastUpdated } from "./LastUpdated";
 import { KindLabel, SyncStatus, displayVersion, isAgentKind } from "./resourceDisplay";
 import type { BrowseResource } from "@/lib/api";
-import { formatFullDateTime, formatRelativeTime } from "@/lib/relativeTime";
 
 interface Props {
   resource: BrowseResource;
@@ -97,11 +97,7 @@ export default function ResourceCard({ resource }: Props) {
 
           <SyncStatus resource={resource} testId="resource-card-sync-status" />
 
-          <Tooltip title={formatFullDateTime(resource.lastUpdated)} placement="top" enterDelay={300} disableInteractive>
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ fontVariantNumeric: "tabular-nums" }}>
-              Updated {formatRelativeTime(resource.lastUpdated)}
-            </Typography>
-          </Tooltip>
+          <LastUpdated value={resource.lastUpdated} variant="caption" prefix="Updated" />
 
           {resource.scanCounts && (
             <Box display="flex" flexWrap="wrap" gap={0.5}>
