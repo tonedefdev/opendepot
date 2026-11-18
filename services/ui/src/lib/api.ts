@@ -35,6 +35,8 @@ export interface BrowseResource {
   platforms: Array<{ os: string; arch: string }>;
   scanCounts: BrowseScanCounts | null;
   lastScanned: string;
+  /** RFC 3339. Omitted by the server when the last update time is unknown. */
+  lastUpdated?: string;
   totalDownloads?: number;
   lastDownloadedAt?: string;
   sourceRef?: string;

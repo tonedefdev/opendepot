@@ -25,14 +25,15 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import ViewModuleIcon from "@mui/icons-material/ViewModule";
-import { useRouter } from "next/navigation";
 import ResourceCard from "./ResourceCard";
 import ResourceRow from "./ResourceRow";
+import { ResourceListSkeleton } from "./ResourceListSkeleton";
+import { useRegistryNavigation } from "./RegistryNavigation";
 import type { BrowseResource } from "@/lib/api";
 import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registryPreferences";
 import { RISK_COLUMN_MIN_PX, canvasMeasureText, riskColumnWidth } from "./riskColumnWidth";
+import { LAST_UPDATED_COLUMN_PX, type ListView, resolveListView } from "./resourceListLayout";
 
-type ListView = "rows" | "cards";
 type SortDir = "asc" | "desc";
 
 const SORT_OPTIONS = [
@@ -60,7 +61,7 @@ interface Props {
 // Below md the table cannot fit its columns, so cards are the only layout there.
 export default function ResourceList({ items, totalCount, sortBy, sortDir, pageSize, baseParams, namespace, query }: Props) {
   const theme = useTheme();
-  const router = useRouter();
+  const registry = useRegistryNavigation();
   const compact = useMediaQuery(theme.breakpoints.down("lg"));
   const [view, setView] = React.useState<ListView>("rows");
   // Read after mount so the server-rendered markup matches the first client render.
@@ -68,7 +69,8 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
     const saved = loadRegistryPreferences().view;
     if (saved) setView(saved);
   }, []);
-  const showCards = compact || view === "cards";
+  const listView = resolveListView(view, compact);
+  const showCards = listView === "cards";
   // Only skills and agents carry a source ref. A page of modules or providers would show an empty column.
   const showSource = items.some((r) => !!r.sourceRef);
   const [riskWidth, setRiskWidth] = React.useState(RISK_COLUMN_MIN_PX);
@@ -86,7 +88,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
       if (value === null) params.delete(key);
       else params.set(key, value);
     }
-    router.push(`/?${params.toString()}`);
+    registry.navigate(`/?${params.toString()}`);
   };
 
   // Choosing the active column again flips its direction, as a table header is expected to.
@@ -171,7 +173,10 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
         </Box>
       </Box>
 
-      {showCards ? (
+      {registry.isPending ? (
+        // Shown at once on a page, size, sort, or filter change, in the layout the list will render.
+        <ResourceListSkeleton view={listView} rows={pageSize} showSource={showSource} riskWidth={riskWidth} />
+      ) : showCards ? (
         <Grid container spacing={2}>
           {items.map((r) => (
             <Grid key={`${r.namespace}/${r.kind}/${r.name}`} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
@@ -191,6 +196,8 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
+                {/* Not sortable: the server's sort_by allowlist has no last-updated field. */}
+                <TableCell sx={{ width: LAST_UPDATED_COLUMN_PX }}>Last updated</TableCell>
                 <TableCell sx={{ width: riskWidth, pr: "16px" }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>

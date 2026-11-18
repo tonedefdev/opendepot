@@ -6,6 +6,7 @@ import ResourceList from "@/components/ResourceList";
 import ResourceListControls from "@/components/ResourceListControls";
 import RegistryPreferencesSync from "@/components/RegistryPreferencesSync";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import { RegistryNavigationProvider } from "@/components/RegistryNavigation";
 import { DEFAULT_REGISTRY_PAGE_SIZE } from "@/lib/registryPreferences";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
@@ -117,7 +118,7 @@ export default async function HomePage({ searchParams }: PageProps) {
             or sign in to see resources allowed by your GroupBinding.
           </Alert>
         ) : (
-          <>
+          <RegistryNavigationProvider>
             <ResourceList
               items={resourceList.items}
               totalCount={resourceList.totalCount}
@@ -135,7 +136,7 @@ export default async function HomePage({ searchParams }: PageProps) {
               pageSize={listParams.pageSize ?? DEFAULT_REGISTRY_PAGE_SIZE}
               baseParams={baseParams}
             />
-          </>
+          </RegistryNavigationProvider>
         )}
       </Container>
     </main>

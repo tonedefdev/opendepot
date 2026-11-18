@@ -8,8 +8,9 @@ import MenuItem from "@mui/material/MenuItem";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import Typography from "@mui/material/Typography";
-import { useRouter } from "next/navigation";
 import { REGISTRY_PAGE_SIZES, saveRegistryPreferences } from "@/lib/registryPreferences";
+import { useRegistryNavigation } from "./RegistryNavigation";
+import { pageFromSearch } from "./registryPaging";
 
 interface ResourceListControlsProps {
   totalCount: number;
@@ -24,13 +25,15 @@ export const PAGE_SIZE_OPTIONS = REGISTRY_PAGE_SIZES;
 
 export default function ResourceListControls({
   totalCount,
-  page,
+  page: committedPage,
   pageSize,
   baseParams = "",
   noun = ["resource", "resources"],
   onChange,
 }: ResourceListControlsProps) {
-  const router = useRouter();
+  const registry = useRegistryNavigation();
+  // While a page change is in flight, the pager shows the requested page instead of waiting for the server.
+  const page = registry.pendingSearch === null ? committedPage : pageFromSearch(registry.pendingSearch, committedPage);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const buildUrl = (newPage: number, newPageSize: number) => {
@@ -42,7 +45,7 @@ export default function ResourceListControls({
 
   const go = (newPage: number, newPageSize: number) => {
     if (onChange) onChange(newPage, newPageSize);
-    else router.push(buildUrl(newPage, newPageSize));
+    else registry.navigate(buildUrl(newPage, newPageSize));
   };
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
