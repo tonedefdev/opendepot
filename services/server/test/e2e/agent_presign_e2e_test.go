@@ -140,6 +140,7 @@ func agentPresignInstall(repoRoot, emulatorImage string, extraArgs ...string) {
 		"--timeout", "10m",
 	}
 	args = append(args, extraArgs...)
+	args = append(args, utils.CoverageHelmArgs()...)
 
 	cmd := exec.Command("helm", args...)
 	_, err := utils.Run(cmd)

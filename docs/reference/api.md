@@ -107,6 +107,7 @@ All endpoints that require authentication accept the `Authorization: Bearer <tok
 | Bearer token | `--use-bearer-token` | SA bearer token | Caller's SA RBAC |
 | OIDC | `--oidc-issuer-url` + `--oidc-client-id` | Dex JWT | Server SA (GroupBinding controls access) |
 | OIDC + SA fallback | above + `--oidc-allow-sa-fallback` | Dex JWT **or** SA token | Dex JWT → Server SA; SA token → Caller's SA RBAC |
+| OIDC + client credentials | above + `--oidc-allow-client-credentials` + `--oidc-client-credentials-audiences` | Dex client credentials token whose `aud` is allowlisted | Server SA (GroupBinding matches `client:<sub>`) |
 
 ## List Module Versions
 

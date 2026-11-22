@@ -66,8 +66,8 @@ func TestAssessParsesResponse(t *testing.T) {
 			t.Errorf("decode request body: %v", err)
 		}
 
-		if body.Model != "jev-latest" {
-			t.Errorf("model = %q, want jev-latest", body.Model)
+		if body.Model != "jev-1.14.0" {
+			t.Errorf("model = %q, want jev-1.14.0", body.Model)
 		}
 
 		if body.State != "state content" {

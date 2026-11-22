@@ -9,7 +9,7 @@ tags:
 
 ## Registry Reads with Dex Client Credentials
 
-If your organization uses OIDC (Dex) for humans, pipelines can authenticate with the Dex client credentials grant. This keeps OIDC read-only for registry access, while Kubernetes RBAC governs create, update, and delete.
+If your organization uses OIDC (Dex) for humans, pipelines can authenticate with the Dex client credentials grant. Pipelines read the registry through the server, and Kubernetes RBAC governs changes to resources.
 
 The examples assume server-proxied Dex (`server.oidc.dexProxy.enabled: true`), so the token endpoint shares the registry host. If Dex is exposed separately, substitute its host (for example `https://dex.defdev.io/dex/token`).
 
@@ -37,7 +37,11 @@ server:
   oidc:
     enabled: true
     allowClientCredentials: true
+    clientCredentialsAudiences:
+      - ci-pipeline
 ```
+
+`clientCredentialsAudiences` lists each Dex client ID that uses the `client_credentials` grant. OpenDepot rejects tokens whose `aud` is not on this list.
 
 Create a `GroupBinding` to authorize the pipeline client:
 

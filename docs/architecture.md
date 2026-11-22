@@ -160,7 +160,7 @@ When branch sourcing is enabled, the Depot follows the branch head of a Skill or
 
 ### Server
 
-The Server is the read-only registry API. It:
+The Server is the registry API. It:
 
 - Implements the Module Registry and Provider Registry protocols.
 - Implements the agents.v1 protocol for Skills and Agents.
@@ -168,6 +168,8 @@ The Server is the read-only registry API. It:
 - Reads `Module`, `Provider`, `Skill`, `Agent`, `Version`, and access-control
   resources from the Kubernetes API.
 - Serves artifacts directly or returns storage-native pre-signed redirects.
+- Writes `ScanPolicy` objects for the Workshop when `server.policyManagement.enabled`
+  is `true`. Writes are off by default.
 - Records download events as Prometheus metrics for OpenDepot Workshop statistics.
 
 Authentication can use OIDC, Kubernetes bearer tokens, or anonymous access for
@@ -202,8 +204,9 @@ resources and status used by the controllers and Server.
 
 - **Kubernetes is the control plane.** Registry state, desired configuration,
   and reconciliation status are Kubernetes resources.
-- **The Server is read-only.** Controllers and Kubernetes RBAC govern writes;
-  clients consume the registry through standard protocols.
+- **Kubernetes RBAC governs changes.** Controllers reconcile artifact state, and
+  clients consume the registry through standard protocols. The Server's only
+  Kubernetes write path is ScanPolicy, which is off by default.
 - **Discovery is declarative.** A Depot expresses what upstream sources and
   version constraints to follow; reconciliation handles the resulting updates.
 - **Artifacts are immutable by policy.** Checksums, stable storage names, and

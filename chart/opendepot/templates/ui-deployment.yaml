@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: ui
+      annotations:
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
     spec:
       {{- if and .Values.ui.oidc.enabled (not .Values.global.developmentMode) }}
       {{- $baseURL := required "ui.baseUrl is required when ui.oidc.enabled=true" .Values.ui.baseUrl -}}

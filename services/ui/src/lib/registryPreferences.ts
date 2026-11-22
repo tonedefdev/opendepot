@@ -1,7 +1,7 @@
 // Kept free of "use client" so the server-rendered Registry Explorer page can read the default page size.
 export const REGISTRY_PAGE_SIZES = [12, 24, 48, 96];
 export const DEFAULT_REGISTRY_PAGE_SIZE = 12;
-export const REGISTRY_SORT_FIELDS = ["name", "namespace", "latest_version", "kind", "status", "source", "risk"];
+export const REGISTRY_SORT_FIELDS = ["name", "namespace", "latest_version", "kind", "status", "source", "risk", "last_updated"];
 export const REGISTRY_PREFERENCES_KEY = "opendepot.registry.preferences";
 
 export type RegistryView = "rows" | "cards";

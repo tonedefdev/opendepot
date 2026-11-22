@@ -13,16 +13,27 @@ The registry server serves prebuilt `opendepot` binaries, so users can install t
 
 Supported platforms are `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, and `windows/amd64`. Windows binaries end in `.exe`. Any other platform returns 404.
 
-Verify a download against the checksums before you install it:
+The example below runs on macOS and Linux. Set `REGISTRY` to your registry's base URL. Use `-o` to name the file. `curl -O` saves the binary as `amd64`, which breaks the checksum check. On Linux, replace `shasum -a 256 -c` with `sha256sum -c`.
 
 ```bash
-curl -fLO https://<registry-host>/opendepot/cli/v1/linux/amd64
-curl -fLO https://<registry-host>/opendepot/cli/v1/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing
-chmod +x opendepot_linux_amd64
-sudo mv opendepot_linux_amd64 /usr/local/bin/opendepot
-opendepot --version
+REGISTRY=https://<registry-host>
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH=amd64 ;;
+  arm64 | aarch64) ARCH=arm64 ;;
+  *) echo "Unsupported architecture" >&2; exit 1 ;;
+esac
+BIN="opendepot_${OS}_${ARCH}"
+
+curl -fsSL "$REGISTRY/opendepot/cli/v1/$OS/$ARCH" -o "$BIN"
+curl -fsSL "$REGISTRY/opendepot/cli/v1/SHA256SUMS" -o SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing && \
+  chmod +x "$BIN" && \
+  sudo install -m 0755 "$BIN" /usr/local/bin/opendepot && \
+  opendepot --version
 ```
+
+On Windows, download `opendepot_windows_amd64.exe` from the same paths and verify it with `Get-FileHash`.
 
 The server image bundles the binaries at `/opt/opendepot/cli/`. The image build sets the version with `--build-arg CLI_VERSION=<version>`, which defaults to `dev`. The server reads that directory from the `-cli-dist-dir` flag. If the directory has no binary for a platform, that platform returns 404, so local development without bundled binaries still works. The binaries are not GPG-signed. Use the checksum file to verify them.
 

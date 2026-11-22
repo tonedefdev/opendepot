@@ -17,6 +17,7 @@ import (
 type HarnessPart struct {
 	Label            string
 	Status           string
+	Model            string
 	Level            string
 	RiskScore        float64
 	SafeProbability  float64
@@ -43,12 +44,33 @@ type HarnessReport struct {
 	Confidence      float64
 	InputTokens     int64
 	Gate            []string
+	Gates           [][]string
 }
 
 // RunJevHarness assesses an extracted Skill or Agent directory with Jev using the same chunking, evidence view,
 // questions, composite weighting, and aggregation as runAgentJev. Trivy is not run, so flagged-file hints are
-// absent; the caller must supply text-only content.
-func RunJevHarness(ctx context.Context, dir, name, typ, token, endpoint string) (*HarnessReport, error) {
+// absent; the caller must supply text-only content. The policy is applied with the same gate the controller uses,
+// so a nil policy reports raw scores without blocking.
+func RunJevHarness(ctx context.Context, dir, name, typ, token, endpoint string, policy *opendepotv1alpha1.JevPolicy) (*HarnessReport, error) {
+	return RunJevHarnessPolicies(ctx, dir, name, typ, token, endpoint, "", []*opendepotv1alpha1.JevPolicy{policy})
+}
+
+// ScannerBlockFromReport parses a SkillSpector JSON report and renders the findings block that RunJevHarnessPolicies
+// takes as scan. Only rule IDs, severities, and locations are included.
+func ScannerBlockFromReport(data []byte) (string, error) {
+	report, err := jev.ParseSkillSpectorReport(data)
+	if err != nil {
+		return "", err
+	}
+
+	return jev.ScannerBlock(report, jevChunkScanLimit), nil
+}
+
+// RunJevHarnessPolicies runs one Jev assessment and evaluates each policy's gate against the same response, so
+// several threshold settings can be compared without repeating the model call. Gates[i] holds the reasons for
+// policies[i]. Gate mirrors Gates[0] for single-policy callers. scan is the static scanner block sent in each part,
+// or empty to send none.
+func RunJevHarnessPolicies(ctx context.Context, dir, name, typ, token, endpoint, scan string, policies []*opendepotv1alpha1.JevPolicy) (*HarnessReport, error) {
 	version := &opendepotv1alpha1.Version{
 		Spec: opendepotv1alpha1.VersionSpec{
 			Type:           typ,
@@ -72,6 +94,7 @@ func RunJevHarness(ctx context.Context, dir, name, typ, token, endpoint string) 
 		name:         content.definition.Name,
 		description:  content.definition.Description,
 		tools:        content.definition.Tools,
+		scan:         scan,
 	}
 
 	layout, err := jevChunkPlan(in)
@@ -150,11 +173,16 @@ func RunJevHarness(ctx context.Context, dir, name, typ, token, endpoint string) 
 	}
 
 	result, assessed := aggregateJevParts(normalized)
-	gateReasons, _ := evaluateJevPartsGate(&opendepotv1alpha1.JevPolicy{}, normalized)
 
 	report.ChunkCount = len(layout.parts)
 	report.InputTokens = jevInputTokens(outcomes)
-	report.Gate = gateReasons
+	report.Gates = make([][]string, len(policies))
+	for i, policy := range policies {
+		report.Gates[i], _ = evaluateJevPartsGate(policy, normalized)
+	}
+	if len(report.Gates) > 0 {
+		report.Gate = report.Gates[0]
+	}
 	if assessed > 0 {
 		report.Level = result.RiskLevel
 		report.RiskScore = result.RiskScore
@@ -173,6 +201,7 @@ func RunJevHarness(ctx context.Context, dir, name, typ, token, endpoint string) 
 
 		if o.result.status == jevPartScored {
 			r := o.result.result
+			p.Model = r.Model
 			p.Level = r.RiskLevel
 			p.RiskScore = r.RiskScore
 			p.SafeProbability = r.SafeProbability

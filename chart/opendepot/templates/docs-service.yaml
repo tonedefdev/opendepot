@@ -1,0 +1,18 @@
+{{- if and .Values.ui.enabled .Values.docs.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: docs
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: docs
+spec:
+  type: {{ .Values.docs.service.type }}
+  selector:
+    app: docs
+  ports:
+  - name: http
+    port: {{ .Values.docs.service.port }}
+    targetPort: {{ .Values.docs.service.targetPort }}
+    protocol: TCP
+{{- end }}

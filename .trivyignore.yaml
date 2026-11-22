@@ -58,3 +58,23 @@ vulnerabilities:
     paths:
       - usr/local/bin/tofu
     statement: "golang.org/x/net/html cross-site scripting in namespace handling compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+  # no upstream fix; upstream latest 1.13.9; tracked in issue #98
+  - id: CVE-2026-128085
+    paths:
+      - usr/local/bin/tofu
+    statement: "CVE-2026-128085 in the upstream OpenTofu 1.13.9 (latest release) binary; no upstream release bundles a fixed version yet."
+  # no upstream fix; upstream latest 0.76.2; tracked in issue #98
+  - id: CVE-2026-128085
+    paths:
+      - usr/local/bin/trivy
+    statement: "CVE-2026-128085 in the upstream Trivy 0.76.2 (latest release) binary; no upstream release bundles a fixed version yet."
+  # no upstream fix; upstream latest 1.13.9; tracked in issue #98
+  - id: CVE-2026-97054
+    paths:
+      - usr/local/bin/tofu
+    statement: "CVE-2026-97054 in the upstream OpenTofu 1.13.9 (latest release) binary; no upstream release bundles a fixed version yet."
+  # no upstream fix; upstream latest 0.76.2; tracked in issue #98
+  - id: CVE-2026-97054
+    paths:
+      - usr/local/bin/trivy
+    statement: "CVE-2026-97054 in the upstream Trivy 0.76.2 (latest release) binary; no upstream release bundles a fixed version yet."

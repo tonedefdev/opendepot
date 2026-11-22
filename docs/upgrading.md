@@ -17,6 +17,10 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
 
 ## Unreleased
 
+### Breaking Changes
+
+- **Client credentials require an audience list.** When `server.oidc.allowClientCredentials` is `true`, the server accepts only Dex client credentials tokens whose `aud` is listed in `server.oidc.clientCredentialsAudiences`. The chart fails to render when that list is empty. See [Client credentials audiences](#client-credentials-audiences).
+
 ### New CRDs and RBAC
 
 The `ScanPolicy` CRD gains `spec.jevExemptions` and the `activeJevExemptions` and `expiredJevExemptions` status counts. The `Version` CRD gains the `contentDigest` and exemption fields on `status.jevAssessment`. Helm does not update CRDs during `helm upgrade`, so apply the chart CRDs before you upgrade.
@@ -27,13 +31,35 @@ The Version controller also needs a new RBAC rule that lets it create and patch 
 
 A Jev assessment with a `Critical` risk level now sets `status.jevAssessment.needsReview` to `true`, in addition to blocking the Version. Before this change, `Critical` blocked the Version without setting the field. A completed assessment from before this change is reused unchanged, so its `needsReview` value does not change until the Version is assessed again. See [Thresholds](guides/agents-jev.md#thresholds).
 
+### Client credentials audiences
+
+Before this release, the server accepted a Dex client credentials token from any client ID. It now accepts only tokens whose `aud` is listed in `clientCredentialsAudiences`. Existing deployments that set `server.oidc.allowClientCredentials: true` must add the list before they upgrade. The chart fails to render, and the server refuses to start, when the list is empty.
+
+```yaml
+server:
+  oidc:
+    allowClientCredentials: true
+    clientCredentialsAudiences:
+      - ci-pipeline
+```
+
+List every Dex client ID that uses the `client_credentials` grant. Tokens from other clients receive `401 Unauthorized` after the upgrade.
+
 ### Upgrade Steps
 
-1. Apply the updated CRDs from the chart:
+1. If `server.oidc.allowClientCredentials` is `true`, set `server.oidc.clientCredentialsAudiences` to the Dex client IDs that use the `client_credentials` grant. The chart fails to render without this list. For installs that do not use Helm, pass `--oidc-client-credentials-audiences` with a comma-separated list instead:
+    ```yaml
+    server:
+      oidc:
+        allowClientCredentials: true
+        clientCredentialsAudiences:
+          - ci-pipeline
+    ```
+2. Apply the updated CRDs from the chart:
     ```bash
     kubectl apply -f chart/opendepot/crds/
     ```
-2. Upgrade the chart:
+3. Upgrade the chart:
     ```bash
     helm upgrade opendepot chart/opendepot \
        -n opendepot-system \

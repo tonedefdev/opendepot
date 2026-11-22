@@ -33,18 +33,7 @@ import type { BrowseResource } from "@/lib/api";
 import { loadRegistryPreferences, saveRegistryPreferences } from "@/lib/registryPreferences";
 import { RISK_COLUMN_MIN_PX, canvasMeasureText, riskColumnWidth } from "./riskColumnWidth";
 import { LAST_UPDATED_COLUMN_PX, type ListView, resolveListView } from "./resourceListLayout";
-
-type SortDir = "asc" | "desc";
-
-const SORT_OPTIONS = [
-  { value: "name", label: "Name" },
-  { value: "namespace", label: "Namespace" },
-  { value: "latest_version", label: "Latest version" },
-  { value: "kind", label: "Kind" },
-  { value: "status", label: "Status" },
-  { value: "source", label: "Source" },
-  { value: "risk", label: "Risk" },
-];
+import { SORT_OPTIONS, type SortDir, sortOptionFor } from "./resourceSort";
 
 interface Props {
   items: BrowseResource[];
@@ -121,10 +110,13 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
           <Select
             size="small"
-            value={SORT_OPTIONS.some((o) => o.value === sortBy) ? sortBy : "name"}
+            value={sortOptionFor(sortBy, sortDir).value}
             onChange={(e) => {
-              saveRegistryPreferences({ sortBy: e.target.value, sortDir });
-              navigate({ sort_by: e.target.value });
+              const option = SORT_OPTIONS.find((o) => o.value === e.target.value);
+              if (!option) return;
+              const nextDir = option.sortDir ?? sortDir;
+              saveRegistryPreferences({ sortBy: option.sortBy, sortDir: nextDir });
+              navigate({ sort_by: option.sortBy, sort_dir: nextDir });
             }}
             renderValue={(value) => `Sort: ${SORT_OPTIONS.find((o) => o.value === value)?.label ?? value}`}
             inputProps={{ "aria-label": "Sort by" }}
@@ -196,8 +188,7 @@ export default function ResourceList({ items, totalCount, sortBy, sortDir, pageS
                   <TableCell sx={{ width: 128, display: { xs: "none", lg: "table-cell" } }}>{sortableHead("source", "Source")}</TableCell>
                 )}
                 <TableCell sx={{ width: 156 }}>{sortableHead("status", "Status")}</TableCell>
-                {/* Not sortable: the server's sort_by allowlist has no last-updated field. */}
-                <TableCell sx={{ width: LAST_UPDATED_COLUMN_PX }}>Last updated</TableCell>
+                <TableCell sx={{ width: LAST_UPDATED_COLUMN_PX }}>{sortableHead("last_updated", "Last updated")}</TableCell>
                 <TableCell sx={{ width: riskWidth, pr: "16px" }}>{sortableHead("risk", "Risk")}</TableCell>
               </TableRow>
             </TableHead>

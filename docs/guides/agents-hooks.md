@@ -4,6 +4,17 @@
 
 The hook is the enforcement layer. The CLI does not block edits by itself.
 
+## Signatures and hashes
+
+The version controller signs the `SHA256SUMS` file for each skill and agent version with a GPG (OpenPGP) key. The server serves the detached signature at `SHA256SUMS.sig`. The signature shows who published the version. It does not encrypt the content.
+
+The checks happen in two places:
+
+1. **At install.** `apply` verifies the `SHA256SUMS` signature against the signing key pinned on first use. It also checks that the archive matches the signed hash, then records the installed file hashes in `opendepot.lock.hcl`.
+2. **At each tool call.** The hook runs `verify`, which hashes the installed files and compares them with the lock file. It does not check the signature again, and it makes no network calls.
+
+So `verify` catches edits to installed files after install. It trusts the lock file, so review changes to `opendepot.lock.hcl` in the same way as `opendepot.hcl`. Set `signing_key` in `opendepot.hcl` to pin the expected signer. A signer change then fails the install instead of prompting.
+
 ## How the hook responds
 
 1. Before each tool call, the hook runs `opendepot verify`. If it passes, the call runs.

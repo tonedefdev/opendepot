@@ -35,10 +35,16 @@ spec:
         {{- if .Values.depot.zapLogLevel }}
         - --zap-log-level={{ .Values.depot.zapLogLevel }}
         {{- end }}
-        {{- if .Values.rbac.scopeToNamespace }}
+        {{- if or .Values.rbac.scopeToNamespace .Values.coverage.enabled }}
         env:
+        {{- if .Values.rbac.scopeToNamespace }}
         - name: WATCH_NAMESPACE
           value: {{ .Values.global.namespace }}
+        {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: GOCOVERDIR
+          value: /coverage
+        {{- end }}
         {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
@@ -50,6 +56,11 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.depot.resources | nindent 10 }}
+        {{- if .Values.coverage.enabled }}
+        volumeMounts:
+        - name: coverage
+          mountPath: /coverage
+        {{- end }}
       {{- with .Values.depot.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -61,5 +72,10 @@ spec:
       {{- with .Values.depot.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.coverage.enabled }}
+      volumes:
+      - name: coverage
+        emptyDir: {}
       {{- end }}
 {{- end }}

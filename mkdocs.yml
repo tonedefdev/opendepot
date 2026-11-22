@@ -53,6 +53,7 @@ nav:
     - getting-started/index.md
     - Installation: getting-started/installation.md
     - Local Quickstart: getting-started/quickstart.md
+    - Agents and Skills Quickstart: getting-started/agents-quickstart.md
   - Architecture: architecture.md
   - Configuration:
     - configuration/index.md

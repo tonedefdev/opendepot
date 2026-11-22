@@ -163,3 +163,38 @@ func TestJevEvidenceIsNotHalved(t *testing.T) {
 		t.Fatalf("halve evidence part: halved %v, err %v; want not halved", halved, err)
 	}
 }
+
+func TestJevEvidenceWithFullScanBlockWithinLimit(t *testing.T) {
+	var issues []jev.ScannerIssue
+	for i := 1; i <= 200; i++ {
+		issues = append(issues, jev.ScannerIssue{ID: "LP3", Severity: "MEDIUM", Category: "Exec", File: "scripts/run.py", Line: i})
+	}
+
+	in := jevChunkTestInput(t, map[string]string{"scripts/run.py": jevEvidenceTestScript()})
+	in.scan = jev.ScannerBlock(jev.ScannerReport{Recommendation: "CAUTION", MaxSeverity: "MEDIUM", Issues: issues}, jevChunkScanLimit)
+	if len(in.scan) > jevChunkScanLimit || !strings.Contains(in.scan, "omitted to fit the limit") {
+		t.Fatalf("scan block = %d bytes, want at most %d with an omission note", len(in.scan), jevChunkScanLimit)
+	}
+
+	part, ok, err := jevEvidencePart(in)
+	if err != nil {
+		t.Fatalf("evidence part: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected an evidence part")
+	}
+
+	state, err := in.build(part, 2)
+	if err != nil {
+		t.Fatalf("build evidence part: %v", err)
+	}
+
+	if len(state) > jev.MaxStateBytes {
+		t.Fatalf("evidence part with a full scan block is %d bytes, over %d", len(state), jev.MaxStateBytes)
+	}
+
+	if !strings.Contains(state, in.scan) {
+		t.Fatalf("evidence part does not carry the scan block")
+	}
+}

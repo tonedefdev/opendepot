@@ -46,6 +46,13 @@ describe("parseRegistryPreferences", () => {
     ).toEqual({});
     expect(parseRegistryPreferences(JSON.stringify({ pageSize: "24" }))).toEqual({});
   });
+
+  it("keeps the last_updated sort field", () => {
+    expect(parseRegistryPreferences(JSON.stringify({ sortBy: "last_updated", sortDir: "desc" }))).toEqual({
+      sortBy: "last_updated",
+      sortDir: "desc",
+    });
+  });
 });
 
 describe("saving and loading registry preferences", () => {

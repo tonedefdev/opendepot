@@ -19,8 +19,9 @@ const (
 	// DefaultEndpoint is the TypeSafe Jev API endpoint used when no endpoint option is supplied.
 	DefaultEndpoint = "https://api.typesafe.ai/v1/systemone"
 
-	// Model is the model alias sent with every request.
-	Model = "jev-latest"
+	// Model is the Jev version sent with every request. It is pinned because the jev-latest alias moves with releases.
+	// Each response reports the version that answered, which is recorded on the result.
+	Model = "jev-1.14.0"
 
 	// MaxStateBytes is the per-part budget: the largest state sent in one assessment request. When a Version is split
 	// into parts, each part is held to this limit. Jev limits input by tokens, not bytes. A live binary

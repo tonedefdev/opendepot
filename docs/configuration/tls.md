@@ -24,7 +24,7 @@ The server still listens on port `8080` with TLS enabled. The chart switches the
 When `server.tls.enabled` and `ui.enabled` are `true`, the UI's NGINX proxy verifies the server certificate and hostname on every upstream request (`proxy_ssl_verify on`). It trusts the UI image's system CA bundle by default. For a private CA, add its PEM certificate as the `ca.crt` key in the `opendepot-tls` Secret and set `ui.serverCACertPath: /etc/tls/ca.crt`. The expected certificate name defaults to `server.<global.namespace>.svc.cluster.local`. Set `ui.serverTLSName` to override it.
 
 !!! note
-    With `server.anonymousAuth` enabled, the server uses its own ServiceAccount for Kubernetes API calls. Clients need no credentials. The server's ClusterRole grants read-only access to the OpenDepot resources it serves. With anonymous auth enabled, the policy API rejects non-`GET` requests. Write access to `scanpolicies` exists only when `server.policyManagement.enabled` is `true`.
+    With `server.anonymousAuth` enabled, the server uses its own ServiceAccount for Kubernetes API calls. Clients need no credentials. The server's ClusterRole grants read access to the OpenDepot resources it serves. With anonymous auth enabled, the policy API rejects non-`GET` requests. Write access to `scanpolicies` exists only when `server.policyManagement.enabled` is `true`.
 
 ## TLS via Istio Ingress Gateway
 

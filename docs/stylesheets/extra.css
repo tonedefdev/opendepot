@@ -92,6 +92,11 @@
   font-size: 0;
 }
 
+/* Material adds a 1.5rem top margin above the page grid; remove it so content sits under the header */
+.md-main__inner {
+  margin-top: 0;
+}
+
 /* The header uses the approved monochrome wordmark for clear contrast. */
 .md-header__button.md-logo img {
   content: url("../img/opendepot_white.svg");

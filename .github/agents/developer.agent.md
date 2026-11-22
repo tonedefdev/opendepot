@@ -3,7 +3,7 @@ description: "Use when: implementing a feature, writing Go code, updating Kubern
 name: "OpenDepot Developer"
 model: Claude Haiku 5.5 (copilot)
 reasoning-effort: medium
-tools: [read, edit, search, execute, agent, todo, vscode/memory, browser, agent]
+tools: [read, edit, search, execute, agent, todo, vscode/memory, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/navigatePage, browser/clickElement, browser/typeInPage, browser/hoverElement, browser/dragElement, browser/handleDialog, browser/runPlaywrightCode]
 agents: []
 argument-hint: "Feature to implement (ideally after running the planner agent)"
 ---

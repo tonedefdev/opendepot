@@ -69,7 +69,7 @@ helm install opendepot ./chart/opendepot \
 | `version.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `version.image.repository` | `ghcr.io/tonedefdev/opendepot/version-controller` | Image repository |
 | `version.image.tag` | `""` | Per-service tag override (falls back to `global.image.tag`) |
-| `version.resources` | `100m / 512Mi` req, `4Gi` limit | Resource requests and limits |
+| `version.resources` | `100m / 512Mi / 512Mi` req (cpu / memory / ephemeral-storage), `4Gi / 2Gi` limit (memory / ephemeral-storage) | Resource requests and limits |
 | `version.nodeSelector` | `{}` | Node selector |
 | `version.tolerations` | `[]` | Tolerations |
 | `version.affinity` | `{}` | Affinity rules |
@@ -83,7 +83,7 @@ helm install opendepot ./chart/opendepot \
 | `module.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `module.image.repository` | `ghcr.io/tonedefdev/opendepot/module-controller` | Image repository |
 | `module.image.tag` | `""` | Per-service tag override |
-| `module.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
+| `module.resources` | `100m / 128Mi / 128Mi` req (cpu / memory / ephemeral-storage), `512Mi` limit (memory) | Resource requests and limits |
 | `module.nodeSelector` | `{}` | Node selector |
 | `module.tolerations` | `[]` | Tolerations |
 | `module.affinity` | `{}` | Affinity rules |
@@ -97,7 +97,7 @@ helm install opendepot ./chart/opendepot \
 | `depot.zapLogLevel` | `""` | `--zap-log-level` passed to the controller. Leave empty for the default (`info`); set to `5` for verbose debug logging |
 | `depot.image.repository` | `ghcr.io/tonedefdev/opendepot/depot-controller` | Image repository |
 | `depot.image.tag` | `""` | Per-service tag override |
-| `depot.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
+| `depot.resources` | `100m / 128Mi / 128Mi` req (cpu / memory / ephemeral-storage), `512Mi` limit (memory) | Resource requests and limits |
 | `depot.nodeSelector` | `{}` | Node selector |
 | `depot.tolerations` | `[]` | Tolerations |
 | `depot.affinity` | `{}` | Affinity rules |
@@ -131,7 +131,7 @@ The Provider controller is disabled by default. Enable it to mirror provider bin
 | `server.service.type` | `LoadBalancer` | Kubernetes service type |
 | `server.service.port` | `80` | Exposed service port |
 | `server.service.targetPort` | `8080` | Container port |
-| `server.resources` | `100m / 128Mi` req, `512Mi` limit | Resource requests and limits |
+| `server.resources` | `100m / 128Mi / 128Mi` req (cpu / memory / ephemeral-storage), `512Mi` limit (memory) | Resource requests and limits |
 | `server.nodeSelector` | `{}` | Node selector |
 | `server.tolerations` | `[]` | Tolerations |
 | `server.affinity` | `{}` | Affinity rules |
@@ -219,6 +219,7 @@ OIDC authentication lets users run `tofu login` instead of distributing kubeconf
 | `server.oidc.groupsClaim` | `""` | JWT claim name for groups. Defaults to `groups`; set to `cognito:groups`, `roles`, etc. for non-standard IdPs |
 | `server.oidc.allowServiceAccountFallback` | `false` | When `true`, Kubernetes ServiceAccount tokens are accepted alongside OIDC JWTs. SA tokens bypass GroupBinding and rely on K8s RBAC directly |
 | `server.oidc.allowClientCredentials` | `false` | When `true`, Dex client credentials tokens are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against GroupBinding resources |
+| `server.oidc.clientCredentialsAudiences` | `[]` | Dex client IDs whose client credentials tokens are accepted. Required and non-empty when `server.oidc.allowClientCredentials` is `true` |
 | `server.oidc.authzUrl` | `""` | Override the authorization URL advertised in `login.v1`. Optional manual escape hatch; not needed when `server.oidc.dexProxy.enabled=true` |
 | `server.oidc.tokenUrl` | `""` | Override the token URL advertised in `login.v1`. Optional manual escape hatch; not needed when `server.oidc.dexProxy.enabled=true` |
 | `server.oidc.dexProxy.enabled` | `true` | When OIDC is enabled, reverse-proxies `/dex/*` to the bundled Dex service so Dex does not need its own public ingress or hostname. Requires `dex.enabled=true` and `server.oidc.issuerUrl` set to the external, path-based URL matching `dex.config.issuer`. Set to `false` for external OIDC providers; ignored when OIDC is disabled |
@@ -304,7 +305,7 @@ Assembly Line derives a machine-readable input/output contract for every module 
 
 Provider schema extraction runs `tofu providers schema -json` against an offline filesystem mirror of the downloaded provider archive. The `tofu` binary (~83 MB) is bundled only in the `-assembly` version controller and server image variants. Default images omit it, so Assembly Line requires setting `version.image.tag` and `server.image.tag` to `<release>-assembly`.
 
-Extraction unpacks the provider archive into the container's ephemeral storage. Provider archives can be several hundred megabytes, so set an `ephemeral-storage` request and limit on `version.resources` (2Gi is a reasonable starting point) when enabling Assembly Line alongside provider onboarding.
+Extraction unpacks the provider archive into the container's ephemeral storage. Provider archives can be several hundred megabytes, so the chart defaults `ephemeral-storage` on `version.resources` to a `512Mi` request and `2Gi` limit. Override these values when enabling Assembly Line alongside provider onboarding.
 
 A schema is extracted only for provider versions whose `operatingSystem` and `architecture` match the version controller's own platform; a schema is platform independent, so one extraction serves every platform of that provider version.
 

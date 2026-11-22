@@ -4,6 +4,8 @@ OpenDepot publishes Agent Skills and Agents from Git repositories. Install them 
 
 ## Install with the CLI
 
+Install the `opendepot` binary first. The [CLI reference](../reference/cli.md#download-the-binary) shows how to download it from the registry and verify the checksum.
+
 ```bash
 opendepot login registry.example.com
 opendepot list skills

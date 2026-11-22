@@ -176,6 +176,7 @@ var _ = Describe("Agent description catalog", Ordered, func() {
 			"--wait",
 			"--timeout", "2m",
 		}
+		args = append(args, utils.CoverageHelmArgs()...)
 		_, err = utils.Run(exec.Command("helm", args...))
 		Expect(err).NotTo(HaveOccurred(), "Failed to helm upgrade server")
 

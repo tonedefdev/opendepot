@@ -254,7 +254,7 @@ func browseSAClient() (*kubernetes.Clientset, error) {
 // when the token was successfully verified as a client-credentials token.
 // Returns nil and false on any auth failure.
 func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendepotv1alpha1.GroupBinding, bool) {
-	if !*opendepotOIDCAllowClientCredentials || oidcCCVerifier == nil {
+	if !*opendepotOIDCAllowClientCredentials || len(oidcCCVerifiers) == 0 {
 		return nil, false
 	}
 
@@ -269,7 +269,7 @@ func browseAuthClientCredentials(ctx context.Context, rawToken string) (*opendep
 		return nil, false
 	}
 
-	ccToken, err := oidcCCVerifier.Verify(ctx, rawToken)
+	ccToken, err := verifyClientCredentialsToken(ctx, rawToken)
 	if err != nil {
 		return nil, false
 	}
@@ -1049,7 +1049,7 @@ func handleBrowseNamespaces(w http.ResponseWriter, r *http.Request) {
 //	arch        - filter providers by supported architecture
 //	severity    - minimum severity: CRITICAL/HIGH/MEDIUM/LOW
 //	public_only - "true" show only public resources
-//	sort_by     - name|namespace|latest_version|kind|source|status|risk|synced|severity|last_scanned (default: name)
+//	sort_by     - name|namespace|latest_version|kind|source|status|risk|synced|severity|last_scanned|last_updated (default: name)
 //	sort_dir    - asc|desc (default: asc)
 //	page        - 1-based page number (default: 1)
 //	page_size   - items per page (default: 20, max: 100)
@@ -2130,6 +2130,29 @@ func applyBrowseFilters(items []BrowseResource, searchText, filterSynced, filter
 
 // sortBrowseItems sorts items in place by the given field and direction.
 func sortBrowseItems(items []BrowseResource, by, dir string) {
+	if by == "last_updated" {
+		// Ties always break on name ascending, so the direction only flips the time comparison.
+		sort.Slice(items, func(i, j int) bool {
+			a, b := items[i], items[j]
+			ta, tb := browseLastUpdatedTime(a.LastUpdated), browseLastUpdatedTime(b.LastUpdated)
+			if !ta.Equal(tb) {
+				if dir == "desc" {
+					return tb.Before(ta)
+				}
+
+				return ta.Before(tb)
+			}
+
+			if a.Name != b.Name {
+				return a.Name < b.Name
+			}
+
+			return a.Namespace < b.Namespace
+		})
+
+		return
+	}
+
 	less := func(i, j int) bool {
 		a, b := items[i], items[j]
 		switch by {
@@ -2198,6 +2221,17 @@ func sortBrowseItems(items []BrowseResource, by, dir string) {
 
 		return less(i, j)
 	})
+}
+
+// browseLastUpdatedTime parses an RFC 3339 LastUpdated value. Empty or unparseable values return the zero
+// time, so they sort as oldest, the same as empty values in the last_scanned sort.
+func browseLastUpdatedTime(value string) time.Time {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }
 
 // browseStatusRank orders rows so problems come first: blocked, failed, not synced, then synced.

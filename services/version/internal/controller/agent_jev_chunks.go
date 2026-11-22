@@ -67,6 +67,10 @@ const jevChunkDescriptionLimit = 1024
 // jevChunkToolsLimit is the byte limit for the tools in a preamble.
 const jevChunkToolsLimit = 512
 
+// jevChunkScanLimit is the byte limit for the static scanner block in each part. The block is charged against the
+// content budget, so a part still fits jev.MaxStateBytes.
+const jevChunkScanLimit = 1024
+
 // jevChunkListHeader starts the bundled file list in the first part that holds it.
 const jevChunkListHeader = "\n\nBundled files:\n"
 
@@ -109,6 +113,13 @@ type jevChunkInput struct {
 	name         string
 	description  string
 	tools        []string
+	// scan is the static scanner block that opens each part, or empty when no scanner ran.
+	scan string
+}
+
+// bodyBudget is the number of content bytes a part may hold once its preamble and scanner block are added.
+func (in *jevChunkInput) bodyBudget() int64 {
+	return int64(jevChunkBodyBudget) - int64(len(in.scan))
 }
 
 // jevChunkFile is a bundled file with its size and class.
@@ -174,7 +185,11 @@ type jevChunkPacker struct {
 // jevChunkPlan classifies every bundled file and packs the content into parts. Files are read only while the content
 // could still fit in jevMaxChunks parts. Once it cannot, planning stops and reports a lower bound on the count.
 func jevChunkPlan(in *jevChunkInput) (jevChunkLayout, error) {
-	budget := int64(jevChunkBodyBudget)
+	if len(in.scan) > jevChunkScanLimit {
+		return jevChunkLayout{}, fmt.Errorf("scanner block is %d bytes, over the %d byte limit", len(in.scan), jevChunkScanLimit)
+	}
+
+	budget := in.bodyBudget()
 	sizes := make([]int64, len(in.files))
 	var total int64
 	for i, rel := range in.files {
@@ -692,6 +707,7 @@ func (in *jevChunkInput) preamble(position string, hasEntry bool) string {
 	fmt.Fprintf(&b, "OpenDepot %s \"%s\", %s\n", in.kind, jevChunkTruncate(in.name, jevChunkNameLimit), position)
 	b.WriteString(jevChunkTruncate(in.description, jevChunkDescriptionLimit))
 	fmt.Fprintf(&b, "\nTools: %s\n", jevChunkTruncate(strings.Join(in.tools, ", "), jevChunkToolsLimit))
+	b.WriteString(in.scan)
 	if !hasEntry {
 		b.WriteString("The entry file and the full bundled file list are in part 1.\n")
 	}

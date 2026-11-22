@@ -123,6 +123,7 @@ spec:
           requests:
             cpu: 5m
             memory: 16Mi
+            ephemeral-storage: 16Mi
         volumeMounts:
         - name: service-account
           mountPath: /var/run/secrets/kubernetes.io/serviceaccount
@@ -175,6 +176,10 @@ spec:
               name: {{ .Values.version.gpg.secretName }}
               key: OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64
         {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: GOCOVERDIR
+          value: /coverage
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -197,6 +202,10 @@ spec:
         {{- if .Values.scanning.providerScanning }}
         - name: trivy-cache
           mountPath: {{ .Values.scanning.cacheMountPath }}
+        {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: coverage
+          mountPath: /coverage
         {{- end }}
       volumes:
       - name: service-account
@@ -234,6 +243,10 @@ spec:
       - name: trivy-cache
         persistentVolumeClaim:
           claimName: opendepot-trivy-cache
+      {{- end }}
+      {{- if .Values.coverage.enabled }}
+      - name: coverage
+        emptyDir: {}
       {{- end }}
       {{- with .Values.version.nodeSelector }}
       nodeSelector:

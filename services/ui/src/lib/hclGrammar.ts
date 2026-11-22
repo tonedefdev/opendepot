@@ -5,4 +5,6 @@ import "prismjs/components/prism-hcl";
 // while `opendepot {` kept it. This rule matches the block type with any labels after it.
 const hcl = Prism.languages.hcl;
 const existingKeyword = hcl.keyword as Array<RegExp | Prism.TokenObject>;
-hcl.keyword = [...existingKeyword, /[\w-]+(?=(?:\s+"(?:\\[\s\S]|[^\\"])*")*\s*\{)/];
+// Each quoted label is unrolled so every character matches exactly one branch. The lookbehind starts the match at a
+// word boundary, so a long identifier is not rescanned from each of its inner positions.
+hcl.keyword = [...existingKeyword, /(?<![\w-])[\w-]+(?=(?:\s+"[^"\\]*(?:\\[\s\S][^"\\]*)*")*\s*\{)/];

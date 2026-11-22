@@ -539,7 +539,7 @@ function FindingsTable({
         onPageChange={(_, newPage) => setPage(newPage)}
         rowsPerPage={rowsPerPage}
         onRowsPerPageChange={(e) => {
-          setRowsPerPage(parseInt(e.target.value, 10));
+          setRowsPerPage(Number.parseInt(e.target.value, 10));
           setPage(0);
         }}
         rowsPerPageOptions={[5, 10, 25, 50]}
@@ -602,7 +602,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
 
   // Available OS values derived from the platform keys of the current binary scan map.
   const availableOS = React.useMemo(() => {
-    return [...new Set(Object.keys(binaryScanFindings ?? {}).map((k) => k.split("/")[0]))].sort();
+    return [...new Set(Object.keys(binaryScanFindings ?? {}).map((k) => k.split("/")[0]))].sort((a, b) => a.localeCompare(b));
   }, [binaryScanFindings]);
 
   // Available Arch values for the currently selected OS (or all platforms if none selected).
@@ -610,7 +610,7 @@ export default function ScanDrillDown({ namespace, kind, name, initialSourceScan
     const keys = Object.keys(binaryScanFindings ?? {}).filter(
       (k) => !selectedOS || k.startsWith(selectedOS + "/"),
     );
-    return [...new Set(keys.map((k) => k.split("/")[1]))].sort();
+    return [...new Set(keys.map((k) => k.split("/")[1]))].sort((a, b) => a.localeCompare(b));
   }, [binaryScanFindings, selectedOS]);
 
   // Effective OS/Arch: fall back to first available when the stored value is no longer valid.

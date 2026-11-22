@@ -486,3 +486,129 @@ func TestSortBrowseItemsByColumnKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestSortBrowseItemsLastUpdated(t *testing.T) {
+	const (
+		jan1 = "2026-01-01T00:00:00Z"
+		jan2 = "2026-01-02T00:00:00Z"
+		jan3 = "2026-01-03T00:00:00Z"
+	)
+
+	cases := []struct {
+		name  string
+		by    string
+		dir   string
+		items []BrowseResource
+		want  []string
+	}{
+		{
+			name: "ascending orders oldest first",
+			by:   "last_updated",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "mid", LastUpdated: jan2},
+				{Name: "new", LastUpdated: jan3},
+				{Name: "old", LastUpdated: jan1},
+			},
+			want: []string{"old", "mid", "new"},
+		},
+		{
+			name: "descending orders newest first",
+			by:   "last_updated",
+			dir:  "desc",
+			items: []BrowseResource{
+				{Name: "mid", LastUpdated: jan2},
+				{Name: "new", LastUpdated: jan3},
+				{Name: "old", LastUpdated: jan1},
+			},
+			want: []string{"new", "mid", "old"},
+		},
+		{
+			name: "compares instants across time zone offsets",
+			by:   "last_updated",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "later", LastUpdated: "2026-01-02T10:00:00+02:00"},
+				{Name: "earlier", LastUpdated: "2026-01-02T07:00:00Z"},
+			},
+			want: []string{"earlier", "later"},
+		},
+		{
+			name: "ascending ties break on name ascending",
+			by:   "last_updated",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "b", LastUpdated: jan2},
+				{Name: "a", LastUpdated: jan2},
+				{Name: "c", LastUpdated: jan1},
+			},
+			want: []string{"c", "a", "b"},
+		},
+		{
+			name: "descending ties still break on name ascending",
+			by:   "last_updated",
+			dir:  "desc",
+			items: []BrowseResource{
+				{Name: "b", LastUpdated: jan2},
+				{Name: "a", LastUpdated: jan2},
+				{Name: "c", LastUpdated: jan3},
+			},
+			want: []string{"c", "a", "b"},
+		},
+		{
+			name: "empty and unparseable values sort as oldest",
+			by:   "last_updated",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "new", LastUpdated: jan3},
+				{Name: "empty"},
+				{Name: "old", LastUpdated: jan1},
+				{Name: "bad", LastUpdated: "not-a-time"},
+			},
+			want: []string{"bad", "empty", "old", "new"},
+		},
+		{
+			name: "descending places empty and unparseable values last",
+			by:   "last_updated",
+			dir:  "desc",
+			items: []BrowseResource{
+				{Name: "new", LastUpdated: jan3},
+				{Name: "empty"},
+				{Name: "old", LastUpdated: jan1},
+				{Name: "bad", LastUpdated: "not-a-time"},
+			},
+			want: []string{"new", "old", "bad", "empty"},
+		},
+		{
+			name: "unknown sort_by falls back to name",
+			by:   "bogus",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "c", LastUpdated: jan1},
+				{Name: "a", LastUpdated: jan3},
+				{Name: "b", LastUpdated: jan2},
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name: "empty sort_by falls back to name",
+			by:   "",
+			dir:  "asc",
+			items: []BrowseResource{
+				{Name: "c", LastUpdated: jan1},
+				{Name: "a", LastUpdated: jan3},
+				{Name: "b", LastUpdated: jan2},
+			},
+			want: []string{"a", "b", "c"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sortBrowseItems(tc.items, tc.by, tc.dir)
+			if got := namesOf(tc.items); !slices.Equal(got, tc.want) {
+				t.Fatalf("sortBrowseItems(%q, %q) = %v; want %v", tc.by, tc.dir, got, tc.want)
+			}
+		})
+	}
+}

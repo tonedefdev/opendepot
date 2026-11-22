@@ -88,7 +88,11 @@ spec:
         - --oidc-allow-sa-fallback
         {{- end }}
         {{- if .Values.server.oidc.allowClientCredentials }}
+        {{- if not .Values.server.oidc.clientCredentialsAudiences }}
+        {{- fail "server.oidc.clientCredentialsAudiences must list the Dex client IDs to accept when server.oidc.allowClientCredentials=true" }}
+        {{- end }}
         - --oidc-allow-client-credentials
+        - --oidc-client-credentials-audiences={{ join "," .Values.server.oidc.clientCredentialsAudiences }}
         {{- end }}
         {{- if and .Values.ui.enabled .Values.ui.oidc.enabled .Values.ui.oidc.clientId }}
         - --oidc-ui-client-id={{ .Values.ui.oidc.clientId }}
@@ -152,6 +156,10 @@ spec:
         {{- with .Values.server.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: GOCOVERDIR
+          value: /coverage
+        {{- end }}
         {{- if .Values.server.gpg.secretName }}
         envFrom:
         - secretRef:
@@ -197,7 +205,7 @@ spec:
           {{- end }}
         resources:
           {{- toYaml .Values.server.resources | nindent 10 }}
-        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumeMounts }}
+        {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumeMounts .Values.coverage.enabled }}
         volumeMounts:
         {{- if .Values.server.tls.enabled }}
         - name: tls
@@ -212,6 +220,10 @@ spec:
         - name: assembly-workspace
           mountPath: {{ .Values.assembly.workDir }}
         {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: coverage
+          mountPath: /coverage
+        {{- end }}
         {{- with .Values.server.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -219,7 +231,7 @@ spec:
       {{- with .Values.server.extraContainers }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
-      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumes }}
+      {{- if or .Values.server.tls.enabled .Values.storage.filesystem.enabled .Values.assembly.enabled .Values.server.extraVolumes .Values.coverage.enabled }}
       volumes:
       {{- if .Values.server.tls.enabled }}
       - name: tls
@@ -241,6 +253,10 @@ spec:
       - name: assembly-workspace
         emptyDir:
           sizeLimit: {{ .Values.assembly.workspaceSizeLimit }}
+      {{- end }}
+      {{- if .Values.coverage.enabled }}
+      - name: coverage
+        emptyDir: {}
       {{- end }}
       {{- with .Values.server.extraVolumes }}
       {{- toYaml . | nindent 6 }}

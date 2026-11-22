@@ -43,8 +43,8 @@ export default async function HomePage({ searchParams }: PageProps) {
     q: sp(params["q"]),
     sortBy: sp(params["sort_by"]) ?? "name",
     sortDir: (sp(params["sort_dir"]) as "asc" | "desc") ?? "asc",
-    page: parseInt(sp(params["page"]) ?? "1", 10),
-    pageSize: parseInt(sp(params["page_size"]) ?? String(DEFAULT_REGISTRY_PAGE_SIZE), 10),
+    page: Number.parseInt(sp(params["page"]) ?? "1", 10),
+    pageSize: Number.parseInt(sp(params["page_size"]) ?? String(DEFAULT_REGISTRY_PAGE_SIZE), 10),
   };
 
   let resourceList;

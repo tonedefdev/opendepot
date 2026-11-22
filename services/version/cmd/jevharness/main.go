@@ -10,6 +10,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/services/version/internal/controller"
 )
 
@@ -36,25 +38,55 @@ type summary struct {
 	score, safe             float64
 	chunks                  int
 	tokens                  int64
+	gates                   [][]string
 }
 
 func main() {
-	samples := flag.String("samples", "/tmp/jev-harness/samples", "directory of staged samples named mal-* or ben-*")
-	work := flag.String("work", "/tmp/jev-harness/work", "scratch directory for decoded copies")
-	only := flag.String("only", "", "comma-separated sample directory names to run")
-	endpoint := flag.String("endpoint", "", "optional Jev endpoint override")
-	flag.Parse()
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	flags := flag.NewFlagSet("jevharness", flag.ExitOnError)
+	samples := flags.String("samples", "/tmp/jev-harness/samples", "directory of staged samples named mal-* or ben-*")
+	work := flags.String("work", "/tmp/jev-harness/work", "scratch directory for decoded copies")
+	only := flags.String("only", "", "comma-separated sample directory names to run")
+	endpoint := flags.String("endpoint", "", "optional Jev endpoint override")
+	policyPaths := flags.String("policy", "", "optional comma-separated JSON files each holding a JevPolicy, such as a depot's skillConfigs[].jevPolicy; all are gated against one Jev response per sample; empty applies no thresholds")
+	scannerReports := flags.String("scanner-reports", "", "optional directory of SkillSpector JSON reports named <sample name>.json; each report's findings are sent to Jev in every part. Empty sends no findings")
+	scannerText := flags.String("scanner-text", "", "optional file whose contents are sent verbatim as the scanner block for every sample; cannot be combined with -scanner-reports. Used for wording controls")
+	flags.Parse(args)
+
+	if *scannerText != "" && *scannerReports != "" {
+		fmt.Fprintln(os.Stderr, "-scanner-text and -scanner-reports are mutually exclusive")
+		return 1
+	}
+
+	var fixedScan string
+	if *scannerText != "" {
+		data, err := os.ReadFile(*scannerText)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fixedScan = string(data)
+	}
+
+	policies, labels, err := loadPolicies(*policyPaths)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 
 	token := os.Getenv("OPENDEPOT_JEV_API_KEY")
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "OPENDEPOT_JEV_API_KEY is not set")
-		os.Exit(1)
+		return 1
 	}
 
 	entries, err := os.ReadDir(*samples)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 
 	filter := map[string]bool{}
@@ -81,7 +113,16 @@ func main() {
 			continue
 		}
 
-		report, err := controller.RunJevHarness(context.Background(), dir, name, "Skill", token, *endpoint)
+		scan, err := scannerBlock(*scannerReports, name)
+		if fixedScan != "" {
+			scan = fixedScan
+		}
+		if err != nil {
+			rows = append(rows, summary{class: class, name: name, err: err.Error()})
+			continue
+		}
+
+		report, err := controller.RunJevHarnessPolicies(context.Background(), dir, name, "Skill", token, *endpoint, scan, policies)
 		if err != nil {
 			rows = append(rows, summary{class: class, name: name, err: err.Error()})
 			continue
@@ -96,14 +137,84 @@ func main() {
 			safe:   report.SafeProbability,
 			chunks: report.ChunkCount,
 			tokens: report.InputTokens,
+			gates:  report.Gates,
 		})
 	}
 
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].class < rows[j].class })
-	fmt.Printf("\n%-10s %-22s %-10s %6s %6s %6s %8s  %s\n", "class", "name", "level", "score", "safe", "chunks", "tokens", "error")
-	for _, r := range rows {
-		fmt.Printf("%-10s %-22s %-10s %6.2f %6.2f %6d %8d  %s\n", r.class, r.name, r.level, r.score, r.safe, r.chunks, r.tokens, r.err)
+	header := fmt.Sprintf("%-10s %-22s %-10s %6s %6s %6s %8s", "class", "name", "level", "score", "safe", "chunks", "tokens")
+	for _, l := range labels {
+		header += fmt.Sprintf(" %-16s", "verdict:"+l)
 	}
+	fmt.Printf("\n%s %s\n", header, "error")
+	for _, r := range rows {
+		line := fmt.Sprintf("%-10s %-22s %-10s %6.2f %6.2f %6d %8d", r.class, r.name, r.level, r.score, r.safe, r.chunks, r.tokens)
+		for i := range labels {
+			verdict := "pass"
+			if i < len(r.gates) && len(r.gates[i]) > 0 {
+				verdict = "BLOCK"
+			}
+			if r.err != "" {
+				verdict = "error"
+			}
+			line += fmt.Sprintf(" %-16s", verdict)
+		}
+		fmt.Printf("%s %s\n", line, r.err)
+	}
+
+	return 0
+}
+
+// scannerBlock returns the SkillSpector findings block for one sample, or empty when no report directory is set.
+func scannerBlock(dir, name string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, name+".json"))
+	if err != nil {
+		return "", fmt.Errorf("scanner report for %s: %w", name, err)
+	}
+
+	return controller.ScannerBlockFromReport(data)
+}
+
+// loadPolicies reads each comma-separated policy file. An empty list returns one nil policy, which applies no
+// thresholds, labeled "none".
+func loadPolicies(list string) ([]*opendepotv1alpha1.JevPolicy, []string, error) {
+	if list == "" {
+		return []*opendepotv1alpha1.JevPolicy{nil}, []string{"none"}, nil
+	}
+
+	var policies []*opendepotv1alpha1.JevPolicy
+	var labels []string
+	for _, path := range strings.Split(list, ",") {
+		policy, err := loadPolicy(path)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		policies = append(policies, policy)
+		labels = append(labels, filepath.Base(path))
+	}
+
+	return policies, labels, nil
+}
+
+// loadPolicy reads a JevPolicy from a JSON file.
+func loadPolicy(path string) (*opendepotv1alpha1.JevPolicy, error) {
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var policy opendepotv1alpha1.JevPolicy
+	if err := json.Unmarshal(data, &policy); err != nil {
+		return nil, fmt.Errorf("parse policy %s: %w", path, err)
+	}
+
+	return &policy, nil
 }
 
 // classify maps a staged directory name to its class and skill name. Directories are named mal-<name> or ben-<name>.
@@ -215,11 +326,11 @@ func decodeBinary(path string, data []byte) (string, error) {
 
 func printReport(class, name string, r *controller.HarnessReport) {
 	fmt.Printf("\n== [%s] %s  chunks=%d evidence=%t tokens=%d\n", class, name, r.ChunkCount, r.Evidence, r.InputTokens)
-	fmt.Printf("  %-6s %-16s %-10s %6s %6s %6s %5s %5s %5s %5s %5s %5s %7s %5s\n",
-		"part", "status", "level", "score", "safe", "conf", "inj", "exf", "dest", "hid", "scope", "rexec", "tokens", "files")
+	fmt.Printf("  %-6s %-16s %-10s %-10s %6s %6s %6s %5s %5s %5s %5s %5s %5s %7s %5s\n",
+		"part", "status", "model", "level", "score", "safe", "conf", "inj", "exf", "dest", "hid", "scope", "rexec", "tokens", "files")
 	for _, p := range r.Parts {
-		fmt.Printf("  %-6s %-16s %-10s %6.2f %6.2f %6.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %7d %5d\n",
-			p.Label, p.Status, p.Level, p.RiskScore, p.SafeProbability, p.Confidence,
+		fmt.Printf("  %-6s %-16s %-10s %-10s %6.2f %6.2f %6.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %7d %5d\n",
+			p.Label, p.Status, p.Model, p.Level, p.RiskScore, p.SafeProbability, p.Confidence,
 			p.InjectionProb, p.ExfiltrationProb, p.DestructiveProb, p.HiddenProb, p.ScopeProb, p.RemoteExecProb,
 			p.InputTokens, p.Files)
 		if p.Error != "" {

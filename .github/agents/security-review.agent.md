@@ -3,7 +3,7 @@ description: "Use when: reviewing security of Go code, TypeScript/React UI, NGIN
 name: "OpenDepot Security Review"
 model: "Claude Haiku 5.5 (copilot)"
 reasoning-effort: high
-tools: [read, search, execute, agent, todo, browser, github/issue_read, github/issue_write, github/list_issues, github/add_issue_comment]
+tools: [read, search, execute, agent, todo, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/navigatePage, browser/clickElement, browser/typeInPage, browser/hoverElement, browser/dragElement, browser/handleDialog, browser/runPlaywrightCode, github/issue_read, github/issue_write, github/list_issues, github/add_issue_comment]
 agents: []
 argument-hint: "Branch or set of files to security review"
 ---

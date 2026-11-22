@@ -30,7 +30,11 @@ function githubBaseUrl(repoUrl?: string): string | null {
     return null;
   }
 
-  const trimmed = repoUrl.replace(/\/+$/, "");
+  let trimmed = repoUrl;
+  while (trimmed.endsWith("/")) {
+    trimmed = trimmed.slice(0, -1);
+  }
+
   return trimmed.startsWith("https://github.com/") ? trimmed : null;
 }
 

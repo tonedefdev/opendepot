@@ -426,6 +426,46 @@ func TestJevChunkFullPreambleFitsLimit(t *testing.T) {
 	jevChunkTestBuild(t, in, layout)
 }
 
+func TestJevChunkScanBlockFitsLimit(t *testing.T) {
+	in := jevChunkTestInput(t, map[string]string{
+		"SKILL.md": strings.Repeat("a", jevChunkBodyBudget),
+	})
+
+	in.name = strings.Repeat("n", 1000)
+	in.description = strings.Repeat("d", 5000)
+	in.tools = []string{strings.Repeat("t", 2000)}
+	in.scan = strings.Repeat("s", jevChunkScanLimit)
+	layout := jevChunkTestPlan(t, in)
+	states := jevChunkTestBuild(t, in, layout)
+	if !strings.Contains(states[0], in.scan) {
+		t.Fatalf("part 1 must carry the scan block")
+	}
+}
+
+func TestJevChunkScanBlockOverLimitRejected(t *testing.T) {
+	in := jevChunkTestInput(t, map[string]string{"SKILL.md": "# entry\n"})
+	in.scan = strings.Repeat("s", jevChunkScanLimit+1)
+	if _, err := jevChunkPlan(in); err == nil {
+		t.Fatalf("want error for scan block over %d bytes", jevChunkScanLimit)
+	}
+}
+
+func TestJevChunkScanBlockReducesBodyBudget(t *testing.T) {
+	content := strings.Repeat("a", jevChunkBodyBudget-64)
+	in := jevChunkTestInput(t, map[string]string{"SKILL.md": "# entry\n", "big.txt": content})
+	if n := len(jevChunkTestPlan(t, in).parts); n != 1 {
+		t.Fatalf("without a scan block the file is %d parts, want 1", n)
+	}
+
+	in.scan = strings.Repeat("s", jevChunkScanLimit)
+	layout := jevChunkTestPlan(t, in)
+	if n := len(layout.parts); n < 2 {
+		t.Fatalf("with a full scan block the file is %d part(s), want the budget to split it", n)
+	}
+
+	jevChunkTestBuild(t, in, layout)
+}
+
 func TestJevChunkFileListOnlyInFirstPart(t *testing.T) {
 	in := jevChunkTestInput(t, map[string]string{
 		"big.txt": strings.Repeat("line of text\n", 100*1024/13+1),

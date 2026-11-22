@@ -28,7 +28,10 @@ COPY services/version/go.mod services/version/go.sum services/version/
 RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
 
 # Download dependencies in workspace mode so replace directives resolve local modules
-RUN cd services/depot && go mod download
+WORKDIR /workspace/services/depot
+RUN go mod download
+
+WORKDIR /workspace
 
 # Copy source
 COPY api/v1alpha1/ api/v1alpha1/
@@ -38,8 +41,12 @@ COPY pkg/registry/ pkg/registry/
 COPY services/depot/cmd/ services/depot/cmd/
 COPY services/depot/internal/ services/depot/internal/
 
-# Build
-RUN cd services/depot && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/depot-controller cmd/main.go
+# Build (COVER=1 adds coverage counters and the coverage build tag)
+ARG COVER=0
+WORKDIR /workspace/services/depot
+RUN COVER_FLAGS="" && \
+    if [ "${COVER}" = "1" ]; then COVER_FLAGS="-cover -covermode=atomic -tags coverage"; fi && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build ${COVER_FLAGS} -a -o /workspace/depot-controller ./cmd
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

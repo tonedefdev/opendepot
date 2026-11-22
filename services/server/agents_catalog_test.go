@@ -183,11 +183,11 @@ func agentCatalogClientCredentials(t *testing.T) {
 	t.Helper()
 
 	originalAllow := opendepotOIDCAllowClientCredentials
-	originalVerifier := oidcCCVerifier
+	originalVerifiers := oidcCCVerifiers
 	originalIssuer := opendepotOIDCIssuerURL
 	t.Cleanup(func() {
 		opendepotOIDCAllowClientCredentials = originalAllow
-		oidcCCVerifier = originalVerifier
+		oidcCCVerifiers = originalVerifiers
 		opendepotOIDCIssuerURL = originalIssuer
 	})
 
@@ -195,7 +195,7 @@ func agentCatalogClientCredentials(t *testing.T) {
 	issuer := agentTestIssuer
 	opendepotOIDCAllowClientCredentials = &allow
 	opendepotOIDCIssuerURL = &issuer
-	oidcCCVerifier = gooidc.NewVerifier(agentTestIssuer, agentTestKeySet{}, &gooidc.Config{SkipClientIDCheck: true})
+	oidcCCVerifiers = []*gooidc.IDTokenVerifier{gooidc.NewVerifier(agentTestIssuer, agentTestKeySet{}, &gooidc.Config{ClientID: "other-client"})}
 }
 
 func TestAgentCatalogAnonymousAllowedWhenConfigured(t *testing.T) {

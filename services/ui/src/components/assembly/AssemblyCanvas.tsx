@@ -310,7 +310,7 @@ export function duplicateMapKeys(value: ModuleInputValue | undefined): string[] 
   };
 
   visit(value);
-  return Array.from(duplicates).sort();
+  return Array.from(duplicates).sort((a, b) => a.localeCompare(b));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -373,7 +373,12 @@ async function fetchContract(namespace: string, name: string, version: string): 
 
 function slugifyInstanceName(raw: string): string {
   let base = raw.replace(/^terraform-[a-z0-9]+-/i, "");
-  base = base.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  base = base.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  let start = 0;
+  let end = base.length;
+  while (start < end && base[start] === "_") start++;
+  while (end > start && base[end - 1] === "_") end--;
+  base = base.slice(start, end);
   if (!base) base = "module";
   if (/^[0-9]/.test(base)) base = `m_${base}`;
   return base;

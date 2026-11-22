@@ -96,6 +96,7 @@ var _ = Describe("Server Authentication", Ordered, func() {
 			"--timeout", "2m",
 		}
 		args := append(baseArgs, extraArgs...)
+		args = append(args, utils.CoverageHelmArgs()...)
 		cmd := exec.Command("helm", args...)
 		_, err := utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to helm upgrade server")
@@ -1725,7 +1726,8 @@ server:
 	// accepted when --oidc-allow-client-credentials is set. We simulate this using
 	// ROPC on the "ci-pipeline" Dex client: the resulting id_token has aud=ci-pipeline
 	// (not aud=opendepot), so the primary oidcVerifier rejects it and the secondary
-	// oidcCCVerifier (SkipClientIDCheck=true) accepts it. The server then maps the
+	// oidcCCVerifiers accept it because ci-pipeline is listed in
+	// --oidc-client-credentials-audiences. The server then maps the
 	// token's sub claim to the virtual group "client:<sub>" for GroupBinding evaluation.
 	//
 	// Note: Dex's local password connector does not support the OAuth2 client_credentials
@@ -1967,6 +1969,7 @@ server:
 		dexProxy:
 			enabled: false
     allowClientCredentials: true
+    clientCredentialsAudiences: ["ci-pipeline"]
 `, ccUserEmail, passwordHash, ccUserID, ccClientID, ccTestClientSecret)
 
 			valuesFile := filepath.Join(GinkgoT().TempDir(), "cc-dex-e2e-values.yaml")
@@ -2531,6 +2534,7 @@ var _ = Describe("Browse API", Ordered, func() {
 			"--timeout", "2m",
 		}
 		args := append(baseArgs, extraArgs...)
+		args = append(args, utils.CoverageHelmArgs()...)
 		cmd := exec.Command("helm", args...)
 		_, err := utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to helm upgrade server for browse tests")
@@ -3136,6 +3140,7 @@ server:
 				"--wait",
 				"--timeout", "10m",
 			}
+			baseArgs = append(baseArgs, utils.CoverageHelmArgs()...)
 			cmd := exec.Command("helm", baseArgs...)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "failed to deploy server with OIDC for GroupBinding browse tests")
@@ -3425,6 +3430,7 @@ var _ = Describe("Agent Registry", Ordered, func() {
 			"--timeout", "2m",
 		}
 		args := append(baseArgs, extraArgs...)
+		args = append(args, utils.CoverageHelmArgs()...)
 		cmd := exec.Command("helm", args...)
 		_, err := utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to helm upgrade server")

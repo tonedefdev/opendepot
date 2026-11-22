@@ -348,6 +348,7 @@ func TestServerFlagConfiguration(t *testing.T) {
 				"server.oidc.groupsClaim":                 "roles",
 				"server.oidc.allowServiceAccountFallback": "true",
 				"server.oidc.allowClientCredentials":      "true",
+				"server.oidc.clientCredentialsAudiences":  "{ci-pipeline,svc-other}",
 			},
 			contains: []string{
 				"--anonymous-auth",
@@ -355,6 +356,7 @@ func TestServerFlagConfiguration(t *testing.T) {
 				"--oidc-groups-claim=roles",
 				"--oidc-allow-sa-fallback",
 				"--oidc-allow-client-credentials",
+				"--oidc-client-credentials-audiences=ci-pipeline,svc-other",
 				"--tls-cert-path=/custom/tls.crt",
 				"--tls-cert-key=/custom/tls.key",
 			},
@@ -440,4 +442,52 @@ func TestChartRendersValidDexPassword(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(config), "username: demo")
 	assert.Contains(t, string(config), "email: demo@example.com")
+}
+
+func TestServerClientCredentialsAudiencesRequired(t *testing.T) {
+	tests := map[string]struct {
+		audiences string
+		wantErr   string
+		contains  []string
+	}{
+		"empty audiences fail": {
+			audiences: "",
+			wantErr:   "server.oidc.clientCredentialsAudiences must list the Dex client IDs",
+		},
+		"non-empty audiences render": {
+			audiences: "{ci-pipeline,svc-other}",
+			contains: []string{
+				"--oidc-allow-client-credentials",
+				"--oidc-client-credentials-audiences=ci-pipeline,svc-other",
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			options := &helm.Options{
+				KubectlOptions: &k8s.KubectlOptions{Namespace: "default"},
+				Logger:         logger.Discard,
+				SetValues: map[string]string{
+					"server.oidc.enabled":                    "true",
+					"server.oidc.dexProxy.enabled":           "false",
+					"server.oidc.issuerUrl":                  "https://issuer.example.com",
+					"server.oidc.allowClientCredentials":     "true",
+					"server.oidc.clientCredentialsAudiences": test.audiences,
+				},
+			}
+
+			rendered, err := helm.RenderTemplateE(t, options, chartPath(t), "opendepot", []string{"templates/server-deployment.yaml"})
+			if test.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			for _, expected := range test.contains {
+				assert.Contains(t, rendered, expected)
+			}
+		})
+	}
 }

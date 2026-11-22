@@ -223,8 +223,9 @@ func jevEvidencePart(in *jevChunkInput) (part jevChunkPart, ok bool, err error) 
 
 	chosen := make([]bool, len(excerpts))
 	var used int
+	budget := jevEvidenceBudget - len(in.scan)
 	for _, i := range order {
-		if used+len(blocks[i]) > jevEvidenceBudget {
+		if used+len(blocks[i]) > budget {
 			continue
 		}
 

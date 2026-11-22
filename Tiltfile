@@ -356,6 +356,13 @@ local_resource(
     labels=['controls'],
 )
 local_resource(
+    'docs',
+    serve_cmd='mkdocs serve -a localhost:8000',
+    deps=['docs', 'mkdocs.yml', 'requirements.txt'],
+    links=[link('http://localhost:8000/docs/', 'Docs')],
+    labels=['frontend'],
+)
+local_resource(
     'provider-mirror-tls',
     serve_cmd='tilt/scripts/provider-mirror-proxy.sh',
     resource_deps=['ui', 'dev-tls'],

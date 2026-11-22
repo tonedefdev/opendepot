@@ -17,6 +17,16 @@ const DURATION = 30;
 const TRACK = process.env.TRACK_AUDIO || join(homedir(), 'Desktop', 'Tone Def - Sunday Vibes.wav');
 const TRACK_START = Number(process.env.TRACK_START || '75.2155');
 
+// ffmpeg is resolved from fixed absolute paths only; PATH is never consulted.
+const FFMPEG_CANDIDATES = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'];
+
+function resolveFfmpeg() {
+  const bin = FFMPEG_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (!bin) throw new Error(`ffmpeg not found; looked in ${FFMPEG_CANDIDATES.join(', ')}`);
+
+  return bin;
+}
+
 const args = process.argv.slice(2);
 const stillIdx = args.indexOf('--still');
 
@@ -39,7 +49,8 @@ if (stillIdx !== -1) {
 }
 
 const frames = Math.round(DURATION * FPS);
-const ff = spawn('ffmpeg', [
+const FFMPEG = resolveFfmpeg();
+const ff = spawn(FFMPEG, [
   '-y', '-loglevel', 'error',
   '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-',
   '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p',
@@ -60,7 +71,7 @@ await ffDone;
 await browser.close();
 
 if (!existsSync(TRACK)) throw new Error(`Audio track not found: ${TRACK}`);
-const mux = spawnSync('ffmpeg', [
+const mux = spawnSync(FFMPEG, [
   '-y', '-loglevel', 'error',
   '-i', SILENT,
   '-ss', String(TRACK_START), '-i', TRACK,

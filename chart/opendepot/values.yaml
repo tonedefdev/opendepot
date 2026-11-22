@@ -28,9 +28,11 @@ version:
     requests:
       cpu: 100m
       memory: 512Mi
+      ephemeral-storage: 512Mi
     limits:
       cpu: 1000m
       memory: 4Gi
+      ephemeral-storage: 2Gi
   # GID for the version-controller pod and container.
   runAsGroup: 65532
   nodeSelector: {}
@@ -51,6 +53,7 @@ module:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
       cpu: 1000m
       memory: 512Mi
@@ -97,6 +100,7 @@ depot:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
       cpu: 1000m
       memory: 512Mi
@@ -174,11 +178,16 @@ server:
     allowServiceAccountFallback: false
     # allowClientCredentials, when true, enables Dex client credentials tokens as a
     # valid authentication method alongside OIDC JWTs. Verified Dex tokens whose
-    # audience does not match the primary oidc-client-id are accepted; the token's
+    # audience is listed in clientCredentialsAudiences are accepted; the token's
     # sub claim is mapped to a virtual group "client:<sub>" and evaluated against
     # GroupBinding resources. Requires a Dex staticClient with
     # grantTypes: ["client_credentials"]. See the OIDC configuration guide for setup.
     allowClientCredentials: false
+    # clientCredentialsAudiences lists the Dex client IDs whose client credentials tokens
+    # are accepted when allowClientCredentials=true. Dex sets a client credentials token's
+    # aud claim to the requesting client's ID, so list each client registered with
+    # grantTypes: ["client_credentials"]. Required (non-empty) when allowClientCredentials=true.
+    clientCredentialsAudiences: []
     # authzUrl overrides the authorization URL advertised in the login.v1 block of
     # /.well-known/terraform.json. When blank the URL comes from the OIDC provider
     # discovery document. Set this when the server discovers Dex via an in-cluster
@@ -245,6 +254,7 @@ server:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
       cpu: 1000m
       memory: 512Mi
@@ -563,6 +573,30 @@ ui:
   tolerations: []
   affinity: {}
 
+## Static MkDocs site served at /docs through the UI NGINX, so it shares the UI
+## ingress and load balancer. Requires ui.enabled=true.
+docs:
+  enabled: false
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/docs
+    tag: ""  # Overrides global.image.tag when set
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+  # GID for the docs pod and container. Must be above 10000 for KSV-0021.
+  runAsGroup: 65532
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 ## OpenDepot monitoring resources and the optional bundled Prometheus stack.
 monitoring:
   enabled: true
@@ -601,3 +635,8 @@ monitoring:
       # Leave empty for disposable demo storage. Set this map to the
       # kube-prometheus-stack Prometheus storageSpec shape to use a PVC.
       storageSpec: {}
+
+## Coverage instrumentation for e2e coverage runs (make coverage-e2e).
+## When enabled, services set GOCOVERDIR and mount an emptyDir at /coverage.
+coverage:
+  enabled: false

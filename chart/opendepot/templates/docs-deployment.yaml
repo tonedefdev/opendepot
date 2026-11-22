@@ -1,0 +1,61 @@
+{{- if and .Values.ui.enabled .Values.docs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docs
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: docs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: docs
+  template:
+    metadata:
+      labels:
+        app: docs
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: {{ .Values.docs.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: docs
+        image: "{{ .Values.docs.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.docs.image.tag }}"
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.docs.service.targetPort }}
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: {{ .Values.docs.runAsGroup }}
+        volumeMounts:
+        - name: nginx-tmp
+          mountPath: /tmp
+        resources:
+          {{- toYaml .Values.docs.resources | nindent 10 }}
+      volumes:
+      - name: nginx-tmp
+        emptyDir: {}
+      {{- with .Values.docs.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.docs.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.docs.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -32,7 +32,10 @@ COPY services/server/go.mod services/server/go.sum services/server/
 RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
 
 # Download dependencies in workspace mode so replace directives resolve local modules
-RUN cd services/version && go mod download
+WORKDIR /workspace/services/version
+RUN go mod download
+
+WORKDIR /workspace
 
 # Copy source
 COPY api/v1alpha1/ api/v1alpha1/
@@ -49,8 +52,12 @@ COPY services/version/cmd/ services/version/cmd/
 COPY services/version/internal/ services/version/internal/
 COPY services/version/checks/ services/version/checks/
 
-# Build
-RUN cd services/version && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/version-controller cmd/main.go
+# Build (COVER=1 adds coverage counters and the coverage build tag)
+ARG COVER=0
+WORKDIR /workspace/services/version
+RUN COVER_FLAGS="" && \
+    if [ "${COVER}" = "1" ]; then COVER_FLAGS="-cover -covermode=atomic -tags coverage"; fi && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build ${COVER_FLAGS} -a -o /workspace/version-controller ./cmd
 
 # trivy-release: upstream Trivy release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TRIVY=true
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS trivy-release

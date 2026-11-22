@@ -66,6 +66,8 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	defer coverageFlush()
+
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string

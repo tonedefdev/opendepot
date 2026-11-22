@@ -108,7 +108,16 @@ server:
   oidc:
     enabled: true
     allowClientCredentials: true
+    clientCredentialsAudiences:
+      - ci-pipeline
 ```
+
+List every Dex client ID that uses the `client_credentials` grant in
+`clientCredentialsAudiences`. The chart passes this list to the server as
+`--oidc-client-credentials-audiences`. Dex sets a client credentials token's `aud` to the
+requesting client's ID, and OpenDepot accepts only tokens whose audience is on this
+list. The chart fails to render, and the server refuses to start, when
+`allowClientCredentials` is true and the list is empty.
 
 ### Step 3: Create a GroupBinding
 

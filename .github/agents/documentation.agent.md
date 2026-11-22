@@ -1,7 +1,7 @@
 ---
 description: "Use when: updating documentation after a feature is implemented, documenting new CRD fields, writing guides for new behaviors, updating the API reference, recording configuration changes, or any documentation task in the OpenDepot project. Invoked by the Code Review agent once implementation is confirmed complete, or directly by the user."
 name: "OpenDepot Documentation"
-tools: [vscode/memory, execute, read, edit, search, browser, browser/dragElement, browser/navigatePage, browser/runPlaywrightCode, browser/handleDialog, browser/hoverElement, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/typeInPage]
+tools: [vscode/memory, execute, read, edit, search, browser/dragElement, browser/navigatePage, browser/runPlaywrightCode, browser/handleDialog, browser/hoverElement, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/typeInPage, browser/clickElement]
 argument-hint: "Describe the feature or changes that need documentation"
 model: Claude Haiku 5.5 (copilot)
 ---
