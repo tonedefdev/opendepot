@@ -11,6 +11,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.66.1
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	github.com/tonedefdev/opendepot/pkg/hclschema v0.0.0
@@ -40,7 +41,6 @@ require (
 	github.com/hashicorp/hcl v0.0.0-20170504190234-a4b07c25de5f // indirect
 	github.com/hashicorp/terraform-config-inspect v0.0.0-20260709150029-2fb54c236733 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect

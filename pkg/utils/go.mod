@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	golang.org/x/mod v0.41.0
+	k8s.io/apimachinery v0.35.4
 )
 
 require (
@@ -20,7 +21,6 @@ require (
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/apimachinery v0.35.4 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4 // indirect
 	k8s.io/utils v0.0.0-20260108192941-914a6e750570 // indirect
