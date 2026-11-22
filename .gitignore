@@ -15,6 +15,7 @@
 *.out
 coverage/
 coverage.*
+!pkg/testutils/coverage.go
 *.coverprofile
 profile.cov
 
