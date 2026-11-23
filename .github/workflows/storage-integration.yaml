@@ -117,10 +117,24 @@ jobs:
           tenant-id: ${{ env.tenantId }}
           subscription-id: ${{ env.subscriptionId }}
 
+      - name: Export federated token for the Azure SDK
+        # pkg/storage uses azidentity.NewDefaultAzureCredential. On hosted runners the
+        # managed identity probe returns a hard 401, which stops the chain before the
+        # Azure CLI credential. Workload identity runs earlier in the chain, so provide
+        # the same GitHub OIDC token that azure/login used.
+        run: |
+          token=$(curl -sSfL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" | jq -r '.value')
+          echo "::add-mask::${token}"
+          token_file="${RUNNER_TEMP}/azure-federated-token"
+          printf '%s' "${token}" > "${token_file}"
+          echo "AZURE_FEDERATED_TOKEN_FILE=${token_file}" >> "${GITHUB_ENV}"
+
       - name: Run Azure Blob Storage integration tests
         working-directory: test/integration
         env:
           AZURE_SUBSCRIPTION_ID: ${{ env.subscriptionId }}
+          AZURE_CLIENT_ID: ${{ env.clientId }}
+          AZURE_TENANT_ID: ${{ env.tenantId }}
           AZURE_LOCATION: westus2
           # Required by the azurerm OpenTofu provider for OIDC authentication.
           ARM_USE_OIDC: "true"
