@@ -1482,7 +1482,7 @@ spec:
 	Context("Branch sourcing", Ordered, func() {
 		const (
 			branchSkillName     = "acquire-codebase-knowledge"
-			branchJevSkillName  = "conventional-commit"
+			branchJevSkillName  = "acquire-codebase-knowledge-jev"
 			branchDepotName     = "branch-e2e-depot"
 			branchStorageDir    = "/data/modules"
 			branchServerPort    = "18082"
