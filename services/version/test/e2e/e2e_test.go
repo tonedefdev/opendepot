@@ -1482,7 +1482,6 @@ spec:
 	Context("Branch sourcing", Ordered, func() {
 		const (
 			branchSkillName     = "acquire-codebase-knowledge"
-			branchJevSkillName  = "acquire-codebase-knowledge-jev"
 			branchDepotName     = "branch-e2e-depot"
 			branchStorageDir    = "/data/modules"
 			branchServerPort    = "18082"
@@ -1560,9 +1559,6 @@ spec:
 		// The agent controller creates the branch Versions and copies their outcome back to the entries.
 		applyBranchSkill := func(name string, jev bool, entries ...branchEntry) {
 			fixturePath := utils.SkillFixturePath
-			if jev {
-				fixturePath = utils.JevSkillFixturePath
-			}
 
 			versions := ""
 			for _, entry := range entries {
@@ -1612,12 +1608,9 @@ spec:
         directoryPath: %s%s`, name, path, utils.BranchFixtureRef, branchStorageDir, jevSecretRefBlock(jev))
 		}
 
-		// applyBranchDepot applies the Depot that sources the fixture branch. The Jev Skill is managed only when jev is set.
+		// applyBranchDepot applies the Depot that sources the fixture branch under branchSkillName. jev selects the Jev-classified source.
 		applyBranchDepot := func(jev bool) {
-			skillConfigs := branchSourceBlock(branchSkillName, utils.SkillFixturePath, false)
-			if jev {
-				skillConfigs += branchSourceBlock(branchJevSkillName, utils.JevSkillFixturePath, true)
-			}
+			skillConfigs := branchSourceBlock(branchSkillName, utils.SkillFixturePath, jev)
 
 			applyManifest(fmt.Sprintf(`apiVersion: opendepot.defdev.io/v1alpha1
 kind: Depot
@@ -1782,13 +1775,13 @@ spec:
 				"-n", namespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 
-			cmd = exec.Command("kubectl", "delete", "skill", branchSkillName, branchJevSkillName,
+			cmd = exec.Command("kubectl", "delete", "skill", branchSkillName,
 				"-n", namespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 
 			cmd = exec.Command("kubectl", "delete", "version",
 				"-n", namespace,
-				"-l", "opendepot.defdev.io/skill in ("+branchSkillName+","+branchJevSkillName+")",
+				"-l", "opendepot.defdev.io/skill="+branchSkillName,
 				"--ignore-not-found")
 			_, _ = utils.Run(cmd)
 
@@ -2041,8 +2034,8 @@ spec:
 		})
 
 		It("should classify the head bump with Jev when a Jev key is configured", func() {
-			err := utils.RequireFixtureAtMain(utils.JevSkillFixturePath)
-			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.JevSkillFixturePath)
+			err := utils.RequireFixtureAtMain(utils.SkillFixturePath)
+			Expect(err).NotTo(HaveOccurred(), "fixture removed upstream: %s", utils.SkillFixturePath)
 
 			jevKey, err := utils.RequireJevAPIKey()
 			Expect(err).NotTo(HaveOccurred(), "%s must be set to run the Jev variant", utils.JevAPIKeyEnvVar)
@@ -2065,13 +2058,23 @@ spec:
 			By("enabling Jev classification")
 			helmUpgrade("scanning.jev.enabled=true")
 
+			By("retiring the non-Jev Depot source, Skill, and Versions so the Jev Skill can take the same registry name")
+			for _, args := range [][]string{
+				{"delete", "depot", branchDepotName, "-n", namespace, "--ignore-not-found"},
+				{"delete", "skill", branchSkillName, "-n", namespace, "--ignore-not-found"},
+				{"delete", "version", "-n", namespace, "-l", "opendepot.defdev.io/skill=" + branchSkillName, "--ignore-not-found", "--wait=true"},
+			} {
+				_, err = utils.Run(exec.Command("kubectl", args...))
+				Expect(err).NotTo(HaveOccurred(), "Failed to run kubectl %v", args)
+			}
+
 			By("creating the Jev Skill with a pending entry at the pinned SHA")
-			applyBranchSkill(branchJevSkillName, true, branchEntry{
+			applyBranchSkill(branchSkillName, true, branchEntry{
 				commit:       utils.SkillFixtureSHA,
 				discoveredAt: time.Now().Add(-time.Hour),
 			})
 
-			pinnedName := branchVersionName(branchJevSkillName, utils.SkillFixtureSHA)
+			pinnedName := branchVersionName(branchSkillName, utils.SkillFixtureSHA)
 			Eventually(func(g Gomega) {
 				phase, err := versionField(pinnedName, "{.status.branchPhase}")
 				g.Expect(err).NotTo(HaveOccurred())
@@ -2080,7 +2083,7 @@ spec:
 
 			By("waiting for the agent controller to record the pinned Version in the Jev Skill status")
 			Eventually(func(g Gomega) {
-				refs, err := skillVersionRefs(branchJevSkillName)
+				refs, err := skillVersionRefs(branchSkillName)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(refs).To(HaveKey(branchPinnedVersion))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
@@ -2091,7 +2094,7 @@ spec:
 
 			var jevHeadCommit string
 			Eventually(func(g Gomega) {
-				entries, err := skillEntries(branchJevSkillName)
+				entries, err := skillEntries(branchSkillName)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(entries).To(HaveLen(2))
 
@@ -2099,7 +2102,7 @@ spec:
 				g.Expect(jevHeadCommit).To(MatchRegexp(`^[0-9a-f]{40}$`))
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
-			headName := branchVersionName(branchJevSkillName, jevHeadCommit)
+			headName := branchVersionName(branchSkillName, jevHeadCommit)
 
 			By("waiting for the head Version to reach Assigned, Rejected, or Held")
 			var headPhase string

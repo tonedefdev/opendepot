@@ -33,10 +33,6 @@ const (
 	// SkillFixturePath is a single skill directory containing SKILL.md at its root.
 	SkillFixturePath = "skills/acquire-codebase-knowledge"
 
-	// JevSkillFixturePath is the directory sourced by the Jev-classified Skill. It is the same directory as
-	// SkillFixturePath, served under a separate Skill name.
-	JevSkillFixturePath = SkillFixturePath
-
 	// SkillFixtureSHA pins the skill fixture to a commit where SKILL.md exists and passes checks.
 	SkillFixtureSHA = "b8f38227480c9f3fe04d6496d4fcab9a880e5a15"
 
