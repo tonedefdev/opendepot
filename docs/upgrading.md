@@ -15,7 +15,9 @@ Breaking changes and upgrade steps for each OpenDepot release. Check this page b
     helm show crds opendepot/opendepot | kubectl apply --server-side -f -
     ```
 
-## Unreleased
+## v0.12.0
+
+v0.12.0 updates the chart and application version to `0.12.0`. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.
 
 ### Breaking Changes
 
@@ -65,10 +67,6 @@ List every Dex client ID that uses the `client_credentials` grant. Tokens from o
        -n opendepot-system \
        -f my-values.yaml
     ```
-
-## v0.12.0
-
-v0.12.0 updates the chart and application version to `0.12.0`. This release adds the agents.v1 registry for Skills and Agents. The agent deployment sets a `RuntimeDefault` seccomp profile as part of this release.
 
 ### New CRDs
 
