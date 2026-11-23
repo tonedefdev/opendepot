@@ -14,6 +14,9 @@ on:
       - 'services/version/**'
       - 'pkg/**'
       - 'api/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
       - '.github/workflows/e2e.yaml'
 
 permissions:
@@ -31,7 +34,7 @@ jobs:
     outputs:
       build_matrix: ${{ steps.matrix.outputs.build_matrix }}
       e2e_matrix: ${{ steps.matrix.outputs.e2e_matrix }}
-      agent_unit: ${{ steps.matrix.outputs.agent_unit }}
+      unit_matrix: ${{ steps.matrix.outputs.unit_matrix }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +58,10 @@ jobs:
               - 'services/server/**'
             version:
               - 'services/version/**'
+            shared:
+              - 'go.work'
+              - 'go.work.sum'
+              - 'Makefile'
 
       - name: Build selective matrices
         id: matrix
@@ -66,6 +73,7 @@ jobs:
           PROVIDER: ${{ steps.filter.outputs.provider }}
           SERVER: ${{ steps.filter.outputs.server }}
           VERSION: ${{ steps.filter.outputs.version }}
+          SHARED: ${{ steps.filter.outputs.shared }}
         shell: bash
         run: |
           build_services=()
@@ -123,11 +131,23 @@ jobs:
             fi
           fi
 
-          agent_unit=false
-          if [[ "$COMMON" == true || "$AGENT" == true ]]; then
-            agent_unit=true
-          fi
-          echo "agent_unit=$agent_unit" >> "$GITHUB_OUTPUT"
+          unit_services=()
+          [[ "$COMMON" == true || "$SHARED" == true || "$AGENT" == true ]] && unit_services+=(agent)
+          [[ "$COMMON" == true || "$SHARED" == true || "$DEPOT" == true ]] && unit_services+=(depot)
+          [[ "$COMMON" == true || "$SHARED" == true || "$MODULE" == true ]] && unit_services+=(module)
+          [[ "$COMMON" == true || "$SHARED" == true || "$PROVIDER" == true ]] && unit_services+=(provider)
+          [[ "$COMMON" == true || "$SHARED" == true || "$VERSION" == true ]] && unit_services+=(version)
+
+          unit_json=$(printf '%s\n' "${unit_services[@]}" | jq -Rsc '
+            [split("\n")[] | select(length > 0) |
+              if . == "agent" then {service: ., name: "Agent controller unit tests"}
+              elif . == "depot" then {service: ., name: "Depot controller unit tests"}
+              elif . == "module" then {service: ., name: "Module controller unit tests"}
+              elif . == "provider" then {service: ., name: "Provider controller unit tests"}
+              else {service: ., name: "Version controller unit tests"}
+              end] | {include: .}')
+
+          echo "unit_matrix=$unit_json" >> "$GITHUB_OUTPUT"
 
           build_json=$(printf '%s\n' "${build_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
@@ -215,12 +235,16 @@ jobs:
     permissions:
       contents: read
 
-  agent-unit:
-    name: Agent controller unit tests
+  unit-tests:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: changes
-    if: needs.changes.outputs.agent_unit == 'true'
+    if: needs.changes.outputs.unit_matrix != '{"include":[]}'
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.unit_matrix) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -231,8 +255,8 @@ jobs:
           go-version: "1.26"
           cache: true
 
-      - name: Run agent controller unit tests
-        working-directory: services/agent
+      - name: Run ${{ matrix.service }} controller unit tests
+        working-directory: services/${{ matrix.service }}
         run: make test
 
   e2e:
