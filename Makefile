@@ -168,7 +168,7 @@ work-tidy:
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
 
-E2E_SERVICES := depot module provider server version
+E2E_SERVICES := agent depot module provider server version
 
 ## Run e2e tests for all services sequentially
 .PHONY: test-e2e

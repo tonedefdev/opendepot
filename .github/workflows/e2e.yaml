@@ -6,6 +6,7 @@ on:
       - opened
       - synchronize
     paths:
+      - 'services/agent/**'
       - 'services/depot/**'
       - 'services/module/**'
       - 'services/provider/**'
@@ -30,6 +31,7 @@ jobs:
     outputs:
       build_matrix: ${{ steps.matrix.outputs.build_matrix }}
       e2e_matrix: ${{ steps.matrix.outputs.e2e_matrix }}
+      agent_unit: ${{ steps.matrix.outputs.agent_unit }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +43,8 @@ jobs:
             common:
               - 'api/**'
               - 'pkg/**'
+            agent:
+              - 'services/agent/**'
             depot:
               - 'services/depot/**'
             module:
@@ -56,6 +60,7 @@ jobs:
         id: matrix
         env:
           COMMON: ${{ steps.filter.outputs.common }}
+          AGENT: ${{ steps.filter.outputs.agent }}
           DEPOT: ${{ steps.filter.outputs.depot }}
           MODULE: ${{ steps.filter.outputs.module }}
           PROVIDER: ${{ steps.filter.outputs.provider }}
@@ -79,8 +84,8 @@ jobs:
           }
 
           if [[ "$COMMON" == true ]]; then
-            build_services+=(depot-controller module-controller provider-controller server version-controller)
-            e2e_services+=(depot module provider server version)
+            build_services+=(agent-controller depot-controller module-controller provider-controller server version-controller)
+            e2e_services+=(agent depot module provider server version)
           else
             if [[ "$DEPOT" == true ]]; then
               add_build_service depot-controller
@@ -104,22 +109,38 @@ jobs:
             [[ "$VERSION" == true ]] && e2e_services+=(version)
 
             if [[ "$SERVER" == true ]]; then
-              build_services+=(server version-controller)
+              add_build_service server
+              add_build_service version-controller
             fi
             [[ "$VERSION" == true ]] && add_build_service version-controller
+
+            # The agent suite deploys the chart with server and version images, so server or version changes also require it.
+            if [[ "$AGENT" == true || "$SERVER" == true || "$VERSION" == true ]]; then
+              add_build_service agent-controller
+              add_build_service version-controller
+              add_build_service server
+              add_e2e_service agent
+            fi
           fi
+
+          agent_unit=false
+          if [[ "$COMMON" == true || "$AGENT" == true ]]; then
+            agent_unit=true
+          fi
+          echo "agent_unit=$agent_unit" >> "$GITHUB_OUTPUT"
 
           build_json=$(printf '%s\n' "${build_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
               if . == "version-controller" then {service: ., dockerfile: "services/version/Dockerfile", buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"}
-              else {service: ., dockerfile: ("services/" + (if . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: (if . == "server" then "INCLUDE_TOFU=true" else "" end)}
+              else {service: ., dockerfile: ("services/" + (if . == "agent-controller" then "agent" elif . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: (if . == "server" then "INCLUDE_TOFU=true" else "" end)}
               end] | {include: .}')
           e2e_json=$(printf '%s\n' "${e2e_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
-              if . == "module" then {name: "Module controller e2e", workdir: "services/module", image: "module-controller", images: "module-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "1.6.0", terraform_version: "", install_mkcert: false}
+              if . == "agent" then {name: "Agent controller e2e", workdir: "services/agent", image: "agent-controller", images: "agent-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
+              elif . == "module" then {name: "Module controller e2e", workdir: "services/module", image: "module-controller", images: "module-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "1.6.0", terraform_version: "", install_mkcert: false}
               elif . == "provider" then {name: "Provider controller e2e", workdir: "services/provider", image: "provider-controller", images: "provider-controller version-controller server", skip_image_build: true, timeout: 40, test_timeout: "30m", tofu_version: "1.6.0", terraform_version: "1.10.5", install_mkcert: true}
               elif . == "depot" then {name: "Depot controller e2e", workdir: "services/depot", image: "depot-controller", images: "depot-controller version-controller server", skip_image_build: "", timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
-              elif . == "server" then {name: "Server e2e", workdir: "services/server", image: "server", images: "server", skip_image_build: "", timeout: 30, test_timeout: "20m", tofu_version: "1.11.5", terraform_version: "", install_mkcert: false}
+              elif . == "server" then {name: "Server e2e", workdir: "services/server", image: "server", images: "", runner: "ubuntu-24.04-arm", aws_emulator: true, skip_image_build: "", timeout: 40, test_timeout: "30m", tofu_version: "1.11.5", terraform_version: "", install_mkcert: false}
               else {name: "Version controller e2e", workdir: "services/version", image: "version-controller", images: "version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
               end] | {include: .}')
 
@@ -194,9 +215,29 @@ jobs:
     permissions:
       contents: read
 
+  agent-unit:
+    name: Agent controller unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.agent_unit == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Run agent controller unit tests
+        working-directory: services/agent
+        run: make test
+
   e2e:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     timeout-minutes: ${{ matrix.timeout }}
     needs:
       - changes
@@ -274,6 +315,7 @@ jobs:
           IMG: ${{ matrix.image }}:e2e-test
           KIND_CLUSTER: opendepot-test-e2e
           SKIP_IMAGE_BUILD: ${{ matrix.skip_image_build }}
+          E2E_AWS_EMULATOR: ${{ matrix.aws_emulator && 'true' || '' }}
           OPENDEPOT_GH_APP_ID: ${{ secrets.OPENDEPOT_GH_APP_ID }}
           OPENDEPOT_GH_INSTALL_ID: ${{ secrets.OPENDEPOT_GH_INSTALL_ID }}
           OPENDEPOT_GH_PRIVATE_KEY: ${{ secrets.OPENDEPOT_GH_PRIVATE_KEY }}

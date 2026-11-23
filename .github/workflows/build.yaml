@@ -31,6 +31,11 @@ jobs:
             path: services/module
             buildArgs: ""
             tagSuffix: ""
+          - name: agent-controller
+            context: .
+            path: services/agent
+            buildArgs: ""
+            tagSuffix: ""
           - name: depot-controller
             context: .
             path: services/depot
@@ -112,6 +117,7 @@ jobs:
           - name: version-controller
             tagSuffix: "-assembly"
           - name: module-controller
+          - name: agent-controller
           - name: depot-controller
           - name: server
           - name: server
