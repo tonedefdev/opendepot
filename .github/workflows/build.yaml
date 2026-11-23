@@ -61,6 +61,11 @@ jobs:
             path: services/ui
             buildArgs: ""
             tagSuffix: ""
+          - name: docs
+            context: .
+            path: services/docs
+            buildArgs: ""
+            tagSuffix: ""
         arch:
           - amd64
           - arm64
@@ -124,6 +129,7 @@ jobs:
             tagSuffix: "-assembly"
           - name: provider-controller
           - name: ui
+          - name: docs
 
     name: Manifest ${{ matrix.service.name }}${{ matrix.service.tagSuffix }}
 
