@@ -1,13 +1,12 @@
 import * as React from "react";
 import Container from "@mui/material/Container";
-import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import type { BrowseStorageConfig } from "@/lib/api";
 import { getDepotsGraph, getResourceDetail, listResources } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import DepotsGraphClient from "@/components/DepotsGraphClient";
+import type { AgentVersionMeta } from "@/components/DepotGraph";
 import RefreshIconButton from "@/components/RefreshIconButton";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import PageHeader from "@/components/PageHeader";
@@ -20,6 +19,7 @@ export default async function DepotsPage() {
   let providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>> = {};
   let moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>> = {};
   let moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }> = {};
+  let agentVersionMetaByKey: Record<string, AgentVersionMeta[]> = {};
 
   let graph;
   let fetchError: string | null = null;
@@ -122,6 +122,33 @@ export default async function DepotsPage() {
         moduleVersionEntries.map(([key, value]) => [key, value.detail]),
       ) as Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
 
+      // Skill and Agent versions load per resource; a failed detail call leaves that
+      // resource to fall back to its latest version.
+      const agentEntries = await Promise.all(
+        [
+          ...graph.skills.map((skill) => ({ item: skill, kind: "skill" })),
+          ...graph.agents.map((agent) => ({ item: agent, kind: "agent" })),
+        ].map(async ({ item, kind }) => {
+          const key = `${kind}/${item.namespace}/${item.name}`;
+          try {
+            const detail = await getResourceDetail(item.namespace, kind, item.name, token);
+            const meta: AgentVersionMeta[] = (detail.versions ?? []).map((version) => ({
+              version: version.version,
+              commit: version.commit,
+              fileName: version.fileName,
+              checksum: version.checksum,
+              lastScanned: version.lastScanned,
+            }));
+            return [key, meta] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      agentVersionMetaByKey = Object.fromEntries(
+        agentEntries.filter((entry): entry is readonly [string, AgentVersionMeta[]] => entry !== null),
+      ) as Record<string, AgentVersionMeta[]>;
+
       const moduleSyncByKey = new Map(
         moduleResources.items.map((resource) => [
           `${resource.namespace}/${resource.name}`,
@@ -171,35 +198,23 @@ export default async function DepotsPage() {
       redirect("/login");
     }
     fetchError = msg;
-    graph = { depots: [], modules: [], providers: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0 }, generatedAt: "" };
+    graph = { depots: [], modules: [], providers: [], skills: [], agents: [], edges: [], summary: { totalDepots: 0, totalModules: 0, totalProviders: 0, totalSkills: 0, totalAgents: 0 }, generatedAt: "" };
   }
 
   return (
     <main>
       <PageHeader
-        icon={<WarehouseIcon color="primary" fontSize="small" />}
+        icon={<WarehouseIcon fontSize="small" />}
         title="Depots"
-        description="Visualise the relationships between Depots and their managed Modules and Providers."
+        description="Visualise the relationships between Depots and their managed Modules, Providers, Skills, and Agents."
         actions={
           <>
             <MobileMapButton />
             <RefreshIconButton ariaLabel="refresh depots" />
           </>
         }
-        mobileOnly
       />
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Box mb={3} sx={{ display: { xs: "none", sm: "block" } }}>
-          <Box display="flex" alignItems="center" gap={1}>
-            <Typography variant="h4" component="h1">
-              Depots
-            </Typography>
-            <RefreshIconButton ariaLabel="refresh depots" />
-          </Box>
-          <Typography variant="body1" color="text.secondary" mt={1} mb={2}>
-            Visualise the relationships between Depots and their managed Modules and Providers.
-          </Typography>
-        </Box>
         {fetchError ? (
           <Alert severity="error">Failed to load depot graph: {fetchError}</Alert>
         ) : (
@@ -210,6 +225,7 @@ export default async function DepotsPage() {
             providerVersionMetaByKey={providerVersionMetaByKey}
             moduleVersionMetaByKey={moduleVersionMetaByKey}
             moduleDetailByKey={moduleDetailByKey}
+            agentVersionMetaByKey={agentVersionMetaByKey}
           />
         )}
       </Container>

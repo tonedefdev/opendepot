@@ -11,7 +11,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 export const NAME_COLUMN_WIDTH = 180;
 export const TOGGLE_WIDTH = 28;
 
-export const monoSx = { fontFamily: "monospace", fontSize: "0.8125rem" };
+export const monoSx = { fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem" };
 export const compactFieldSx = {
   "& .MuiFilledInput-root": { borderRadius: 1 },
   "& .MuiFilledInput-input": { ...monoSx, py: 0.75 },

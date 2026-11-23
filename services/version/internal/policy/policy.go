@@ -37,6 +37,7 @@ const (
 	ScanTypeBinary = "binary"
 	ScanTypeSource = "source"
 	ScanTypeModule = "module"
+	ScanTypeAgent  = "agent"
 )
 
 // wildcard is the only pattern supported in exemption and target reference lists.
@@ -78,6 +79,8 @@ type Resolved struct {
 	Threshold int
 	// Exemptions are the unexpired exemptions from the winning policy.
 	Exemptions []opendepotv1alpha1.ScanExemption
+	// JevExemptions are the unexpired Jev exemptions from the winning policy.
+	JevExemptions []opendepotv1alpha1.JevExemption
 	// NextExpiry is the earliest future exemption expiry, used to schedule a requeue so
 	// that an expired exemption re-enforces without waiting for an unrelated event.
 	NextExpiry *time.Time
@@ -128,9 +131,9 @@ func matchList(values []string, candidate string) bool {
 	return false
 }
 
-// resourceName returns the Module or Provider name a Version belongs to, preferring the
-// labels applied by the module and provider controllers and falling back to the inherited
-// config reference for Versions created before those labels existed.
+// resourceName returns the Module, Provider, Skill, or Agent name a Version belongs to, preferring
+// the labels applied by the owning controllers and falling back to the inherited config or source
+// reference for Versions created before those labels existed.
 func resourceName(version *opendepotv1alpha1.Version) string {
 	switch version.Spec.Type {
 	case opendepotv1alpha1.OpenDepotModule:
@@ -148,6 +151,14 @@ func resourceName(version *opendepotv1alpha1.Version) string {
 
 		if version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Name != nil {
 			return *version.Spec.ProviderConfigRef.Name
+		}
+	case opendepotv1alpha1.OpenDepotSkill, opendepotv1alpha1.OpenDepotAgent:
+		if name := version.Labels["opendepot.defdev.io/"+strings.ToLower(version.Spec.Type)]; name != "" {
+			return name
+		}
+
+		if version.Spec.AgentSourceRef != nil && version.Spec.AgentSourceRef.Name != nil {
+			return *version.Spec.AgentSourceRef.Name
 		}
 	}
 
@@ -225,6 +236,18 @@ func Matches(policy *opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Ve
 // never depends on the order the API server returned the list in. Policies with an invalid
 // selector are skipped and reported in the returned error slice.
 func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Version) (*opendepotv1alpha1.ScanPolicy, []error) {
+	ranked, errs := Rank(policies, version)
+	if len(ranked) == 0 {
+		return nil, errs
+	}
+
+	return &ranked[0], errs
+}
+
+// Rank returns every ScanPolicy that matches a Version, ordered from the governing policy down. The first element
+// is the policy Select returns. The order is the same as Select's: priority descending, then oldest creation
+// timestamp, then name ascending. Policies with an invalid selector are skipped and reported in the error slice.
+func Rank(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.Version) ([]opendepotv1alpha1.ScanPolicy, []error) {
 	var errs []error
 	matched := make([]opendepotv1alpha1.ScanPolicy, 0, len(policies))
 
@@ -240,10 +263,6 @@ func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.
 		}
 	}
 
-	if len(matched) == 0 {
-		return nil, errs
-	}
-
 	slices.SortStableFunc(matched, func(a, b opendepotv1alpha1.ScanPolicy) int {
 		if diff := cmp.Compare(b.Spec.Priority, a.Spec.Priority); diff != 0 {
 			return diff
@@ -256,7 +275,98 @@ func Select(policies []opendepotv1alpha1.ScanPolicy, version *opendepotv1alpha1.
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	return &matched[0], errs
+	return matched, errs
+}
+
+// JevGovernance reports which ScanPolicy governs a Version and how the archive digest matches the jevExemptions
+// across the ranked policies. ranked must come from Rank, so its first element is the governing policy whose
+// jevExemptions apply. The governing policy is searched first. Only when it has no entry for the digest does the
+// search continue down the ranking, and a match there is superseded because it does not apply. Matching is exact,
+// and an empty digest never matches.
+func JevGovernance(ranked []opendepotv1alpha1.ScanPolicy, digest string, now time.Time) *opendepotv1alpha1.JevExemptionGovernance {
+	governance := &opendepotv1alpha1.JevExemptionGovernance{MatchingState: opendepotv1alpha1.JevMatchingStateNone}
+	if len(ranked) > 0 {
+		governance.GoverningPolicy = ranked[0].Name
+		governance.GoverningPriority = int32(ranked[0].Spec.Priority)
+	}
+
+	if digest == "" {
+		governance.MatchingState = opendepotv1alpha1.JevMatchingStateNoDigest
+		return governance
+	}
+
+	for i := range ranked {
+		for _, exemption := range ranked[i].Spec.JevExemptions {
+			if exemption.ContentDigest != digest {
+				continue
+			}
+
+			governance.MatchingPolicy = ranked[i].Name
+			governance.MatchingPriority = int32(ranked[i].Spec.Priority)
+			if exemption.Expires != nil {
+				expires := *exemption.Expires
+				governance.MatchingExpires = &expires
+			}
+
+			switch {
+			case i > 0:
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateSuperseded
+				governance.Superseded = true
+			case exemption.Expires != nil && !exemption.Expires.Time.After(now):
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateExpired
+			default:
+				governance.MatchingState = opendepotv1alpha1.JevMatchingStateExempted
+			}
+
+			return governance
+		}
+	}
+
+	return governance
+}
+
+// JevUnblock reports what a Version needs before its Jev block can be cleared. It maps the JevGovernance decision onto
+// an unblock state, so the state and the governance always agree. blocked is the assessment's Blocked after the
+// exemption overlay. A Version that is not blocked needs nothing unless an exemption is in force, which is the none
+// state. Policy names are not withheld here, so callers that hide names clear them after this returns.
+func JevUnblock(ranked []opendepotv1alpha1.ScanPolicy, digest string, blocked bool, now time.Time) *opendepotv1alpha1.JevUnblock {
+	governance := JevGovernance(ranked, digest, now)
+
+	return unblockFromGovernance(governance, digest, blocked)
+}
+
+// unblockFromGovernance maps a governance decision and the Version's blocked state onto an unblock state. A matching
+// state outside the JevMatchingState values is reported as unknown rather than guessed.
+func unblockFromGovernance(governance *opendepotv1alpha1.JevExemptionGovernance, digest string, blocked bool) *opendepotv1alpha1.JevUnblock {
+	unblock := &opendepotv1alpha1.JevUnblock{
+		Digest:            digest,
+		GoverningPolicy:   governance.GoverningPolicy,
+		GoverningPriority: governance.GoverningPriority,
+		MatchingPolicy:    governance.MatchingPolicy,
+		MatchingPriority:  governance.MatchingPriority,
+		Expires:           governance.MatchingExpires,
+	}
+
+	switch {
+	case !blocked && governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted:
+		unblock.State = opendepotv1alpha1.JevUnblockStateExempted
+	case !blocked:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNone
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateNoDigest:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNoDigest
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateExempted:
+		unblock.State = opendepotv1alpha1.JevUnblockStatePending
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateExpired:
+		unblock.State = opendepotv1alpha1.JevUnblockStateExpired
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateSuperseded:
+		unblock.State = opendepotv1alpha1.JevUnblockStateSuperseded
+	case governance.MatchingState == opendepotv1alpha1.JevMatchingStateNone:
+		unblock.State = opendepotv1alpha1.JevUnblockStateNeedsEntry
+	default:
+		unblock.State = opendepotv1alpha1.JevUnblockStateUnknown
+	}
+
+	return unblock
 }
 
 // Resolve folds the winning policy and the controller flags into the effective decision for
@@ -297,7 +407,42 @@ func Resolve(winner *opendepotv1alpha1.ScanPolicy, blockOnCritical, blockOnHigh 
 		}
 	}
 
+	for _, exemption := range winner.Spec.JevExemptions {
+		if exemption.Expires == nil {
+			resolved.JevExemptions = append(resolved.JevExemptions, exemption)
+			continue
+		}
+
+		if !exemption.Expires.Time.After(now) {
+			continue
+		}
+
+		resolved.JevExemptions = append(resolved.JevExemptions, exemption)
+
+		if resolved.NextExpiry == nil || exemption.Expires.Time.Before(*resolved.NextExpiry) {
+			expiry := exemption.Expires.Time
+			resolved.NextExpiry = &expiry
+		}
+	}
+
 	return resolved
+}
+
+// JevExemptionFor returns the unexpired Jev exemption bound to the archive digest, or nil when
+// none matches. Matching is exact, so a digest in a different case never matches, and an empty
+// digest never matches.
+func (r Resolved) JevExemptionFor(digest string) *opendepotv1alpha1.JevExemption {
+	if digest == "" {
+		return nil
+	}
+
+	for i := range r.JevExemptions {
+		if r.JevExemptions[i].ContentDigest == digest {
+			return &r.JevExemptions[i]
+		}
+	}
+
+	return nil
 }
 
 // covers reports whether an exemption covers a finding produced by the given scan type.
@@ -362,6 +507,21 @@ func Apply(
 // rule that Resolve applies.
 func CountExemptions(policy *opendepotv1alpha1.ScanPolicy, now time.Time) (active int, expired int) {
 	for _, exemption := range policy.Spec.Exemptions {
+		if exemption.Expires != nil && !exemption.Expires.Time.After(now) {
+			expired++
+			continue
+		}
+
+		active++
+	}
+
+	return active, expired
+}
+
+// CountJevExemptions splits a policy's Jev exemptions into those currently in effect and those
+// whose expiry has passed. An exemption without an expiry is always in effect.
+func CountJevExemptions(policy *opendepotv1alpha1.ScanPolicy, now time.Time) (active int, expired int) {
+	for _, exemption := range policy.Spec.JevExemptions {
 		if exemption.Expires != nil && !exemption.Expires.Time.After(now) {
 			expired++
 			continue

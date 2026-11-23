@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"time"
 
 	storagetypes "github.com/tonedefdev/opendepot/pkg/storage/types"
@@ -26,7 +28,11 @@ func (storage *AmazonS3Storage) NewClient(ctx context.Context, region string) er
 		return fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
-	storage.client = s3.NewFromConfig(cfg)
+	usePathStyle, _ := strconv.ParseBool(os.Getenv("OPENDEPOT_S3_USE_PATH_STYLE"))
+	storage.client = s3.NewFromConfig(cfg, func(options *s3.Options) {
+		options.UsePathStyle = usePathStyle
+	})
+
 	return nil
 }
 

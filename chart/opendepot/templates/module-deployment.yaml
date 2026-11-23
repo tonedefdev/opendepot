@@ -21,8 +21,11 @@ spec:
     spec:
       serviceAccountName: module-controller
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.module.runAsGroup }}
       containers:
       - name: deployment-controller
         image: "{{ .Values.module.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.module.image.tag }}"
@@ -31,18 +34,32 @@ spec:
         args:
         - --zap-log-level={{ .Values.module.zapLogLevel }}
         {{- end }}
-        {{- if .Values.rbac.scopeToNamespace }}
+        {{- if or .Values.rbac.scopeToNamespace .Values.coverage.enabled }}
         env:
+        {{- if .Values.rbac.scopeToNamespace }}
         - name: WATCH_NAMESPACE
           value: {{ .Values.global.namespace }}
         {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: GOCOVERDIR
+          value: /coverage
+        {{- end }}
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
         resources:
           {{- toYaml .Values.module.resources | nindent 10 }}
+        {{- if .Values.coverage.enabled }}
+        volumeMounts:
+        - name: coverage
+          mountPath: /coverage
+        {{- end }}
       {{- with .Values.module.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -54,5 +71,10 @@ spec:
       {{- with .Values.module.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.coverage.enabled }}
+      volumes:
+      - name: coverage
+        emptyDir: {}
       {{- end }}
 {{- end }}

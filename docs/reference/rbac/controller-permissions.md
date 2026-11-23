@@ -7,9 +7,10 @@ tags:
 
 # Controller Permissions
 
-The chart creates roles for each OpenDepot component. The Server is read-only;
-the Depot, Module, Provider, and Version controllers reconcile resources and
-therefore receive write permissions.
+The chart creates roles for each OpenDepot component. The Server receives write
+permissions only for `scanpolicies`, and only when `server.policyManagement.enabled`
+is `true`. The Depot, Module, Provider, and Version controllers reconcile resources
+and therefore receive write permissions.
 
 ## Permission Matrix
 
@@ -35,6 +36,7 @@ therefore receive write permissions.
 | Version | `pods` | delete (namespace-scoped) |
 | Version | `secrets` | get |
 | Version | `configmaps` | create, get, list, patch, update, watch |
+| Version | `events` (`events.k8s.io`) | create, patch |
 | Provider | `providers` | create, delete, get, list, patch, update, watch |
 | Provider | `providers/finalizers` | update |
 | Provider | `providers/status` | get, patch, update |
@@ -46,6 +48,7 @@ therefore receive write permissions.
 | Server | `groupbindings` | get, list, watch |
 | Server | `namespaces` | get, list, watch |
 | Server | `configmaps` | get, list, watch |
+| Server | `scanpolicies` | get, list, watch; create, delete, patch, update only when `server.policyManagement.enabled` is `true` |
 
 !!! note
     The `depots` rule is added to the Server `ClusterRole` only when

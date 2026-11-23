@@ -10,5 +10,11 @@ export default defineConfig({
   test: {
     include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
     setupFiles: ["./src/test-setup.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      reporter: ["lcovonly", "text"],
+      reportsDirectory: path.resolve(__dirname, "coverage"),
+    },
   },
 });

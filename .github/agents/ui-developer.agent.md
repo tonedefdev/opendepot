@@ -3,7 +3,7 @@ description: "Use when: building or modifying the OpenDepot UI, adding React com
 name: "OpenDepot UI Developer"
 model: "Claude Haiku 5.5 (copilot)"
 reasoning-effort: medium
-tools: [read, edit, search, execute, browser, todo, vscode/memory, agent, browser]
+tools: [read, edit, search, execute, todo, vscode/memory, agent, browser/openBrowserPage, browser/readPage, browser/screenshotPage, browser/navigatePage, browser/clickElement, browser/typeInPage, browser/hoverElement, browser/dragElement, browser/handleDialog, browser/runPlaywrightCode]
 agents: ["OpenDepot Code Review", "OpenDepot Security Review", "OpenDepot Documentation" ,"OpenDepot Developer"]
 argument-hint: "UI feature or fix to implement (page, component, style change, or auth flow)"
 ---

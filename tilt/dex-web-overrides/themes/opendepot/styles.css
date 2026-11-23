@@ -1,3 +1,20 @@
+/* Brand fonts are copied next to this stylesheet by tilt/Dockerfile.dex. Both are SIL OFL 1.1; license texts sit beside the files. */
+@font-face {
+  font-family: "Aspekta";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/aspekta/AspektaVF.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter/inter-latin-wght-normal.woff2") format("woff2");
+}
+
 :root {
   --opendepot-blue: #0350c7;
   --opendepot-mint: #03deb8;
@@ -14,6 +31,12 @@
   color: var(--opendepot-ink);
   font-family: "Aspekta", "Inter", Helvetica, sans-serif;
   min-height: 100vh;
+}
+
+/* Form controls do not inherit font-family by default. */
+button,
+input {
+  font-family: inherit;
 }
 
 .opendepot-shell {
@@ -92,6 +115,7 @@
 
 .opendepot-account-note {
   color: #7a838c;
+  font-family: "Inter", Helvetica, sans-serif;
   font-size: 13px;
   font-style: italic;
   line-height: 1.5;

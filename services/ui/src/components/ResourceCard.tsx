@@ -6,33 +6,18 @@ import CardContent from "@mui/material/CardContent";
 import CardActionArea from "@mui/material/CardActionArea";
 import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
-import Chip from "@mui/material/Chip";
-import LockIcon from "@mui/icons-material/Lock";
 import PublicIcon from "@mui/icons-material/Public";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import SyncProblemIcon from "@mui/icons-material/SyncProblem";
-import ErrorIcon from "@mui/icons-material/Error";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "next/link";
 import SeverityBadge from "./SeverityBadge";
-import ProviderLogo from "./ProviderLogo";
+import SourceRefChip from "./SourceRefChip";
+import RiskMeter from "./RiskMeter";
+import { LastUpdated } from "./LastUpdated";
+import { KindLabel, SyncStatus, displayVersion, isAgentKind } from "./resourceDisplay";
 import type { BrowseResource } from "@/lib/api";
-
-// Resource-kind hues are fixed brand colors (matching DepotGraph.tsx's
-// MODULE_BORDER/PROVIDER_BORDER) — they must NOT swap with the primary/
-// secondary palette between light and dark mode, otherwise "provider" and
-// "module" chips would trade colors depending on the active scheme.
-const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#047df1";
 
 interface Props {
   resource: BrowseResource;
-}
-
-function displayVersion(v: string): string {
-  if (!v) return "";
-  return v.startsWith("v") ? v : `v${v}`;
 }
 
 export default function ResourceCard({ resource }: Props) {
@@ -48,104 +33,72 @@ export default function ResourceCard({ resource }: Props) {
   return (
     <Card
       data-testid="resource-card"
-      sx={(theme) => ({
+      sx={{
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        ...(resource.kind === "provider"
-          ? {
-              "&:hover": {
-                borderColor: "rgba(4,125,241,0.5)",
-                boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.4)",
-                ...theme.applyStyles("light", {
-                  boxShadow: "0 0 0 1px rgba(4,125,241,0.15), 0 4px 16px rgba(0,0,0,0.08)",
-                }),
-              },
-            }
-          : {}),
-      })}
+        position: "relative",
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 4,
+          bgcolor: "primary.main",
+          zIndex: 1,
+          pointerEvents: "none",
+        },
+        "[data-mui-color-scheme='dark'] &::before": {
+          display: "none",
+        },
+      }}
     >
       <CardActionArea component={Link} href={href} sx={{ flexGrow: 1, alignItems: "flex-start" }}>
-        <CardContent sx={{ pb: "12px !important" }}>
-          {/* Header row: namespace + visibility */}
-          <Box display="flex" alignItems="center" gap={0.75} mb={0.75}>
-            {resource.public ? (
-              <PublicIcon sx={{ fontSize: 13, color: "info.main" }} />
-            ) : (
-              <LockIcon sx={{ fontSize: 13, color: "text.secondary" }} />
-            )}
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.72rem" }}
-            >
-              {resource.namespace}
-            </Typography>
+        <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.25, pb: "16px !important" }}>
+          <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} minHeight={20}>
+            <KindLabel resource={resource} />
+            {isAgentKind(resource.kind) && resource.jevRiskLevel && <RiskMeter level={resource.jevRiskLevel} />}
           </Box>
 
-          {/* Name */}
-          <Tooltip title={nameTruncated ? resource.name : ""} placement="top" enterDelay={300} disableInteractive>
-            <Typography
-              ref={nameRef}
-              variant="h6"
-              component="div"
-              gutterBottom
-              noWrap
-              sx={{ fontSize: "0.9375rem", fontWeight: 700, lineHeight: 1.3, mb: 1 }}
-            >
-              {resource.name}
-            </Typography>
-          </Tooltip>
+          <Box minWidth={0}>
+            <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
+              <Typography variant="caption" noWrap>
+                {resource.namespace}/
+              </Typography>
+              {resource.public && (
+                <Tooltip title="Public: readable without signing in">
+                  <PublicIcon sx={{ fontSize: 13, color: "info.main", flexShrink: 0 }} />
+                </Tooltip>
+              )}
+            </Box>
+            <Tooltip title={nameTruncated ? resource.name : ""} placement="top" enterDelay={300} disableInteractive>
+              <Typography ref={nameRef} component="div" noWrap sx={{ fontSize: "0.9375rem", fontWeight: 600, lineHeight: 1.35 }}>
+                {resource.name}
+              </Typography>
+            </Tooltip>
+          </Box>
 
-          {/* Provider logo + kind + version */}
-          <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
-            {resource.kind === "provider" ? (
-              <ProviderLogo provider={resource.name} size={22} />
-            ) : resource.provider ? (
-              <ProviderLogo provider={resource.provider} size={22} />
-            ) : null}
-            <Chip
-              size="small"
-              label={resource.kind}
-              variant="outlined"
-              sx={(theme) => ({
-                textTransform: "capitalize",
-                color: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
-                borderColor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
-                ...theme.applyStyles("light", {
-                  color: "#fff",
-                  bgcolor: resource.kind === "provider" ? PROVIDER_COLOR : MODULE_COLOR,
-                }),
-              })}
-            />
+          <Box display="flex" alignItems="center" gap={1.5} minWidth={0} minHeight={20}>
             {resource.latestVersion && (
-              <Chip
-                size="small"
-                label={displayVersion(resource.latestVersion)}
-                sx={{ fontFamily: "monospace", fontSize: "0.72rem" }}
-              />
+              <Typography variant="body2" sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.8125rem", flexShrink: 0 }}>
+                {displayVersion(resource.latestVersion)}
+              </Typography>
             )}
+            <SourceRefChip
+              sourceRef={resource.sourceRef}
+              sourceCommit={resource.sourceCommit}
+              sourcePath={resource.sourcePath}
+              repoUrl={resource.repoUrl}
+              linked={false}
+              plain
+            />
           </Box>
 
-          {/* Sync status */}
-          <Box display="flex" alignItems="center" gap={0.5} mb={1}>
-            {/failed|error/i.test(resource.syncStatus) ? (
-              <ErrorIcon sx={{ fontSize: 13, color: "error.main" }} />
-            ) : resource.synced ? (
-              <CheckCircleIcon sx={{ fontSize: 13, color: "success.main" }} />
-            ) : (
-              <SyncProblemIcon sx={{ fontSize: 13, color: "warning.main" }} />
-            )}
-            {resource.hasUnsyncedVersions && (
-              <Tooltip title="Some versions are out of sync">
-                <WarningAmberIcon sx={{ fontSize: 13, color: "warning.main" }} />
-              </Tooltip>
-            )}
-            <Typography variant="caption" color="text.secondary">
-              {resource.syncStatus || (resource.synced ? "Synced" : "Not synced")}
-            </Typography>
-          </Box>
+          <SyncStatus resource={resource} testId="resource-card-sync-status" />
 
-          {/* Scan counts */}
+          <LastUpdated value={resource.lastUpdated} variant="caption" prefix="Updated" />
+
           {resource.scanCounts && (
             <Box display="flex" flexWrap="wrap" gap={0.5}>
               <SeverityBadge counts={resource.scanCounts} />

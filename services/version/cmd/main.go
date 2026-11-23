@@ -22,12 +22,14 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -37,6 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -45,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/services/version/checks/agents"
 	"github.com/tonedefdev/opendepot/services/version/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -62,6 +66,8 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	defer coverageFlush()
+
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -92,6 +98,12 @@ func main() {
 	var scanBlockOnCritical bool
 	var scanBlockOnHigh bool
 	var scanModules bool
+	var scanAgents bool
+	var agentAllowedDomains string
+	var jevEnabled bool
+	var branchSourcingEnabled bool
+	var jevEndpoint string
+	var jevMaxRetries int
 	flag.BoolVar(&scanningEnabled, "scanning-enabled", false,
 		"Enable Trivy vulnerability scanning for provider artifacts.")
 	flag.StringVar(&trivyCacheDir, "trivy-cache-dir", "/var/cache/trivy",
@@ -104,6 +116,18 @@ func main() {
 		"Block provider reconciliation when HIGH vulnerabilities are found by Trivy.")
 	flag.BoolVar(&scanModules, "scan-modules", false,
 		"Enable Trivy IaC scanning for module version archives when scanning-enabled is true.")
+	flag.BoolVar(&scanAgents, "scan-agents", true,
+		"Scan and sync Skill and Agent versions. Agent Trivy scanning is always on and fails closed.")
+	flag.StringVar(&agentAllowedDomains, "agent-allowed-domains", "",
+		"Comma-separated domains an agent may reference. Empty disables the allowed-domain rule.")
+	flag.BoolVar(&jevEnabled, "jev-enabled", false,
+		"Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy.")
+	flag.StringVar(&jevEndpoint, "jev-endpoint", "",
+		"Override the TypeSafe Jev API endpoint. Empty uses the default endpoint.")
+	flag.IntVar(&jevMaxRetries, "jev-max-retries", 3,
+		"Number of times a failed Jev assessment is run again before it stays failed.")
+	flag.BoolVar(&branchSourcingEnabled, "branch-sourcing-enabled", false,
+		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
 	var assemblyEnabled bool
 	var tofuBinPath string
 	var schemaExtractionTimeout time.Duration
@@ -229,6 +253,11 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "63f43f47.opendepot.defdev.io",
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}},
+			},
+		},
 	}
 
 	if watchNS := os.Getenv("WATCH_NAMESPACE"); watchNS != "" {
@@ -246,15 +275,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := removeServiceAccountToken(); err != nil {
-		setupLog.Error(err, "unable to remove ServiceAccount token before provider execution")
-		os.Exit(1)
-	}
-
 	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
+	}
+
+	if _, err := agents.Default(); err != nil {
+		setupLog.Error(err, "invalid agent scan rules")
+		os.Exit(1)
+	}
+
+	var allowedDomains []string
+	for _, domain := range strings.Split(agentAllowedDomains, ",") {
+		if domain = agents.NormalizeDomain(domain); domain != "" {
+			allowedDomains = append(allowedDomains, domain)
+		}
 	}
 
 	if err := (&controller.VersionReconciler{
@@ -263,6 +299,14 @@ func main() {
 		Log:                     logger,
 		ScanningEnabled:         scanningEnabled,
 		ScanModules:             scanModules,
+		ScanAgents:              scanAgents,
+		AgentAllowedDomains:     allowedDomains,
+		JevEnabled:              jevEnabled,
+		JevEndpoint:             jevEndpoint,
+		JevMaxRetries:           jevMaxRetries,
+		BranchSourcingEnabled:   branchSourcingEnabled,
+		APIReader:               mgr.GetAPIReader(),
+		Recorder:                mgr.GetEventRecorder("opendepot-version-controller"),
 		TrivyCacheDir:           trivyCacheDir,
 		ScanOffline:             scanOffline,
 		BlockOnCritical:         scanBlockOnCritical,
@@ -315,15 +359,6 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-func removeServiceAccountToken() error {
-	err := os.Remove("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if os.IsNotExist(err) {
-		return nil
-	}
-
-	return err
 }
 
 func runTokenRefreshHelper() {

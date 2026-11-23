@@ -6,16 +6,14 @@ tags:
 
 # Helm Chart
 
-The OpenDepot Helm chart is published to a GitHub Pages Helm repository:
+The chart is published to a GitHub Pages Helm repository at `https://opendepot.defdev.io/index.yaml`:
 
 ```bash
 helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
-The chart source is also available at [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot) in the repository.
-
-See [Installation](getting-started/installation.md) for prerequisites and deployment instructions.
+The source is in [`chart/opendepot/`](https://github.com/tonedefdev/opendepot/tree/main/chart/opendepot). For prerequisites and install steps, see [Installation](getting-started/installation.md).
 
 ## Global
 
@@ -37,7 +35,7 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 | `server.useBearerToken` | bool | Use bearer token auth instead of kubeconfig. Default: `true` |
 | `server.policyManagement.enabled` | bool | Enable server-side ScanPolicy create, update, and delete routes. Reads remain available when false; writes are disabled by default. Default: `false` |
 | `server.image.repository` | string | Server image repository. Default: `ghcr.io/tonedefdev/opendepot/server` |
-| `server.service.type` | string | Kubernetes Service type. Default: `LoadBalancer` |
+| `server.service.type` | string | Kubernetes Service type. Default: `ClusterIP` |
 | `server.service.port` | int | Service port. Default: `80` |
 | `server.service.targetPort` | int | Container port. Default: `8080` |
 | `server.tls.enabled` | bool | Enable TLS on the server. Default: `false` |
@@ -50,27 +48,51 @@ See [Installation](getting-started/installation.md) for prerequisites and deploy
 | `server.ingress.istio.hosts` | list | Istio VirtualService hosts. Default: `[opendepot.defdev.io]` |
 | `server.resources.requests.cpu` | string | CPU request. Default: `100m` |
 | `server.resources.requests.memory` | string | Memory request. Default: `128Mi` |
+| `server.resources.limits.cpu` | string | CPU limit. Default: `1000m` |
 | `server.resources.limits.memory` | string | Memory limit. Default: `512Mi` |
+| `server.runAsUser` | int | UID for the server pod and container. Default: `65532` |
+| `server.runAsGroup` | int | GID for the server pod and container. Default: `65532` |
 | `server.nodeSelector` | map | Node selector. Default: `{}` |
 | `server.tolerations` | list | Tolerations. Default: `[]` |
 | `server.affinity` | map | Affinity rules. Default: `{}` |
 | `server.podDisruptionBudget.enabled` | bool | Enable PodDisruptionBudget. Default: `false` |
 | `server.podDisruptionBudget.minAvailable` | int | Minimum available pods. Default: `2` |
 
+### Extension Hooks
+
+These values let operators add settings to the server pod. Each one defaults to an empty list (`[]`).
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.extraEnv` | list | Extra environment variables for the server container. |
+| `server.extraVolumes` | list | Extra pod volumes. |
+| `server.extraVolumeMounts` | list | Extra volume mounts for the server container. |
+| `server.extraContainers` | list | Extra containers added to the server pod after the server container. |
+| `server.extraInitContainers` | list | Extra init containers added after the built-in init containers. Set `restartPolicy: Always` for a native sidecar. |
+
+`extraEnv` renders after the built-in environment variables. An entry with the same name as a built-in variable overrides it. If a name appears more than once, the last value wins.
+
+```yaml
+server:
+  extraEnv:
+    - name: EXAMPLE_VAR
+      value: "example"
+```
+
 ### OIDC Authentication
 
-The `server.oidc` section enables OIDC JWT validation for production-ready single sign-on. See [Authentication](authentication/index.md) for detailed setup and examples.
+The `server.oidc` section enables OIDC JWT validation. For setup, see [Authentication](authentication/index.md).
 
 | Value | Type | Description |
 |-------|------|-------------|
 | `server.oidc.enabled` | bool | When true, enables OIDC JWT validation and advertises the `login.v1` service discovery endpoint. Default: `false` |
 | `server.oidc.issuerUrl` | string | OIDC issuer URL (e.g., `https://opendepot.example.com/dex`). When blank and `dex.enabled: true`, auto-derives the in-cluster Dex service URL. |
 | `server.oidc.clientId` | string | OIDC client ID. Must match the Dex static client `id`. Default: `"opendepot"` |
-| `server.oidc.clientSecretName` | string | Name of a Kubernetes Secret containing the `clientSecret` key. When blank, the chart creates a Secret from `server.oidc.clientSecret`. |
-| `server.oidc.clientSecret` | string | Dex client secret (only used if `clientSecretName` is blank). In production, use an external secret operator instead of storing plaintext here. |
+| `server.oidc.clientSecretName` | string | Name of an existing Secret with the `OPENDEPOT_DEX_CLIENT_SECRET` key. The chart does not create this Secret. When `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the value must match a `dex.envFrom` `secretRef` name, or the render fails. |
 | `server.oidc.groupsClaim` | string | JWT claim name containing the user's groups, used for [GroupBinding](guides/groupbinding.md) evaluation. When blank, defaults to `groups`. Set to `cognito:groups`, `roles`, etc. for non-standard IdPs. |
 | `server.oidc.allowServiceAccountFallback` | bool | When true, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer-token path using the SA's own RBAC. GroupBinding is bypassed for SA tokens. Requires `server.oidc.enabled: true`. Default: `false` |
-| `server.oidc.allowClientCredentials` | bool | When true, Dex tokens whose audience does not match the primary client ID are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against `GroupBinding` resources. Requires a Dex `staticClient` with `grantTypes: ["client_credentials"]`. Default: `false` |
+| `server.oidc.allowClientCredentials` | bool | When true, Dex client credentials tokens whose `aud` is listed in `clientCredentialsAudiences` are accepted. The token's `sub` claim is mapped to a virtual group `"client:<sub>"` and evaluated against `GroupBinding` resources. Requires a Dex `staticClient` with `grantTypes: ["client_credentials"]`. Default: `false` |
+| `server.oidc.clientCredentialsAudiences` | list | Dex client IDs whose client credentials tokens are accepted (the token's `aud` must contain one of them). Passed to the server as `--oidc-client-credentials-audiences`. Required and non-empty when `server.oidc.allowClientCredentials` is true; the chart fails to render, and the server refuses to start, otherwise. Default: `[]` |
 | `server.oidc.dexProxy.enabled` | bool | When true and OIDC is enabled, the server reverse-proxies `/dex/*` requests to the bundled Dex service so Dex never needs its own public ingress or hostname. Requires `dex.enabled: true` and `server.oidc.issuerUrl` set to the external, path-based URL matching `dex.config.issuer`. Set to `false` for external OIDC providers; ignored when OIDC is disabled. Default: `true` |
 | `server.oidc.authzUrl` | string | Overrides the authorization URL advertised in `login.v1` of `/.well-known/terraform.json`. Leave blank to use the URL from the OIDC provider discovery document. Not needed when `server.oidc.dexProxy.enabled: true`. Use this when the server discovers Dex via an in-cluster address but CLI clients must reach Dex at a different address (e.g. a port-forwarded URL during local Kind testing). |
 | `server.oidc.tokenUrl` | string | Overrides the token URL advertised in `login.v1` of `/.well-known/terraform.json`. Same use-case as `authzUrl`. Not needed when `server.oidc.dexProxy.enabled: true`. |
@@ -83,18 +105,17 @@ server:
     enabled: true
     issuerUrl: https://opendepot.example.com/dex
     clientId: opendepot
-    clientSecret: $(openssl rand -base64 32)
-    clientSecretName: ""  # Use the above value; or set to "my-secret" to use external secret
+    clientSecretName: opendepot-dex-client-secret  # Existing Secret with the OPENDEPOT_DEX_CLIENT_SECRET key
     dexProxy:
       enabled: true
 ```
 
 !!! warning
-    When both `dex.enabled` and `server.oidc.enabled` are `true`, the Helm render fails if neither `server.oidc.clientSecret` nor `server.oidc.clientSecretName` is set. For production, pre-create a Kubernetes Secret and reference it via `server.oidc.clientSecretName`.
+    If `dex.enabled` and `server.oidc.enabled` are `true` and a Dex static client uses `secretEnv: OPENDEPOT_DEX_CLIENT_SECRET`, the render fails unless `server.oidc.clientSecretName` is set and matches a `dex.envFrom` `secretRef` name. Set the same name in both places and create the Secret before installing.
 
 ## Dex Configuration
 
-The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, etc.) and issues JWTs that the server validates locally.
+The `dex` section deploys Dex as an OIDC identity provider. Dex federates upstream IdPs (GitHub, Entra ID, Okta, LDAP, and others) and issues the JWTs that the server validates.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -147,7 +168,7 @@ For connector configuration details, refer to the [Dex Connector Documentation](
 
 ## Controllers
 
-These values apply to `version`, `module`, `depot`, and `provider` independently — substitute `<service>` with the controller name:
+These values apply to `version`, `module`, `depot`, and `provider`. Replace `<service>` with the controller name:
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -163,17 +184,23 @@ These values apply to `version`, `module`, `depot`, and `provider` independently
 | `<service>.affinity` | map | Affinity rules. Default: `{}` |
 
 !!! note
-    The provider controller is disabled by default (`provider.enabled: false`). Enable it explicitly when you are ready to sync provider binaries — provider archives can be several hundred megabytes each.
+    `provider` is disabled by default because provider archives can be several hundred megabytes each. Enable it when you are ready to sync binaries.
 
-The Version controller's init containers use fixed bounded resources (`10m` CPU
-and `16Mi` memory requests; `100m` CPU and `32Mi` memory limits). The controller
-also runs a `token-refresh-helper` sidecar that refreshes the projected
-ServiceAccount token used by the controller. The main controller does not use a
-directly mounted Kubernetes ServiceAccount token.
+The Version controller's init containers have fixed, bounded resources (requests `10m` CPU and `16Mi` memory; limits `100m` CPU and `32Mi` memory). The Version pod also runs a `token-refresh-helper` sidecar that refreshes the projected ServiceAccount token. The main controller does not mount a Kubernetes ServiceAccount token directly.
+
+## Branch Sourcing
+
+Branch sourcing lets Skill and Agent sources follow a Git branch with `ref`. It is off by default. The chart value below controls it for both the depot and version controllers:
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `branchSourcing.enabled` | `bool` | Sets `--branch-sourcing-enabled` on the depot and version controllers. Default `false`. Both controllers read the same value. |
+
+Polling for new branch commits uses the existing `pollingIntervalMinutes` on the Depot. There is no separate poll-interval value. For the behavior, see [Branch sourcing](guides/agents-publishing.md#branch-sourcing).
 
 ## Assembly Line
 
-Assembly Line derives module contracts and provider configuration schemas and enables validated root-module ZIP export. It is disabled by default (`assembly.enabled: false`) and is OpenTofu-only — see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility) for provider eligibility. Default images do not include OpenTofu, so enabling Assembly Line requires `server.image.tag` and `version.image.tag` set to a `-assembly` tag. `ui.baseUrl` must be a valid external HTTP(S) URL when Assembly Line is enabled; its host, including a non-default port, is used for generated module source addresses and the generated OpenTofu Provider Network Mirror URL. Generated provider source addresses use the provider's canonical short identity (e.g. `hashicorp/aws`) instead.
+Assembly Line is disabled by default and requires OpenTofu. Default images do not include OpenTofu, so set `server.image.tag` and `version.image.tag` to a `-assembly` tag. `ui.baseUrl` must be an external HTTP(S) URL, because its host and port appear in generated module source addresses and the OpenTofu Provider Network Mirror URL. For provider eligibility, see [Assembly Line](guides/assembly-line.md#opentofu-only-eligibility).
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -189,13 +216,13 @@ Assembly Line derives module contracts and provider configuration schemas and en
 | `assembly.workDir` | string | Server validation workspace mount. Default: `/var/lib/opendepot/assembly` |
 | `assembly.workspaceSizeLimit` | quantity | Validation `emptyDir` size limit. Default: `1Gi` |
 
-The server root filesystem remains read-only. The chart mounts only `assembly.workDir` as a writable, size-limited `emptyDir`. Consider adding `ephemeral-storage` requests and limits under `server.resources` and `version.resources` for production workloads.
+The server root filesystem is read-only. The chart mounts only `assembly.workDir`, as a size-limited `emptyDir`. For production, consider adding `ephemeral-storage` requests and limits under `server.resources` and `version.resources`.
 
-See [Assembly Line](guides/assembly-line.md) for provider bindings, generated files, authentication, and validation behavior.
+For provider bindings, generated files, authentication, and validation, see [Assembly Line](guides/assembly-line.md).
 
 ## GPG Signing (Providers)
 
-The server signs `SHA256SUMS` files for provider packages using a GPG key you supply. OpenTofu and Terraform verify this signature as part of the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). See [GPG Signing for Providers](configuration/gpg.md) for full setup instructions.
+The server signs `SHA256SUMS` for provider packages with a GPG key you supply. OpenTofu and Terraform verify that signature under the [Provider Registry Protocol](https://developer.hashicorp.com/terraform/internals/provider-registry-protocol). For setup, see [GPG Signing for Providers](configuration/gpg.md).
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -219,6 +246,10 @@ The server signs `SHA256SUMS` files for provider packages using a GPG key you su
 | `storage.filesystem.hostPath` | string | Use a hostPath volume (for local dev with kind). Default: `""` |
 | `storage.filesystem.storageClassName` | string | StorageClass for PVC (requires `ReadWriteMany`). Default: `""` |
 | `storage.filesystem.size` | string | PVC storage size. Default: `10Gi` |
+
+| Value | Type | Description |
+|-------|------|-------------|
+| `server.s3UsePathStyle` | bool | Sets `OPENDEPOT_S3_USE_PATH_STYLE` on the server. Default: `false` |
 
 See [Storage Backends](storage/index.md) for S3, Azure, and GCS configuration, which are set via environment variables rather than Helm values.
 
@@ -250,11 +281,9 @@ The `ui` section deploys the OpenDepot Workshop frontend. See [OpenDepot Worksho
 
 ## Prometheus Monitoring
 
-The chart can optionally install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). Grafana, Alertmanager, and node exporters are disabled by default. The OpenDepot `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The chart's `ServiceMonitor` selects that Service by the `app: server` label in `global.namespace`.
+The chart can install a minimal [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack). The `server` Service exposes `/metrics` on the named `metrics` port (`9090`). The `ServiceMonitor` selects that Service by the `app: server` label and is enabled by default. It requires a Prometheus Operator. If your operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to match. Set `server.metrics.serviceMonitor.enabled: false` if your monitoring discovers the endpoint another way.
 
-The ServiceMonitor is enabled by default and scrapes every 15 seconds with a 10-second timeout. It requires a Prometheus Operator. If an existing operator selects ServiceMonitors by label, set `server.metrics.serviceMonitor.additionalLabels` to the labels it expects. Set `server.metrics.serviceMonitor.enabled: false` when the external monitoring system discovers the endpoint by another method.
-
-The Stats page queries Prometheus through its HTTP API. For an existing Prometheus deployment, set `server.stats.prometheusURL` to its absolute HTTP API base URL:
+The Stats page queries Prometheus over its HTTP API. To use an existing Prometheus, set `server.stats.prometheusURL`. This takes precedence over the in-cluster fallback:
 
 ```yaml
 server:
@@ -262,7 +291,17 @@ server:
     prometheusURL: https://prometheus.example.com
 ```
 
-This value takes precedence over the chart's in-cluster fallback. When it is empty and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`, which requires `monitoring.bundled.enabled: true`. The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC.
+When `prometheusURL` is blank and `monitoring.enabled: true`, the server falls back to `http://<release>-monitoring-prometheus.<release-namespace>.svc.cluster.local:9090`. That address exists only when `monitoring.bundled.enabled: true`.
+
+The bundled stack is disabled by default because the Prometheus Operator requires cluster-wide RBAC. Enable it only if that access is acceptable:
+
+```yaml
+monitoring:
+  bundled:
+    enabled: true
+```
+
+Stats cover the `server.stats.lookback` window (default `90d`), not an all-time total. For longer history, configure `remoteWrite` to Mimir or another Prometheus-compatible backend.
 
 | Value | Type | Description |
 |-------|------|-------------|
@@ -278,9 +317,7 @@ This value takes precedence over the chart's in-cluster fallback. When it is emp
 | `server.stats.lookback` | string | Stats page query window. Default: `90d` |
 | `server.stats.queryTimeout` | duration | Prometheus query timeout. Default: `5s` |
 
-The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and
-is disabled by default. Enable it only when that cluster-wide access is
-acceptable:
+The bundled Prometheus stack requires cluster-wide Prometheus Operator RBAC and is disabled by default. Enable it only when that cluster-wide access is acceptable:
 
 ```yaml
 monitoring:
@@ -290,13 +327,9 @@ monitoring:
 
 The Stats page uses the configured lookback window, not an all-time total. For time series longer than local retention, configure `remoteWrite` to Mimir or another Prometheus-compatible backend and use Grafana to query the retained history.
 
-### Source-built controller dependencies
+### Source-built image dependencies
 
-The `-assembly` server and Version controller images build the pinned OpenTofu source commit
-used for initialization and schema extraction. The default images do not include OpenTofu. The version-controller image built with `INCLUDE_TRIVY=true` also builds
-Trivy from a pinned source commit, and the `-assembly` version-controller image includes both Trivy and OpenTofu. The chart release metadata is the source of
-the default image tag; release `0.11.0` uses chart and application version
-`0.11.0`.
+Trivy and OpenTofu are pinned release versions (`TRIVY_VERSION` and `TOFU_VERSION` in the Dockerfiles), verified against their published SHA256 checksums at build time. The standard Version image does not include Trivy or OpenTofu. Set `INCLUDE_TRIVY=true` to add Trivy, and set `INCLUDE_TOFU=true` to add OpenTofu. The `-assembly` server and Version images include OpenTofu. The `-assembly` Version image also includes Trivy.
 
 See [Download Tracking](guides/registry-explorer/browse.md#download-tracking) for details on how stats are recorded and surfaced in OpenDepot Workshop.
 
@@ -306,12 +339,12 @@ The `scanning` section controls Trivy-based vulnerability scanning for modules a
 
 | Value | Type | Description |
 |-------|------|-------------|
-| `scanning.enabled` | bool | Enable Trivy-based scanning. Requires a version-controller image that bundles Trivy, which the standard tag includes, and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `false` |
-| `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `false` |
+| `scanning.enabled` | bool | Enable Trivy-based scanning. Requires a version-controller image that bundles Trivy, which the standard tag includes, and activates module IaC scanning. No PVC or CronJob is created at this level. Default: `true` |
+| `scanning.providerScanning` | bool | Enable provider binary and source scanning. Requires `scanning.enabled: true`. Creates the Trivy DB PVC and `trivy-db-updater` CronJob and mounts the cache volume. Default: `true` |
 | `scanning.cacheMountPath` | string | Mount path inside the version-controller container for the Trivy DB cache. Default: `/var/cache/trivy` |
 | `scanning.offline` | bool | Pass `--offline-scan` to Trivy, preventing network calls during scans. Only applies to provider scanning. Default: `true` |
 | `scanning.blockOnCritical` | bool | Halt reconciliation when CRITICAL findings are present (modules or providers). Default: `false` |
-| `scanning.blockOnHigh` | bool | Halt reconciliation when HIGH findings are present (modules or providers). Default: `false` |
+| `scanning.blockOnHigh` | bool | Halt reconciliation when HIGH or CRITICAL findings are present (modules or providers). Default: `false` |
 | `scanning.cache.storageClassName` | string | StorageClass for the Trivy cache PVC (must support ReadWriteMany for multi-node). Omitted from the PVC manifest when blank, allowing the cluster default to apply stably across upgrades. Default: `""` |
 | `scanning.cache.accessMode` | string | Access mode for the Trivy cache PVC. Default: `ReadWriteMany` |
 | `scanning.cache.size` | string | Size of the Trivy DB cache PVC. Default: `1Gi` |
@@ -326,7 +359,7 @@ The optional policy-management API is intentionally separate from controller enf
 
 #### Tilt and monitoring scope
 
-The repository's Tilt profile is development-only: it enables `global.developmentMode`, local TLS/Dex, Trivy scanning, the UI, and the bundled Prometheus stack for an end-to-end environment. It does **not** enable `server.policyManagement.enabled`; turn that on only in a disposable cluster when testing the write surface. Do not copy the Tilt values file into production: it uses local filesystem storage, test OIDC settings, and Dex password authentication.
+The repository's Tilt profile (`tilt/values.yaml`) is for development only. It enables `global.developmentMode`, local TLS, Dex with password authentication, filesystem storage, Trivy scanning, the UI, the bundled Prometheus stack, and `server.policyManagement.enabled`. Do not copy these values into production.
 
-The bundled monitoring configuration is intentionally narrow. It scrapes OpenDepot application metrics with a single Prometheus and 90-day retention; Grafana, Alertmanager, node exporters, Kubernetes component monitors, and the Prometheus Operator ServiceMonitor are disabled by default in the chart values. Policy audit evidence comes from server/Kubernetes logs, not from Prometheus. Configure `monitoring.prometheus.prometheusSpec.remoteWrite` and a durable audit-log sink separately when longer retention or production alerting is required.
+The bundled monitoring stack scrapes OpenDepot metrics with one Prometheus and 90-day retention. Grafana, Alertmanager, node exporters, and Kubernetes component monitors are disabled. Policy audit evidence comes from server and Kubernetes logs, not Prometheus. For longer retention, configure `monitoring.prometheus.prometheusSpec.remoteWrite` and a durable audit-log sink.
 

@@ -55,6 +55,18 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - skills
+  - agents
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
 {{- if .Values.rbac.scopeToNamespace }}
 - apiGroups:
   - ""

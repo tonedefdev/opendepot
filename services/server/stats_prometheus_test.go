@@ -101,8 +101,62 @@ func TestDownloadSummariesFilterInvisibleResourcesBeforeLimiting(t *testing.T) {
 		t.Fatalf("total downloads = %d, want 1", got)
 	}
 
-	popular := mostDownloadedForStats(stats, "ns", 1, visible)
+	popular := mostDownloadedForStats(stats, "ns", "", 1, visible)
 	if len(popular) != 1 || popular[0].Name != "public" {
 		t.Fatalf("popular resources = %#v, want public only", popular)
+	}
+}
+
+func TestMostDownloadedByKindSeparatesSkillsAndAgents(t *testing.T) {
+	stats := map[string]resourceDownloadStats{
+		"ns/module/mod/1.0.0":   {Count: 5},
+		"ns/skill/review/1.0.0": {Count: 9, LastAt: "2026-10-01T00:00:00Z"},
+		"ns/skill/review/2.0.0": {Count: 2},
+		"ns/agent/triage/1.0.0": {Count: 4},
+		"ns/agent/quiet/1.0.0":  {Count: 0},
+	}
+
+	visible := map[string]struct{}{
+		"ns/module/mod":   {},
+		"ns/skill/review": {},
+		"ns/agent/triage": {},
+		"ns/agent/quiet":  {},
+	}
+
+	got := mostDownloadedByKind(stats, "ns", 10, visible)
+
+	if len(got.Modules) != 1 || got.Modules[0].Name != "mod" || got.Modules[0].DownloadCount != 5 {
+		t.Fatalf("modules = %#v, want mod with 5 downloads", got.Modules)
+	}
+
+	if len(got.Providers) != 0 {
+		t.Fatalf("providers = %#v, want empty", got.Providers)
+	}
+
+	if len(got.Skills) != 1 {
+		t.Fatalf("skills = %#v, want one skill", got.Skills)
+	}
+
+	skill := got.Skills[0]
+	if skill.Name != "review" || skill.DownloadCount != 11 || skill.Version != "1.0.0" || skill.LastDownloadedAt != "2026-10-01T00:00:00Z" {
+		t.Fatalf("skill = %#v, want review with 11 downloads on version 1.0.0", skill)
+	}
+
+	if len(got.Agents) != 1 || got.Agents[0].Name != "triage" {
+		t.Fatalf("agents = %#v, want only triage because quiet has no downloads", got.Agents)
+	}
+}
+
+func TestMostDownloadedHidesInvisibleSkillsAndAgents(t *testing.T) {
+	stats := map[string]resourceDownloadStats{
+		"ns/skill/private/1.0.0": {Count: 100},
+		"ns/agent/private/1.0.0": {Count: 100},
+	}
+
+	visible := map[string]struct{}{"ns/module/public": {}}
+
+	got := mostDownloadedByKind(stats, "ns", 10, visible)
+	if len(got.Skills) != 0 || len(got.Agents) != 0 {
+		t.Fatalf("expected invisible skills and agents to be hidden, got %#v", got)
 	}
 }

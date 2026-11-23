@@ -50,7 +50,7 @@ func (r *VersionReconciler) fetchModuleReadme(ctx context.Context, version *open
 
 	var err error
 	if useAuthClient {
-		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		githubClientConfig, err = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, version.Namespace)
 		if err != nil {
 			return extractReadmeFromArchive(fileBytes)
 		}

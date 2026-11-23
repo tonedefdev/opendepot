@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: ui
+      annotations:
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
     spec:
       {{- if and .Values.ui.oidc.enabled (not .Values.global.developmentMode) }}
       {{- $baseURL := required "ui.baseUrl is required when ui.oidc.enabled=true" .Values.ui.baseUrl -}}
@@ -27,7 +29,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
-        runAsGroup: 101
+        runAsGroup: {{ .Values.ui.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ui
         image: "{{ .Values.ui.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.ui.image.tag }}"
@@ -83,9 +87,13 @@ spec:
               key: sessionPassword
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.ui.runAsGroup }}
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/nginx.conf.template

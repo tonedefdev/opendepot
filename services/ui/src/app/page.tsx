@@ -1,18 +1,28 @@
 import * as React from "react";
-import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
-import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
-import ResourceCard from "@/components/ResourceCard";
+import ResourceList from "@/components/ResourceList";
 import ResourceListControls from "@/components/ResourceListControls";
+import RegistryPreferencesSync from "@/components/RegistryPreferencesSync";
 import RefreshIconButton from "@/components/RefreshIconButton";
+import { RegistryNavigationProvider } from "@/components/RegistryNavigation";
+import { DEFAULT_REGISTRY_PAGE_SIZE } from "@/lib/registryPreferences";
 import { listResources, listNamespaces } from "@/lib/api";
 import type { ListResourcesParams } from "@/lib/api";
 import { getServerSessionToken } from "@/lib/session";
 import { redirect } from "next/navigation";
 import GridViewIcon from "@mui/icons-material/GridView";
 import PageHeader from "@/components/PageHeader";
+import { DepotKindIcon, type DepotKind } from "@/components/DepotKindIcon";
+
+// A kind filter is its own destination in the sidebar, so the page is titled and iconed for it.
+const KIND_HEADERS: Record<string, { title: string; kind: DepotKind }> = {
+  agent: { title: "Agents", kind: "agent" },
+  skill: { title: "Skills", kind: "skill" },
+  module: { title: "Modules", kind: "module" },
+  provider: { title: "Providers", kind: "provider" },
+};
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -33,16 +43,15 @@ export default async function HomePage({ searchParams }: PageProps) {
     q: sp(params["q"]),
     sortBy: sp(params["sort_by"]) ?? "name",
     sortDir: (sp(params["sort_dir"]) as "asc" | "desc") ?? "asc",
-    page: parseInt(sp(params["page"]) ?? "1", 10),
-    pageSize: parseInt(sp(params["page_size"]) ?? "24", 10),
+    page: Number.parseInt(sp(params["page"]) ?? "1", 10),
+    pageSize: Number.parseInt(sp(params["page_size"]) ?? String(DEFAULT_REGISTRY_PAGE_SIZE), 10),
   };
 
   let resourceList;
-  let namespaceList;
   let fetchError: string | null = null;
 
   try {
-    [resourceList, namespaceList] = await Promise.all([
+    [resourceList] = await Promise.all([
       listResources(listParams, token),
       listNamespaces(token),
     ]);
@@ -52,8 +61,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       redirect("/login");
     }
     fetchError = msg;
-    resourceList = { items: [], totalCount: 0, page: 1, pageSize: 24 };
-    namespaceList = { items: [] };
+    resourceList = { items: [], totalCount: 0, page: 1, pageSize: DEFAULT_REGISTRY_PAGE_SIZE };
   }
 
   // Build a clean search-params string for pagination controls (exclude page/page_size).
@@ -65,66 +73,71 @@ export default async function HomePage({ searchParams }: PageProps) {
   if (listParams.sortDir) cleanParams.set("sort_dir", listParams.sortDir);
   const baseParams = cleanParams.toString();
 
+  const kindHeader = KIND_HEADERS[listParams.kind ?? ""];
+
   return (
     <main>
       <PageHeader
-        icon={<GridViewIcon color="primary" fontSize="small" />}
-        title="Registry Explorer"
-        description="Browse modules and providers from your OpenDepot registry."
+        icon={kindHeader ? <DepotKindIcon kind={kindHeader.kind} fontSize="small" /> : <GridViewIcon fontSize="small" />}
+        title={kindHeader?.title ?? "Registry Explorer"}
+        description={kindHeader ? undefined : "Browse agents, skills, modules, and providers from your OpenDepot registry."}
         actions={<RefreshIconButton ariaLabel="refresh registry" />}
-        mobileOnly
       />
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box mb={4} sx={{ display: { xs: "none", sm: "block" } }}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="h4" component="h1">
-            Registry Explorer
-          </Typography>
-          <RefreshIconButton ariaLabel="refresh registry" />
-        </Box>
-        <Typography variant="body1" color="text.secondary" mt={1}>
-          Browse modules and providers from your OpenDepot registry.
-        </Typography>
-      </Box>
-      {authError && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          Authentication error: {decodeURIComponent(authError)}
-        </Alert>
-      )}
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        <RegistryPreferencesSync />
+        {authError && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            Authentication error: {decodeURIComponent(authError)}
+          </Alert>
+        )}
 
-      {fetchError && (
-        <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
-          {fetchError}
-        </Alert>
-      )}
+        {fetchError && (
+          <Alert severity="error" data-testid="empty-state" sx={{ mb: 3 }}>
+            <Typography variant="body2" fontWeight={600}>
+              The registry could not be loaded.
+            </Typography>
+            <Typography variant="body2">
+              Check that the OpenDepot server is running and reachable, then
+              refresh the page.
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="div"
+              mt={0.5}
+            >
+              {fetchError}
+            </Typography>
+          </Alert>
+        )}
 
-      {resourceList.items.length === 0 && !fetchError ? (
-        <Alert severity="info" data-testid="empty-state">
-          No resources found. Label namespaces and resources with{" "}
-          <code>opendepot.defdev.io/public=true</code> to make them visible, or
-          sign in to see resources allowed by your GroupBinding.
-        </Alert>
-      ) : (
-        <>
-          <Grid container spacing={2}>
-            {resourceList.items.map((r) => (
-              <Grid
-                key={`${r.namespace}/${r.kind}/${r.name}`}
-                size={{ xs: 12, sm: 6, md: 4, lg: 3 }}
-              >
-                <ResourceCard resource={r} />
-              </Grid>
-            ))}
-          </Grid>
+        {resourceList.items.length === 0 && !fetchError ? (
+          <Alert severity="info" data-testid="empty-state">
+            No resources found. Label namespaces and resources with{" "}
+            <code>opendepot.defdev.io/public=true</code> to make them visible,
+            or sign in to see resources allowed by your GroupBinding.
+          </Alert>
+        ) : (
+          <RegistryNavigationProvider>
+            <ResourceList
+              items={resourceList.items}
+              totalCount={resourceList.totalCount}
+              sortBy={listParams.sortBy ?? "name"}
+              sortDir={listParams.sortDir === "desc" ? "desc" : "asc"}
+              pageSize={listParams.pageSize ?? DEFAULT_REGISTRY_PAGE_SIZE}
+              baseParams={baseParams}
+              namespace={listParams.namespace}
+              query={listParams.q}
+            />
 
-          <ResourceListControls
-            totalCount={resourceList.totalCount}
-            page={listParams.page ?? 1}
-            pageSize={listParams.pageSize ?? 24}
-            baseParams={baseParams}
-          />
-        </>
-      )}
+            <ResourceListControls
+              totalCount={resourceList.totalCount}
+              page={listParams.page ?? 1}
+              pageSize={listParams.pageSize ?? DEFAULT_REGISTRY_PAGE_SIZE}
+              baseParams={baseParams}
+            />
+          </RegistryNavigationProvider>
+        )}
       </Container>
     </main>
   );

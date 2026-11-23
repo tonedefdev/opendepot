@@ -2,7 +2,9 @@ package v1alpha1
 
 import (
 	"strings"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -22,6 +24,8 @@ const (
 	OpenDepotGithubSecretName                = "opendepot-github-application-secret"
 	OpenDepotModule                          = "Module"
 	OpenDepotProvider                        = "Provider"
+	OpenDepotSkill                           = "Skill"
+	OpenDepotAgent                           = "Agent"
 	OpenTofuRegistryHost                     = "registry.opentofu.org"
 	TerraformRegistryHost                    = "registry.terraform.io"
 )
@@ -35,6 +39,10 @@ type DepotSpec struct {
 	ModuleConfigs []ModuleConfig `json:"moduleConfigs,omitempty"`
 	// The provider configuration and version details for each provider that should be managed by the Depot controller.
 	ProviderConfigs []ProviderConfig `json:"providerConfigs,omitempty"`
+	// The skill configuration and version details for each skill that should be managed by the Depot controller.
+	SkillConfigs []AgentSourceConfig `json:"skillConfigs,omitempty"`
+	// The agent configuration and version details for each agent that should be managed by the Depot controller.
+	AgentConfigs []AgentSourceConfig `json:"agentConfigs,omitempty"`
 	// The polling interval in minutes for how often the Depot controller should check for new versions of the modules it manages.
 	// If not specified, the default is 0.
 	PollingIntervalMinutes *int `json:"pollingIntervalMinutes,omitempty"`
@@ -43,8 +51,56 @@ type DepotSpec struct {
 // Defines the desired config of all OpenDepot modules managed by the Depot controller.
 type GlobalConfig struct {
 	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
-	ModuleConfig       *ModuleConfig       `json:"moduleConfig,omitempty"`
-	StorageConfig      *StorageConfig      `json:"storageConfig"`
+	// Default settings applied to each moduleConfigs entry that does not set them.
+	// These values take precedence over the top-level global settings.
+	ModuleConfig *ModuleDefaults `json:"moduleConfig,omitempty"`
+	// Default settings applied to each providerConfigs entry that does not set them.
+	// These values take precedence over the top-level global settings.
+	ProviderConfig *ProviderDefaults `json:"providerConfig,omitempty"`
+	StorageConfig  *StorageConfig    `json:"storageConfig"`
+	// The number of versions to keep for each Module and Provider managed by the Depot.
+	// The moduleConfig and providerConfig values take precedence, and a versionHistoryLimit set on a
+	// moduleConfigs or providerConfigs entry overrides all of them.
+	// +kubebuilder:validation:Minimum=0
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+}
+
+// ModuleDefaults are the default settings applied to each moduleConfigs entry
+// that does not set them. An entry value always takes precedence over these defaults.
+type ModuleDefaults struct {
+	// The file format of the module
+	// This must be one of 'zip' or 'tar'.
+	FileFormat *string `json:"fileFormat,omitempty"`
+	// The Github client configuration settings used when the entry does not set its own.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// When true, enforces that the ChecksumSHA256 of the module archive
+	// always matches the value stored in this field and in any destination storage config.
+	Immutable *bool `json:"immutable,omitempty"`
+	// The external storage configuration settings used when the entry does not set its own.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	// Used when the entry does not set its own. A versionHistoryLimit set on this block
+	// overrides the top-level global versionHistoryLimit.
+	// +kubebuilder:validation:Minimum=0
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+}
+
+// ProviderDefaults are the default settings applied to each providerConfigs entry
+// that does not set them. An entry value always takes precedence over these defaults.
+type ProviderDefaults struct {
+	// The OS(s) that the provider supports. Used when the entry does not set any.
+	OperatingSystems []string `json:"operatingSystems,omitempty"`
+	// The architecture(s) that the provider supports. Used when the entry does not set any.
+	Architectures []string `json:"architectures,omitempty"`
+	// The Github client configuration settings used when the entry does not set its own.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// The external storage configuration settings used when the entry does not set its own.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	// Used when the entry does not set its own. A versionHistoryLimit set on this block
+	// overrides the top-level global versionHistoryLimit.
+	// +kubebuilder:validation:Minimum=0
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
 }
 
 // DepotStatus defines the observed state of Depot.
@@ -53,11 +109,15 @@ type DepotStatus struct {
 	Modules []string `json:"modules,omitempty"`
 	// The list of Provider resource names created and managed by this Depot.
 	Providers []string `json:"providers,omitempty"`
+	// The list of Skill resource names created and managed by this Depot.
+	Skills []string `json:"skills,omitempty"`
+	// The list of Agent resource names created and managed by this Depot.
+	Agents []string `json:"agents,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.globalConfig",description="The global configuration applied to all modules managed by this Depot"
+// +kubebuilder:printcolumn:name="GlobalConfig",type="string",JSONPath=".spec.global",description="The global configuration applied to all modules managed by this Depot"
 
 // Depot is the Schema for the depots API.
 type Depot struct {
@@ -347,12 +407,569 @@ type ProviderVersion struct {
 	Version string `json:"version,omitempty"`
 }
 
-// ScanPolicyTargetRef identifies the Module or Provider resources a ScanPolicy applies to.
+// AgentSourceConfig is the configuration settings for a Skill or Agent and for each Version created
+// by the agent controller. The source is a directory within a Github repository so that several skills
+// or agents can be published from one monorepo.
+// +kubebuilder:validation:XValidation:rule="!has(self.ref) || !has(self.versionConstraints) || size(self.versionConstraints) == 0",message="ref and versionConstraints are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.ref) || !has(self.tagPrefix)",message="tagPrefix is not used with ref"
+// +kubebuilder:validation:XValidation:rule="!has(self.branchPolicy) || has(self.ref)",message="branchPolicy requires ref"
+type AgentSourceConfig struct {
+	// The name of the skill or agent. If omitted, the name of the Skill or Agent resource
+	// is used in its place.
+	Name *string `json:"name,omitempty"`
+	// Owner of the Github repository.
+	RepoOwner string `json:"repoOwner,omitempty"`
+	// The full URL of the Github repository.
+	RepoUrl *string `json:"repoUrl,omitempty"`
+	// The path within the repository to the directory that contains the skill, or to the agent definition file
+	// (for example agents/code-reviewer.agent.md) for an Agent.
+	// If omitted, the repository root is used.
+	Path string `json:"path,omitempty"`
+	// The prefix of the Git tags that version this source, such as 'my-skill/'. The prefix is
+	// stripped from each tag to produce the version. If omitted, tags are used as-is.
+	TagPrefix *string `json:"tagPrefix,omitempty"`
+	// The Github client configuration settings.
+	GithubClientConfig *GithubClientConfig `json:"githubClientConfig,omitempty"`
+	// The external storage configuration settings.
+	StorageConfig *StorageConfig `json:"storageConfig,omitempty"`
+	// When true, enforces that the ChecksumSHA256 of the archive always matches the value stored in this field
+	// and in any destination storage config.
+	Immutable *bool `json:"immutable,omitempty"`
+	// A comma separated list of version constraints such as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
+	// This field is only respected by the Depot controller and selects tag mode. It cannot be set with ref.
+	VersionConstraints string `json:"versionConstraints,omitempty"`
+	// The number of versions to keep stored in the registry at any given time.
+	VersionHistoryLimit *int `json:"versionHistoryLimit,omitempty"`
+	// The agent platform that the skill or agent targets. The frontmatter keys are validated against
+	// that platform's known keys. When omitted, the keys of every supported platform are accepted.
+	// +kubebuilder:validation:Enum=agentskills;claude;copilot;codex;opencode;pi
+	Platform *string `json:"platform,omitempty"`
+	// A reference to the key in a Secret in the same namespace that holds the TypeSafe Jev token.
+	// The key defaults to 'jevToken' when omitted. Jev only runs when the version controller has
+	// Jev enabled and this reference is set.
+	JevSecretRef *corev1.SecretKeySelector `json:"jevSecretRef,omitempty"`
+	// The thresholds that gate a Version on its Jev assessment. When omitted, or when every threshold
+	// is unset, the scores are informational only. Failed assessments and content outcomes still block the Version.
+	JevPolicy *JevPolicy `json:"jevPolicy,omitempty"`
+	// The name of a Git branch to follow instead of tags. Setting ref selects branch mode, where each new
+	// commit that touches the source path becomes a Version. Setting ref together with versionConstraints
+	// is rejected.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._+/-]+$`
+	Ref *string `json:"ref,omitempty"`
+	// The policy that governs how branch commits are classified into versions. Only valid with ref.
+	// The policy classifies changes and never blocks a Version.
+	// +optional
+	BranchPolicy *BranchPolicy `json:"branchPolicy,omitempty"`
+}
+
+// BranchPolicy holds the settings that control branch-mode versioning. Thresholds decide the bump size
+// from the Jev bump classification. The policy never blocks a Version.
+type BranchPolicy struct {
+	// The minimum time between two branch versions created from the same source. Commits pushed within
+	// this interval collapse into one version. Zero disables the interval. Negative values are rejected.
+	// +kubebuilder:default="10m"
+	// +optional
+	MinVersionInterval *metav1.Duration `json:"minVersionInterval,omitempty"`
+	// The probability of a MAJOR change at or above which the bump is MAJOR.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MajorThreshold *float64 `json:"majorThreshold,omitempty"`
+	// The combined probability of MAJOR and MINOR changes at or above which the bump is at least MINOR.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MinorThreshold *float64 `json:"minorThreshold,omitempty"`
+	// The minimum classification confidence. A bump below this confidence is flagged for review.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +kubebuilder:default=0.5
+	// +optional
+	MinConfidence *float64 `json:"minConfidence,omitempty"`
+}
+
+const (
+	// DefaultMinVersionInterval is the minimum time between two branch versions when a source omits minVersionInterval.
+	DefaultMinVersionInterval = 10 * time.Minute
+	// DefaultBranchThreshold is the bump threshold used when a source omits a branch threshold.
+	DefaultBranchThreshold = 0.5
+	// DefaultBranchMinConfidence is the confidence below which a branch bump is flagged for review.
+	DefaultBranchMinConfidence = 0.5
+)
+
+// EffectiveMinVersionInterval returns the effective minimum interval between branch versions.
+func (p *BranchPolicy) EffectiveMinVersionInterval() time.Duration {
+	if p == nil || p.MinVersionInterval == nil {
+		return DefaultMinVersionInterval
+	}
+
+	return p.MinVersionInterval.Duration
+}
+
+// EffectiveMajorThreshold returns the effective MAJOR probability threshold.
+func (p *BranchPolicy) EffectiveMajorThreshold() float64 {
+	if p == nil || p.MajorThreshold == nil {
+		return DefaultBranchThreshold
+	}
+
+	return *p.MajorThreshold
+}
+
+// EffectiveMinorThreshold returns the effective combined MAJOR and MINOR probability threshold.
+func (p *BranchPolicy) EffectiveMinorThreshold() float64 {
+	if p == nil || p.MinorThreshold == nil {
+		return DefaultBranchThreshold
+	}
+
+	return *p.MinorThreshold
+}
+
+// EffectiveMinConfidence returns the effective minimum classification confidence.
+func (p *BranchPolicy) EffectiveMinConfidence() float64 {
+	if p == nil || p.MinConfidence == nil {
+		return DefaultBranchMinConfidence
+	}
+
+	return *p.MinConfidence
+}
+
+// JevPolicy holds the optional thresholds that gate a Version on its Jev assessment. Each threshold
+// is evaluated separately. A threshold that is not set is informational only.
+type JevPolicy struct {
+	// The minimum safe probability. A Version is blocked when its safe probability is below this value.
+	MinSafeProbability *float64 `json:"minSafeProbability,omitempty"`
+	// The maximum prompt injection probability. A Version is blocked when its probability is above this value.
+	MaxInjectionProbability *float64 `json:"maxInjectionProbability,omitempty"`
+	// The maximum data exfiltration probability. A Version is blocked when its probability is above this value.
+	MaxExfiltrationProbability *float64 `json:"maxExfiltrationProbability,omitempty"`
+	// The maximum destructive action probability. A Version is blocked when its probability is above this value.
+	MaxDestructiveProbability *float64 `json:"maxDestructiveProbability,omitempty"`
+	// The maximum hidden instructions probability. A Version is blocked when its probability is above this value.
+	MaxHiddenInstructionsProbability *float64 `json:"maxHiddenInstructionsProbability,omitempty"`
+	// The maximum scope mismatch probability. A Version is blocked when its probability is above this value.
+	MaxScopeMismatchProbability *float64 `json:"maxScopeMismatchProbability,omitempty"`
+	// The maximum remote execution probability. A Version is blocked when its probability is above this value.
+	MaxRemoteExecutionProbability *float64 `json:"maxRemoteExecutionProbability,omitempty"`
+	// The maximum risk score. A Version is blocked when its risk score is above this value.
+	MaxRiskScore *float64 `json:"maxRiskScore,omitempty"`
+	// A Version is blocked and flagged for review when any part's risk confidence is below this value.
+	MinConfidence *float64 `json:"minConfidence,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="LatestVersion",type="string",JSONPath=".status.latestVersion",description="The latest version of the skill"
+// +kubebuilder:printcolumn:name="Source",type="string",JSONPath=".spec.agentSourceConfig.repoUrl",description="The source repository URL of the skill"
+// +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.synced",description="Whether the Skill has synced successfully"
+
+// Skill is the Schema for the Skills API.
+type Skill struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   SkillSpec   `json:"spec,omitempty"`
+	Status SkillStatus `json:"status,omitempty"`
+}
+
+// SkillSpec defines the desired state of a OpenDepot Skill.
+type SkillSpec struct {
+	// A flag to force a skill to synchronize
+	ForceSync bool `json:"forceSync,omitempty"`
+	// The configuration details for the skill that will be used to create each SkillVersion
+	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
+	// The version of the skill. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
+	// The version controller will automatically trim any leading 'v' character to make them compatible
+	// with the registry protocol. Entries for a branch source (ref) hold a commit and a state, and their
+	// version stays empty until the Version controller assigns one.
+	Versions []SkillVersion `json:"versions"`
+}
+
+// SkillStatus defines the observed state of a skill.
+type SkillStatus struct {
+	// The latest available version of the skill
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	// A flag to determine if the skill has successfully synced to its desired state
+	Synced bool `json:"synced"`
+	// A field for declaring current status information about how the resource is being reconciled
+	SyncStatus string `json:"syncStatus"`
+	// A slice of the SkillVersionRefs that have been successfully created by the controller
+	VersionRefs map[string]*SkillVersion `json:"versionRefs,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// SkillList contains a list of Skill.
+type SkillList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Skill `json:"items"`
+}
+
+// SkillVersion holds details about the Version resource under management.
+type SkillVersion struct {
+	// The randomly generated filename with its file extension.
+	FileName *string `json:"fileName,omitempty"`
+	// The name of the Version resource that holds this entry. Set only for branch entries.
+	Name string `json:"name,omitempty"`
+	// Whether the Version for the Skill has synced or not.
+	Synced bool `json:"synced,omitempty"`
+	// The version of the skill. Branch entries have an empty version until the Version controller assigns one.
+	Version string `json:"version,omitempty"`
+	// The full commit SHA of a branch entry. Set only when the source uses ref.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The time the controller first saw the commit. This is the ordering key for branch entries.
+	// +optional
+	DiscoveredAt *metav1.Time `json:"discoveredAt,omitempty"`
+	// The lifecycle state of a branch entry, set by the Agent controller. Only Pending, Assigned, and Rejected are valid.
+	// +kubebuilder:validation:Enum=Pending;Assigned;Rejected
+	// +optional
+	State string `json:"state,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="LatestVersion",type="string",JSONPath=".status.latestVersion",description="The latest version of the agent"
+// +kubebuilder:printcolumn:name="Source",type="string",JSONPath=".spec.agentSourceConfig.repoUrl",description="The source repository URL of the agent"
+// +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.synced",description="Whether the Agent has synced successfully"
+
+// Agent is the Schema for the Agents API.
+type Agent struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   AgentSpec   `json:"spec,omitempty"`
+	Status AgentStatus `json:"status,omitempty"`
+}
+
+// AgentSpec defines the desired state of a OpenDepot Agent.
+type AgentSpec struct {
+	// A flag to force an agent to synchronize
+	ForceSync bool `json:"forceSync,omitempty"`
+	// The configuration details for the agent that will be used to create each AgentVersion
+	AgentSourceConfig AgentSourceConfig `json:"agentSourceConfig"`
+	// The version of the agent. This should be a list of maps with semantic version tags. For example, 'version: v1.0.0', or 'version: 1.0.0'.
+	// The version controller will automatically trim any leading 'v' character to make them compatible
+	// with the registry protocol. Entries for a branch source (ref) hold a commit and a state, and their
+	// version stays empty until the Version controller assigns one.
+	Versions []AgentVersion `json:"versions"`
+}
+
+// AgentStatus defines the observed state of an agent.
+type AgentStatus struct {
+	// The latest available version of the agent
+	LatestVersion *string `json:"latestVersion,omitempty"`
+	// A flag to determine if the agent has successfully synced to its desired state
+	Synced bool `json:"synced"`
+	// A field for declaring current status information about how the resource is being reconciled
+	SyncStatus string `json:"syncStatus"`
+	// A slice of the AgentVersionRefs that have been successfully created by the controller
+	VersionRefs map[string]*AgentVersion `json:"versionRefs,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// AgentList contains a list of Agent.
+type AgentList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Agent `json:"items"`
+}
+
+// AgentVersion holds details about the Version resource under management.
+type AgentVersion struct {
+	// The randomly generated filename with its file extension.
+	FileName *string `json:"fileName,omitempty"`
+	// The name of the Version resource that holds this entry. Set only for branch entries.
+	Name string `json:"name,omitempty"`
+	// Whether the Version for the Agent has synced or not.
+	Synced bool `json:"synced,omitempty"`
+	// The version of the agent. Branch entries have an empty version until the Version controller assigns one.
+	Version string `json:"version,omitempty"`
+	// The full commit SHA of a branch entry. Set only when the source uses ref.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The time the controller first saw the commit. This is the ordering key for branch entries.
+	// +optional
+	DiscoveredAt *metav1.Time `json:"discoveredAt,omitempty"`
+	// The lifecycle state of a branch entry, set by the Agent controller. Only Pending, Assigned, and Rejected are valid.
+	// +kubebuilder:validation:Enum=Pending;Assigned;Rejected
+	// +optional
+	State string `json:"state,omitempty"`
+}
+
+// AgentMetadata holds the frontmatter fields parsed from a skill or agent definition.
+type AgentMetadata struct {
+	// The name declared in the definition's frontmatter.
+	Name string `json:"name,omitempty"`
+	// The description declared in the definition's frontmatter.
+	Description string `json:"description,omitempty"`
+	// The tools declared in the definition's frontmatter.
+	Tools []string `json:"tools,omitempty"`
+	// The model declared in the definition's frontmatter.
+	Model string `json:"model,omitempty"`
+}
+
+// JevAssessment holds the result of a TypeSafe Jev assessment of a Version. Every value is a model
+// probability or score, not a certification. The Jev token and the prompt content are never stored.
+type JevAssessment struct {
+	// The RFC3339 timestamp at which the assessment was evaluated.
+	EvaluatedAt string `json:"evaluatedAt"`
+	// The Jev model that produced the assessment, as returned by the API.
+	Model string `json:"model,omitempty"`
+	// The lowercase hex SHA-256 of the archive that Jev assessed. It equals hex(base64-decode(status.checksum)).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	ContentDigest string `json:"contentDigest,omitempty"`
+	// The probability that the Version is safe to use.
+	// +optional
+	SafeProbability *float64 `json:"safeProbability,omitempty"`
+	// The probability that the Version is susceptible to prompt injection.
+	// +optional
+	InjectionProbability *float64 `json:"injectionProbability,omitempty"`
+	// The probability that the Version directs data, files, or credentials to an external destination.
+	// +optional
+	ExfiltrationProbability *float64 `json:"exfiltrationProbability,omitempty"`
+	// The probability that the Version directs destructive or irreversible actions.
+	// +optional
+	DestructiveProbability *float64 `json:"destructiveProbability,omitempty"`
+	// The probability that the Version contains hidden or obfuscated instructions.
+	// +optional
+	HiddenInstructionsProbability *float64 `json:"hiddenInstructionsProbability,omitempty"`
+	// The probability that the Version asks the agent to do things beyond its description.
+	// +optional
+	ScopeMismatchProbability *float64 `json:"scopeMismatchProbability,omitempty"`
+	// The probability that the Version directs the agent to download and run remote code.
+	// +optional
+	RemoteExecutionProbability *float64 `json:"remoteExecutionProbability,omitempty"`
+	// The risk score assigned to the Version.
+	// +optional
+	RiskScore *float64 `json:"riskScore,omitempty"`
+	// The risk level assigned to the Version.
+	// +kubebuilder:validation:Enum=Minimal;Low;Moderate;High;Critical
+	// +optional
+	RiskLevel string `json:"riskLevel,omitempty"`
+	// The confidence of the risk assessment. This describes answer concentration, not correctness.
+	// +optional
+	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
+	// Whether the assessment requires a manual review. A Critical risk level sets it, and an exemption does not change it.
+	NeedsReview bool `json:"needsReview"`
+	// Whether Jev blocks the Version: a threshold, a Critical risk level, a part below minConfidence,
+	// content Jev could not read, Jev disabled on the controller, or an assessment that could not complete.
+	// False when a matching jevExemption cleared every block reason.
+	Blocked bool `json:"blocked"`
+	// The Jev block reasons. When the assessment is exempted, this lists the reasons that were cleared.
+	// +optional
+	BlockReasons []string `json:"blockReasons,omitempty"`
+	// Whether a jevExemption cleared the block reasons for this assessment.
+	// +optional
+	Exempted bool `json:"exempted,omitempty"`
+	// The name of the ScanPolicy whose jevExemption cleared the block reasons.
+	// +optional
+	ExemptedBy string `json:"exemptedBy,omitempty"`
+	// The reason given by the jevExemption that cleared the block reasons.
+	// +optional
+	ExemptionReason string `json:"exemptionReason,omitempty"`
+	// The expiry of the jevExemption that cleared the block reasons. Nil means the exemption never expires.
+	// +optional
+	ExemptionExpires *metav1.Time `json:"exemptionExpires,omitempty"`
+	// A redacted description of the error that prevented the assessment from completing, or why the
+	// assessment is incomplete.
+	// +optional
+	Error string `json:"error,omitempty"`
+	// The planned number of parts. It is exact when it is at most 16. Above 16 it is a lower bound,
+	// and no Jev call was made.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ChunkCount int32 `json:"chunkCount,omitempty"`
+	// The number of part entries Jev scored.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	AssessedChunks int32 `json:"assessedChunks,omitempty"`
+	// The total input tokens Jev reported across every part it processed. It is the sum of each chunk's inputTokens,
+	// and it includes parts that Jev scored but that were then marked Failed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
+	// One entry per scored or attempted part, sorted by label.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Chunks []JevChunkResult `json:"chunks,omitempty"`
+	// Files that Jev could not read. Any entry here blocks the Version.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	SkippedFiles []JevSkippedFile `json:"skippedFiles,omitempty"`
+	// The total number of skipped files. SkippedFiles holds at most 32 of them.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SkippedFileCount int32 `json:"skippedFileCount,omitempty"`
+	// The number of failed attempts since the last ForceSync, which resets it to 0. 401 and 403 failures
+	// do not count. The first attempt is attempt 0, and this is 1 after the first failure. Automatic
+	// retries stop once it exceeds jevMaxRetries (default 3, so attempts 0 to 3).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount int32 `json:"retryCount,omitempty"`
+	// The name of the Version object this assessment belongs to.
+	// +optional
+	VersionName string `json:"versionName,omitempty"`
+}
+
+// JevExemptionGovernance records which ScanPolicy governs a Version's Jev exemptions and how the
+// Version's content digest matches the jevExemptions entries across all ScanPolicies.
+type JevExemptionGovernance struct {
+	// The name of the ScanPolicy that governs this Version. Empty when no ScanPolicy governs it.
+	GoverningPolicy string `json:"governingPolicy"`
+	// The priority of the governing ScanPolicy.
+	GoverningPriority int32 `json:"governingPriority"`
+	// The name of a ScanPolicy whose jevExemptions entry matches this Version's content digest. Empty when none matches.
+	MatchingPolicy string `json:"matchingPolicy"`
+	// The priority of the ScanPolicy named in matchingPolicy.
+	MatchingPriority int32 `json:"matchingPriority"`
+	// The expiry of the matching jevExemptions entry. Nil means the entry never expires or no entry matches.
+	// +optional
+	MatchingExpires *metav1.Time `json:"matchingExpires,omitempty"`
+	// The state of the matching jevExemptions entry. See the JevMatchingState constants for the values.
+	// +kubebuilder:validation:Enum=none;exempted;superseded;expired;noDigest
+	MatchingState string `json:"matchingState"`
+	// Whether the matching entry belongs to a ScanPolicy other than the governing one, so it does not apply.
+	Superseded bool `json:"superseded"`
+}
+
+// JevMatchingState values for JevExemptionGovernance.MatchingState.
+const (
+	// JevMatchingStateNone means no jevExemptions entry matches the Version's content digest.
+	JevMatchingStateNone = "none"
+	// JevMatchingStateExempted means the matching entry is in the governing ScanPolicy and is unexpired.
+	JevMatchingStateExempted = "exempted"
+	// JevMatchingStateSuperseded means the matching entry is in a non-governing ScanPolicy and does not apply.
+	JevMatchingStateSuperseded = "superseded"
+	// JevMatchingStateExpired means the matching entry is in the governing ScanPolicy and has expired.
+	JevMatchingStateExpired = "expired"
+	// JevMatchingStateNoDigest means the Version has no content digest to match.
+	JevMatchingStateNoDigest = "noDigest"
+)
+
+// JevUnblock describes what a Version needs before its Jev block can be cleared. The server computes it from the
+// same governance decision as JevExemptionGovernance, so clients do not re-derive it from ScanPolicy specs.
+type JevUnblock struct {
+	// The unblock state. none means the Version is not blocked and has no exemption in force. no-digest means the
+	// Version has no content digest to match. needs-entry means no jevExemptions entry matches the digest.
+	// superseded means the matching entry is in a ScanPolicy that does not govern the Version. expired means the
+	// governing entry has expired. pending means an active exemption exists but the Version is still blocked. exempted
+	// means the exemption is in force. unknown means the state cannot be determined.
+	// +kubebuilder:validation:Enum=none;no-digest;needs-entry;superseded;expired;pending;exempted;unknown
+	State string `json:"state"`
+	// The content digest the state was computed for.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+	// The name of the ScanPolicy that governs this Version. Empty when no ScanPolicy governs it, or when the name is
+	// hidden from the caller.
+	// +optional
+	GoverningPolicy string `json:"governingPolicy,omitempty"`
+	// The priority of the governing ScanPolicy.
+	GoverningPriority int32 `json:"governingPriority"`
+	// The name of a ScanPolicy whose jevExemptions entry matches the digest. Empty when none matches, or when the name
+	// is hidden from the caller.
+	// +optional
+	MatchingPolicy string `json:"matchingPolicy,omitempty"`
+	// The priority of the ScanPolicy named in matchingPolicy.
+	MatchingPriority int32 `json:"matchingPriority"`
+	// The expiry of the matching jevExemptions entry. Nil means the entry never expires or no entry matches.
+	// +optional
+	Expires *metav1.Time `json:"expires,omitempty"`
+	// Whether the policy names were withheld from the caller, such as for OIDC callers. The state is still computed
+	// before the names are withheld.
+	NamesHidden bool `json:"namesHidden"`
+}
+
+// JevUnblock state values for JevUnblock.State.
+const (
+	// JevUnblockStateNone means the Version is not blocked and no exemption is in force.
+	JevUnblockStateNone = "none"
+	// JevUnblockStateNoDigest means the Version has no content digest to match.
+	JevUnblockStateNoDigest = "no-digest"
+	// JevUnblockStateNeedsEntry means no jevExemptions entry matches the Version's digest.
+	JevUnblockStateNeedsEntry = "needs-entry"
+	// JevUnblockStateSuperseded means the matching entry is in a ScanPolicy that does not govern the Version.
+	JevUnblockStateSuperseded = "superseded"
+	// JevUnblockStateExpired means the governing ScanPolicy's matching entry has expired.
+	JevUnblockStateExpired = "expired"
+	// JevUnblockStatePending means an active exemption exists in the governing ScanPolicy but the Version is still blocked.
+	JevUnblockStatePending = "pending"
+	// JevUnblockStateExempted means the governing ScanPolicy's exemption is in force.
+	JevUnblockStateExempted = "exempted"
+	// JevUnblockStateUnknown means the unblock state cannot be determined.
+	JevUnblockStateUnknown = "unknown"
+)
+
+// JevChunkResult holds the Jev result for one planned part of a Version's content.
+type JevChunkResult struct {
+	// The 1-based planned part.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=16
+	Index int32 `json:"index"`
+	// The part index plus any halving suffix, for example 3, 3a or 3ab.
+	// +kubebuilder:validation:Pattern="^([1-9]|1[0-6])[ab]{0,2}$"
+	// +kubebuilder:validation:MaxLength=4
+	Label string `json:"label"`
+	// The paths whose content, or part of it, is in this part, entry file included.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=256
+	Files []string `json:"files,omitempty"`
+	// The exact number of files in this part.
+	// +kubebuilder:validation:Minimum=0
+	FileCount int32 `json:"fileCount"`
+	// The outcome of the part.
+	// +kubebuilder:validation:Enum=Scored;Failed;TokenLimitExceeded;NotSent
+	Status string `json:"status"`
+	// The risk level assigned to the part.
+	// +kubebuilder:validation:Enum=Minimal;Low;Moderate;High;Critical
+	// +optional
+	RiskLevel string `json:"riskLevel,omitempty"`
+	// The risk score assigned to the part.
+	// +optional
+	RiskScore *float64 `json:"riskScore,omitempty"`
+	// The confidence of the part's risk assessment.
+	// +optional
+	RiskConfidence *float64 `json:"riskConfidence,omitempty"`
+	// The probability that the part is safe to use.
+	// +optional
+	SafeProbability *float64 `json:"safeProbability,omitempty"`
+	// The input tokens Jev reported for this part. Calls that fail report no usage, so this is 0 for them.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
+	// The reason the part failed or was not sent, redacted.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Error string `json:"error,omitempty"`
+}
+
+// JevSkippedFile identifies a file that Jev could not read.
+type JevSkippedFile struct {
+	// The path of the skipped file.
+	// +kubebuilder:validation:MaxLength=256
+	Path string `json:"path"`
+	// Why the file was skipped.
+	// +kubebuilder:validation:Enum=Withheld;Binary
+	Reason string `json:"reason"`
+}
+
+// ScanPolicyTargetRef identifies the Module, Provider, Skill, or Agent resources a ScanPolicy applies to.
 type ScanPolicyTargetRef struct {
-	// The kind of resource this reference targets. Either 'Module' or 'Provider'.
-	// +kubebuilder:validation:Enum=Module;Provider
+	// The kind of resource this reference targets. One of 'Module', 'Provider', 'Skill', or 'Agent'.
+	// +kubebuilder:validation:Enum=Module;Provider;Skill;Agent
 	Kind string `json:"kind"`
-	// The name of the Module or Provider resource. Matching is exact; the single
+	// The name of the Module, Provider, Skill, or Agent resource. Matching is exact; the single
 	// literal '*' matches every resource of the given kind in the namespace.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -377,7 +994,7 @@ type ScanExemption struct {
 	// +optional
 	PkgNames []string `json:"pkgNames,omitempty"`
 	// The scan types this exemption applies to. When omitted every scan type is covered.
-	// +kubebuilder:validation:items:Enum=binary;source;module
+	// +kubebuilder:validation:items:Enum=binary;source;module;agent
 	// +optional
 	ScanTypes []string `json:"scanTypes,omitempty"`
 	// The severities this exemption covers. Matching is exact and case insensitive; the
@@ -394,11 +1011,29 @@ type ScanExemption struct {
 	Expires *metav1.Time `json:"expires,omitempty"`
 }
 
+// JevExemption clears every Jev block reason (verdict and coverage) for one exact archive.
+type JevExemption struct {
+	// The lowercase hex SHA-256 of the Version archive, copied from status.jevAssessment.contentDigest.
+	// The exemption applies only while the archive content has this digest.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	ContentDigest string `json:"contentDigest"`
+	// The justification for this exemption, so that every exemption remains auditable.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Reason string `json:"reason"`
+	// The time at which this exemption stops applying. Once it has passed the Version blocks
+	// again. When omitted the exemption never expires and stays valid until the archive content
+	// changes.
+	// +optional
+	Expires *metav1.Time `json:"expires,omitempty"`
+}
+
 // ScanPolicySpec defines the desired state of ScanPolicy.
 type ScanPolicySpec struct {
 	// The precedence of this policy. When more than one ScanPolicy matches a Version the
 	// policy with the highest priority wins outright and supplies both the severity
-	// threshold and the exemption set; lower priority policies are ignored entirely rather
+	// threshold, the exemption set and the Jev exemptions; lower priority policies are ignored entirely rather
 	// than merged. Ties are broken by the oldest creation timestamp, then by name ascending.
 	// +kubebuilder:default=0
 	// +optional
@@ -409,7 +1044,7 @@ type ScanPolicySpec struct {
 	// applies to every Version in its namespace.
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
-	// An explicit list of Module or Provider resources this policy applies to.
+	// An explicit list of Module, Provider, Skill, or Agent resources this policy applies to.
 	// +optional
 	TargetRefs []ScanPolicyTargetRef `json:"targetRefs,omitempty"`
 	// The minimum severity that blocks reconciliation for the matched Versions. This
@@ -422,6 +1057,12 @@ type ScanPolicySpec struct {
 	// The findings that must not block reconciliation for the matched Versions.
 	// +optional
 	Exemptions []ScanExemption `json:"exemptions,omitempty"`
+	// The Jev block reasons that must not block reconciliation for one exact archive digest.
+	// Each entry clears every Jev block reason for its digest only.
+	// +optional
+	// +listType=map
+	// +listMapKey=contentDigest
+	JevExemptions []JevExemption `json:"jevExemptions,omitempty"`
 }
 
 // ScanPolicyStatus defines the observed state of ScanPolicy.
@@ -432,6 +1073,12 @@ type ScanPolicyStatus struct {
 	ActiveExemptions int `json:"activeExemptions"`
 	// The number of exemptions whose expiry has passed and no longer apply.
 	ExpiredExemptions int `json:"expiredExemptions"`
+	// The number of Jev exemptions that are currently in effect. Entries without an expiry count as active.
+	// +optional
+	ActiveJevExemptions int `json:"activeJevExemptions,omitempty"`
+	// The number of Jev exemptions whose expiry has passed and no longer apply.
+	// +optional
+	ExpiredJevExemptions int `json:"expiredJevExemptions,omitempty"`
 	// The name of the higher priority ScanPolicy that shadows this policy for every Version
 	// it matches. Empty when this policy wins for at least one Version, or when it matches
 	// no Versions at all.
@@ -481,7 +1128,11 @@ type Version struct {
 	Status VersionStatus `json:"status,omitempty"`
 }
 
-// VersionSpec defines a specific version of a OpenDepot Module or Provider.
+// VersionSpec defines a specific version of a OpenDepot Module, Provider, Skill, or Agent.
+// +kubebuilder:validation:XValidation:rule="size(self.version) > 0 || has(self.sourceCommit)",message="version is required unless sourceCommit is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.sourceCommit) || (has(self.agentSourceRef) && has(self.agentSourceRef.ref))",message="sourceCommit requires agentSourceRef.ref"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.sourceCommit) || size(oldSelf.version) == 0 || self.version == oldSelf.version",message="version is write-once for branch Versions"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.sourceCommit) || (has(self.sourceCommit) && self.sourceCommit == oldSelf.sourceCommit)",message="sourceCommit is immutable"
 type VersionSpec struct {
 	// The system architecture this Version of the Provider supports.
 	Architecture string `json:"architecture,omitempty"`
@@ -489,19 +1140,32 @@ type VersionSpec struct {
 	// For a Module the file extension must be one of .zip or .tar.gz
 	// since OpenTofu currently only supports these two
 	// extension types.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._-]*$`
 	FileName *string `json:"fileName,omitempty"`
 	// A flag to force a module version to synchronize.
 	ForceSync bool `json:"forceSync,omitempty"`
+	// The reference to the Skill or Agent resource's config.
+	AgentSourceRef *AgentSourceConfig `json:"agentSourceRef,omitempty"`
 	// The reference to the Module resource's config.
 	ModuleConfigRef *ModuleConfig `json:"moduleConfigRef,omitempty"`
 	// The reference to the Provider resource's config.
 	ProviderConfigRef *ProviderConfig `json:"providerConfigRef,omitempty"`
 	// The operating system this Version of the Provider supports.
 	OperatingSystem string `json:"operatingSystem,omitempty"`
-	// The type of resource. Either 'Module' or 'Provider'
+	// The type of resource. One of 'Module', 'Provider', 'Skill', or 'Agent'
 	Type string `json:"type"`
-	// The version of the Module or Provider.
+	// The version of the Module, Provider, Skill, or Agent. For a branch Version of a Skill or Agent this
+	// is empty until the Version controller assigns a semantic version, and it can be set only once.
 	Version string `json:"version"`
+	// Whether the Version has been yanked. A yanked Version stays listed but is skipped
+	// when resolving version constraints.
+	Yanked bool `json:"yanked,omitempty"`
+	// The full commit SHA of the branch that this Skill or Agent Version was created from. Set only for
+	// branch Versions. It can't change after it is set.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="sourceCommit is immutable"
+	// +optional
+	SourceCommit string `json:"sourceCommit,omitempty"`
 }
 
 // VersionStatus defines the current status of the resource.
@@ -524,8 +1188,13 @@ type VersionStatus struct {
 	SourceScan *SourceScan `json:"sourceScan,omitempty"`
 	// ReadmeConfigMapRef references the ConfigMap holding this module Version's base64
 	// encoded README.md content. Only populated for module Version resources when a
-	// README could be resolved from Github or the module archive.
+	// README could be resolved from Github or the module archive. It is for the README
+	// only and is not used for Skill or Agent definitions.
 	ReadmeConfigMapRef *ReadmeConfigMapRef `json:"readmeConfigMapRef,omitempty"`
+	// DefinitionConfigMapRef references the ConfigMap holding the Skill or Agent definition file
+	// (SKILL.md or the agent .md). Only populated for Skill and Agent Versions.
+	// +optional
+	DefinitionConfigMapRef *DefinitionConfigMapRef `json:"definitionConfigMapRef,omitempty"`
 	// ContractConfigMapRef references the ConfigMap holding this module Version's
 	// Assembly Line contract JSON. Only populated for module Version resources when
 	// contract derivation is enabled.
@@ -543,6 +1212,96 @@ type VersionStatus struct {
 	// provider Version resources whose OS/arch matches the controller's own platform.
 	// +optional
 	ProviderSchemaStatus *ProviderSchemaStatus `json:"providerSchemaStatus,omitempty"`
+	// AgentMetadata holds the frontmatter fields parsed from a skill or agent Version.
+	// +optional
+	AgentMetadata *AgentMetadata `json:"agentMetadata,omitempty"`
+	// ShaSums is the SHA256SUMS file for this Version, produced and signed once at sync.
+	// +optional
+	ShaSums string `json:"shaSums,omitempty"`
+	// ShaSumsSignature is the detached signature over ShaSums, produced at sync with the
+	// provider GPG signing key.
+	// +optional
+	ShaSumsSignature string `json:"shaSumsSignature,omitempty"`
+	// SigningKeyFingerprint is the fingerprint of the key that produced ShaSumsSignature.
+	// +optional
+	SigningKeyFingerprint string `json:"signingKeyFingerprint,omitempty"`
+	// JevAssessment holds the TypeSafe Jev assessment of this Version. Only populated when Jev
+	// is enabled and the source opts in with jevSecretRef.
+	// +optional
+	JevAssessment *JevAssessment `json:"jevAssessment,omitempty"`
+	// JevExemptionGovernance reports which ScanPolicy governs this Version's Jev exemptions and how its
+	// content digest matches them. Only populated when a Jev assessment is recorded.
+	// +optional
+	JevExemptionGovernance *JevExemptionGovernance `json:"jevExemptionGovernance,omitempty"`
+	// JevUnblock reports what this Version needs before its Jev block can be cleared. It is computed from the same
+	// governance decision as JevExemptionGovernance. Only populated when a Jev assessment is recorded.
+	// +optional
+	JevUnblock *JevUnblock `json:"jevUnblock,omitempty"`
+	// SourceCommit is the full commit SHA that was downloaded for this branch Version.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +optional
+	SourceCommit string `json:"sourceCommit,omitempty"`
+	// BumpAssessment records how the Version controller chose the semantic version bump for a branch Version.
+	// +optional
+	BumpAssessment *BumpAssessment `json:"bumpAssessment,omitempty"`
+	// BranchPhase is the lifecycle phase of a branch Version. Only set for branch Versions.
+	// +kubebuilder:validation:Enum=Pending;Held;Assigned;Rejected
+	// +optional
+	BranchPhase string `json:"branchPhase,omitempty"`
+}
+
+// BumpAssessment records how the semantic version bump of a branch Version was chosen. It never
+// holds the Jev token or any prompt content.
+type BumpAssessment struct {
+	// The full commit SHA that was assessed.
+	// +optional
+	Commit string `json:"commit,omitempty"`
+	// The full commit SHA of the previous branch Version. Empty for the first Version.
+	// +optional
+	PreviousCommit string `json:"previousCommit,omitempty"`
+	// The semantic version of the previous Version. Empty for the first Version.
+	// +optional
+	PreviousVersion string `json:"previousVersion,omitempty"`
+	// The bump size applied to the previous version.
+	// +kubebuilder:validation:Enum=Major;Minor;Patch
+	// +optional
+	Category string `json:"category,omitempty"`
+	// Where the bump came from. Initial is the first version, Default is a PATCH without Jev, Jev is a
+	// Jev classification, Withheld is a MAJOR chosen because a flagged file was found, and Manual is an
+	// operator override.
+	// +kubebuilder:validation:Enum=Initial;Default;Jev;Withheld;Manual
+	// +optional
+	Source string `json:"source,omitempty"`
+	// A short reason for the bump decision.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// The Jev model that produced the classification.
+	// +optional
+	Model string `json:"model,omitempty"`
+	// The RFC3339 time of the evaluation.
+	// +optional
+	EvaluatedAt string `json:"evaluatedAt,omitempty"`
+	// The probability of a MAJOR change.
+	// +optional
+	MajorProbability *float64 `json:"majorProbability,omitempty"`
+	// The probability of a MINOR change.
+	// +optional
+	MinorProbability *float64 `json:"minorProbability,omitempty"`
+	// The probability of a PATCH change.
+	// +optional
+	PatchProbability *float64 `json:"patchProbability,omitempty"`
+	// The confidence of the classification.
+	// +optional
+	Confidence *float64 `json:"confidence,omitempty"`
+	// Whether the bump should be reviewed by a person.
+	// +optional
+	NeedsReview bool `json:"needsReview,omitempty"`
+	// The number of classification attempts made while the Version was held.
+	// +optional
+	Attempts int `json:"attempts,omitempty"`
+	// A redacted description of the last classification error.
+	// +optional
+	Error string `json:"error,omitempty"`
 }
 
 // ReadmeConfigMapRef references the ConfigMap and data key holding a module Version's
@@ -552,6 +1311,18 @@ type ReadmeConfigMapRef struct {
 	Name string `json:"name"`
 	// The key within the ConfigMap's data holding the base64 encoded README content.
 	Key string `json:"key"`
+}
+
+// DefinitionConfigMapRef references the ConfigMap and data key holding a Skill or Agent
+// Version's base64 encoded definition file.
+type DefinitionConfigMapRef struct {
+	// The name of the ConfigMap holding the definition file.
+	Name string `json:"name"`
+	// The key within the ConfigMap's data holding the base64 encoded definition file.
+	Key string `json:"key"`
+	// The name of the source entry file, for example SKILL.md, code-review.agent.md or code-review.md.
+	// +kubebuilder:validation:MaxLength=255
+	FileName string `json:"fileName"`
 }
 
 // ContractConfigMapRef references the ConfigMap and data key holding a module
@@ -630,7 +1401,7 @@ type GoogleCloudStorageConfig struct {
 	Bucket string `json:"bucket"`
 }
 
-// PresignConfig controls pre-signed URL generation for provider and module downloads.
+// PresignConfig controls pre-signed URL generation for agent, provider, and module downloads.
 type PresignConfig struct {
 	// When true, download requests are redirected to the storage backend via a pre-signed URL.
 	Enabled *bool `json:"enabled,omitempty"`
@@ -639,8 +1410,7 @@ type PresignConfig struct {
 	// +kubebuilder:default="15m"
 	TTL *metav1.Duration `json:"ttl,omitempty"`
 	// When true, if pre-sign generation fails the server falls back to proxying the download.
-	// Defaults to true.
-	// +kubebuilder:default=true
+	// No CRD default. Providers and modules treat an unset value as true. Agents treat an unset value as false.
 	FallbackToProxy *bool `json:"fallbackToProxy,omitempty"`
 }
 
@@ -654,6 +1424,7 @@ type StorageConfig struct {
 	// The configuration settings for storing Versions in a Google Cloud Storage bucket.
 	GCS *GoogleCloudStorageConfig `json:"gcs,omitempty"`
 	// Presign is the optional configuration for pre-signed URL generation.
+	// Agents treat an unset fallbackToProxy as false. Providers and modules treat it as true.
 	Presign *PresignConfig `json:"presign,omitempty"`
 }
 
@@ -689,6 +1460,18 @@ type GroupBindingSpec struct {
 	// Empty or omitted means no providers are accessible.
 	// +optional
 	ProviderResources []string `json:"providerResources,omitempty"`
+
+	// SkillResources is the list of glob patterns for Skill resource names this binding grants access to.
+	// The * wildcard is supported (e.g. "code-review-*").
+	// Empty or omitted means no skills are accessible.
+	// +optional
+	SkillResources []string `json:"skillResources,omitempty"`
+
+	// AgentResources is the list of glob patterns for Agent resource names this binding grants access to.
+	// The * wildcard is supported (e.g. "release-*").
+	// Empty or omitted means no agents are accessible.
+	// +optional
+	AgentResources []string `json:"agentResources,omitempty"`
 
 	// ScanPolicyManagement grants permission to create, update, and delete
 	// ScanPolicy resources through the server policy-management API.
@@ -736,6 +1519,8 @@ type SecurityGroupBindingSpec struct {
 	Namespaces                    []string `json:"namespaces,omitempty"`
 	ModuleResources               []string `json:"moduleResources,omitempty"`
 	ProviderResources             []string `json:"providerResources,omitempty"`
+	SkillResources                []string `json:"skillResources,omitempty"`
+	AgentResources                []string `json:"agentResources,omitempty"`
 	NamespaceWidePolicyManagement bool     `json:"namespaceWidePolicyManagement,omitempty"`
 }
 
@@ -762,11 +1547,13 @@ type SecurityGroupBindingList struct {
 }
 
 func init() {
+	SchemeBuilder.Register(&Agent{}, &AgentList{})
 	SchemeBuilder.Register(&Depot{}, &DepotList{})
 	SchemeBuilder.Register(&GroupBinding{}, &GroupBindingList{})
 	SchemeBuilder.Register(&Module{}, &ModuleList{})
 	SchemeBuilder.Register(&Provider{}, &ProviderList{})
 	SchemeBuilder.Register(&ScanPolicy{}, &ScanPolicyList{})
 	SchemeBuilder.Register(&SecurityGroupBinding{}, &SecurityGroupBindingList{})
+	SchemeBuilder.Register(&Skill{}, &SkillList{})
 	SchemeBuilder.Register(&Version{}, &VersionList{})
 }

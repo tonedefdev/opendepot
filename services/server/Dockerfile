@@ -2,7 +2,7 @@
 ARG INCLUDE_TOFU=false
 
 # Build the manager binary
-FROM golang:1.26.6 AS builder
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -11,12 +11,16 @@ WORKDIR /workspace
 # Copy go.work and all module manifests for workspace-aware builds
 COPY go.work go.work.sum ./
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
+COPY pkg/agentspec/go.mod pkg/agentspec/go.sum pkg/agentspec/
+COPY pkg/archive/go.mod pkg/archive/
+COPY pkg/jev/go.mod pkg/jev/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
 COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY pkg/utils/go.mod pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
 COPY services/module/go.mod services/module/go.sum services/module/
@@ -24,10 +28,13 @@ COPY services/version/go.mod services/version/go.sum services/version/
 COPY services/provider/go.mod services/provider/go.sum services/provider/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
 
 # Download dependencies in workspace mode so replace directives resolve local modules
-RUN cd services/server && go mod download
+WORKDIR /workspace/services/server
+RUN go mod download
+
+WORKDIR /workspace
 
 # Copy source
 COPY api/v1alpha1/ api/v1alpha1/
@@ -36,40 +43,74 @@ COPY pkg/github/ pkg/github/
 COPY pkg/utils/ pkg/utils/
 COPY pkg/registry/ pkg/registry/
 COPY pkg/hclschema/ pkg/hclschema/
+COPY pkg/signing/ pkg/signing/
 COPY services/server/ services/server/
 
-# Build
-RUN cd services/server && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o /workspace/server .
+# Build (COVER=1 adds coverage counters and the coverage build tag)
+ARG COVER=0
+WORKDIR /workspace/services/server
+RUN COVER_FLAGS="" && \
+    if [ "${COVER}" = "1" ]; then COVER_FLAGS="-cover -covermode=atomic -tags coverage"; fi && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build ${COVER_FLAGS} -a -o /workspace/server .
 
-# Supply the same patched OpenTofu binary used by the version controller; only copied into the final image when INCLUDE_TOFU=true.
-FROM golang:1.27.1 AS tofu-source
-ARG TOFU_COMMIT=9ffbb1c211bfb36775c5923809a18289396ee0c1
-RUN apt-get update \
-		&& apt-get install -y --no-install-recommends ca-certificates curl \
-		&& rm -rf /var/lib/apt/lists/*
+# tofu-release: upstream OpenTofu release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TOFU=true
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS tofu-release
+ARG TARGETARCH
+ARG TOFU_VERSION=1.13.9
 RUN set -eux; \
-	curl -fsSL -o /tmp/opentofu.tar.gz "https://github.com/opentofu/opentofu/archive/${TOFU_COMMIT}.tar.gz"; \
-	mkdir /tmp/opentofu; \
-	tar --strip-components=1 -xzf /tmp/opentofu.tar.gz -C /tmp/opentofu; \
-	cd /tmp/opentofu; \
-	sed -i -E 's/(golang.org\/x\/mod[[:space:]]+)v[0-9.]+/\1v0.40.0/; s/(google.golang.org\/grpc[[:space:]]+)v[0-9.]+/\1v1.83.2/' go.mod; \
-	GOWORK=off go mod tidy; \
-	GOWORK=off CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/tofu ./cmd/tofu
+	apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl unzip \
+	&& rm -rf /var/lib/apt/lists/*; \
+	base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"; \
+	archive="tofu_${TOFU_VERSION}_linux_${TARGETARCH}.zip"; \
+	cd /tmp; \
+	curl -fsSL -o "${archive}" "${base}/${archive}"; \
+	curl -fsSL -o SHA256SUMS "${base}/tofu_${TOFU_VERSION}_SHA256SUMS"; \
+	grep " ${archive}\$" SHA256SUMS | sha256sum -c -; \
+	unzip -o "${archive}" tofu -d /usr/local/bin; \
+	chmod 0755 /usr/local/bin/tofu
+
+# CLI binaries for download from /opendepot/cli/v1; built with GOWORK=off because the CLI is dropped from the server workspace above
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS cli-builder
+ARG CLI_VERSION=dev
+
+WORKDIR /workspace
+COPY api/v1alpha1/ api/v1alpha1/
+COPY pkg/agentspec/ pkg/agentspec/
+COPY pkg/archive/ pkg/archive/
+COPY cli/ cli/
+
+RUN set -eux; \
+	cd cli; \
+	mkdir -p /out; \
+	for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+		goos="${target%/*}"; \
+		goarch="${target#*/}"; \
+		ext=""; \
+		if [ "${goos}" = "windows" ]; then ext=".exe"; fi; \
+		GOWORK=off CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+			go build -trimpath -ldflags "-s -w -X main.buildVersion=${CLI_VERSION}" \
+			-o "/out/opendepot_${goos}_${goarch}${ext}" .; \
+	done; \
+	cd /out; \
+	sha256sum opendepot_* > SHA256SUMS
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot AS final-false
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false
 WORKDIR /
 COPY --from=builder /workspace/server .
+COPY --from=cli-builder /out/ /opt/opendepot/cli/
 USER 65532:65532
 
 ENTRYPOINT ["/server"]
 
 # final image with OpenTofu binary bundled (assembly line)
-FROM gcr.io/distroless/static:nonroot AS final-true
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true
 WORKDIR /
 COPY --from=builder /workspace/server .
-COPY --from=tofu-source /usr/local/bin/tofu /usr/local/bin/tofu
+COPY --from=tofu-release /usr/local/bin/tofu /usr/local/bin/tofu
+COPY --from=cli-builder /out/ /opt/opendepot/cli/
 USER 65532:65532
 
 ENTRYPOINT ["/server"]

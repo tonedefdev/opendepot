@@ -7,7 +7,7 @@ tags:
 # Migrating to OpenDepot
 
 !!! tip
-    Migration is one of several Depot use cases. The Depot also supports ongoing upstream provider mirroring and public module tracking with automatic Trivy scanning — see [Pull-Based Workflow: Using the Depot](../guides/depot.md) for the full picture. For a one-time migration, follow the steps below: once everything is synced, delete the Depot and switch to the [GitOps workflow](../guides/gitops.md). Deleting a Depot **does not** delete the Modules or Providers it created, so your registry stays fully intact.
+    Migration is one of several Depot use cases. For ongoing mirroring and tracking, see [Pull-Based Workflow: Using the Depot](../guides/depot.md). Deleting a Depot does not delete the Modules or Providers it created.
 
 **Migrating modules** — Use the Depot to bulk-import existing modules into OpenDepot:
 
@@ -24,6 +24,4 @@ tags:
 3. Update your configurations to reference providers by their canonical identity (e.g., `hashicorp/aws`) and configure OpenDepot as the installation source via `provider_installation.network_mirror` in your `.tofurc` or `.terraformrc` (see [Consuming Providers](../guides/providers.md) for full CLI configuration examples)
 4. Delete the Depot — all `Provider` and `Version` resources remain untouched
 
-This pattern lets you adopt OpenDepot incrementally without disrupting existing workflows. The Depot bridges the gap between the public registries and a fully self-hosted solution.
-
-For version-specific breaking changes and upgrade steps, see [Upgrading](../upgrading.md).
+This pattern lets you adopt OpenDepot incrementally. For version-specific steps, see [Upgrading](../upgrading.md).

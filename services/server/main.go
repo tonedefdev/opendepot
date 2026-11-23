@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -16,42 +15,47 @@ import (
 )
 
 var (
-	logger                                *slog.Logger
-	opendepotAnonymousAuth                *bool
-	opendepotUseBearerToken               *bool
-	opendepotOIDCIssuerURL                *string
-	opendepotOIDCClientID                 *string
-	opendepotOIDCGroupsClaim              *string
-	opendepotOIDCAllowSAFallback          *bool
-	opendepotOIDCAllowClientCredentials   *bool
-	opendepotOIDCUIClientID               *string
-	opendepotOIDCAuthzURL                 *string
-	opendepotOIDCTokenURL                 *string
-	opendepotOIDCDexProxyEnabled          *bool
-	opendepotOIDCDexInternalURL           *string
-	opendepotServerNamespace              *string
-	opendepotFilesystemMountPath          *string
-	opendepotAssemblyEnabled              *bool
-	opendepotRegistryHost                 *string
-	opendepotAssemblyValidationURL        *string
-	opendepotAssemblyValidationCACertPath *string
-	opendepotAssemblyRegistryInsecure     *bool
-	opendepotTofuBinPath                  *string
-	opendepotAssemblyWorkDir              *string
-	opendepotAssemblyInitTimeout          *time.Duration
-	opendepotAssemblyValidateTimeout      *time.Duration
-	opendepotAssemblyMaxRequestBytes      *int64
-	opendepotAssemblyMaxNodes             *int
-	opendepotAssemblyMaxOutputBytes       *int64
-	opendepotPolicyManagementEnabled      *bool
+	logger                                  *slog.Logger
+	opendepotAnonymousAuth                  *bool
+	opendepotUseBearerToken                 *bool
+	opendepotOIDCIssuerURL                  *string
+	opendepotOIDCClientID                   *string
+	opendepotOIDCGroupsClaim                *string
+	opendepotOIDCAllowSAFallback            *bool
+	opendepotOIDCAllowClientCredentials     *bool
+	opendepotOIDCClientCredentialsAudiences *string
+	opendepotOIDCUIClientID                 *string
+	opendepotOIDCAuthzURL                   *string
+	opendepotOIDCTokenURL                   *string
+	opendepotOIDCDexProxyEnabled            *bool
+	opendepotOIDCDexInternalURL             *string
+	opendepotServerNamespace                *string
+	opendepotFilesystemMountPath            *string
+	opendepotAssemblyEnabled                *bool
+	opendepotCLIDistDir                     *string
+	opendepotRegistryHost                   *string
+	opendepotAssemblyValidationURL          *string
+	opendepotAssemblyValidationCACertPath   *string
+	opendepotAssemblyRegistryInsecure       *bool
+	opendepotTofuBinPath                    *string
+	opendepotAssemblyWorkDir                *string
+	opendepotAssemblyInitTimeout            *time.Duration
+	opendepotAssemblyValidateTimeout        *time.Duration
+	opendepotAssemblyMaxRequestBytes        *int64
+	opendepotAssemblyMaxNodes               *int
+	opendepotAssemblyMaxOutputBytes         *int64
+	opendepotPolicyManagementEnabled        *bool
 
 	// oidcVerifier is set at startup when --oidc-issuer-url and --oidc-client-id
 	// are both provided. It is used to validate OIDC JWTs on every request.
 	oidcVerifier *gooidc.IDTokenVerifier
-	// oidcCCVerifier is like oidcVerifier but skips the audience check. It is
-	// used only for the client credentials path when --oidc-allow-client-credentials
+	// oidcCCVerifiers holds one verifier per audience listed in
+	// --oidc-client-credentials-audiences. Each verifier enforces that the token's
+	// aud contains its client ID, so a token is accepted only when its audience is
+	// on the allowlist. It is used only for the client credentials path when
+	// --oidc-allow-client-credentials
 	// is set, to accept tokens issued for a different client ID by the same Dex.
-	oidcCCVerifier *gooidc.IDTokenVerifier
+	oidcCCVerifiers []*gooidc.IDTokenVerifier
 	// oidcUIVerifier is like oidcVerifier but uses the UI client ID as the expected
 	// audience. Set when --oidc-ui-client-id is provided to allow the UI's OIDC
 	// tokens (issued under a separate client registration) to be accepted by the
@@ -68,6 +72,8 @@ func init() {
 }
 
 func main() {
+	defer coverageFlush()
+
 	opendepotAnonymousAuth = flag.Bool("anonymous-auth", false, "when true use the server's service account to serve modules and versions without requiring client authentication")
 	opendepotUseBearerToken = flag.Bool("use-bearer-token", false, "when true use a bearer token instead of a base64 encoded kubeconfig to authenticate with the kubernetes API server")
 	opendepotOIDCIssuerURL = flag.String("oidc-issuer-url", "", "OIDC issuer URL (e.g. https://dex.example.com/dex); when set together with --oidc-client-id the server validates OIDC JWTs and uses its own service account for Kubernetes API calls")
@@ -75,6 +81,7 @@ func main() {
 	opendepotOIDCGroupsClaim = flag.String("oidc-groups-claim", "groups", "JWT claim name containing the OIDC groups; used to match GroupBinding expressions")
 	opendepotOIDCAllowSAFallback = flag.Bool("oidc-allow-sa-fallback", false, "when true and OIDC mode is active, Kubernetes ServiceAccount bearer tokens with a non-OIDC issuer are authenticated via the bearer token path using the caller's own RBAC; GroupBinding is bypassed for SA tokens")
 	opendepotOIDCAllowClientCredentials = flag.Bool("oidc-allow-client-credentials", false, "when true and OIDC mode is active, Dex client credentials tokens (audience != oidc-client-id) are accepted; the token's sub claim is mapped to a virtual group \"client:<sub>\" and evaluated against GroupBinding resources")
+	opendepotOIDCClientCredentialsAudiences = flag.String("oidc-client-credentials-audiences", "", "comma-separated Dex client IDs whose client credentials tokens (aud = client ID) are accepted when --oidc-allow-client-credentials is set; required when that flag is set")
 	opendepotOIDCUIClientID = flag.String("oidc-ui-client-id", "", "when set, tokens issued to this OIDC client ID are also accepted by browse endpoints; use when the UI registers as a separate confidential client from the main --oidc-client-id")
 	opendepotOIDCAuthzURL = flag.String("oidc-authz-url", "", "override the authorization URL advertised in /.well-known/terraform.json login.v1; when blank uses the authz URL from the OIDC provider discovery document")
 	opendepotOIDCTokenURL = flag.String("oidc-token-url", "", "override the token URL advertised in /.well-known/terraform.json login.v1; when blank uses the token URL from the OIDC provider discovery document")
@@ -83,6 +90,7 @@ func main() {
 	opendepotServerNamespace = flag.String("namespace", "opendepot-system", "namespace where GroupBinding resources are managed")
 	opendepotFilesystemMountPath = flag.String("filesystem-mount-path", "/data/modules", "allowed root path for filesystem module storage; download requests for paths outside this prefix are rejected")
 	opendepotAssemblyEnabled = flag.Bool("assembly-enabled", false, "enable Assembly Line provider schemas and validated root module export")
+	opendepotCLIDistDir = flag.String("cli-dist-dir", "/opt/opendepot/cli", "directory containing the OpenDepot CLI binaries and SHA256SUMS served at /opendepot/cli/v1; requests return 404 when absent")
 	opendepotRegistryHost = flag.String("registry-host", "", "external OpenDepot registry host used in generated module and provider source addresses")
 	opendepotAssemblyValidationURL = flag.String("assembly-validation-registry-url", "", "OpenDepot registry base URL used only by Assembly Line validation; defaults to the external registry host")
 	opendepotAssemblyValidationCACertPath = flag.String("assembly-validation-ca-cert-path", "", "CA certificate trusted by the Assembly Line OpenTofu validation subprocess")
@@ -173,6 +181,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *opendepotOIDCAllowClientCredentials && len(parseClientCredentialsAudiences(*opendepotOIDCClientCredentialsAudiences)) == 0 {
+		logger.Error("--oidc-allow-client-credentials requires --oidc-client-credentials-audiences to list the Dex client IDs whose tokens are accepted")
+		os.Exit(1)
+	}
+
 	if *opendepotOIDCDexProxyEnabled {
 		if *opendepotOIDCIssuerURL == "" {
 			logger.Error("--oidc-dex-proxy-enabled requires --oidc-issuer-url to be set to the external, publicly reachable issuer URL")
@@ -246,7 +259,12 @@ func main() {
 
 		oidcVerifier = newVerifier(&gooidc.Config{ClientID: *opendepotOIDCClientID})
 		if *opendepotOIDCAllowClientCredentials {
-			oidcCCVerifier = newVerifier(&gooidc.Config{SkipClientIDCheck: true})
+			ccAudiences := parseClientCredentialsAudiences(*opendepotOIDCClientCredentialsAudiences)
+			for _, aud := range ccAudiences {
+				oidcCCVerifiers = append(oidcCCVerifiers, newVerifier(&gooidc.Config{ClientID: aud}))
+			}
+
+			logger.Info("OIDC client credentials audiences configured", "audiences", ccAudiences)
 		}
 
 		if *opendepotOIDCUIClientID != "" {
@@ -257,6 +275,27 @@ func main() {
 		logger.Info("OIDC auth mode enabled", "issuerUrl", *opendepotOIDCIssuerURL, "clientId", *opendepotOIDCClientID)
 	}
 
+	r, err := newServerRouter(*opendepotAssemblyEnabled, *opendepotOIDCDexProxyEnabled, *opendepotOIDCDexInternalURL)
+	if err != nil {
+		logger.Error("failed to configure Dex reverse proxy", "error", err)
+		os.Exit(1)
+	}
+
+	if *opendepotCertPath != "" && *opendepotCertKey != "" {
+		logger.Info("Server started and listening on port 8080 with TLS")
+		if err := listenAndServeTLS(":8080", *opendepotCertPath, *opendepotCertKey, r); err != nil {
+			logger.Error("Failed to start server with TLS", "error", err)
+		}
+	} else {
+		logger.Info("Server started and listening on default port: 8080 without TLS. For secure communication, provide paths to TLS certificate and key using --tls-cert-path and --tls-cert-key flags.")
+		if err := listenAndServe(":8080", r); err != nil {
+			logger.Error("Failed to start server", "error", err)
+		}
+	}
+}
+
+// newServerRouter builds the HTTP router with every registry, UI, and optional assembly and Dex routes.
+func newServerRouter(assemblyEnabled, dexProxyEnabled bool, dexInternalURL string) (*chi.Mux, error) {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -265,12 +304,22 @@ func main() {
 	r.Get("/opendepot/modules/v1/{namespace}/{name}/{system}/{version}/download", getDownloadModuleUrl)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/versions", getProviderVersions)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/download/{os}/{arch}", getProviderPackageMetadata)
-	r.Get("/opendepot/providers/v1/download/{namespace}/{type}/{version}", serveProviderPackageDownload)
+	r.Get("/opendepot/providers/v1/download/{namespace}/{type}/{version}/{os}/{arch}", serveProviderPackageDownload)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS/{os}/{arch}", getProviderPackageSHA256SUMS)
 	r.Get("/opendepot/providers/v1/{namespace}/{type}/{version}/SHA256SUMS.sig/{os}/{arch}", getProviderPackageSHA256SUMSSignature)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/index.json", getProviderMirrorVersions)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{versionFile}", getProviderMirrorArchives)
 	r.Get("/opendepot/providers/mirror/v1/{namespace}/{hostname}/{providerNamespace}/{type}/{version}/{os}/{arch}/{filename}", serveProviderMirrorArchive)
+
+	r.Get("/opendepot/agents/v1/catalog", handleAgentCatalog)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/versions", getAgentVersions)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/download", getAgentDownloadMetadata)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/archive", serveAgentArchive)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS", serveAgentSHA256SUMS)
+	r.Get("/opendepot/agents/v1/{namespace}/{kind}/{name}/{version}/SHA256SUMS.sig", serveAgentSHA256SUMSSignature)
+
+	r.Get("/opendepot/cli/v1/SHA256SUMS", serveCLIChecksums)
+	r.Get("/opendepot/cli/v1/{os}/{arch}", serveCLIBinary)
 
 	r.Get("/opendepot/modules/v1/download/azure/{subID}/{rg}/{account}/{accountUrl}/{name}/{fileName}", serveModuleFromAzureBlob)
 	r.Get("/opendepot/modules/v1/download/fileSystem/{directory}/{name}/{fileName}", serveModuleFromFileSystem)
@@ -283,7 +332,7 @@ func main() {
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/versions", handleBrowseVersionsList)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/scan-findings", handleBrowseScanFindings)
 	r.Get("/opendepot/ui/v1/resources/{namespace}/{kind}/{name}/contract", handleBrowseContract)
-	if *opendepotAssemblyEnabled {
+	if assemblyEnabled {
 		r.Get("/opendepot/ui/v1/resources/{namespace}/provider/{name}/provider-schema", handleBrowseProviderSchema)
 		r.Post("/opendepot/ui/v1/assembly/export", handleAssemblyExport)
 	}
@@ -296,25 +345,27 @@ func main() {
 	r.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}", handleScanPolicies)
 	r.HandleFunc("/opendepot/ui/v1/scan-policies/{namespace}/{name}", handleScanPolicies)
 
-	if *opendepotOIDCDexProxyEnabled {
-		dexProxyHandler, err := newDexProxyHandler(*opendepotOIDCDexInternalURL)
+	if dexProxyEnabled {
+		dexProxyHandler, err := newDexProxyHandler(dexInternalURL)
 		if err != nil {
-			logger.Error("failed to configure Dex reverse proxy", "error", err)
-			os.Exit(1)
+			return nil, err
 		}
 
 		r.Handle("/dex/*", dexProxyHandler)
 	}
 
-	if *opendepotCertPath != "" && *opendepotCertKey != "" {
-		logger.Info("Server started and listening on port 8080 with TLS")
-		if err := http.ListenAndServeTLS(":8080", *opendepotCertPath, *opendepotCertKey, r); err != nil {
-			logger.Error("Failed to start server with TLS", "error", err)
-		}
-	} else {
-		logger.Info("Server started and listening on default port: 8080 without TLS. For secure communication, provide paths to TLS certificate and key using --tls-cert-path and --tls-cert-key flags.")
-		if err := http.ListenAndServe(":8080", r); err != nil {
-			logger.Error("Failed to start server", "error", err)
+	return r, nil
+}
+
+// parseClientCredentialsAudiences splits the comma-separated --oidc-client-credentials-audiences
+// value into trimmed, non-empty client IDs.
+func parseClientCredentialsAudiences(raw string) []string {
+	var audiences []string
+	for _, aud := range strings.Split(raw, ",") {
+		if aud = strings.TrimSpace(aud); aud != "" {
+			audiences = append(audiences, aud)
 		}
 	}
+
+	return audiences
 }

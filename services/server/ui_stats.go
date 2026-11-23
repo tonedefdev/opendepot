@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -129,10 +130,27 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build a set of visible parent (module/provider) resource keys so version
+	// List visible Skills and Agents using the same visibility rules as the depots graph. They are listed before
+	// the Versions so that their Versions pass the visibility filter below.
+	skillCards, err := browseListVisibleAgentCards(r.Context(), cs, namespace, nsPublic, binding, allAccess, "skill")
+	if err != nil {
+		logger.Error("stats: failed to list skills", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	agentCards, err := browseListVisibleAgentCards(r.Context(), cs, namespace, nsPublic, binding, allAccess, "agent")
+	if err != nil {
+		logger.Error("stats: failed to list agents", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Build a set of visible parent (module/provider/skill/agent) resource keys so version
 	// visibility can be derived from the parent, which is what GroupBinding controls.
 	// Key format: "<namespace>/<Kind>/<name>"
-	visibleParents := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items))
+	visibleParents := make(map[string]struct{}, len(moduleList.Items)+len(providerList.Items)+
+		len(skillCards)+len(agentCards))
 	for _, m := range moduleList.Items {
 		visibleParents[m.Namespace+"/Module/"+m.Name] = struct{}{}
 	}
@@ -141,9 +159,18 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleParents[p.Namespace+"/Provider/"+p.Name] = struct{}{}
 	}
 
+	for _, s := range skillCards {
+		visibleParents[s.Metadata.Namespace+"/Skill/"+s.Metadata.Name] = struct{}{}
+	}
+
+	for _, a := range agentCards {
+		visibleParents[a.Metadata.Namespace+"/Agent/"+a.Metadata.Name] = struct{}{}
+	}
+
 	// List all versions — a version is visible if its owner module/provider is visible.
 	// GroupBinding only specifies module/provider names, not version names directly.
 	var versionList opendepotv1alpha1.VersionList
+	var allVersions []opendepotv1alpha1.Version
 	{
 		req := cs.RESTClient().Get().
 			AbsPath("/apis/opendepot.defdev.io/v1alpha1").
@@ -165,6 +192,8 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		allVersions = all.Items
 
 		for _, v := range all.Items {
 			for _, ref := range v.OwnerReferences {
@@ -188,6 +217,16 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		backendCounts[backend]++
 	}
 
+	for _, s := range skillCards {
+		backend := storageBackendName(s.Spec.AgentSourceConfig.StorageConfig)
+		backendCounts[backend]++
+	}
+
+	for _, a := range agentCards {
+		backend := storageBackendName(a.Spec.AgentSourceConfig.StorageConfig)
+		backendCounts[backend]++
+	}
+
 	storageDist := make([]StorageBackendStat, 0, len(backendCounts))
 	for backend, count := range backendCounts {
 		storageDist = append(storageDist, StorageBackendStat{Backend: backend, Count: count})
@@ -198,6 +237,7 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		totalStorageBytes int64
 		syncHealth        SyncHealthStats
 		secPosture        SecurityPostureStats
+		jevStats          JevStats
 		affectedResources = make(map[string]struct{})
 	)
 
@@ -257,6 +297,43 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 		visibleResources[p.Namespace+"/provider/"+p.Name] = struct{}{}
 	}
 
+	for _, s := range skillCards {
+		visibleResources[s.Metadata.Namespace+"/skill/"+s.Metadata.Name] = struct{}{}
+	}
+
+	for _, a := range agentCards {
+		visibleResources[a.Metadata.Namespace+"/agent/"+a.Metadata.Name] = struct{}{}
+	}
+
+	// Jev assesses Agents and Skills, which the Version totals above do not include. The Jev
+	// aggregate covers every Version whose owner is visible, so it counts Agent and Skill Versions too.
+	for i := range allVersions {
+		v := &allVersions[i]
+		for _, ref := range v.OwnerReferences {
+			if _, ok := visibleResources[v.Namespace+"/"+strings.ToLower(ref.Kind)+"/"+ref.Name]; ok {
+				accumulateJevStats(&jevStats, v.Status.JevAssessment)
+				break
+			}
+		}
+	}
+
+	skillsSynced := countSyncedAgentCards(skillCards)
+	agentsSynced := countSyncedAgentCards(agentCards)
+
+	modulesSynced := 0
+	for _, m := range moduleList.Items {
+		if m.Status.Synced {
+			modulesSynced++
+		}
+	}
+
+	providersSynced := 0
+	for _, p := range providerList.Items {
+		if p.Status.Synced {
+			providersSynced++
+		}
+	}
+
 	// Query download stats from Prometheus over the configured lookback.
 	downloadStats, err := downloadStatsSnapshot(r.Context())
 	if err != nil {
@@ -264,22 +341,41 @@ func handleBrowseStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalDownloads := totalDownloadsForStats(downloadStats, namespace, visibleResources)
-	mostDownloaded := mostDownloadedForStats(downloadStats, namespace, 10, visibleResources)
+	mostDownloaded := mostDownloadedByKind(downloadStats, namespace, 10, visibleResources)
 
 	stats := BrowseStats{
 		TotalModules:        len(moduleList.Items),
+		ModulesSynced:       modulesSynced,
 		TotalProviders:      len(providerList.Items),
+		ProvidersSynced:     providersSynced,
+		TotalSkills:         len(skillCards),
+		SkillsSynced:        skillsSynced,
+		TotalAgents:         len(agentCards),
+		AgentsSynced:        agentsSynced,
 		TotalVersions:       len(versionList.Items),
+		VersionsSynced:      syncHealth.SyncedVersions,
 		TotalStorageBytes:   totalStorageBytes,
 		TotalDownloads:      totalDownloads,
 		DownloadWindow:      prometheusStats.window,
 		SyncHealth:          syncHealth,
 		SecurityPosture:     secPosture,
+		Jev:                 jevStats,
 		StorageDistribution: storageDist,
 		MostDownloaded:      mostDownloaded,
 	}
 
 	json.NewEncoder(w).Encode(stats)
+}
+
+// countSyncedAgentCards returns how many Skill or Agent resources report Synced.
+func countSyncedAgentCards(cards []agentCardObject) int {
+	synced := 0
+	for _, c := range cards {
+		if c.Status.Synced {
+			synced++
+		}
+	}
+	return synced
 }
 
 // storageBackendName returns a display name for the active storage backend in sc.
@@ -298,6 +394,59 @@ func storageBackendName(sc *opendepotv1alpha1.StorageConfig) string {
 		return "fileSystem"
 	default:
 		return "unknown"
+	}
+}
+
+// jevExemptionActive reports whether an exemption is in force. The controller recomputes the exempted flag
+// only on reconcile, so a past expiry is treated as lapsed even while the flag is still set.
+func jevExemptionActive(a *opendepotv1alpha1.JevAssessment, now time.Time) bool {
+	if !a.Exempted {
+		return false
+	}
+
+	return a.ExemptionExpires == nil || a.ExemptionExpires.Time.After(now)
+}
+
+// accumulateJevStats folds one Version's Jev assessment into the aggregate. Token usage and chunk counts are
+// summed even for failed or blocked assessments, because Jev bills every call that returns usage.
+func accumulateJevStats(jevStats *JevStats, a *opendepotv1alpha1.JevAssessment) {
+	if a == nil {
+		return
+	}
+
+	jevStats.AssessedVersions++
+	jevStats.InputTokens += a.InputTokens
+	jevStats.AssessedChunks += int64(a.AssessedChunks)
+
+	if a.Blocked {
+		jevStats.BlockedVersions++
+	}
+
+	if a.Exempted {
+		jevStats.ExemptedVersions++
+	}
+
+	// An active exemption keeps a flagged Version out of the review queue until it expires.
+	if a.NeedsReview && !jevExemptionActive(a, time.Now()) {
+		jevStats.NeedsReviewVersions++
+	}
+
+	if a.Error != "" {
+		jevStats.FailedVersions++
+		return
+	}
+
+	switch strings.ToLower(a.RiskLevel) {
+	case "minimal":
+		jevStats.RiskLevels.Minimal++
+	case "low":
+		jevStats.RiskLevels.Low++
+	case "moderate":
+		jevStats.RiskLevels.Moderate++
+	case "high":
+		jevStats.RiskLevels.High++
+	case "critical":
+		jevStats.RiskLevels.Critical++
 	}
 }
 

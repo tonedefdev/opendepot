@@ -1,0 +1,396 @@
+/*
+Copyright 2026 Tony Owens.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package archive extracts module and provider archives safely and writes deterministic
+// gzip-compressed tarballs so that the same source tree always produces identical bytes.
+package archive
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	deterministicFileMode os.FileMode = 0644
+	deterministicDirMode  os.FileMode = 0755
+)
+
+const (
+	maxExtractedBytes   int64 = 2 << 30
+	maxExtractedEntries       = 10000
+)
+
+// maxArchiveHeaderBytes allows for tar block headers, PAX and GNU meta headers, and padding on top of
+// maxExtractedBytes. tar.Reader consumes meta header bodies inside Next(), so they are bounded by the
+// stream cap rather than the entry budget.
+const maxArchiveHeaderBytes int64 = 64 << 20
+
+const maxArchiveStreamBytes = maxExtractedBytes + maxArchiveHeaderBytes
+
+// extractBudget caps the total decompressed bytes and entry count written by a single ExtractToDir call.
+type extractBudget struct {
+	bytesLeft   int64
+	entriesLeft int
+}
+
+func newExtractBudget() *extractBudget {
+	return &extractBudget{bytesLeft: maxExtractedBytes, entriesLeft: maxExtractedEntries}
+}
+
+func (b *extractBudget) takeEntry(name string) error {
+	if b.entriesLeft <= 0 {
+		return fmt.Errorf("archive exceeds %d entries (at %q)", maxExtractedEntries, name)
+	}
+
+	b.entriesLeft--
+
+	return nil
+}
+
+// skipEntry charges the declared size of an entry that is read past but not written against the byte
+// budget. A tar reader decompresses every skipped entry, so a skipped entry must not be free.
+func (b *extractBudget) skipEntry(name string, size int64) error {
+	if size < 0 || size > b.bytesLeft {
+		return fmt.Errorf("archive exceeds %d decompressed bytes (at %q)", maxExtractedBytes, name)
+	}
+
+	b.bytesLeft -= size
+
+	return nil
+}
+
+// copyEntry copies at most the remaining byte budget from src to dst and fails when src holds more.
+func (b *extractBudget) copyEntry(dst io.Writer, src io.Reader, name string) error {
+	n, err := io.Copy(dst, io.LimitReader(src, b.bytesLeft+1))
+	if n > b.bytesLeft {
+		return fmt.Errorf("archive exceeds %d decompressed bytes (at %q)", maxExtractedBytes, name)
+	}
+
+	b.bytesLeft -= n
+
+	return err
+}
+
+// ExtractToDir extracts the contents of an archive (zip or gzip tarball) held in memory into destDir.
+// Entries whose cleaned path escapes destDir are rejected, and symbolic and hard link entries are
+// refused outright so that no link can later redirect a write outside destDir.
+func ExtractToDir(archiveBytes []byte, destDir string) error {
+	return extractArchive(archiveBytes, destDir, nil)
+}
+
+// ExtractSubtreeToDir extracts only the entries under subtree, a slash-separated path relative to the
+// archive's single top-level directory, such as a GitHub repository tarball. Entries outside subtree
+// are skipped before any link check, so a link elsewhere in the repository cannot fail the extraction.
+// Links inside subtree are still refused. An empty subtree extracts the whole archive.
+func ExtractSubtreeToDir(archiveBytes []byte, destDir, subtree string) error {
+	subtree = strings.Trim(subtree, "/")
+	if subtree == "" {
+		return extractArchive(archiveBytes, destDir, nil)
+	}
+
+	prefix := subtree + "/"
+	matched := false
+	keep := func(name string) bool {
+		for _, segment := range strings.Split(name, "/") {
+			if segment == ".." {
+				return false
+			}
+		}
+
+		_, rest, found := strings.Cut(path.Clean(name), "/")
+		ok := found && (rest == subtree || strings.HasPrefix(rest, prefix))
+		matched = matched || ok
+
+		return ok
+	}
+
+	if err := extractArchive(archiveBytes, destDir, keep); err != nil {
+		return err
+	}
+
+	if !matched {
+		return fmt.Errorf("archive has no entries under subtree %q", subtree)
+	}
+
+	return nil
+}
+
+// extractArchive writes the entries of archiveBytes into destDir. When keep is non-nil, entries it
+// rejects are skipped without being written, but they still count against the entry and byte budgets.
+func extractArchive(archiveBytes []byte, destDir string, keep func(name string) bool) error {
+	budget := newExtractBudget()
+	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
+		for _, f := range zr.File {
+			if err := budget.takeEntry(f.Name); err != nil {
+				return err
+			}
+
+			if keep != nil && !keep(f.Name) {
+				if err := budget.skipEntry(f.Name, int64(f.UncompressedSize64)); err != nil {
+					return err
+				}
+
+				continue
+			}
+
+			if err := extractZipEntry(f, destDir, budget); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
+	if err != nil {
+		return fmt.Errorf("archive is neither a valid zip nor a gzip tarball: %w", err)
+	}
+	defer gr.Close()
+
+	return extractTarStream(gr, destDir, keep, budget, maxArchiveStreamBytes)
+}
+
+// limitedStreamReader fails reads once the decompressed tar stream exceeds limit. Unlike io.LimitReader
+// it returns an error instead of silently truncating, so oversized PAX and GNU meta headers are rejected.
+type limitedStreamReader struct {
+	r     io.Reader
+	limit int64
+	read  int64
+}
+
+func (l *limitedStreamReader) Read(p []byte) (int, error) {
+	if remaining := l.limit - l.read; int64(len(p)) > remaining+1 {
+		p = p[:remaining+1]
+	}
+
+	n, err := l.r.Read(p)
+	l.read += int64(n)
+
+	if l.read > l.limit {
+		return 0, fmt.Errorf("archive exceeds %d decompressed bytes including tar headers", l.limit)
+	}
+
+	return n, err
+}
+
+// extractTarStream extracts the tar entries read from r into destDir, charging entries against budget.
+// The stream is capped at streamLimit bytes so that header-only archives cannot exceed the extraction limits.
+func extractTarStream(r io.Reader, destDir string, keep func(name string) bool, budget *extractBudget, streamLimit int64) error {
+	tr := tar.NewReader(&limitedStreamReader{r: r, limit: streamLimit})
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to read tar entry: %w", err)
+		}
+
+		if err := budget.takeEntry(hdr.Name); err != nil {
+			return err
+		}
+
+		if keep != nil && !keep(hdr.Name) {
+			if err := budget.skipEntry(hdr.Name, hdr.Size); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		if err := extractTarEntry(tr, hdr, destDir, budget); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// WriteDeterministicTarGz writes srcDir as a gzip-compressed tarball to w. Entries are emitted in
+// lexical order, timestamps are set to the Unix epoch, ownership and user/group names are cleared,
+// and modes are normalized to 0644 for files and 0755 for directories. The srcDir root itself is
+// not included as an entry. Symbolic links, hard links, and special files are rejected.
+func WriteDeterministicTarGz(srcDir string, w io.Writer) error {
+	gw := gzip.NewWriter(w)
+	tw := tar.NewWriter(gw)
+
+	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if path == srcDir {
+			return nil
+		}
+
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return fmt.Errorf("failed to compute relative path for %s: %w", path, err)
+		}
+
+		name := filepath.ToSlash(rel)
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to stat %s: %w", path, err)
+		}
+
+		switch {
+		case info.IsDir():
+			return tw.WriteHeader(deterministicHeader(name+"/", tar.TypeDir, deterministicDirMode, 0))
+		case info.Mode().IsRegular():
+			return writeDeterministicFile(tw, path, name, info.Size())
+		default:
+			return fmt.Errorf("unsupported file type for archive entry %s: %s", name, info.Mode().Type())
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write deterministic archive: %w", err)
+	}
+
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("failed to close tar writer: %w", err)
+	}
+
+	if err := gw.Close(); err != nil {
+		return fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+
+	return nil
+}
+
+// SHA256Hex returns the lowercase hex SHA-256 digest of archiveBytes. This is the value used for
+// the zh: archive hash in lock files and signed SHA256SUMS.
+func SHA256Hex(archiveBytes []byte) string {
+	sum := sha256.Sum256(archiveBytes)
+
+	return hex.EncodeToString(sum[:])
+}
+
+// extractZipEntry writes a single zip file entry into destDir, guarding against path traversal
+// and refusing symbolic links.
+func extractZipEntry(f *zip.File, destDir string, budget *extractBudget) error {
+	dest := filepath.Join(destDir, f.Name)
+	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
+		return fmt.Errorf("zip entry %q escapes destination directory (path traversal)", f.Name)
+	}
+
+	if f.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("zip entry %q is a symbolic link, which is not allowed", f.Name)
+	}
+
+	if f.FileInfo().IsDir() {
+		return os.MkdirAll(dest, 0700)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", f.Name, err)
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
+	}
+	defer rc.Close()
+
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", dest, err)
+	}
+	defer out.Close()
+
+	if err := budget.copyEntry(out, rc, f.Name); err != nil { //nolint:gosec // G110: copy is capped by extractBudget
+		return fmt.Errorf("failed to write zip entry %s: %w", f.Name, err)
+	}
+
+	return nil
+}
+
+// extractTarEntry writes a single tar entry into destDir, guarding against path traversal and
+// refusing symbolic and hard links.
+func extractTarEntry(tr *tar.Reader, hdr *tar.Header, destDir string, budget *extractBudget) error {
+	dest := filepath.Join(destDir, hdr.Name)
+	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
+		return fmt.Errorf("tar entry %q escapes destination directory (path traversal)", hdr.Name)
+	}
+
+	switch hdr.Typeflag {
+	case tar.TypeSymlink:
+		return fmt.Errorf("tar entry %q is a symbolic link, which is not allowed", hdr.Name)
+	case tar.TypeLink:
+		return fmt.Errorf("tar entry %q is a hard link, which is not allowed", hdr.Name)
+	case tar.TypeDir:
+		return os.MkdirAll(dest, 0700)
+	case tar.TypeReg:
+		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", hdr.Name, err)
+		}
+
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", dest, err)
+		}
+		defer out.Close()
+
+		if err := budget.copyEntry(out, tr, hdr.Name); err != nil { //nolint:gosec // G110: copy is capped by extractBudget
+			return fmt.Errorf("failed to write tar entry %s: %w", hdr.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// writeDeterministicFile writes a single regular file from path into tw under name.
+func writeDeterministicFile(tw *tar.Writer, path, name string, size int64) error {
+	if err := tw.WriteHeader(deterministicHeader(name, tar.TypeReg, deterministicFileMode, size)); err != nil {
+		return fmt.Errorf("failed to write header for %s: %w", name, err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(tw, f); err != nil {
+		return fmt.Errorf("failed to write %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// deterministicHeader returns a tar header with all host-specific metadata zeroed.
+func deterministicHeader(name string, typeflag byte, mode os.FileMode, size int64) *tar.Header {
+	return &tar.Header{
+		Name:     name,
+		Typeflag: typeflag,
+		Mode:     int64(mode),
+		Size:     size,
+		ModTime:  time.Unix(0, 0),
+	}
+}

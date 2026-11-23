@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -21,6 +22,7 @@ import (
 const maxScanPolicyBody = 1 << 20
 
 var dnsNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+var jevDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 var policyRequestAuth = getPolicyKubeClientFromRequest
 
@@ -130,6 +132,25 @@ func policyScopeAuthorized(binding *opendepotv1alpha1.SecurityGroupBinding, name
 	}
 
 	return true
+}
+
+// policyJevExemptionsAuthorized reports whether binding may add, change, or remove jevExemptions. An exemption lifts a
+// Jev block, so only namespace-wide policy managers may change them. Resource-scoped bindings may keep an unchanged
+// exemption while editing the rest of the policy.
+func policyJevExemptionsAuthorized(binding *opendepotv1alpha1.SecurityGroupBinding, existing, incoming *opendepotv1alpha1.ScanPolicy) bool {
+	if oidcVerifier == nil {
+		return true
+	}
+
+	if binding != nil && binding.Spec.NamespaceWidePolicyManagement {
+		return true
+	}
+
+	if len(existing.Spec.JevExemptions) == 0 && len(incoming.Spec.JevExemptions) == 0 {
+		return true
+	}
+
+	return reflect.DeepEqual(existing.Spec.JevExemptions, incoming.Spec.JevExemptions)
 }
 
 func policyReadAuthorized(binding *opendepotv1alpha1.SecurityGroupBinding, namespace string, policy *opendepotv1alpha1.ScanPolicy) bool {
@@ -314,6 +335,12 @@ func handleScanPolicyCreate(w http.ResponseWriter, r *http.Request, request rest
 		return
 	}
 
+	if !policyJevExemptionsAuthorized(binding, &opendepotv1alpha1.ScanPolicy{}, &policy) {
+		http.Error(w, "jevExemptions require namespace-wide ScanPolicy management", http.StatusForbidden)
+
+		return
+	}
+
 	body, err = json.Marshal(policy)
 	if err != nil {
 		http.Error(w, "failed to encode ScanPolicy", http.StatusInternalServerError)
@@ -395,6 +422,12 @@ func handleScanPolicyUpdate(w http.ResponseWriter, r *http.Request, request rest
 		return
 	}
 
+	if !policyJevExemptionsAuthorized(binding, &existing, &policy) {
+		http.Error(w, "jevExemptions require namespace-wide ScanPolicy management", http.StatusForbidden)
+
+		return
+	}
+
 	body, err = json.Marshal(policy)
 	if err != nil {
 		http.Error(w, "failed to encode ScanPolicy", http.StatusInternalServerError)
@@ -443,6 +476,12 @@ func handleScanPolicyDelete(w http.ResponseWriter, r *http.Request, request rest
 
 	if oidcVerifier != nil && !policyScopeAuthorized(binding, namespace, &existing) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+
+		return
+	}
+
+	if !policyJevExemptionsAuthorized(binding, &existing, &opendepotv1alpha1.ScanPolicy{}) {
+		http.Error(w, "jevExemptions require namespace-wide ScanPolicy management", http.StatusForbidden)
 
 		return
 	}
@@ -508,8 +547,8 @@ func decodeAndValidateScanPolicy(body []byte, policy *opendepotv1alpha1.ScanPoli
 	}
 
 	for i, target := range policy.Spec.TargetRefs {
-		if target.Kind != "Module" && target.Kind != "Provider" {
-			return fmt.Errorf("spec.targetRefs[%d].kind must be Module or Provider", i)
+		if target.Kind != "Module" && target.Kind != "Provider" && target.Kind != "Skill" && target.Kind != "Agent" {
+			return fmt.Errorf("spec.targetRefs[%d].kind must be Module, Provider, Skill, or Agent", i)
 		}
 		if target.Name == "" {
 			return fmt.Errorf("spec.targetRefs[%d].name is required", i)
@@ -519,6 +558,23 @@ func decodeAndValidateScanPolicy(body []byte, policy *opendepotv1alpha1.ScanPoli
 	for i, exemption := range policy.Spec.Exemptions {
 		if strings.TrimSpace(exemption.Reason) == "" {
 			return fmt.Errorf("spec.exemptions[%d].reason is required", i)
+		}
+	}
+
+	seenDigests := make(map[string]struct{}, len(policy.Spec.JevExemptions))
+	for i, exemption := range policy.Spec.JevExemptions {
+		if !jevDigestPattern.MatchString(exemption.ContentDigest) {
+			return fmt.Errorf("spec.jevExemptions[%d].contentDigest must be 64 lowercase hex characters", i)
+		}
+
+		if _, duplicate := seenDigests[exemption.ContentDigest]; duplicate {
+			return fmt.Errorf("spec.jevExemptions[%d].contentDigest %s is listed more than once", i, exemption.ContentDigest)
+		}
+
+		seenDigests[exemption.ContentDigest] = struct{}{}
+
+		if strings.TrimSpace(exemption.Reason) == "" {
+			return fmt.Errorf("spec.jevExemptions[%d].reason is required", i)
 		}
 	}
 
@@ -542,7 +598,8 @@ func validateScanPolicyTargets(ctx context.Context, request rest.Interface, name
 			}
 
 			names = map[string]struct{}{}
-			if resourceType == "module" {
+			switch resourceType {
+			case "module":
 				var list opendepotv1alpha1.ModuleList
 				if err := json.Unmarshal(raw, &list); err != nil {
 					return fmt.Errorf("failed to decode Module list: %w", err)
@@ -550,7 +607,23 @@ func validateScanPolicyTargets(ctx context.Context, request rest.Interface, name
 				for _, item := range list.Items {
 					names[item.Name] = struct{}{}
 				}
-			} else {
+			case "skill":
+				var list opendepotv1alpha1.SkillList
+				if err := json.Unmarshal(raw, &list); err != nil {
+					return fmt.Errorf("failed to decode Skill list: %w", err)
+				}
+				for _, item := range list.Items {
+					names[item.Name] = struct{}{}
+				}
+			case "agent":
+				var list opendepotv1alpha1.AgentList
+				if err := json.Unmarshal(raw, &list); err != nil {
+					return fmt.Errorf("failed to decode Agent list: %w", err)
+				}
+				for _, item := range list.Items {
+					names[item.Name] = struct{}{}
+				}
+			default:
 				var list opendepotv1alpha1.ProviderList
 				if err := json.Unmarshal(raw, &list); err != nil {
 					return fmt.Errorf("failed to decode Provider list: %w", err)

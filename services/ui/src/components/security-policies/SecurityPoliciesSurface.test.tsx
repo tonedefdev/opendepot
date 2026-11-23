@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SecurityPoliciesSurface from "./SecurityPoliciesSurface";
+import { jevExemptionPrefill } from "./jevGovernance";
 
 const router = { push: vi.fn(), refresh: vi.fn() };
 
@@ -33,6 +34,8 @@ const catalog = {
     canManageNamespaceWidePolicies: true,
     modules: [{ name: "terraform-aws-vpc" }],
     providers: [{ name: "aws" }],
+    skills: [],
+    agents: [],
   }],
 };
 
@@ -149,6 +152,35 @@ describe("SecurityPoliciesSurface", () => {
     expect(screen.queryByRole("link", { name: "Create policy" })).toBeNull();
   });
 
+  it("keeps Jev exemptions, including entries without expires, when saving an edited policy", async () => {
+    const jevPolicy = {
+      ...policy,
+      spec: {
+        ...policy.spec,
+        jevExemptions: [
+          { contentDigest: "a".repeat(64), reason: "Reviewed by security", expires: "2027-01-01T00:00:00Z" },
+          { contentDigest: "b".repeat(64), reason: "Vendor attested" },
+        ],
+      },
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ items: [jevPolicy] }))
+      .mockResolvedValueOnce(jsonResponse(capabilities))
+      .mockResolvedValueOnce(jsonResponse(jevPolicy))
+      .mockResolvedValueOnce(jsonResponse(jevPolicy));
+
+    render(<SecurityPoliciesSurface mode="edit" namespace="platform" name="baseline" catalog={catalog} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(JSON.parse(String(put?.[1]?.body)).spec.jevExemptions).toEqual([
+      { contentDigest: "a".repeat(64), reason: "Reviewed by security", expires: "2027-01-01T00:00:00Z" },
+      { contentDigest: "b".repeat(64), reason: "Vendor attested" },
+    ]);
+  });
+
   it("preserves the edit draft and reports an optimistic-concurrency conflict", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ items: [policy] }))
@@ -171,7 +203,7 @@ describe("SecurityPoliciesSurface", () => {
 
     render(<SecurityPoliciesSurface mode="create" namespace="platform" catalog={{
       ...catalog,
-      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false, modules: [{ name: "terraform-aws-vpc" }], providers: [] }],
+      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false, modules: [{ name: "terraform-aws-vpc" }], providers: [], skills: [], agents: [] }],
     }} />);
 
     await waitFor(() => expect(screen.getByText(/only policies targeted/)).not.toBeNull());
@@ -180,4 +212,130 @@ describe("SecurityPoliciesSurface", () => {
     expect(screen.getByText("terraform-aws-vpc")).not.toBeNull();
     expect(screen.queryByRole("textbox", { name: "Resource name" })).toBeNull();
   });
+
+  it("disables Jev editing with an explanation for callers who are not namespace-wide managers", async () => {
+    const existing = { ...policy, spec: { ...policy.spec, jevExemptions: [{ contentDigest: "a".repeat(64), reason: "Vendor attested" }] } };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ items: [existing] }))
+      .mockResolvedValueOnce(jsonResponse({ ...capabilities, canManageNamespaceWidePolicies: false }))
+      .mockResolvedValueOnce(jsonResponse(existing));
+
+    render(<SecurityPoliciesSurface mode="edit" namespace="platform" name="baseline" catalog={{
+      ...catalog,
+      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false }],
+    }} />);
+
+    await waitFor(() => expect(screen.getByText(/Only namespace-wide policy managers can add, change, or remove Jev exemptions/)).not.toBeNull());
+    expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Remove Jev exemption 1" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/Content digest/) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("keeps unchanged Jev exemptions when a scoped operator saves another field", async () => {
+    const existing = {
+      ...policy,
+      spec: {
+        ...policy.spec,
+        targetRefs: [{ kind: "Module" as const, name: "terraform-aws-vpc" }],
+        jevExemptions: [{ contentDigest: "a".repeat(64), reason: "Vendor attested" }],
+      },
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ items: [existing] }))
+      .mockResolvedValueOnce(jsonResponse({ ...capabilities, canManageNamespaceWidePolicies: false }))
+      .mockResolvedValueOnce(jsonResponse(existing))
+      .mockResolvedValueOnce(jsonResponse(existing));
+
+    render(<SecurityPoliciesSurface mode="edit" namespace="platform" name="baseline" catalog={{
+      ...catalog,
+      items: [{ ...catalog.items[0], canManageNamespaceWidePolicies: false }],
+    }} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(JSON.parse(String(put?.[1]?.body)).spec.jevExemptions).toEqual(existing.spec.jevExemptions);
+  });
+
+  it("creates a Jev exemption entry and keeps the Live YAML in sync", async () => {
+    renderCreate();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    fireEvent.change(screen.getByLabelText(/Content digest/), { target: { value: "c".repeat(64) } });
+    fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: "Reviewed the Jev assessment" } });
+
+    expect(document.body.textContent).toContain(`contentDigest: ${"c".repeat(64)}`);
+    expect(document.body.textContent).toContain("reason: Reviewed the Jev assessment");
+  });
+
+  it("validates the Jev content digest as 64 lowercase hex characters", async () => {
+    renderCreate();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    const digest = screen.getByLabelText(/Content digest/);
+    const digestError = "Enter 64 lowercase hex characters (a SHA-256 digest without a prefix).";
+
+    fireEvent.change(digest, { target: { value: "A".repeat(64) } });
+    expect(screen.getByText(digestError)).not.toBeNull();
+    fireEvent.change(digest, { target: { value: `sha256:${"a".repeat(64)}` } });
+    expect(screen.getByText(digestError)).not.toBeNull();
+    fireEvent.change(digest, { target: { value: "a".repeat(63) } });
+    expect(screen.getByText(digestError)).not.toBeNull();
+    fireEvent.change(digest, { target: { value: "a".repeat(64) } });
+    expect(screen.queryByText(digestError)).toBeNull();
+  });
+
+  it("flags a digest that already has a Jev exemption in the same policy", async () => {
+    renderCreate();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    const [first, second] = screen.getAllByLabelText(/Content digest/);
+    fireEvent.change(first, { target: { value: "d".repeat(64) } });
+    fireEvent.change(second, { target: { value: "d".repeat(64) } });
+
+    expect(screen.getAllByText("This digest already has a Jev exemption in this policy.")).toHaveLength(1);
+  });
+
+  it("requires a non-blank reason for every Jev exemption", async () => {
+    renderCreate();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    fireEvent.change(screen.getByLabelText(/Content digest/), { target: { value: "e".repeat(64) } });
+    fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: "   " } });
+    expect(screen.getByText("A reason is required for every Jev exemption.")).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: "Reviewed" } });
+    expect(screen.queryByText("A reason is required for every Jev exemption.")).toBeNull();
+  });
+
+  it("does not submit a policy with invalid Jev exemptions", async () => {
+    const fetchMock = renderCreate();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add Jev exemption" }));
+    fireEvent.change(screen.getByLabelText(/Content digest/), { target: { value: "not-a-digest" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create policy" }));
+
+    await waitFor(() => expect(screen.getByText("Enter 64 lowercase hex characters (a SHA-256 digest without a prefix).")).not.toBeNull());
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("prefills a Jev exemption draft from the Security Policy route", async () => {
+    renderCreate({ jevPrefill: jevExemptionPrefill({ contentDigest: "f".repeat(64), versionName: "1.2.3", policies: [] }) });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add Jev exemption" }) as HTMLButtonElement).disabled).toBe(false));
+
+    expect((screen.getByLabelText(/Content digest/) as HTMLInputElement).value).toBe("f".repeat(64));
+    expect((screen.getByLabelText(/^Reason/) as HTMLInputElement).value).toBe("Jev exemption for version 1.2.3");
+    expect(document.body.textContent).toContain(`contentDigest: ${"f".repeat(64)}`);
+  });
 });
+
+function renderCreate(props: Partial<React.ComponentProps<typeof SecurityPoliciesSurface>> = {}) {
+  const fetchMock = vi.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(jsonResponse({ items: [] }))
+    .mockResolvedValueOnce(jsonResponse(capabilities));
+  render(<SecurityPoliciesSurface mode="create" namespace="platform" catalog={catalog} {...props} />);
+  return fetchMock;
+}
+

@@ -12,27 +12,28 @@ OpenDepot Workshop provides a Security Policies view for managing `ScanPolicy`
 rules and exemptions. Open it at `/security-policies` to review the policies
 that apply to resources in a selected namespace.
 
-![OpenDepot Workshop Security Policies page showing policy summaries and matching resources](../../img/security-policies.png)
+![OpenDepot Workshop Security Policies page showing policy summaries and matching resources](../../img/security-policies.png#only-dark)
+![OpenDepot Workshop Security Policies page showing policy summaries and matching resources](../../img/security-policies-light.png#only-light)
 
 !!! warning "Keep policies in source control"
     Creating policies in OpenDepot Workshop is provided for convenience, such
     as when you need to react to a threat immediately. Always copy the generated
     YAML and commit it to source control. OpenDepot Workshop assumes a GitOps
-    workflow, where Git is the audit trail; OpenDepot does not retain this
-    policy history today.
+    workflow, where Git is the audit trail.
 
 ## Policy overview
 
-The page includes summary cards for:
+The summary cards show:
 
-- **Total policies** — all policies in the selected namespace.
-- **Non-superseded** — policies that are currently active in policy evaluation.
-- **Matching resources** — resources matched by the policies.
-- **Active exemptions** — current exemptions from policy findings.
+- **Non-superseded** — policies in effect. The caption shows the total policy count.
+- **Matching resources** — number of policies that match at least one version.
+- **Active exemptions** — exemptions currently applied to findings.
+- **Expired exemptions** — exemptions past their expiry. Their findings block again.
 
-The policy list shows each policy's name, priority, severity threshold, and
-number of matched versions. Select a policy to inspect its rules, matches, and
-exemptions.
+Each policy card shows its name, priority, and severity threshold (**Baseline**
+when unset). It also shows the matched version count, the active exemption count,
+and a **Superseded by** chip when another policy takes precedence. Select a policy
+to review its targets and exemptions.
 
 ## Find and create policies
 
@@ -46,7 +47,8 @@ Select **Create policy** to define a new `ScanPolicy` in the selected namespace.
 The guided form creates a namespaced `ScanPolicy` and updates a live YAML
 preview as you work.
 
-![OpenDepot Workshop Create Security Policy page showing the guided form and live YAML preview](../../img/security-policy-create.png)
+![OpenDepot Workshop Create Security Policy page showing the guided form and live YAML preview](../../img/security-policy-create.png#only-dark)
+![OpenDepot Workshop Create Security Policy page showing the guided form and live YAML preview](../../img/security-policy-create-light.png#only-light)
 
 ### Define policy identity
 
@@ -67,9 +69,11 @@ Enter the labels as a JSON object, for example:
 {"environment":"sandbox"}
 ```
 
-You can also add explicit **Target resources**. The form lets you select from
-authorized onboarded Module and Provider resources. When no explicit targets
-are configured, the policy relies on its other matching criteria.
+You can also add explicit **Target resources**. Each target has a kind (`Module`,
+`Provider`, `Skill`, or `Agent`), a resource name, and an optional **Version constraint**, such as
+`>= 1.0.0, < 2.0.0`. Select from authorized onboarded resources. Use `*` as the
+name to match every resource of that kind. When no explicit targets are
+configured, the policy relies on its other matching criteria.
 
 ### Add finding exemptions
 
@@ -79,7 +83,7 @@ include a reason. Leave its expiry empty for an indefinite exemption.
 Each exemption can be narrowed with these fields:
 
 - **Vulnerability IDs** — enter one or more vulnerability identifiers, such as
-  `CVE-2026-0001` or `aws-0057`. Use `*` to match any vulnerability ID.
+  `CVE-2026-0001` or `AWS-0057`. Use `*` to match any vulnerability ID.
 - **Package names** — enter one or more package names, such as `stdlib` or
   `golang.org/x/net`. Use `*` to match any package.
 - **Severities** — select the finding severity or leave the filter at `All`.
@@ -104,22 +108,25 @@ the active exemption in the summary card and on the policy card. The exemption
 count is separate from matched-version counts. Open the policy to review the
 finding filters, reason, and expiry date.
 
-![OpenDepot Workshop policy list showing an active exemption](../../img/security-policies-active-exemption.png)
+![OpenDepot Workshop policy form showing a finding exemption for AWS-0132 with a reason and expiry date](../../img/security-policies-active-exemption.png#only-dark)
+![OpenDepot Workshop policy form showing a finding exemption for AWS-0132 with a reason and expiry date](../../img/security-policies-active-exemption-light.png#only-light)
 
 OpenDepot Workshop also reflects active exemptions on affected resource cards.
 The card keeps its normal sync status and finding-severity badges, and adds an
-`E` badge for exempted findings. For example, `H 2`, `M 1`, and `E 1` indicate
-two high-severity findings, one medium-severity finding, and one exempted
-finding.
+`E` badge for exempted findings. For example, the `terraform-aws-s3` v1.2.0 card
+shows `H 4`, `M 1`, `L 2`, and `E 1`. These badges indicate four high-severity
+findings, one medium-severity finding, two low-severity findings, and one
+exempted finding.
 
-![OpenDepot Workshop module card showing an exempted finding](../../img/module-active-exemption.png)
+![OpenDepot Workshop module card showing an exempted finding](../../img/module-active-exemption.png#only-dark)
+![OpenDepot Workshop module card showing an exempted finding](../../img/module-active-exemption-light.png#only-light)
 
 On a module's **Scan Findings** section, an exempted finding remains in the
 findings table with its original severity. Its **Resolution** column displays
-an `Exempted by <policy-name>` badge, while findings without exemptions keep the
-normal unresolved marker.
+an `Exempted` badge, while findings without exemptions show a dash (`—`).
 
-![OpenDepot Workshop Scan Findings table showing an exempted finding](../../img/module-scan-findings-exemption.png)
+![OpenDepot Workshop Scan Findings table showing an exempted finding](../../img/module-scan-findings-exemption.png#only-dark)
+![OpenDepot Workshop Scan Findings table showing an exempted finding](../../img/module-scan-findings-exemption-light.png#only-light)
 
 The findings count still includes the displayed finding. Use the version
 selector, search, severity filter, and sorting controls to inspect the findings
@@ -132,7 +139,8 @@ in the module's **Versions** section with a warning that some versions are out
 of sync. The affected version's sync status reports the policy violation,
 including the blocking severity, vulnerability ID, and resource location.
 
-![OpenDepot Workshop Versions table showing a scan policy violation](../../img/module-versions-policy-violation.png)
+![OpenDepot Workshop Versions table showing a scan policy violation](../../img/module-versions-policy-violation.png#only-dark)
+![OpenDepot Workshop Versions table showing a scan policy violation](../../img/module-versions-policy-violation-light.png#only-light)
 
 The blocked version remains listed with its findings badges, while unaffected
 versions can continue to show **Successfully synced version**. This differs
@@ -146,10 +154,12 @@ When policies overlap, the higher-priority policy wins outright. The lower-
 priority policy remains visible in the list, but it is marked **Superseded by
 `<policy-name>`** so users can see which policy takes precedence.
 
-![OpenDepot Workshop policy list showing a superseded policy](../../img/security-policies-superseded.png)
+![OpenDepot Workshop policy list showing a superseded policy](../../img/security-policies-superseded.png#only-dark)
+![OpenDepot Workshop policy list showing a superseded policy](../../img/security-policies-superseded-light.png#only-light)
 
-The summary separates **Total policies** from **Non-superseded** policies. In
-the example above, two policies exist but only one is non-superseded. A
-superseded policy can still be opened to review its configuration and matching
+The summary card shows the **Non-superseded** count with the total policy count
+beneath it. In the screenshot above, four policies exist and one of them is
+superseded, so the card reads `3` of 4 policies. A superseded policy can still
+be opened to review its configuration and matching
 resources; its status explains why it is not the effective policy when the
 rules overlap.

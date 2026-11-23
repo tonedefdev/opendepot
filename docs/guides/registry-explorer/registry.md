@@ -9,38 +9,69 @@ tags:
 # Registry Explorer
 
 The Registry Explorer is OpenDepot Workshop's discovery surface. It gives users
-an overview of the modules and providers available to them and lets them open
-resource details, versions, and security information.
+an overview of the modules, providers, skills, and agents available to them and
+lets them open resource details, versions, and security information.
 
-![OpenDepot Workshop Registry Explorer showing modules, providers, versions, and scan findings](../../img/registry-explorer.png)
+![OpenDepot Workshop Registry Explorer table view listing resources with kind, name, version, source, status, and risk](../../img/registry-explorer.png#only-dark)
+![OpenDepot Workshop Registry Explorer table view listing resources with kind, name, version, source, status, and risk](../../img/registry-explorer-light.png#only-light)
+
+## Sidebar
+
+The sidebar groups the Registry Explorer under a **Registry** item. The
+children filter the explorer by kind:
+
+| Item | Shows |
+| --- | --- |
+| Registry | All kinds: agents, skills, modules, and providers. |
+| Agents | Only agents. |
+| Skills | Only skills. |
+| Modules | Only modules. |
+| Providers | Only providers. |
+
+Each item has an icon. When the sidebar is collapsed, only the icons appear.
+Hover over an icon to see its name in a tooltip. The search icon in the
+collapsed sidebar expands it and places the cursor in the search field.
 
 ## Reading the Registry Explorer
 
-Each resource card summarizes the latest available version:
+The explorer lists one resource per row and summarizes its latest available
+version. Select a row to open the resource details.
 
-| Card attribute | Meaning |
+| Column | Meaning |
 | --- | --- |
-| Namespace | The Kubernetes namespace that owns the resource. |
-| Resource name | The name used to identify the module or provider. Select the card to open its details. |
-| Provider icon | The provider ecosystem associated with the resource, such as AWS. |
-| Type | Whether the resource is a `Module` or `Provider`. |
+| Kind | The resource kind: `Module`, `Provider`, `Skill`, or `Agent`. Modules and providers also show the icon of their provider ecosystem, such as AWS. |
+| Name | The Kubernetes namespace that owns the resource, then the resource name. A globe icon marks a public resource. |
 | Version | The latest version currently shown for the resource. |
-| Sync status | Whether the resource version was successfully synchronized or needs attention. |
-| Finding badges | The number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, and `U` unknown. |
+| Source | For a Skill or Agent that follows a Git ref, the tracked branch or commit. The column is hidden when no resource on the page has one. |
+| Status | Whether the latest version synchronized. A healthy resource shows **Synced**. A failure, or a version that Jev blocked, is shown in red with its reason in a tooltip. |
+| Risk | For a Skill or Agent, the Jev risk level as a five-step meter from `Minimal` to `Critical`. For a Module or Provider, the number of scan findings by severity: `C` critical, `H` high, `M` medium, `L` low, `U` unknown, and `E` exempted. |
 
-The footer shows how many resources are displayed, the selected page size, and
-pagination controls. Change the page size or move between pages to browse the
-full set of resources visible to you.
+Above the list, the **Sort** menu orders resources by name, namespace, latest
+version, or last scan, and the arrow next to it reverses the order. Selecting
+the **Name** or **Version** column heading sorts by that column. Active
+namespace and search filters appear next to the resource count and can be
+removed there. The view toggle switches between the table and a card grid.
+Narrow screens always use cards.
+
+The footer shows the resource count, the **Per page** setting, and pagination
+controls. The page size defaults to 12.
+
+The browser saves your **Per page** choice, sort field and direction, and
+table or card view in local storage, so they persist across visits. Preferences
+are stored per browser, not per account.
 
 ## What users see
 
-Depending on their authentication and visibility permissions, users can expect
-to find:
+- **Modules**: versions, README, usage, contract, and scan findings.
+- **Providers**: versions, platform artifacts, checksums, schema extraction status, and scan findings.
 
 - **Modules** with versions, README content, usage examples, contracts, inputs,
   outputs, and scan findings.
 - **Providers** with versions, platform artifacts, checksums, extracted schemas,
   and source or binary scan findings.
+- **Skills** and **Agents** with versions, the `SKILL.md` or `AGENT.md`
+  definition, tools and model metadata, scan findings, and Jev assessments when
+  enabled. See [Consuming Agents and Skills](../agents.md).
 
 The Registry Explorer shows the resources the current user can access. If a
 resource is not visible, check the current authentication mode, public labels,
@@ -51,5 +82,8 @@ and any applicable `GroupBinding`.
 - [OpenDepot Workshop](index.md)
 - [Module Details](module-details.md)
 - [Provider Details](provider-details.md)
+- [Agent Details](agent-details.md)
+- [Skill Details](skill-details.md)
+- [Consuming Agents and Skills](../agents.md)
 - [OpenDepot Workshop Administration](administration.md)
 - [OpenDepot Workshop authentication](../../authentication/registry-explorer.md)

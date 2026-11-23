@@ -7,11 +7,11 @@ tags:
 
 # Architecture
 
-OpenDepot is a Kubernetes-native registry. Kubernetes resources describe the
-modules, providers, versions, and discovery jobs that OpenDepot should manage.
-Controllers reconcile those resources, the server exposes them through the
-OpenTofu and Terraform registry protocols, and a storage backend holds the
-artifacts.
+OpenDepot is a Kubernetes-native artifact registry. Kubernetes resources describe the
+modules, providers, skills, agents, versions, and discovery jobs that OpenDepot should
+manage. Controllers reconcile those resources, the server exposes them through the
+OpenTofu and Terraform registry protocols and the agents.v1 API, and a storage backend
+holds the artifacts.
 
 ## System Overview
 
@@ -19,8 +19,9 @@ artifacts.
 %%{init: {'flowchart': {'defaultRenderer': 'elk'}} }%%
 graph TD
     CLI["OpenTofu / Terraform CLI"]
+    OpenDepotCLI["opendepot CLI\nSkills and Agents"]
 
-    Server["Server\nRegistry Protocol API"]
+    Server["Server\nRegistry Protocol and agents.v1 API"]
     UI["OpenDepot Workshop"]
     Dex["Dex\nOIDC Identity Broker"]
     IdP["Upstream IdP"]
@@ -28,13 +29,16 @@ graph TD
     Depot["Depot\nController"]
     Module["Module\nController"]
     Provider["Provider\nController"]
+    Agent["Agent\nController\nSkills and Agents"]
     Version["Version\nController"]
 
     Storage[("Storage Backend\nS3 · Azure · GCS · Filesystem")]
     GitHub["GitHub\nReleases API"]
     ProviderRegistry["Upstream Provider Registry\nOpenTofu · Terraform"]
+    Jev["TypeSafe Jev\nOptional assessment"]
 
     CLI -->|registry requests| Server
+    OpenDepotCLI -->|agents.v1 requests| Server
     CLI -->|tofu login| Dex
     Dex -->|federates auth| IdP
     Server -.->|validates OIDC keys| Dex
@@ -44,37 +48,44 @@ graph TD
     Depot -->|discovers versions| ProviderRegistry
     Depot -->|creates or updates| Module
     Depot -->|creates or updates| Provider
+    Depot -->|creates or updates| Agent
     Module -->|creates| Version
     Provider -->|creates| Version
+    Agent -->|creates| Version
     Version -->|fetches archives| GitHub
     Version -->|fetches binaries| ProviderRegistry
     Version -->|uploads artifacts| Storage
+    Version -.->|optional content assessment| Jev
     Server -->|reads metadata and artifacts| Storage
 ```
 
 The diagram shows two cooperating paths:
 
-- **Consumption:** OpenTofu, Terraform, and OpenDepot Workshop read metadata
-  through the Server. The Server authenticates requests, reads Kubernetes
-  resources, and serves or redirects artifacts from storage.
+- **Consumption:** OpenTofu, Terraform, OpenDepot Workshop, and the `opendepot`
+  CLI read metadata through the Server. The Server authenticates requests, reads
+  Kubernetes resources, and serves or redirects artifacts from storage. The
+  `opendepot` CLI uses the agents.v1 protocol to install Skills and Agents.
 - **Reconciliation:** Depot discovers upstream releases and creates declarative
-  `Module` and `Provider` resources. The Module and Provider controllers turn
-  those resources into `Version` resources, and the Version controller fetches,
-  scans, checksums, and stores the artifacts.
+  `Module`, `Provider`, `Skill`, and `Agent` resources. The Module, Provider, and
+  Agent controllers turn those resources into `Version` resources, and the
+  Version controller fetches, scans, checksums, and stores the artifacts.
 
 ## Reconciliation Flow
 
-1. A user creates a `Module`, `Provider`, or `Depot` resource.
+1. A user creates a `Module`, `Provider`, `Skill`, `Agent`, or `Depot` resource.
 2. The Depot controller polls GitHub and the configured provider registry when a
    `Depot` is present. It resolves version constraints and reconciles discovered
-   modules and providers.
+   modules, providers, skills, and agents.
 3. The Module controller creates one `Version` resource for each module version.
    The Provider controller creates one Version for each provider version and
-   operating system/architecture combination.
+   operating system/architecture combination. The Agent controller creates one
+   Version for each Skill and Agent version.
 4. The Version controller downloads the upstream artifact, computes its
-   checksum, runs configured scans, and uploads it to storage.
+   checksum, runs configured scans, and uploads it to storage. For Skills and
+   Agents, it packages the source repository into an archive, signs
+   `SHA256SUMS`, and runs the optional Jev assessment.
 5. The Server reads the Kubernetes resources and exposes synced versions through
-   the registry protocols.
+   the registry protocols and the agents.v1 protocol.
 6. Subsequent reconciliations repair drift, discover new releases, and preserve
    immutable artifact content according to the configured policy.
 
@@ -85,11 +96,12 @@ The diagram shows two cooperating paths:
 The Depot controller is the discovery layer. It polls:
 
 - GitHub Releases API for module releases
+- GitHub repositories for Skill and Agent tags, or branch heads when `ref` is set
 - `registry.opentofu.org` or `registry.terraform.io` for provider releases
 
-It applies version constraints, creates or updates the corresponding `Module`
-and `Provider` resources, and records the managed resource names in Depot
-status. Configure the polling interval with `pollingIntervalMinutes`.
+It applies version constraints, creates or updates the corresponding `Module`,
+`Provider`, `Skill`, and `Agent` resources, and records the managed resource
+names in Depot status. Configure the polling interval with `pollingIntervalMinutes`.
 
 See [Depot Discovery](guides/depot.md) for configuration examples.
 
@@ -102,11 +114,22 @@ version work items:
   `Module.spec.versions`.
 - The Provider controller creates a Version for each version and each requested
   operating system and architecture.
-- Both controllers track the latest version, garbage-collect removed versions,
-  and enforce `versionHistoryLimit` when configured.
+- Both controllers track the latest version and garbage-collect Versions removed
+  from `spec.versions`. When `versionHistoryLimit` is set, the Module and Provider controllers trim `spec.versions` to the newest N versions, and the removed Versions are garbage-collected.
 
 A provider with two versions, two operating systems, and two architectures
 produces eight Version resources.
+
+### Agent Controller
+
+The Agent controller reconciles `Skill` and `Agent` resources. It runs in the
+`agent` deployment and is disabled by default. Set `agent.enabled: true` in the
+chart values to deploy it.
+
+Like the Module and Provider controllers, it creates a Version for each entry in
+`spec.versions`, trims the list when `versionHistoryLimit` is set, and removes
+Versions that are no longer declared. Branch-sourced Skills and Agents create a
+Version for each new commit. See [Branch sourcing](#branch-sourcing).
 
 ### Version Controller
 
@@ -114,11 +137,16 @@ The Version controller performs the artifact work:
 
 - Downloads module archives from GitHub or provider binaries from the configured
   upstream registry.
+- Packages Skill and Agent source repositories into archives, signs their
+  `SHA256SUMS` file, and runs deterministic checks before a Version is synced.
 - Assigns stable UUID7 storage filenames and computes SHA256 checksums.
-- Runs module IaC scans and provider binary/source scans when Trivy scanning is
-  enabled.
+- Runs module IaC scans when `scanning.enabled` is true, and provider binary and
+  source scans when `scanning.providerScanning` is also true.
 - Generates provider `SHA256SUMS` signatures when provider GPG signing is
   configured.
+- Runs the optional [Jev assessment](guides/agents-jev.md) on Skill
+  and Agent Versions. When Jev is enabled, the content of a Version is sent to
+  the TypeSafe Jev endpoint. See [Data handling](guides/agents-jev.md#data-handling).
 - Uploads artifacts to the configured storage backend and updates Version
   status.
 
@@ -126,15 +154,22 @@ UUID7 filenames prevent clients from guessing storage object names. When module
 immutability is enabled, reconciliation verifies that the stored checksum still
 matches the published version.
 
+### Branch sourcing
+
+When branch sourcing is enabled, the Depot follows the branch head of a Skill or Agent source. Each new commit becomes a Version named for its commit and labeled with `opendepot.defdev.io/commit`. The version controller packages and signs it, then assigns a semver. The parent Skill or Agent records the commit, the discovery time, the state, and the Version name in `versionRefs`. The Server resolves a branch Version through the parent's `versionRefs` entry, and only when the Version's label matches the parent and its `spec.version` is set. Branch sources poll only when `pollingIntervalMinutes` is set on the Depot. For the full behavior, see [Branch sourcing](guides/agents-publishing.md#branch-sourcing).
+
 ### Server
 
-The Server is the read-only registry API. It:
+The Server is the registry API. It:
 
 - Implements the Module Registry and Provider Registry protocols.
+- Implements the agents.v1 protocol for Skills and Agents.
 - Serves service discovery from `/.well-known/terraform.json`.
-- Reads `Module`, `Provider`, `Version`, and access-control resources from the
-  Kubernetes API.
+- Reads `Module`, `Provider`, `Skill`, `Agent`, `Version`, and access-control
+  resources from the Kubernetes API.
 - Serves artifacts directly or returns storage-native pre-signed redirects.
+- Writes `ScanPolicy` objects for the Workshop when `server.policyManagement.enabled`
+  is `true`. Writes are off by default.
 - Records download events as Prometheus metrics for OpenDepot Workshop statistics.
 
 Authentication can use OIDC, Kubernetes bearer tokens, or anonymous access for
@@ -169,8 +204,9 @@ resources and status used by the controllers and Server.
 
 - **Kubernetes is the control plane.** Registry state, desired configuration,
   and reconciliation status are Kubernetes resources.
-- **The Server is read-only.** Controllers and Kubernetes RBAC govern writes;
-  clients consume the registry through standard protocols.
+- **Kubernetes RBAC governs changes.** Controllers reconcile artifact state, and
+  clients consume the registry through standard protocols. The Server's only
+  Kubernetes write path is ScanPolicy, which is off by default.
 - **Discovery is declarative.** A Depot expresses what upstream sources and
   version constraints to follow; reconciliation handles the resulting updates.
 - **Artifacts are immutable by policy.** Checksums, stable storage names, and

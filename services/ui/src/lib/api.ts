@@ -35,8 +35,16 @@ export interface BrowseResource {
   platforms: Array<{ os: string; arch: string }>;
   scanCounts: BrowseScanCounts | null;
   lastScanned: string;
+  /** RFC 3339. Omitted by the server when the last update time is unknown. */
+  lastUpdated?: string;
   totalDownloads?: number;
   lastDownloadedAt?: string;
+  sourceRef?: string;
+  sourceCommit?: string;
+  sourcePath?: string;
+  jevRiskLevel?: JevRiskLevel;
+  blocked?: boolean;
+  blockReasons?: string[];
 }
 
 export interface BrowseResourceList {
@@ -71,6 +79,10 @@ export interface BrowseVersionSummary {
   archiveSizeBytes?: number;
   schemaState?: string;
   schemaMessage?: string;
+  commit?: string;
+  branchPhase?: string;
+  blocked?: boolean;
+  blockReasons?: string[];
 }
 
 export interface SecurityFinding {
@@ -121,6 +133,130 @@ export interface BrowseDepotRef {
   name: string;
 }
 
+export interface AgentMetadata {
+  name?: string;
+  description?: string;
+  tools?: string[];
+  model?: string;
+}
+
+export type JevRiskLevel = "Minimal" | "Low" | "Moderate" | "High" | "Critical";
+
+export type JevChunkStatus = "Scored" | "Failed" | "TokenLimitExceeded" | "NotSent";
+
+export type JevSkipReason = "Withheld" | "Binary";
+
+// JevChunkResult is one planned Jev part. Label is the part index plus any halving suffix (3, 3a, 3ab).
+// FileCount is exact; Files may be cut to 32 entries.
+export interface JevChunkResult {
+  index: number;
+  label: string;
+  files?: string[];
+  fileCount: number;
+  status: JevChunkStatus;
+  riskLevel?: JevRiskLevel;
+  riskScore?: number;
+  riskConfidence?: number;
+  safeProbability?: number;
+  error?: string;
+}
+
+// JevSkippedFile is a file Jev could not read. Any skipped file blocks the Version.
+export interface JevSkippedFile {
+  path: string;
+  reason: JevSkipReason;
+}
+
+// JevMatchingState is the state of the jevExemptions entry that matches a Version's content digest.
+export type JevMatchingState = "none" | "exempted" | "superseded" | "expired" | "noDigest";
+
+// JevExemptionGovernance is the server's decision for one Version's Jev exemptions. The browse response hides policy names
+// from OIDC callers, so governingPolicy and matchingPolicy are empty for them. Priorities, state, and expiry are still set.
+export interface JevExemptionGovernance {
+  // governingPolicy is empty when no ScanPolicy governs the Version, or when the caller cannot see its name.
+  governingPolicy: string;
+  governingPriority: number;
+  // matchingPolicy is empty when no entry matches the digest, or when the caller cannot see its name.
+  matchingPolicy: string;
+  matchingPriority: number;
+  // matchingExpires is absent when the matching entry never expires or no entry matches.
+  matchingExpires?: string;
+  matchingState: JevMatchingState;
+  superseded: boolean;
+}
+
+// JevUnblockState is the server's unblock state for a Version's Jev block. none means nothing is needed.
+export type JevUnblockState = "none" | "no-digest" | "needs-entry" | "superseded" | "expired" | "pending" | "exempted" | "unknown";
+
+// JevUnblock is the server's unblock state for one Version, computed from the same governance decision as
+// JevExemptionGovernance. The UI displays it rather than re-deriving it. namesHidden is true when the caller cannot see
+// policy names, in which case governingPolicy and matchingPolicy are absent.
+export interface JevUnblock {
+  state: JevUnblockState;
+  digest?: string;
+  governingPolicy?: string;
+  governingPriority: number;
+  matchingPolicy?: string;
+  matchingPriority: number;
+  // expires is absent when the matching entry never expires or no entry matches.
+  expires?: string;
+  namesHidden: boolean;
+}
+
+export interface JevAssessment {
+  evaluatedAt: string;
+  // versionName is the Version object name this assessment belongs to. It is absent on legacy assessments.
+  versionName?: string;
+  model?: string;
+  safeProbability?: number;
+  injectionProbability?: number;
+  exfiltrationProbability?: number;
+  destructiveProbability?: number;
+  hiddenInstructionsProbability?: number;
+  scopeMismatchProbability?: number;
+  remoteExecutionProbability?: number;
+  riskScore?: number;
+  riskLevel?: JevRiskLevel;
+  riskConfidence?: number;
+  needsReview: boolean;
+  blocked: boolean;
+  blockReasons?: string[];
+  // contentDigest identifies the exact content that was assessed. A jevExemptions entry matches on it.
+  contentDigest?: string;
+  // exempted is true when a ScanPolicy jevExemptions entry matches contentDigest. blockReasons then lists the reasons the exemption overrides, not active blocks.
+  exempted?: boolean;
+  exemptedBy?: string;
+  exemptionReason?: string;
+  // exemptionExpires is absent when the exemption has no expiry.
+  exemptionExpires?: string;
+  error?: string;
+  // The fields below are absent on legacy assessments.
+  // chunkCount is exact when it is at most 16. Above 16 it is a lower bound, and no Jev call was made.
+  chunkCount?: number;
+  assessedChunks?: number;
+  chunks?: JevChunkResult[];
+  skippedFiles?: JevSkippedFile[];
+  skippedFileCount?: number;
+  // retryCount is the number of failed attempts since the last ForceSync.
+  retryCount?: number;
+  // inputTokens is the total input tokens Jev reported across the parts it processed. Absent on legacy assessments.
+  inputTokens?: number;
+}
+
+// Thresholds from the governing ScanPolicy's jevPolicy. Each field is only
+// present when the operator configured it, so the UI shows configured limits only.
+export interface JevThresholds {
+  minSafeProbability?: number;
+  maxInjectionProbability?: number;
+  maxExfiltrationProbability?: number;
+  maxDestructiveProbability?: number;
+  maxHiddenInstructionsProbability?: number;
+  maxScopeMismatchProbability?: number;
+  maxRemoteExecutionProbability?: number;
+  maxRiskScore?: number;
+  minConfidence?: number;
+}
+
 export interface BrowseResourceDetail extends BrowseResource {
   versions: BrowseVersionSummary[];
   sourceScanFindings: SecurityFinding[];
@@ -132,7 +268,17 @@ export interface BrowseResourceDetail extends BrowseResource {
   versionHistoryLimit?: number;
   versionConstraints?: string;
   sourceRepository?: string;
+  // readmeContent is the module or provider README only. Skill and Agent resources never populate it.
   readmeContent?: string;
+  definitionContent?: string;
+  definitionFileName?: string;
+  agentMetadata?: AgentMetadata;
+  jevAssessment?: JevAssessment;
+  // jevExemptionGovernance is only present when jevAssessment is. It replaces inferring the governing policy from ScanPolicy specs.
+  jevExemptionGovernance?: JevExemptionGovernance;
+  // jevUnblock is the server's unblock state for the latest assessed Version. It is absent when there is no Jev assessment.
+  jevUnblock?: JevUnblock;
+  jevThresholds?: JevThresholds;
 }
 
 export interface BrowseDepot {
@@ -204,8 +350,8 @@ async function apiFetch<T>(
 // ── Security policy contract ──────────────────────────────────────────────
 
 export type ScanSeverityThreshold = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE";
-export type ScanType = "binary" | "source" | "module";
-export type ScanPolicyTargetKind = "Module" | "Provider";
+export type ScanType = "binary" | "source" | "module" | "agent";
+export type ScanPolicyTargetKind = "Module" | "Provider" | "Skill" | "Agent";
 
 export interface ScanPolicyMetadata {
   name: string;
@@ -241,18 +387,28 @@ export interface ScanPolicyExemption {
   expires?: string;
 }
 
+// ScanPolicyJevExemption exempts the Jev assessment of one exact content digest. Entries without expires do not expire.
+export interface ScanPolicyJevExemption {
+  contentDigest: string;
+  reason: string;
+  expires?: string;
+}
+
 export interface ScanPolicySpec {
   priority?: number;
   selector?: ScanPolicySelector;
   targetRefs?: ScanPolicyTargetRef[];
   severityThreshold?: ScanSeverityThreshold;
   exemptions?: ScanPolicyExemption[];
+  jevExemptions?: ScanPolicyJevExemption[];
 }
 
 export interface ScanPolicyStatus {
   matchedVersions?: number;
   activeExemptions?: number;
   expiredExemptions?: number;
+  activeJevExemptions?: number;
+  expiredJevExemptions?: number;
   supersededBy?: string;
   conditions?: Array<{ type: string; status: string; reason?: string; message?: string }>;
 }
@@ -299,6 +455,8 @@ export interface ScanPolicyCatalogItem {
   canManageNamespaceWidePolicies: boolean;
   modules: ScanPolicyCatalogResource[];
   providers: ScanPolicyCatalogResource[];
+  skills: ScanPolicyCatalogResource[];
+  agents: ScanPolicyCatalogResource[];
 }
 
 export interface ScanPolicyCatalog {
@@ -428,6 +586,70 @@ export async function getResourceDetail(
     `/opendepot/ui/v1/resources/${encodeURIComponent(namespace)}/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
     token,
   );
+}
+
+// JevReviewQueueItem is one Skill or Agent row in the needs-review queue. The assessment is the
+// resource's latest-assessed Version, the only one the detail endpoint returns a jevAssessment for.
+export interface JevReviewQueueItem {
+  kind: string;
+  namespace: string;
+  name: string;
+  riskLevel?: JevRiskLevel;
+  blocked: boolean;
+  exempted: boolean;
+}
+
+export interface JevReviewQueue {
+  items: JevReviewQueueItem[];
+}
+
+// jevExemptionActive reports whether an exemption is in force. The controller recomputes the exempted flag
+// only on reconcile, so a past exemptionExpires is treated as lapsed even while exempted is still true.
+export function jevExemptionActive(assessment: JevAssessment, now: number = Date.now()): boolean {
+  if (!assessment.exempted) return false;
+  if (!assessment.exemptionExpires) return true;
+  return new Date(assessment.exemptionExpires).getTime() > now;
+}
+
+const REVIEW_QUEUE_PAGE_SIZE = 100;
+const REVIEW_QUEUE_DETAIL_CONCURRENCY = 8;
+
+// listJevReviewQueue fans out over every Skill and Agent, then keeps those whose jevAssessment needs review.
+// A Version under an active exemption stays out of the queue and returns once the exemption expires.
+export async function listJevReviewQueue(token?: string): Promise<JevReviewQueue> {
+  const resources: BrowseResource[] = [];
+  for (const kind of ["skill", "agent"]) {
+    const kindResources: BrowseResource[] = [];
+    for (let page = 1; ; page++) {
+      const list = await listResources({ kind, page, pageSize: REVIEW_QUEUE_PAGE_SIZE }, token);
+      kindResources.push(...list.items);
+      if (list.items.length === 0 || kindResources.length >= list.totalCount) break;
+    }
+    resources.push(...kindResources);
+  }
+
+  const now = Date.now();
+  const items: JevReviewQueueItem[] = [];
+  for (let start = 0; start < resources.length; start += REVIEW_QUEUE_DETAIL_CONCURRENCY) {
+    const batch = resources.slice(start, start + REVIEW_QUEUE_DETAIL_CONCURRENCY);
+    const details = await Promise.all(
+      batch.map((resource) => getResourceDetail(resource.namespace, resource.kind, resource.name, token)),
+    );
+    for (const detail of details) {
+      const assessment = detail.jevAssessment;
+      if (!assessment?.needsReview || jevExemptionActive(assessment, now)) continue;
+      items.push({
+        kind: detail.kind,
+        namespace: detail.namespace,
+        name: detail.name,
+        riskLevel: assessment.riskLevel,
+        blocked: assessment.blocked,
+        exempted: assessment.exempted === true,
+      });
+    }
+  }
+
+  return { items };
 }
 
 export async function listDepots(token?: string): Promise<BrowseDepotList> {
@@ -728,6 +950,8 @@ export interface BrowseGraphDepot {
   pollingIntervalMinutes?: number;
   managedModuleNames?: string[];
   managedProviderNames?: string[];
+  managedSkillNames?: string[];
+  managedAgentNames?: string[];
 }
 
 export interface BrowseGraphModule {
@@ -752,6 +976,16 @@ export interface BrowseGraphProvider {
   synced: boolean;
 }
 
+export interface BrowseGraphAgent {
+  id: string;
+  kind: "skill" | "agent";
+  namespace: string;
+  name: string;
+  synced: boolean;
+  syncStatus?: string;
+  latestVersion?: string;
+}
+
 export interface BrowseGraphEdge {
   id: string;
   source: string;
@@ -762,12 +996,16 @@ export interface BrowseGraphSummary {
   totalDepots: number;
   totalModules: number;
   totalProviders: number;
+  totalSkills: number;
+  totalAgents: number;
 }
 
 export interface BrowseDepotGraph {
   depots: BrowseGraphDepot[];
   modules: BrowseGraphModule[];
   providers: BrowseGraphProvider[];
+  skills: BrowseGraphAgent[];
+  agents: BrowseGraphAgent[];
   edges: BrowseGraphEdge[];
   summary: BrowseGraphSummary;
   generatedAt: string;
@@ -810,17 +1048,51 @@ export interface PopularResource {
   lastDownloadedAt?: string;
 }
 
+export interface MostDownloadedStats {
+  modules: PopularResource[];
+  providers: PopularResource[];
+  skills: PopularResource[];
+  agents: PopularResource[];
+}
+
+export interface JevRiskLevelStats {
+  minimal: number;
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+}
+
+export interface JevStats {
+  assessedVersions: number;
+  blockedVersions: number;
+  needsReviewVersions: number;
+  exemptedVersions: number;
+  failedVersions: number;
+  assessedChunks: number;
+  inputTokens: number;
+  riskLevels: JevRiskLevelStats;
+}
+
 export interface BrowseStats {
   totalModules: number;
+  modulesSynced: number;
   totalProviders: number;
+  providersSynced: number;
+  totalSkills: number;
+  skillsSynced: number;
+  totalAgents: number;
+  agentsSynced: number;
   totalVersions: number;
+  versionsSynced: number;
   totalStorageBytes: number;
   totalDownloads: number;
   downloadWindow: string;
   syncHealth: SyncHealthStats;
   securityPosture: SecurityPostureStats;
+  jev: JevStats;
   storageDistribution: StorageBackendStat[];
-  mostDownloaded: PopularResource[];
+  mostDownloaded: MostDownloadedStats;
 }
 
 export async function getStats(namespace?: string, token?: string): Promise<BrowseStats> {

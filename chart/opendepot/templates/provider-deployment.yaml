@@ -23,7 +23,10 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: {{ .Values.provider.runAsGroup }}
         fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: init-restart-proc
         image: busybox:1.37
@@ -35,6 +38,7 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsUser: 65532
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           limits:
             cpu: 100m
@@ -53,24 +57,42 @@ spec:
         args:
         - --zap-log-level={{ .Values.provider.zapLogLevel }}
         {{- end }}
-        {{- if .Values.rbac.scopeToNamespace }}
+        {{- if or .Values.rbac.scopeToNamespace .Values.coverage.enabled }}
         env:
+        {{- if .Values.rbac.scopeToNamespace }}
         - name: WATCH_NAMESPACE
           value: {{ .Values.global.namespace }}
         {{- end }}
+        {{- if .Values.coverage.enabled }}
+        - name: GOCOVERDIR
+          value: /coverage
+        {{- end }}
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
+          runAsGroup: {{ .Values.provider.runAsGroup }}
         resources:
           {{- toYaml .Values.provider.resources | nindent 10 }}
         volumeMounts:
         - name: provider-tmp
           mountPath: /tmp
+        {{- if .Values.coverage.enabled }}
+        - name: coverage
+          mountPath: /coverage
+        {{- end }}
       volumes:
       - name: provider-tmp
         emptyDir: {}
+      {{- if .Values.coverage.enabled }}
+      - name: coverage
+        emptyDir: {}
+      {{- end }}
       {{- with .Values.provider.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

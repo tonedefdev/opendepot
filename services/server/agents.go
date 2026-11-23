@@ -1,0 +1,834 @@
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
+
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	opendepotSigning "github.com/tonedefdev/opendepot/pkg/signing"
+	storageTypes "github.com/tonedefdev/opendepot/pkg/storage/types"
+)
+
+var errAgentSigningKeyNotConfigured = errors.New("agent signing key not configured")
+
+// agentKind maps the plural kind URL segment to the Version name prefix and the
+// GroupBinding resource type used for access control.
+type agentKind struct {
+	resource    string
+	prefix      string
+	versionType string
+}
+
+// agentParent holds the Skill or Agent Status.VersionRefs written by the controller after each
+// Version syncs. Both kinds share the same JSON shape for the fields read here, so one type
+// decodes either resource.
+type agentParent struct {
+	Status struct {
+		VersionRefs map[string]struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+			Commit  string `json:"commit"`
+			Synced  bool   `json:"synced"`
+		} `json:"versionRefs"`
+	} `json:"status"`
+}
+
+// versionEntries returns the controller-recorded Versions sorted by version so the response is stable.
+func (p agentParent) versionEntries() []struct {
+	Version string `json:"version"`
+	Synced  bool   `json:"synced"`
+} {
+	entries := make([]struct {
+		Version string `json:"version"`
+		Synced  bool   `json:"synced"`
+	}, 0, len(p.Status.VersionRefs))
+	for _, ref := range p.Status.VersionRefs {
+		entries = append(entries, struct {
+			Version string `json:"version"`
+			Synced  bool   `json:"synced"`
+		}{Version: ref.Version, Synced: ref.Synced})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Version < entries[j].Version
+	})
+
+	return entries
+}
+
+// agentKindFromRequest resolves the kind URL segment, which is either "skills" or "agents".
+func agentKindFromRequest(r *http.Request) (agentKind, bool) {
+	switch chi.URLParam(r, "kind") {
+	case "skills":
+		return agentKind{resource: "skills", prefix: "skill", versionType: opendepotv1alpha1.OpenDepotSkill}, true
+	case "agents":
+		return agentKind{resource: "agents", prefix: "agent", versionType: opendepotv1alpha1.OpenDepotAgent}, true
+	}
+
+	return agentKind{}, false
+}
+
+// agentVersionResourceName returns the Version resource name for a Skill or Agent,
+// such as "skill-my-skill-1-2-0".
+func agentVersionResourceName(prefix, name, version string) string {
+	return fmt.Sprintf("%s-%s-%s", prefix, name, sanitizeModuleVersionForLookup(version))
+}
+
+// agentVersionBlocked reports whether a configured JevPolicy threshold blocks the Version.
+// Blocked Versions are never listed or served.
+func agentVersionBlocked(version *opendepotv1alpha1.Version) bool {
+	return version.Status.JevAssessment != nil && version.Status.JevAssessment.Blocked
+}
+
+// agentVersionMatches reports whether a Version is of the kind's type and sourced from the named Skill or Agent.
+func agentVersionMatches(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return version.Spec.Type == kind.versionType &&
+		version.Spec.AgentSourceRef != nil &&
+		version.Spec.AgentSourceRef.Name != nil &&
+		*version.Spec.AgentSourceRef.Name == name
+}
+
+// agentVersionServable reports whether a Version may be served for the named Skill or Agent.
+// It must be synced, unblocked, of the kind's type, and sourced from the named Skill or Agent.
+func agentVersionServable(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return version.Status.Synced && !agentVersionBlocked(version) && agentVersionMatches(version, kind, name)
+}
+
+// agentVersionListable reports whether a Version appears in the versions list for the named Skill or Agent.
+// Blocked Versions are listed, with their Jev reasons, so clients can explain why they are unavailable.
+// They are never served. A blocked Version is unsynced, so it is listed on its block instead of its sync state.
+func agentVersionListable(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	return (version.Status.Synced || agentVersionBlocked(version)) && agentVersionMatches(version, kind, name)
+}
+
+// buildAgentVersionsResponse lists the Versions of a Skill or Agent that are servable or blocked.
+// Yanked Versions are included with Yanked set so clients can skip them on resolution.
+// Blocked Versions are included with Blocked and BlockReasons set so clients do not treat them as missing.
+func buildAgentVersionsResponse(kind agentKind, name string, entries []struct {
+	Version string `json:"version"`
+	Synced  bool   `json:"synced"`
+}, versions map[string]opendepotv1alpha1.Version) AgentVersionsResponse {
+	response := AgentVersionsResponse{Versions: []AgentVersionSummary{}}
+	for _, entry := range entries {
+		if !entry.Synced {
+			continue
+		}
+
+		version, ok := versions[agentVersionResourceName(kind.prefix, name, entry.Version)]
+
+		if !ok || !agentVersionListable(&version, kind, name) || trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(entry.Version) {
+			continue
+		}
+
+		summary := AgentVersionSummary{
+			Version: entry.Version,
+			Yanked:  version.Spec.Yanked,
+		}
+
+		if agentVersionBlocked(&version) {
+			summary.Blocked = true
+			summary.BlockReasons = version.Status.JevAssessment.BlockReasons
+		}
+
+		response.Versions = append(response.Versions, summary)
+	}
+
+	response.UnavailableCandidates = buildAgentUnavailableCandidates(kind, name, versions)
+
+	return response
+}
+
+// Branch lifecycle phases set by the Version controller. Rejected is shared with ui_browse.go.
+const (
+	branchPhasePending = "Pending"
+	branchPhaseHeld    = "Held"
+)
+
+// Fixed diagnostic reasons. Version SyncStatus strings can contain raw internal errors, so they are
+// mapped to these constants and never returned.
+const (
+	agentReasonScanPolicy         = "Rejected by a scan policy"
+	agentReasonSuperseded         = "Superseded by a newer commit"
+	agentReasonInvalidCommit      = "Invalid source commit"
+	agentReasonSourcingDisabled   = "Branch sourcing is disabled on the server"
+	agentReasonBranchRejected     = "Rejected by the branch lifecycle"
+	agentReasonAssessmentFailed   = "Version could not be synced or assessed"
+	agentReasonAwaitingSibling    = "Waiting for an older commit to be assessed"
+	agentReasonAwaitingAssignment = "Waiting for version assignment"
+	agentReasonNotYetAssessed     = "Not yet assessed"
+)
+
+// agentRejectionReason maps a rejected branch Version's SyncStatus to a fixed reason.
+func agentRejectionReason(syncStatus string) string {
+	switch {
+	case strings.HasPrefix(syncStatus, "Scan policy violation:"):
+		return agentReasonScanPolicy
+	case strings.HasPrefix(syncStatus, "Superseded:"):
+		return agentReasonSuperseded
+	case strings.HasPrefix(syncStatus, "Invalid sourceCommit:"):
+		return agentReasonInvalidCommit
+	case strings.HasPrefix(syncStatus, "branch sourcing is disabled"):
+		return agentReasonSourcingDisabled
+	default:
+		return agentReasonBranchRejected
+	}
+}
+
+// agentUnavailableCandidateFor classifies a Version of the named Skill or Agent that cannot be installed.
+// It returns false for installable Versions and for ordinary in-progress semantic Versions, which are
+// omitted. It never changes whether the Version is servable or downloadable.
+func agentUnavailableCandidateFor(version *opendepotv1alpha1.Version, kind agentKind, name string) (AgentUnavailableCandidate, bool) {
+	if !agentVersionMatches(version, kind, name) {
+		return AgentUnavailableCandidate{}, false
+	}
+
+	if version.Spec.Version != "" {
+		candidate := AgentUnavailableCandidate{
+			Version: trimVersionPrefix(version.Spec.Version),
+			Commit:  version.Spec.SourceCommit,
+		}
+
+		switch {
+		case agentVersionBlocked(version):
+			candidate.Status = AgentAvailabilityBlocked
+			candidate.Reasons = version.Status.JevAssessment.BlockReasons
+		case version.Status.Synced:
+			return AgentUnavailableCandidate{}, false
+		case strings.HasPrefix(version.Status.SyncStatus, "Scan policy violation:"):
+			candidate.Status = AgentAvailabilityRejected
+			candidate.Reasons = []string{agentReasonScanPolicy}
+		case strings.HasPrefix(version.Status.SyncStatus, "Failed to "):
+			candidate.Status = AgentAvailabilityAssessmentFailed
+			candidate.Reasons = []string{agentReasonAssessmentFailed}
+		default:
+			return AgentUnavailableCandidate{}, false
+		}
+
+		return candidate, true
+	}
+
+	if version.Spec.SourceCommit == "" || version.Status.Synced {
+		return AgentUnavailableCandidate{}, false
+	}
+
+	candidate := AgentUnavailableCandidate{Commit: version.Spec.SourceCommit}
+
+	switch {
+	case agentVersionBlocked(version):
+		candidate.Status = AgentAvailabilityRejected
+		candidate.Reasons = version.Status.JevAssessment.BlockReasons
+	case version.Status.BranchPhase == branchPhaseRejected:
+		candidate.Status = AgentAvailabilityRejected
+		candidate.Reasons = []string{agentRejectionReason(version.Status.SyncStatus)}
+	case strings.HasPrefix(version.Status.SyncStatus, "Failed to "):
+		candidate.Status = AgentAvailabilityAssessmentFailed
+		candidate.Reasons = []string{agentReasonAssessmentFailed}
+	case version.Status.BranchPhase == branchPhasePending:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonAwaitingSibling}
+	case version.Status.BranchPhase == branchPhaseHeld:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonAwaitingAssignment}
+	default:
+		candidate.Status = AgentAvailabilityPending
+		candidate.Reasons = []string{agentReasonNotYetAssessed}
+	}
+
+	return candidate, true
+}
+
+// buildAgentUnavailableCandidates returns the sorted, de-duplicated unavailable candidates of the named
+// Skill or Agent. The versions map holds derived-name aliases of the same Version, so candidates are
+// de-duplicated by content. It returns nil when there are none, so the field is omitted.
+func buildAgentUnavailableCandidates(kind agentKind, name string, versions map[string]opendepotv1alpha1.Version) []AgentUnavailableCandidate {
+	seen := make(map[string]bool)
+	var candidates []AgentUnavailableCandidate
+	for _, version := range versions {
+		candidate, ok := agentUnavailableCandidateFor(&version, kind, name)
+		if !ok {
+			continue
+		}
+
+		key := fmt.Sprintf("%s|%s|%s|%s", candidate.Version, candidate.Commit, candidate.Status, strings.Join(candidate.Reasons, ";"))
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+		candidates = append(candidates, candidate)
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Version != candidates[j].Version {
+			return candidates[i].Version < candidates[j].Version
+		}
+
+		if candidates[i].Commit != candidates[j].Commit {
+			return candidates[i].Commit < candidates[j].Commit
+		}
+
+		return candidates[i].Status < candidates[j].Status
+	})
+
+	return candidates
+}
+
+// agentSigningKeys derives the public signing key from the provider GPG private key
+// and verifies it against the fingerprint recorded on the Version at sync. A mismatch
+// returns an error so that signatures made by a rotated key are never served.
+func agentSigningKeys(privateKeyBase64, storedFingerprint string) (*ProviderSigningKeys, error) {
+	privateKeyBase64 = strings.TrimSpace(privateKeyBase64)
+	if privateKeyBase64 == "" {
+		return nil, errAgentSigningKeyNotConfigured
+	}
+
+	privateKeyArmor, err := base64.StdEncoding.DecodeString(privateKeyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("decode gpg private key: %w", err)
+	}
+
+	signer, err := opendepotSigning.ParsePrivateKey(privateKeyArmor, "")
+	if err != nil {
+		return nil, fmt.Errorf("parse gpg private key: %w", err)
+	}
+
+	if err = opendepotSigning.VerifyFingerprint(storedFingerprint, signer); err != nil {
+		return nil, err
+	}
+
+	asciiArmor, err := signer.PublicKeyArmor()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProviderSigningKeys{
+		GPGPublicKeys: []ProviderSigningKey{
+			{
+				KeyID:      signer.Fingerprint(),
+				ASCIIArmor: asciiArmor,
+			},
+		},
+	}, nil
+}
+
+// writeAgentSigningKeyError maps a signing key check failure to an HTTP response.
+func writeAgentSigningKeyError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errAgentSigningKeyNotConfigured) {
+		http.Error(w, "agent signing key not configured", http.StatusNotImplemented)
+		return
+	}
+
+	logger.Error("agent signing key does not match the Version fingerprint; possible key rotation, refusing to serve signing material", "error", err)
+	http.Error(w, "internal server error", http.StatusInternalServerError)
+}
+
+// listAgentVersionsByName lists the Version resources in the namespace keyed by resource name.
+func listAgentVersionsByName(clientset *kubernetes.Clientset, r *http.Request, namespace string) (map[string]opendepotv1alpha1.Version, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("versions").
+		DoRaw(r.Context())
+	if err != nil {
+		return nil, err
+	}
+
+	var versionList opendepotv1alpha1.VersionList
+	if err = json.Unmarshal(result, &versionList); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal versions list: %w", err)
+	}
+
+	versions := make(map[string]opendepotv1alpha1.Version, len(versionList.Items))
+	for _, item := range versionList.Items {
+		versions[item.Name] = item
+	}
+
+	return versions, nil
+}
+
+// getAgentVersionForRequest fetches the Version for the Skill or Agent in the request URL.
+// A branch Version is not named from its semver, so on NotFound the Version is resolved through
+// the parent's status.versionRefs entry. Blocked Versions are reported as not found. It writes the
+// error response and returns false on failure.
+func getAgentVersionForRequest(w http.ResponseWriter, r *http.Request, clientset *kubernetes.Clientset, kind agentKind) (*opendepotv1alpha1.Version, bool) {
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	requestedVersion := chi.URLParam(r, "version")
+
+	version, err := getAgentVersionByName(r.Context(), clientset, namespace, agentVersionResourceName(kind.prefix, name, requestedVersion))
+
+	if k8sApiErrors.IsNotFound(err) {
+		version, err = getAgentVersionFromParentRef(r.Context(), clientset, namespace, kind, name, requestedVersion)
+	}
+
+	if err != nil {
+		switch {
+		case k8sApiErrors.IsNotFound(err):
+			http.Error(w, "version not found", http.StatusNotFound)
+		case k8sApiErrors.IsForbidden(err):
+			http.Error(w, "forbidden", http.StatusForbidden)
+		default:
+			logger.Error("unable to get agent version", "error", err, "namespace", namespace, "kind", kind.prefix, "name", name, "version", requestedVersion)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
+
+		return nil, false
+	}
+
+	if !agentVersionServable(version, kind, name) {
+		http.Error(w, "version not found", http.StatusNotFound)
+
+		return nil, false
+	}
+
+	return version, true
+}
+
+// getAgentVersionByName gets the Version resource with the given resource name.
+func getAgentVersionByName(ctx context.Context, clientset *kubernetes.Clientset, namespace, resourceName string) (*opendepotv1alpha1.Version, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource("versions").
+		Name(resourceName).
+		DoRaw(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var version opendepotv1alpha1.Version
+	if err = json.Unmarshal(result, &version); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal agent version %s: %w", resourceName, err)
+	}
+
+	return &version, nil
+}
+
+// getAgentVersionFromParentRef gets the Version named by the parent's status.versionRefs entry for the
+// requested version. The Version must record the requested version in spec.version and must carry the
+// kind label for the named parent, so a ref cannot reach another Skill's or Agent's Version. A missing
+// or mismatched ref is reported as not found.
+func getAgentVersionFromParentRef(ctx context.Context, clientset *kubernetes.Clientset, namespace string, kind agentKind, name, requestedVersion string) (*opendepotv1alpha1.Version, error) {
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource(kind.resource).
+		Name(name).
+		DoRaw(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var parent agentParent
+
+	if err = json.Unmarshal(result, &parent); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal agent resource %s: %w", name, err)
+	}
+
+	notFound := k8sApiErrors.NewNotFound(schema.GroupResource{Group: "opendepot.defdev.io", Resource: "versions"}, requestedVersion)
+
+	for _, ref := range parent.Status.VersionRefs {
+		if ref.Name == "" || trimVersionPrefix(ref.Version) != trimVersionPrefix(requestedVersion) {
+			continue
+		}
+
+		version, err := getAgentVersionByName(ctx, clientset, namespace, ref.Name)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if trimVersionPrefix(version.Spec.Version) != trimVersionPrefix(requestedVersion) || version.Labels["opendepot.defdev.io/"+kind.prefix] != name {
+			return nil, notFound
+		}
+
+		return version, nil
+	}
+
+	return nil, notFound
+}
+
+// trimVersionPrefix removes a leading "v" so that "v1.2.0" and "1.2.0" compare equal.
+func trimVersionPrefix(version string) string {
+	return strings.TrimPrefix(version, "v")
+}
+
+// getAgentVersions returns the synced, unblocked versions of a Skill or Agent. Yanked
+// versions are listed with yanked set to true.
+func getAgentVersions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	kind, ok := agentKindFromRequest(r)
+	if !ok {
+		http.Error(w, "kind not found", http.StatusNotFound)
+		return
+	}
+
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
+	if err != nil {
+		logger.Error("unable to generate kubeclient", "error", err)
+		return
+	}
+
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+
+	if binding != nil {
+		if !isResourceAllowed(binding, kind.prefix, name) {
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", kind.prefix, "resource_name", name, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", kind.prefix, "resource_name", name, "namespace", namespace)
+	}
+
+	result, err := clientset.RESTClient().
+		Get().
+		AbsPath("/apis/opendepot.defdev.io/v1alpha1").
+		Namespace(namespace).
+		Resource(kind.resource).
+		Name(name).
+		DoRaw(r.Context())
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		var apiStatus k8sApiErrors.APIStatus
+		if errors.As(err, &apiStatus) {
+			statusCode = int(apiStatus.Status().Code)
+		}
+
+		message := err.Error()
+		if len(message) > 256 {
+			message = message[:256]
+		}
+
+		logger.Error("unable to get agent resource", "statusCode", statusCode, "message", message, "namespace", namespace, "kind", kind.resource, "name", name)
+
+		switch {
+		case k8sApiErrors.IsNotFound(err):
+			http.Error(w, kind.prefix+" not found", http.StatusNotFound)
+		case k8sApiErrors.IsForbidden(err):
+			http.Error(w, "forbidden", http.StatusForbidden)
+		default:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
+
+		return
+	}
+
+	var parent agentParent
+	if err = json.Unmarshal(result, &parent); err != nil {
+		logger.Error("unable to unmarshal agent resource", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	versions, err := listAgentVersionsByName(clientset, r, namespace)
+	if err != nil {
+		logger.Error("unable to list agent versions", "error", err, "namespace", namespace)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, ref := range parent.Status.VersionRefs {
+		derivedName := agentVersionResourceName(kind.prefix, name, ref.Version)
+
+		if _, ok := versions[derivedName]; ok || ref.Name == "" {
+			continue
+		}
+
+		if version, ok := versions[ref.Name]; ok {
+			versions[derivedName] = version
+		}
+	}
+
+	json.NewEncoder(w).Encode(buildAgentVersionsResponse(kind, name, parent.versionEntries(), versions))
+}
+
+// getAgentDownloadMetadata returns the download metadata for a single Skill or Agent Version,
+// including the public signing key and the URLs of the signed SHA256SUMS. The token is never included.
+func getAgentDownloadMetadata(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	kind, ok := agentKindFromRequest(r)
+	if !ok {
+		http.Error(w, "kind not found", http.StatusNotFound)
+		return
+	}
+
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
+	if err != nil {
+		logger.Error("unable to generate kubeclient", "error", err)
+		return
+	}
+
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+
+	if binding != nil {
+		if !isResourceAllowed(binding, kind.prefix, name) {
+			logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", kind.prefix, "resource_name", name, "namespace", namespace)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		logger.Info("resource access allowed", "subject", subject, "binding_name", binding.Name, "resource_type", kind.prefix, "resource_name", name, "namespace", namespace)
+	}
+
+	version, ok := getAgentVersionForRequest(w, r, clientset, kind)
+	if !ok {
+		return
+	}
+
+	if version.Spec.FileName == nil || version.Status.Checksum == nil || version.Status.ShaSums == "" || version.Status.ShaSumsSignature == "" {
+		http.Error(w, "version artifact not yet available", http.StatusServiceUnavailable)
+		return
+	}
+
+	checksumHex, err := decodeSHA256Checksum(*version.Status.Checksum)
+	if err != nil {
+		logger.Error("unable to decode agent checksum", "error", err, "version", version.Name)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	signingKeys, err := agentSigningKeys(os.Getenv("OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64"), version.Status.SigningKeyFingerprint)
+	if err != nil {
+		writeAgentSigningKeyError(w, err)
+		return
+	}
+
+	base := fmt.Sprintf("%s/opendepot/agents/v1/%s/%s/%s/%s", requestBaseURL(r), namespace, chi.URLParam(r, "kind"), name, chi.URLParam(r, "version"))
+	response := AgentDownloadResponse{
+		Protocols:           []string{"1.0"},
+		Kind:                kind.prefix,
+		Name:                name,
+		Version:             version.Spec.Version,
+		Yanked:              version.Spec.Yanked,
+		Filename:            *version.Spec.FileName,
+		DownloadURL:         base + "/archive",
+		Shasum:              checksumHex,
+		ShasumsURL:          base + "/SHA256SUMS",
+		ShasumsSignatureURL: base + "/SHA256SUMS.sig",
+		SigningKeys:         signingKeys,
+		Assessment:          browseJevAssessment(version.Status.JevAssessment),
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// authorizeAgentRequest returns a kube client for the caller after checking GroupBinding access
+// to the Skill or Agent in the request. It writes the error response and returns false on failure.
+func authorizeAgentRequest(w http.ResponseWriter, r *http.Request, kind agentKind) (*kubernetes.Clientset, bool) {
+	clientset, binding, _, subject, err := getKubeClientFromRequest(w, r)
+	if err != nil {
+		logger.Error("unable to generate kubeclient", "error", err)
+		return nil, false
+	}
+
+	name := chi.URLParam(r, "name")
+	if binding != nil && !isResourceAllowed(binding, kind.prefix, name) {
+		logger.Warn("resource access denied", "subject", subject, "binding_name", binding.Name, "resource_type", kind.prefix, "resource_name", name, "namespace", chi.URLParam(r, "namespace"))
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return nil, false
+	}
+
+	return clientset, true
+}
+
+// serveAgentArchive serves the stored archive of a Skill or Agent Version. When presign is enabled it
+// redirects to a pre-signed URL with 307. When presign is disabled, or fails and fallback is enabled, it
+// streams the bytes through the server. A presign failure without fallback is an error and never redirects.
+// The caller must pass the same GroupBinding check as the metadata endpoint.
+func serveAgentArchive(w http.ResponseWriter, r *http.Request) {
+	kind, ok := agentKindFromRequest(r)
+	if !ok {
+		http.Error(w, "kind not found", http.StatusNotFound)
+		return
+	}
+
+	clientset, ok := authorizeAgentRequest(w, r, kind)
+	if !ok {
+		return
+	}
+
+	version, ok := getAgentVersionForRequest(w, r, clientset, kind)
+	if !ok {
+		return
+	}
+
+	if version.Status.Checksum == nil {
+		http.Error(w, "version artifact not yet available", http.StatusServiceUnavailable)
+		return
+	}
+
+	agentSourceRef := version.Spec.AgentSourceRef
+	if agentSourceRef == nil || agentSourceRef.StorageConfig == nil || agentSourceRef.Name == nil || version.Spec.FileName == nil {
+		logger.Error("agent storage configuration not available", "version", version.Name)
+		http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	presignCfg := agentSourceRef.StorageConfig.Presign
+	presignEnabled := presignCfg != nil && presignCfg.Enabled != nil && *presignCfg.Enabled
+	fallbackEnabled := presignCfg != nil && presignCfg.FallbackToProxy != nil && *presignCfg.FallbackToProxy
+
+	var presignedURL string
+	if presignEnabled {
+		url, err := presignAgentArchive(r.Context(), version)
+
+		if err != nil {
+			logger.Error("agent presign failed", "error", err, "version", version.Name)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if url == "" && !fallbackEnabled {
+			logger.Error("agent presign unavailable and fallback disabled", "version", version.Name)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		presignedURL = url
+	}
+
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	requestedVersion := chi.URLParam(r, "version")
+	err := recordDownload(r.Context(), namespace, kind.prefix, name, requestedVersion)
+
+	if err != nil {
+		logger.Error("failed to record download", "error", err, "namespace", namespace, "kind", kind.prefix, "name", name, "version", requestedVersion)
+	}
+
+	w.Header().Set("Cache-Control", "private, no-store")
+
+	if presignedURL != "" {
+		http.Redirect(w, r, presignedURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	serveAgentFromStorage(w, r, version)
+}
+
+// serveAgentFromStorage streams a Skill or Agent archive through the server using the storage configuration
+// on the Version. The filesystem path uses the shared serveFileSystemObject helper. Other backends use the
+// same checksum-verified object path as the presign helper.
+func serveAgentFromStorage(w http.ResponseWriter, r *http.Request, version *opendepotv1alpha1.Version) {
+	agentSourceRef := version.Spec.AgentSourceRef
+	storageConfig := agentSourceRef.StorageConfig
+	agentName := strings.ToLower(version.Spec.Type) + "-" + *agentSourceRef.Name
+	checksum := *version.Status.Checksum
+
+	if storageConfig.FileSystem != nil {
+		if storageConfig.FileSystem.DirectoryPath == nil {
+			logger.Error("agent filesystem directory path not configured", "version", version.Name)
+			http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		serveFileSystemObject(w, r, *storageConfig.FileSystem.DirectoryPath, agentName, *version.Spec.FileName, checksum)
+		return
+	}
+
+	backend, err := initStorageBackend(r.Context(), storageConfig)
+
+	if err != nil {
+		logger.Error("unable to init storage backend for agent archive", "error", err, "version", version.Name)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	objectKey, err := agentArchiveObjectKey(version)
+	if err != nil {
+		logger.Error("unable to resolve agent archive object key", "error", err, "version", version.Name)
+		http.Error(w, "version artifact not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	soi := &storageTypes.StorageObjectInput{
+		FilePath:      &objectKey,
+		ContainerName: &agentName,
+		Method:        storageTypes.Get,
+		StorageConfig: storageConfig,
+	}
+	getObjectFromStorageSystem(w, r, backend, soi, checksum)
+}
+
+// serveAgentSHA256SUMS serves the SHA256SUMS file stored at sync. The server never signs on read.
+func serveAgentSHA256SUMS(w http.ResponseWriter, r *http.Request) {
+	kind, ok := agentKindFromRequest(r)
+	if !ok {
+		http.Error(w, "kind not found", http.StatusNotFound)
+		return
+	}
+
+	clientset, ok := authorizeAgentRequest(w, r, kind)
+	if !ok {
+		return
+	}
+
+	version, ok := getAgentVersionForRequest(w, r, clientset, kind)
+	if !ok {
+		return
+	}
+
+	if version.Status.ShaSums == "" {
+		http.Error(w, "agent shasums not available", http.StatusNotImplemented)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, version.Status.ShaSums)
+}
+
+// serveAgentSHA256SUMSSignature serves the detached signature stored at sync. The signature
+// is only served when the server's signing key matches the fingerprint recorded on the Version.
+func serveAgentSHA256SUMSSignature(w http.ResponseWriter, r *http.Request) {
+	kind, ok := agentKindFromRequest(r)
+	if !ok {
+		http.Error(w, "kind not found", http.StatusNotFound)
+		return
+	}
+
+	clientset, ok := authorizeAgentRequest(w, r, kind)
+	if !ok {
+		return
+	}
+
+	version, ok := getAgentVersionForRequest(w, r, clientset, kind)
+	if !ok {
+		return
+	}
+
+	if version.Status.ShaSumsSignature == "" {
+		http.Error(w, "agent shasums signature not available", http.StatusNotImplemented)
+		return
+	}
+
+	if _, err := agentSigningKeys(os.Getenv("OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64"), version.Status.SigningKeyFingerprint); err != nil {
+		writeAgentSigningKeyError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = io.WriteString(w, version.Status.ShaSumsSignature)
+}

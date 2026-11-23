@@ -3,23 +3,15 @@
 import * as React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import { useColorScheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { Highlight, type Language, themes } from "prism-react-renderer";
-import Prism from "prismjs";
-import "prismjs/components/prism-hcl";
-import CopyButton from "@/components/CopyButton";
+import { highlightedMarkdownComponents } from "@/components/HighlightedCodeBlock";
+import { markdownTableSx } from "@/components/MarkdownTable";
 import { buildModuleSource, buildCanonicalProviderSource } from "@/lib/registrySource";
-
-// Make prism-react-renderer use the full prismjs instance so it picks up the
-// HCL grammar we registered above via the side-effectful import (mirrors
-// UsageSnippet.tsx).
-(typeof globalThis !== "undefined" ? globalThis : window).Prism = Prism;
 
 // Height (px) of the README viewport when collapsed/expanded. Both states keep
 // their own scrollbar so a long README never forces the whole page to scroll
@@ -72,11 +64,6 @@ interface ResourceReadmeProps {
 }
 
 export default function ResourceReadme({ content, kind, namespace, name, provider, registryHost, providerNamespace = "hashicorp", upstreamRegistry = "registry.opentofu.org" }: ResourceReadmeProps) {
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const codeBg = resolvedMode === "light" ? "#f0f7ff" : "#1e1e1e";
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
-
   const [expanded, setExpanded] = React.useState(false);
   const [overflows, setOverflows] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -115,15 +102,19 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
           "& a": { color: "primary.main", textDecoration: "none" },
           "& a:hover": { textDecoration: "underline" },
           "& code": {
-            fontFamily: "monospace",
+            fontFamily: "var(--od-font-mono)",
             fontSize: "0.8125rem",
-            bgcolor: codeBg,
+            bgcolor: "#1e1e1e",
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f5f5f5" },
             px: 0.5,
             py: 0.25,
             borderRadius: 0.5,
           },
           "& pre.md-plain-pre": {
-            bgcolor: codeBg,
+            bgcolor: "#1e1e1e",
+            // Light mode uses a neutral grey (R = G = B) because background.default reads as blue there.
+            "[data-mui-color-scheme='light'] &": { bgcolor: "#f5f5f5" },
             p: 2,
             borderRadius: 1.5,
             border: "1px solid",
@@ -138,76 +129,14 @@ export default function ResourceReadme({ content, kind, namespace, name, provide
             ml: 0,
             color: "text.secondary",
           },
-          "& table": { borderCollapse: "collapse", mb: 1.5 },
-          "& th, & td": {
-            border: "1px solid",
-            borderColor: "divider",
-            px: 1.5,
-            py: 0.75,
-          },
+          ...markdownTableSx,
           "& img": { maxWidth: "100%" },
         }}
       >
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-          components={{
-            pre({ children }) {
-              const codeElement = React.isValidElement(children) ? children : null;
-              const codeProps = codeElement?.props as
-                | { className?: string; children?: React.ReactNode }
-                | undefined;
-              const lang = /language-(\w+)/.exec(codeProps?.className || "")?.[1];
-
-              if (!lang || !HCL_LANGUAGES.has(lang)) {
-                return <pre className="md-plain-pre">{children}</pre>;
-              }
-
-              const code = String(codeProps?.children ?? "").replace(/\n$/, "");
-              return (
-                <Box sx={{ position: "relative", mb: 1.5 }}>
-                  <Highlight
-                    prism={Prism as typeof Prism}
-                    theme={prismTheme}
-                    code={code}
-                    language={"hcl" as Language}
-                  >
-                    {({ style, tokens, getLineProps, getTokenProps }) => (
-                      <Box
-                        component="pre"
-                        sx={{
-                          m: 0,
-                          p: 2,
-                          pr: 6,
-                          borderRadius: 1.5,
-                          border: "1px solid",
-                          borderColor: "divider",
-                          fontFamily: "monospace",
-                          fontSize: "0.8125rem",
-                          lineHeight: 1.65,
-                          overflowX: "auto",
-                          whiteSpace: "pre",
-                          ...style,
-                          ...(resolvedMode === "light" && { backgroundColor: "#f0f7ff" }),
-                        }}
-                      >
-                        {tokens.map((line, i) => (
-                          <div key={i} {...getLineProps({ line })}>
-                            {line.map((token, key) => (
-                              <span key={key} {...getTokenProps({ token })} />
-                            ))}
-                          </div>
-                        ))}
-                      </Box>
-                    )}
-                  </Highlight>
-                  <Box sx={{ position: "absolute", top: 6, right: 6 }}>
-                    <CopyButton value={code} />
-                  </Box>
-                </Box>
-              );
-            },
-          }}
+          components={highlightedMarkdownComponents()}
         >
           {rewrittenContent}
         </ReactMarkdown>

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
 	"sort"
 	"strings"
 
+	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/expr-lang/expr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -17,6 +19,8 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
+
+var inClusterConfig = rest.InClusterConfig
 
 // generateKubeClient creates a new kubernetes client from either a kubeconfig as a byte slice
 // or from a bearerToken. When using a bearerToken this function will use the in-cluster config
@@ -27,12 +31,12 @@ func generateKubeClient(kubeconfig []byte, bearerToken *string, useBearerToken b
 
 	if bearerToken == nil && kubeconfig == nil {
 		// Anonymous auth: use in-cluster config with the server's own service account
-		clientConfig, err = rest.InClusterConfig()
+		clientConfig, err = inClusterConfig()
 		if err != nil {
 			return nil, err
 		}
 	} else if useBearerToken {
-		clientConfig, err = rest.InClusterConfig()
+		clientConfig, err = inClusterConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +82,12 @@ func getPolicyKubeClientFromRequest(w http.ResponseWriter, r *http.Request) (*ku
 func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Request, requireGroupBinding bool) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
 	if *opendepotAnonymousAuth {
 		cs, err := generateKubeClient(nil, nil, false)
-		return cs, nil, nil, "", err
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return nil, nil, nil, "", err
+		}
+
+		return cs, nil, nil, "", nil
 	}
 
 	if oidcVerifier != nil {
@@ -120,6 +129,7 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 						return nil, nil, nil, "", saErr
 					}
 					logger.Debug("SA fallback auth accepted", "issuer", iss)
+					// The SA path returns no GroupBinding, so access is governed by the ServiceAccount's RBAC alone.
 					return cs, nil, nil, "", nil
 				}
 			}
@@ -127,7 +137,7 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 			// primary audience check (aud != oidc-client-id). The secondary verifier
 			// still enforces signature validity, expiry, and issuer. The token's sub
 			// claim is mapped to a virtual group "client:<sub>" for GroupBinding evaluation.
-			if *opendepotOIDCAllowClientCredentials && oidcCCVerifier != nil {
+			if *opendepotOIDCAllowClientCredentials && len(oidcCCVerifiers) > 0 {
 				cs, binding, securityBinding, sub, ccErr := handleClientCredentialsToken(w, r, rawToken)
 				if ccErr != nil {
 					return nil, nil, nil, "", ccErr
@@ -213,11 +223,37 @@ func getKubeClientFromRequestWithGroupBinding(w http.ResponseWriter, r *http.Req
 	}
 
 	cs, err := generateKubeClient(kubeconfig, &bearerToken, *opendepotUseBearerToken)
-	return cs, nil, nil, "", err
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, nil, nil, "", err
+	}
+
+	return cs, nil, nil, "", nil
+}
+
+// verifyClientCredentialsToken verifies rawToken against each allowlisted client credentials
+// audience. Each verifier requires the token's aud to contain its client ID, so the token is
+// accepted only when its audience is listed in --oidc-client-credentials-audiences.
+func verifyClientCredentialsToken(ctx context.Context, rawToken string) (*gooidc.IDToken, error) {
+	if len(oidcCCVerifiers) == 0 {
+		return nil, errors.New("no client credentials audiences configured")
+	}
+
+	var lastErr error
+	for _, verifier := range oidcCCVerifiers {
+		token, err := verifier.Verify(ctx, rawToken)
+		if err == nil {
+			return token, nil
+		}
+
+		lastErr = err
+	}
+
+	return nil, lastErr
 }
 
 // handleClientCredentialsToken attempts to verify a Dex client-credentials token using the
-// secondary audience-skipping verifier. It returns (nil, nil, "", nil) when the token does
+// audience-allowlisted client credentials verifiers. It returns (nil, nil, "", nil) when the token does
 // not match the CC path (caller should fall through). On success it returns the clientset,
 // binding, and subject. On failure it writes an HTTP error and returns a non-nil error.
 func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawToken string) (*kubernetes.Clientset, *opendepotv1alpha1.GroupBinding, *opendepotv1alpha1.SecurityGroupBinding, string, error) {
@@ -226,7 +262,7 @@ func handleClientCredentialsToken(w http.ResponseWriter, r *http.Request, rawTok
 		return nil, nil, nil, "", nil
 	}
 
-	ccToken, ccErr := oidcCCVerifier.Verify(r.Context(), rawToken)
+	ccToken, ccErr := verifyClientCredentialsToken(r.Context(), rawToken)
 	if ccErr != nil {
 		return nil, nil, nil, "", nil
 	}
@@ -426,6 +462,34 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 				return true
 			}
 		}
+	case "skill":
+		for _, pattern := range binding.Spec.SkillResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed skill resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
+	case "agent":
+		for _, pattern := range binding.Spec.AgentResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed agent resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
 	}
 
 	return false
@@ -447,6 +511,20 @@ func isSecurityResourceAllowed(binding *opendepotv1alpha1.SecurityGroupBinding, 
 	case "provider":
 		for _, name := range binding.Spec.ProviderResources {
 			if name == "*" || name == resourceName {
+				return true
+			}
+		}
+	case "skill":
+		for _, pattern := range binding.Spec.SkillResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err == nil && matched {
+				return true
+			}
+		}
+	case "agent":
+		for _, pattern := range binding.Spec.AgentResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err == nil && matched {
 				return true
 			}
 		}

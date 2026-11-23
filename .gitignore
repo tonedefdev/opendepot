@@ -13,7 +13,9 @@
 
 # Code coverage profiles and other test artifacts
 *.out
+coverage/
 coverage.*
+!pkg/testutils/coverage.go
 *.coverprofile
 profile.cov
 
@@ -49,3 +51,7 @@ test/local/terraform.tfstate
 test/local/terraform.tfstate.backup
 .terraform/
 *.tfstate
+# Local build output for the opendepot CLI
+cli/cli
+
+promo/node_modules/

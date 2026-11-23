@@ -17,6 +17,10 @@ version:
   # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
+  gpg:
+    # Name of a Kubernetes Secret containing the GPG env vars used to sign Skill and Agent versions
+    # (SHA256SUMS). It must have OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64. Unsigned agents are not published.
+    secretName: ""
   image:
     repository: ghcr.io/tonedefdev/opendepot/version-controller
     tag: ""
@@ -24,8 +28,13 @@ version:
     requests:
       cpu: 100m
       memory: 512Mi
+      ephemeral-storage: 512Mi
     limits:
+      cpu: 1000m
       memory: 4Gi
+      ephemeral-storage: 2Gi
+  # GID for the version-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -44,8 +53,35 @@ module:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the module-controller pod and container.
+  runAsGroup: 65532
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## Agent Service (Skills and Agents registry; disabled by default)
+agent:
+  enabled: false
+  replicaCount: 1
+  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
+  # default (info). Set to 5 to enable verbose debug logging.
+  zapLogLevel: ""
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/agent-controller
+    tag: ""  # Overrides global.image.tag when set
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # GID for the agent-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -64,8 +100,12 @@ depot:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the depot-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -85,7 +125,10 @@ provider:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the provider-controller pod and container.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -120,7 +163,8 @@ server:
     # clientId must match the id field of the Dex static client configured below.
     clientId: "opendepot"
     # clientSecretName is the name of an existing Kubernetes Secret that holds
-    # the clientSecret key.
+    # the OPENDEPOT_DEX_CLIENT_SECRET key. When Dex and OIDC are enabled, it is
+    # required and must match a secretRef name in dex.envFrom.
     clientSecretName: ""
     # groupsClaim is the JWT claim name containing the OIDC groups.
     # Only used when GroupBinding resources are deployed. Defaults to "groups".
@@ -134,11 +178,16 @@ server:
     allowServiceAccountFallback: false
     # allowClientCredentials, when true, enables Dex client credentials tokens as a
     # valid authentication method alongside OIDC JWTs. Verified Dex tokens whose
-    # audience does not match the primary oidc-client-id are accepted; the token's
+    # audience is listed in clientCredentialsAudiences are accepted; the token's
     # sub claim is mapped to a virtual group "client:<sub>" and evaluated against
     # GroupBinding resources. Requires a Dex staticClient with
     # grantTypes: ["client_credentials"]. See the OIDC configuration guide for setup.
     allowClientCredentials: false
+    # clientCredentialsAudiences lists the Dex client IDs whose client credentials tokens
+    # are accepted when allowClientCredentials=true. Dex sets a client credentials token's
+    # aud claim to the requesting client's ID, so list each client registered with
+    # grantTypes: ["client_credentials"]. Required (non-empty) when allowClientCredentials=true.
+    clientCredentialsAudiences: []
     # authzUrl overrides the authorization URL advertised in the login.v1 block of
     # /.well-known/terraform.json. When blank the URL comes from the OIDC provider
     # discovery document. Set this when the server discovers Dex via an in-cluster
@@ -205,11 +254,26 @@ server:
     requests:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Set to true to export OPENDEPOT_S3_USE_PATH_STYLE=true, which uses path-style S3 addressing.
+  s3UsePathStyle: false
+  # UID for the server pod and container.
+  runAsUser: 65532
+  # GID for the server pod and container.
+  runAsGroup: 65532
+  # Generic hooks for the server pod. All are empty by default.
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  extraContainers: []
+  # Init containers appended after the built-in init containers. Set restartPolicy: Always for native sidecars.
+  extraInitContainers: []
   # Pod Disruption Budget
   podDisruptionBudget:
     enabled: false
@@ -266,6 +330,19 @@ scanning:
   blockOnCritical: false
   # Block reconciliation when HIGH vulnerabilities are found (modules or providers).
   blockOnHigh: false
+  # Scan and sync Skill and Agent versions. Trivy scanning of agents is always on and fails closed.
+  # Requires providerScanning to mount the offline Trivy vulnerability DB cache. agentScanning does not enable the cache.
+  agentScanning: true
+  # Comma-separated domains a Skill or Agent may reference. Empty disables the allowed-domain rule.
+  agentAllowedDomains: ""
+  jev:
+    # Run the TypeSafe Jev assessment on Skill and Agent versions that set a Jev policy and a secret.
+    # The assessment is labeled as a TypeSafe assessment. Jev can block a Version whenever it is configured.
+    # A source that sets jevSecretRef is not published while this is false.
+    enabled: false
+    # Override the TypeSafe Jev API endpoint.
+    endpoint: "https://api.typesafe.ai/v1/systemone"
+    maxRetries: 3
   # PersistentVolumeClaim for the shared Trivy vulnerability database.
   # Only created when providerScanning is true.
   cache:
@@ -276,7 +353,7 @@ scanning:
     # CronJob alongside the version controller on separate nodes. Use ReadWriteOnce for Kind.
     accessMode: ReadWriteMany
     # Size of the Trivy DB cache PVC
-    size: 1Gi
+    size: 5Gi
   # CronJob that runs 'trivy image --download-db-only' on a schedule to keep the offline DB current.
   # Only created when providerScanning is true.
   dbUpdater:
@@ -284,8 +361,21 @@ scanning:
     schedule: "0 2 * * *"
     image:
       repository: aquasec/trivy
-      tag: "0.70.0"
+      tag: "0.76.2"
+    # GID for the trivy-db-updater pod and container.
+    runAsGroup: 65532
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
   tolerations: []
+
+## Branch sourcing (Skills and Agents that follow a Git branch)
+branchSourcing:
+  enabled: false
 
 ## Assembly Line (module contract derivation and provider schema extraction)
 assembly:
@@ -349,19 +439,19 @@ dex:
     staticClients:
       - id: opendepot
         name: OpenDepot
-        secretEnv: OPENDEPOT_DEX_CLIENT_SECRET
+        public: true
         redirectURIs:
-          - http://localhost:10000
-          - http://localhost:10001
-          - http://localhost:10002
-          - http://localhost:10003
-          - http://localhost:10004
-          - http://localhost:10005
-          - http://localhost:10006
-          - http://localhost:10007
-          - http://localhost:10008
-          - http://localhost:10009
-          - http://localhost:10010
+          - http://localhost:10000/login
+          - http://localhost:10001/login
+          - http://localhost:10002/login
+          - http://localhost:10003/login
+          - http://localhost:10004/login
+          - http://localhost:10005/login
+          - http://localhost:10006/login
+          - http://localhost:10007/login
+          - http://localhost:10008/login
+          - http://localhost:10009/login
+          - http://localhost:10010/login
     # When ui.oidc.enabled=true, add the UI client here and include
     # trustedPeers pointing to the server client ID (e.g. "opendepot").
     # This ensures Dex includes the server's audience in UI-issued tokens
@@ -388,6 +478,7 @@ dex:
     # staticPasswords is for e2e testing only — NEVER enable in production.
     enablePasswordDB: false
     staticPasswords: []
+  # Must match server.oidc.clientSecretName. Helm cannot template subchart values.
   envFrom:
     - secretRef:
         name: opendepot-dex-client-secret
@@ -473,7 +564,35 @@ ui:
       cpu: 100m
       memory: 128Mi
     limits:
+      cpu: 1000m
       memory: 512Mi
+  # GID for the ui pod and container. Must be above 10000 for KSV-0021. The UI
+  # writes only to emptyDir mounts or paths owned by UID 101, so the group is unused.
+  runAsGroup: 65532
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## Static MkDocs site served at /docs through the UI NGINX, so it shares the UI
+## ingress and load balancer. Requires ui.enabled=true.
+docs:
+  enabled: false
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/docs
+    tag: ""  # Overrides global.image.tag when set
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+  # GID for the docs pod and container. Must be above 10000 for KSV-0021.
+  runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -516,3 +635,8 @@ monitoring:
       # Leave empty for disposable demo storage. Set this map to the
       # kube-prometheus-stack Prometheus storageSpec shape to use a PVC.
       storageSpec: {}
+
+## Coverage instrumentation for e2e coverage runs (make coverage-e2e).
+## When enabled, services set GOCOVERDIR and mount an emptyDir at /coverage.
+coverage:
+  enabled: false

@@ -18,6 +18,7 @@ export default function DrillDownWarningBridge({
   name,
 }: DrillDownWarningBridgeProps) {
   const clearRef = React.useRef<(() => void) | null>(null);
+  const handleAllSynced = React.useCallback(() => clearRef.current?.(), []);
 
   return (
     <>
@@ -26,7 +27,7 @@ export default function DrillDownWarningBridge({
         namespace={namespace}
         kind={kind}
         name={name}
-        onAllSynced={() => clearRef.current?.()}
+        onAllSynced={handleAllSynced}
       />
     </>
   );

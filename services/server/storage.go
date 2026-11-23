@@ -29,6 +29,10 @@ func buildDownloadPathFromVersion(versionResource *opendepotv1alpha1.Version) (s
 	} else if versionResource.Spec.ProviderConfigRef != nil && versionResource.Spec.ProviderConfigRef.StorageConfig != nil {
 		storageConfig = versionResource.Spec.ProviderConfigRef.StorageConfig
 		name = versionResource.Spec.ProviderConfigRef.Name
+	} else if versionResource.Spec.AgentSourceRef != nil && versionResource.Spec.AgentSourceRef.StorageConfig != nil && versionResource.Spec.AgentSourceRef.Name != nil {
+		storageConfig = versionResource.Spec.AgentSourceRef.StorageConfig
+		agentName := strings.ToLower(versionResource.Spec.Type) + "-" + *versionResource.Spec.AgentSourceRef.Name
+		name = &agentName
 	}
 
 	if storageConfig == nil || name == nil || versionResource.Spec.FileName == nil {
@@ -111,6 +115,27 @@ func getObjectFromStorageSystem(w http.ResponseWriter, r *http.Request, s storag
 		http.Error(w, fmt.Sprintf("failed to stream file: %v", err), http.StatusInternalServerError)
 		return
 	}
+}
+
+// serveFileSystemObject joins dir, moduleName, and fileName, rejects the result unless it stays under
+// the configured filesystem mount path, and otherwise serves it through getObjectFromStorageSystem.
+func serveFileSystemObject(w http.ResponseWriter, r *http.Request, dir, moduleName, fileName, checksum string) {
+	filePath := path.Join(dir, moduleName, fileName)
+	allowedRoot := path.Clean(*opendepotFilesystemMountPath)
+	if !strings.HasPrefix(path.Clean(filePath)+"/", allowedRoot+"/") {
+		logger.Error("filesystem download path escapes allowed root", "path", filePath, "allowedRoot", allowedRoot)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	logger.Info("filesystem download", "dir", dir, "module", moduleName, "file", fileName)
+
+	fsStorage := &storage.FileSystem{}
+	soi := &storageTypes.StorageObjectInput{
+		FilePath: &filePath,
+		Method:   storageTypes.Get,
+	}
+	getObjectFromStorageSystem(w, r, fsStorage, soi, checksum)
 }
 
 // initStorageBackend creates and initializes a storage backend from the provided StorageConfig.

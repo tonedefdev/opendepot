@@ -4,15 +4,13 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: read
+permissions: {}
 
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       app: ${{ steps.filter.outputs.app }}
       chart: ${{ steps.filter.outputs.chart }}
@@ -21,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Detect changes
         uses: dorny/paths-filter@v3
         id: filter
@@ -38,6 +37,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      packages: write
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,6 +57,11 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,7 +75,7 @@ jobs:
       - name: Package chart
         run: helm package chart/opendepot --destination .cr-release-packages
       - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
+        uses: helm/chart-releaser-action@92c6b97fa9f664492a2592e0d1d80bc6bf378957 # v1.9.0
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

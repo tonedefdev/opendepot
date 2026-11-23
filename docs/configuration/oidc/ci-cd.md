@@ -108,7 +108,16 @@ server:
   oidc:
     enabled: true
     allowClientCredentials: true
+    clientCredentialsAudiences:
+      - ci-pipeline
 ```
+
+List every Dex client ID that uses the `client_credentials` grant in
+`clientCredentialsAudiences`. The chart passes this list to the server as
+`--oidc-client-credentials-audiences`. Dex sets a client credentials token's `aud` to the
+requesting client's ID, and OpenDepot accepts only tokens whose audience is on this
+list. The chart fails to render, and the server refuses to start, when
+`allowClientCredentials` is true and the list is empty.
 
 ### Step 3: Create a GroupBinding
 
@@ -144,17 +153,12 @@ TOKEN=$(curl -s -X POST https://opendepot.example.com/dex/token \
 The example assumes the server-proxied Dex setup. With shared external Dex, use
 that Dex deployment's token endpoint instead.
 
-Use the token in `.tofurc`:
+Use the token in `.tofurc`. Discovery supplies the service URLs, so only the
+`credentials` block is needed:
 
 ```hcl
 credentials "opendepot.example.com" {
   token = "<access_token>"
-}
-host "opendepot.example.com" {
-  services = {
-    "modules.v1"   = "https://opendepot.example.com/opendepot/modules/v1/"
-    "providers.v1" = "https://opendepot.example.com/opendepot/providers/v1/"
-  }
 }
 ```
 
@@ -168,7 +172,7 @@ No `tofu login` is required.
 | Requires cluster API access | Yes | No |
 | Access control | Kubernetes RBAC | GroupBinding |
 | Works without `kubectl` | No | Yes |
-| Short-lived tokens | Yes, configurable | Yes, Dex-controlled |
+| Short-lived tokens | Yes, `kubectl create token --duration` | Yes, Dex-controlled |
 
 See [Client Credentials in CI/CD](../../guides/cicd.md#registry-reads-with-dex-client-credentials)
 for pipeline examples.

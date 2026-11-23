@@ -6,10 +6,9 @@ import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { useColorScheme } from "@mui/material/styles";
 import CodeEditor from "@uiw/react-textarea-code-editor";
 import type { VariableValidation } from "./types";
-import { hclConditionPlugins, hclEditorColorVariables } from "./hclConditionHighlight";
+import { hclConditionPlugins, hclEditorColorSx } from "./hclConditionHighlight";
 import {
   AddButton,
   RemoveButton,
@@ -34,8 +33,6 @@ interface Props {
 
 export default function ValidationsEditor({ validations, onChange }: Props) {
   const [expanded, setExpanded] = React.useState<number | false>(false);
-  const { mode, systemMode } = useColorScheme();
-  const editorMode = (mode === "system" ? systemMode : mode) === "light" ? "light" : "dark";
 
   const change = (index: number, patch: Partial<VariableValidation>) =>
     onChange(validations.map((validation, i) => (i === index ? { ...validation, ...patch } : validation)));
@@ -103,9 +100,7 @@ export default function ValidationsEditor({ validations, onChange }: Props) {
                         overflow: "hidden",
                         transition: (theme) => theme.transitions.create("background-color"),
                         "&:hover, &:focus-within": { bgcolor: "action.selected" },
-                        "& .w-tc-editor": {
-                          ...hclEditorColorVariables(editorMode),
-                        },
+                        ...hclEditorColorSx,
                       }}
                     >
                       <CodeEditor
@@ -113,7 +108,6 @@ export default function ValidationsEditor({ validations, onChange }: Props) {
                         value={validation.condition}
                         language="hcl"
                         rehypePlugins={hclConditionPlugins}
-                        data-color-mode={editorMode}
                         minHeight={20}
                         padding={0}
                         indentWidth={2}

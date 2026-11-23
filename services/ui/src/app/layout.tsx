@@ -1,16 +1,18 @@
+import "@fontsource-variable/inter";
+import "./fonts.css";
 import type { Metadata } from "next";
 import Box from "@mui/material/Box";
 import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
 import { cookies } from "next/headers";
 import ThemeRegistry from "@/components/ThemeRegistry";
-import Sidebar, { DRAWER_WIDTH, SIDEBAR_COLLAPSED_COOKIE } from "@/components/Sidebar";
+import Sidebar, { SIDEBAR_COLLAPSED_COOKIE } from "@/components/Sidebar";
 import { getScanPolicyCatalog, listNamespaces } from "@/lib/api";
 import { getServerSessionToken, parseJWTClaims } from "@/lib/session";
 import { COLOR_MODE_COOKIE } from "@/theme";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "OpenDepot",
+  title: "OpenDepot Workshop",
   description: "Browse Terraform modules and providers in your OpenDepot registry.",
 };
 

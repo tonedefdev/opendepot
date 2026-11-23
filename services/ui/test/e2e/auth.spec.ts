@@ -99,7 +99,10 @@ test.describe("dev-token route", () => {
       data: { token: "test-token" },
     });
     // 403 when disabled; the route must not accept tokens in production mode.
-    expect([403]).toContain(response.status());
+    expect(
+      response.status(),
+      "DEV_TOKEN_INPUT_ENABLED is true on the server under test; restart the UI with it unset or false",
+    ).toBe(403);
   });
 });
 
@@ -116,7 +119,7 @@ test.describe("session cookie safety — error paths", () => {
       "/auth/callback?error=access_denied&error_description=User+denied+access",
       { maxRedirects: 0 },
     );
-    if (response.status() === 503) return; // OIDC not configured — skip
+    test.skip(response.status() === 503, "OIDC not configured on the server under test");
 
     const wipesSession = response
       .headersArray()
@@ -135,7 +138,7 @@ test.describe("session cookie safety — error paths", () => {
     request,
   }) => {
     const response = await request.get("/auth/callback", { maxRedirects: 0 });
-    if (response.status() === 503) return; // OIDC not configured — skip
+    test.skip(response.status() === 503, "OIDC not configured on the server under test");
 
     const wipesSession = response
       .headersArray()
@@ -157,7 +160,7 @@ test.describe("session cookie safety — error paths", () => {
       "/auth/callback?code=fake-code&state=mismatched-state",
       { maxRedirects: 0 },
     );
-    if (response.status() === 503) return; // OIDC not configured — skip
+    test.skip(response.status() === 503, "OIDC not configured on the server under test");
 
     const wipesSession = response
       .headersArray()

@@ -361,7 +361,10 @@ export function isKnownHclExpression(literal: string): boolean {
 }
 
 export function renderHclHeredoc(literal: string, depth = 0): string | undefined {
-  const lines = literal.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+  const normalized = literal.replace(/\r\n/g, "\n");
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === "\n") end--;
+  const lines = normalized.slice(0, end).split("\n");
   const opening = lines[0]?.trim().match(/^<<(-?)([A-Za-z_][A-Za-z0-9_]*)$/);
   if (!opening || lines.length < 2 || lines[lines.length - 1].trim() !== opening[2]) return undefined;
 

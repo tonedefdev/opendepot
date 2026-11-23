@@ -23,6 +23,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/pkg/archive"
 	opendepotGithub "github.com/tonedefdev/opendepot/pkg/github"
 	"github.com/tonedefdev/opendepot/pkg/registry"
 	"github.com/tonedefdev/opendepot/services/version/internal/policy"
@@ -44,29 +46,33 @@ var lookupProviderRepo = registry.LookupProviderRepo
 
 // resolveScanPolicy lists the ScanPolicy resources in the Version's namespace and folds the
 // winning policy together with the controller's blocking flags into the effective decision.
-// A listing failure falls back to the flags so that a transient API error can never silently
-// relax enforcement.
-func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) policy.Resolved {
+// It also returns the ranked matching policies, so the caller can report which policy governs
+// the Version. A listing failure returns the error and no policy. The caller must fail closed and
+// leave the Version's enforcement state unchanged, because the controller flags are not the
+// effective policy and a fallback to them could relax a stricter ScanPolicy threshold.
+func (r *VersionReconciler) resolveScanPolicy(ctx context.Context, version *opendepotv1alpha1.Version) (policy.Resolved, []opendepotv1alpha1.ScanPolicy, error) {
 	policies := &opendepotv1alpha1.ScanPolicyList{}
 	if err := r.List(ctx, policies, client.InNamespace(version.Namespace)); err != nil {
-		r.Log.Error(err, "Failed to list ScanPolicies — falling back to the controller blocking flags",
+		r.Log.Error(err, "Failed to list ScanPolicies",
 			"version", version.Name, "namespace", version.Namespace)
 
-		return policy.Resolve(nil, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+		return policy.Resolved{}, nil, fmt.Errorf("list ScanPolicies: %w", err)
 	}
 
-	winner, errs := policy.Select(policies.Items, version)
+	ranked, errs := policy.Rank(policies.Items, version)
 	for _, err := range errs {
 		r.Log.Error(err, "Skipping ScanPolicy with an invalid selector",
 			"version", version.Name, "namespace", version.Namespace)
 	}
 
-	if winner != nil {
+	var winner *opendepotv1alpha1.ScanPolicy
+	if len(ranked) > 0 {
+		winner = &ranked[0]
 		r.Log.V(5).Info("ScanPolicy selected for version",
 			"version", version.Name, "scanPolicy", winner.Name, "priority", winner.Spec.Priority)
 	}
 
-	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now())
+	return policy.Resolve(winner, r.BlockOnCritical, r.BlockOnHigh, time.Now()), ranked, nil
 }
 
 // trivyVulnerability is the subset of Trivy's per-vulnerability JSON output used here.
@@ -99,24 +105,58 @@ type trivyResult struct {
 	Type              string                  `json:"Type"`
 	Vulnerabilities   []trivyVulnerability    `json:"Vulnerabilities"`
 	Misconfigurations []trivyMisconfiguration `json:"Misconfigurations"`
+	Secrets           []trivySecret           `json:"Secrets"`
+}
+
+// trivySecret is a secret detection from the Trivy secret scanner.
+type trivySecret struct {
+	RuleID   string `json:"RuleID"`
+	Severity string `json:"Severity"`
+	Title    string `json:"Title"`
 }
 
 // trivyReport is the top-level structure of `trivy --format json` output.
 type trivyReport struct {
-	Results []trivyResult `json:"Results"`
+	SchemaVersion int           `json:"SchemaVersion"`
+	Results       []trivyResult `json:"Results"`
+}
+
+// decodeTrivyReport parses raw Trivy JSON output. Output that is not valid JSON, is not a JSON object
+// (including null), or lacks a SchemaVersion is rejected so that a malformed report can never pass as a clean scan.
+func decodeTrivyReport(data []byte) (trivyReport, error) {
+	var report trivyReport
+	trimmed := bytes.TrimSpace(data)
+	if !json.Valid(trimmed) {
+		return report, fmt.Errorf("failed to parse trivy JSON output: output is not valid JSON")
+	}
+
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return report, fmt.Errorf("failed to parse trivy JSON output: top-level value must be an object")
+	}
+
+	if err := json.Unmarshal(trimmed, &report); err != nil {
+		return report, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	}
+
+	if report.SchemaVersion <= 0 {
+		return report, fmt.Errorf("failed to parse trivy JSON output: SchemaVersion is missing")
+	}
+
+	return report, nil
 }
 
 // runTrivy executes the trivy binary with the supplied arguments and returns raw stdout.
-// Trivy exit code 1 means "vulnerabilities found" — this is not treated as an error here.
-func runTrivy(ctx context.Context, args ...string) ([]byte, error) {
+// Exit code 1 is only accepted when a report was written to stdout. Trivy also exits 1 on
+// fatal errors (for example a failed vulnerability DB download) and writes nothing to stdout,
+// which must not be mistaken for a clean scan.
+var runTrivy = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "trivy", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Exit code 1 = vulnerabilities found — not a fatal error.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 && stdout.Len() > 0 {
 			return stdout.Bytes(), nil
 		}
 
@@ -130,9 +170,9 @@ func runTrivy(ctx context.Context, args ...string) ([]byte, error) {
 // The optional filter function allows callers to select specific result targets (e.g. go.mod only).
 // An empty (non-nil) slice is returned when the report contains no matching findings.
 func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1alpha1.SecurityFinding, error) {
-	var report trivyReport
-	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, fmt.Errorf("failed to parse trivy JSON output: %w", err)
+	report, err := decodeTrivyReport(data)
+	if err != nil {
+		return nil, err
 	}
 
 	findings := make([]opendepotv1alpha1.SecurityFinding, 0)
@@ -176,6 +216,32 @@ func parseTrivyReport(data []byte, filter func(trivyResult) bool) ([]opendepotv1
 	return findings, nil
 }
 
+// parseTrivySecrets converts the secret detections in raw Trivy JSON output into findings. It also
+// returns the set of result targets that contain a secret so that callers can keep them out of
+// any content they forward elsewhere.
+func parseTrivySecrets(data []byte) ([]opendepotv1alpha1.SecurityFinding, map[string]struct{}, error) {
+	report, err := decodeTrivyReport(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	findings := make([]opendepotv1alpha1.SecurityFinding, 0)
+	flagged := make(map[string]struct{})
+	for _, result := range report.Results {
+		for _, s := range result.Secrets {
+			flagged[result.Target] = struct{}{}
+			findings = append(findings, opendepotv1alpha1.SecurityFinding{
+				VulnerabilityID: s.RuleID,
+				PkgName:         result.Target,
+				Severity:        s.Severity,
+				Title:           s.Title,
+			})
+		}
+	}
+
+	return findings, flagged, nil
+}
+
 // resolveProviderSourceRepository returns the VCS source URL for a provider.
 // If ProviderConfig.SourceRepository is set it is used directly (explicit override).
 // For OpenTofu providers, the registry docs API is queried for the repository link.
@@ -199,6 +265,29 @@ func resolveProviderSourceRepository(ctx context.Context, namespace, providerNam
 	// Fall back to heuristic — scan degrades gracefully rather than blocking sync.
 	return fmt.Sprintf("https://github.com/%s/terraform-provider-%s",
 		strings.TrimSpace(namespace), strings.TrimSpace(providerName))
+}
+
+// maxProviderBinaryBytes caps the decompressed size of the provider executable read from a zip entry.
+// Provider binaries are about 700 MB, so 1 GiB leaves headroom while bounding zip bomb expansion.
+const maxProviderBinaryBytes int64 = 1 << 30
+
+// ErrProviderBinaryTooLarge is returned when the provider executable exceeds maxProviderBinaryBytes.
+var ErrProviderBinaryTooLarge = errors.New("provider binary exceeds maximum size")
+
+// readBoundedEntry reads at most limit bytes from r. It reads one byte past the limit so that a
+// stream whose actual length exceeds limit is rejected even when the zip header under-reports its size.
+func readBoundedEntry(r io.Reader, limit int64) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	n, err := buf.ReadFrom(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if n > limit {
+		return nil, ErrProviderBinaryTooLarge
+	}
+
+	return buf.Bytes(), nil
 }
 
 // extractBinaryFromZip extracts the provider executable from an OpenTofu registry
@@ -227,17 +316,22 @@ func extractBinaryFromZip(archivePath string) ([]byte, error) {
 			continue
 		}
 
+		if f.UncompressedSize64 > uint64(maxProviderBinaryBytes) {
+			return nil, fmt.Errorf("%s in provider zip declares %d bytes: %w", f.Name, f.UncompressedSize64, ErrProviderBinaryTooLarge)
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s in provider zip: %w", f.Name, err)
 		}
 		defer rc.Close()
 
-		buf := new(bytes.Buffer)
-		if _, err := buf.ReadFrom(rc); err != nil {
+		data, err := readBoundedEntry(rc, maxProviderBinaryBytes)
+		if err != nil {
 			return nil, fmt.Errorf("failed to read %s from provider zip: %w", f.Name, err)
 		}
-		return buf.Bytes(), nil
+
+		return data, nil
 	}
 
 	return nil, fmt.Errorf("no executable found in provider zip archive")
@@ -346,9 +440,8 @@ func (r *VersionReconciler) scanProviderSource(ctx context.Context, repoURL, ver
 		return nil, fmt.Errorf("source scan failed: %w", err)
 	}
 
-	// Trivy ran but produced no output (e.g. DB not yet initialized on first
-	// offline run). Return a non-nil empty slice so the caller writes a
-	// tombstone — dedup then prevents an infinite retry loop.
+	// Exit 1 with no report is returned as an error by runTrivy, so this path only
+	// sees exit 0 with empty output, a clean scan. Return an empty slice for it.
 	if len(output) == 0 {
 		return make([]opendepotv1alpha1.SecurityFinding, 0), nil
 	}
@@ -438,7 +531,7 @@ func (r *VersionReconciler) runProviderScan(
 	var githubCfg *opendepotGithub.GithubClientConfig
 	if useAuthClient {
 		var cfgErr error
-		githubCfg, cfgErr = opendepotGithub.GetGithubApplicationSecret(ctx, r.Client, version.Namespace)
+		githubCfg, cfgErr = opendepotGithub.GetGithubApplicationSecret(ctx, r.APIReader, version.Namespace)
 		if cfgErr != nil {
 			r.Log.Error(cfgErr, "Failed to load GitHub App secret — falling back to unauthenticated source scan",
 				"provider", providerName)
@@ -480,107 +573,6 @@ func (r *VersionReconciler) runProviderScan(
 	}
 
 	return repoURL, binaryScan, sourceScan, nil
-}
-
-// extractArchiveToDir extracts the contents of a module archive (zip or gzip tarball) into destDir.
-// It defends against path traversal attacks by rejecting any entry whose cleaned path escapes destDir.
-func extractArchiveToDir(archiveBytes []byte, destDir string) error {
-	if zr, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes))); err == nil {
-		for _, f := range zr.File {
-			if err := extractZipEntry(f, destDir); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	gr, err := gzip.NewReader(bytes.NewReader(archiveBytes))
-	if err != nil {
-		return fmt.Errorf("archive is neither a valid zip nor a gzip tarball: %w", err)
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return fmt.Errorf("failed to read tar entry: %w", err)
-		}
-
-		if err := extractTarEntry(tr, hdr, destDir); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// extractZipEntry writes a single zip file entry into destDir, guarding against path traversal.
-func extractZipEntry(f *zip.File, destDir string) error {
-	dest := filepath.Join(destDir, f.Name)
-	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
-		return fmt.Errorf("zip entry %q escapes destination directory (path traversal)", f.Name)
-	}
-
-	if f.FileInfo().IsDir() {
-		return os.MkdirAll(dest, 0700)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-		return fmt.Errorf("failed to create directory for %s: %w", f.Name, err)
-	}
-
-	rc, err := f.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
-	}
-	defer rc.Close()
-
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", dest, err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // size bounded by Trivy scan input
-		return fmt.Errorf("failed to write zip entry %s: %w", f.Name, err)
-	}
-
-	return nil
-}
-
-// extractTarEntry writes a single tar entry into destDir, guarding against path traversal.
-func extractTarEntry(tr *tar.Reader, hdr *tar.Header, destDir string) error {
-	dest := filepath.Join(destDir, hdr.Name)
-	if !strings.HasPrefix(filepath.Clean(dest)+string(os.PathSeparator), filepath.Clean(destDir)+string(os.PathSeparator)) {
-		return fmt.Errorf("tar entry %q escapes destination directory (path traversal)", hdr.Name)
-	}
-
-	switch hdr.Typeflag {
-	case tar.TypeDir:
-		return os.MkdirAll(dest, 0700)
-	case tar.TypeReg:
-		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", hdr.Name, err)
-		}
-
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", dest, err)
-		}
-		defer out.Close()
-
-		if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // size bounded by Trivy scan input
-			return fmt.Errorf("failed to write tar entry %s: %w", hdr.Name, err)
-		}
-	}
-
-	return nil
 }
 
 // extractReadmeFromArchive scans a module archive (zip or gzip tarball) in-memory for a README
@@ -667,7 +659,7 @@ func extractArchiveToTempDir(archiveBytes []byte, prefix string) (string, func()
 
 	cleanup := func() { os.RemoveAll(tmpDir) }
 
-	if err := extractArchiveToDir(archiveBytes, tmpDir); err != nil {
+	if err := archive.ExtractToDir(archiveBytes, tmpDir); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("failed to extract module archive: %w", err)
 	}
@@ -702,8 +694,10 @@ func (r *VersionReconciler) scanModuleArchive(ctx context.Context, archiveBytes 
 		return nil, fmt.Errorf("module source scan failed: %w", err)
 	}
 
-	if len(output) == 0 {
-		return nil, nil
+	// Trivy exits 1 on fatal errors as well as on findings, so a usable report
+	// must be present. Anything else is a failed scan, not a clean one.
+	if !json.Valid(output) {
+		return nil, fmt.Errorf("module source scan produced no valid report")
 	}
 
 	return parseTrivyReport(output, func(res trivyResult) bool {
@@ -724,9 +718,8 @@ func (r *VersionReconciler) runModuleScan(
 ) (*opendepotv1alpha1.SourceScan, error) {
 	findings, err := r.scanModuleArchive(ctx, archiveBytes, cacheDir, offline)
 	if err != nil {
-		r.Log.Error(err, "Module source scan failed — continuing without scan results",
-			"version", version.Name)
-		return nil, nil
+		r.Log.Error(err, "Module source scan failed", "version", version.Name)
+		return nil, fmt.Errorf("module source scan failed: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)

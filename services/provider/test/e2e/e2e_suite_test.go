@@ -221,6 +221,7 @@ var _ = BeforeSuite(func() {
 		"--wait",
 		"--timeout", "3m",
 	)
+	cmd.Args = append(cmd.Args, utils.CoverageHelmArgs()...)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release")
 })
@@ -229,6 +230,8 @@ var _ = AfterSuite(func() {
 	if !utils.KindClusterConfigured() {
 		return
 	}
+
+	ExpectWithOffset(1, utils.CollectCoverage(namespace)).To(Succeed())
 
 	By("uninstalling Helm release to clean up provider e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,

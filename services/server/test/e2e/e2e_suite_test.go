@@ -127,6 +127,8 @@ var _ = AfterSuite(func() {
 		return
 	}
 
+	ExpectWithOffset(1, utils.CollectCoverage(namespace)).To(Succeed())
+
 	By("uninstalling Helm release to clean up server e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,
 		"--namespace", namespace,

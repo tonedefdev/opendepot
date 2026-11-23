@@ -8,23 +8,27 @@ ifndef TAG
 TAG := $(shell date +%s)
 endif
 
-SERVICES := server depot-controller module-controller provider-controller version-controller ui
+SERVICES := server depot-controller module-controller provider-controller version-controller agent-controller ui docs
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
 module-controller_PATH := services/module
+agent-controller_PATH := services/agent
 provider-controller_PATH := services/provider
 version-controller_PATH := services/version
 ui_PATH := services/ui
+docs_PATH := services/docs
 
 # Map service names to their Docker build context (repo root for services that use local packages)
 server_CONTEXT := .
 depot-controller_CONTEXT := .
 module-controller_CONTEXT := .
+agent-controller_CONTEXT := .
 provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui
+docs_CONTEXT := .
 
 .PHONY: build load deploy clean $(addprefix build-,$(SERVICES)) $(addprefix load-,$(SERVICES)) build-version-controller-scanning load-version-controller-scanning build-server-assembly load-server-assembly build-version-controller-assembly load-version-controller-assembly
 
@@ -70,6 +74,17 @@ build-version-controller-assembly:
 ## Load the OpenTofu-enabled version-controller into the kind cluster
 load-version-controller-assembly:
 	kind load docker-image $(REGISTRY)/version-controller:$(TAG)-assembly --name $(KIND_CLUSTER)
+
+## Build the test-only AWS emulator image for e2e, tagged $(TAG)
+build-aws-emulator:
+	docker build --platform $(PLATFORM) \
+		-t $(REGISTRY)/aws-emulator:$(TAG) \
+		-f services/server/test/e2e/Dockerfile.emulator \
+		services/server/test/e2e
+
+## Load the AWS emulator image into the kind cluster
+load-aws-emulator:
+	kind load docker-image $(REGISTRY)/aws-emulator:$(TAG) --name $(KIND_CLUSTER)
 
 ## Build and load all images into the kind cluster
 deploy: build load
@@ -153,7 +168,7 @@ work-tidy:
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
 
-E2E_SERVICES := depot module provider server version
+E2E_SERVICES := agent depot module provider server version
 
 ## Run e2e tests for all services sequentially
 .PHONY: test-e2e
@@ -162,6 +177,94 @@ test-e2e:
 	  echo "=== Running e2e tests for $$svc ==="; \
 	  $(MAKE) -C services/$$svc test-e2e || exit 1; \
 	done
+
+GO_WORK_MODULES = $(shell go work edit -json | python3 -c 'import sys,json; print(" ".join(d["DiskPath"] for d in json.load(sys.stdin)["Use"]))')
+
+# Module paths are interpolated into shell loops, so every go.work module path is validated before use.
+.PHONY: check-go-work-modules
+check-go-work-modules:
+	@python3 hack/check-go-work-modules.py
+
+## Generate Go profiles (coverage/go/*.out, one per go.work module) and UI coverage (services/ui/coverage/lcov.info)
+.PHONY: coverage coverage-go coverage-ui
+coverage: coverage-go coverage-ui
+
+coverage-go: check-go-work-modules
+	@rm -rf coverage/go && mkdir -p coverage/go
+	@for dir in $(GO_WORK_MODULES); do \
+	  name=$$(echo "$$dir" | sed -e 's|^\./||' -e 's|/|-|g'); \
+	  echo "=== Go coverage for $$dir ==="; \
+	  (cd "$$dir" && go test -coverprofile=$(CURDIR)/coverage/go/$$name.out $$(go list ./... | grep -v /e2e)) || exit 1; \
+	  case "$$dir" in \
+	    ./services/version) \
+	      echo "=== Go coverage for $$dir with -tags jevharness ==="; \
+	      (cd "$$dir" && go test -tags jevharness -coverprofile=$(CURDIR)/coverage/go/$$name-jevharness.out $$(go list -tags jevharness ./... | grep -v /e2e)) || exit 1;; \
+	  esac; \
+	done
+
+coverage-ui:
+	cd services/ui && yarn test:coverage
+
+COVER_E2E_KIND_CLUSTER ?= opendepot-coverage
+COVER_E2E_SERVICES := agent depot module provider server version
+MODULE_DIRS = $(patsubst ./%,%,$(GO_WORK_MODULES))
+
+## Build COVER=1 images and run the targeted e2e suites on an isolated Kind cluster (never the shared $(KIND_CLUSTER) cluster).
+## Images are pre-built under the :e2e-test tags and SKIP_IMAGE_BUILD=true keeps the suites from rebuilding them.
+## Binary coverage lands in GOCOVERDIR inside each controller pod; collect it into coverage/e2e/<svc>/ before teardown.
+## Delete the cluster when done: kind delete cluster --name $(COVER_E2E_KIND_CLUSTER)
+.PHONY: coverage-e2e
+# E2E_FOCUS is exported so it reaches the service Makefiles through the environment instead of being
+# spliced into this shell recipe; a focus containing quotes or $ can no longer break out of the command.
+export E2E_FOCUS
+coverage-e2e: check-go-work-modules
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t agent-controller:e2e-test \
+		-f $(agent-controller_PATH)/Dockerfile \
+		$(agent-controller_CONTEXT)
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t depot-controller:e2e-test \
+		-f $(depot-controller_PATH)/Dockerfile \
+		$(depot-controller_CONTEXT)
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t module-controller:e2e-test \
+		-f $(module-controller_PATH)/Dockerfile \
+		$(module-controller_CONTEXT)
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t provider-controller:e2e-test \
+		-f $(provider-controller_PATH)/Dockerfile \
+		$(provider-controller_CONTEXT)
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t server:e2e-test \
+		-f $(server_PATH)/Dockerfile \
+		$(server_CONTEXT)
+	docker build --platform $(PLATFORM) --build-arg COVER=1 \
+		-t version-controller:e2e-test \
+		-f $(version-controller_PATH)/Dockerfile \
+		$(version-controller_CONTEXT)
+	@rm -rf coverage/e2e
+	@for svc in $(COVER_E2E_SERVICES); do \
+	  echo "=== Running coverage e2e tests for $$svc ==="; \
+	  COVER=1 $(MAKE) -C services/$$svc test-e2e SKIP_IMAGE_BUILD=true KIND_CLUSTER=$(COVER_E2E_KIND_CLUSTER) KEEP_KIND=1 || exit 1; \
+	done
+
+## Convert binary coverage (coverage/e2e/<svc>/) to text and sum-merge it with the unit profiles into coverage/go/
+## Depends on coverage-go so the unit inputs are regenerated on every run and never summed twice.
+.PHONY: coverage-merge
+coverage-merge: coverage-go
+	@mkdir -p coverage/.merge
+	@for svc in $(COVER_E2E_SERVICES); do \
+	  if [ -n "$$(ls coverage/e2e/$$svc 2>/dev/null)" ]; then \
+	    go tool covdata textfmt -i=coverage/e2e/$$svc -o coverage/e2e/$$svc.txt || exit 1; \
+	  fi; \
+	done
+	@inputs=$$(ls coverage/go/*.out coverage/e2e/*.txt 2>/dev/null); \
+	awk -v mods="$(MODULE_DIRS)" -v outdir=coverage/.merge -f hack/merge-coverage.awk $$inputs || { rm -rf coverage/.merge; exit 1; }
+	@rm -f coverage/go/*.out && mv coverage/.merge/*.out coverage/go/ && rm -rf coverage/.merge
+
+## Run unit tests with coverage for all modules and the UI
+.PHONY: test
+test: coverage
 
 ## ─── OIDC Local Testing (Kind) ───────────────────────────────────────────────
 # Configurable defaults — override any of these on the command line.

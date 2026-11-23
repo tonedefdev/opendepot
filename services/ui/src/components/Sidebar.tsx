@@ -32,20 +32,35 @@ import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturi
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
 import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
+import TerminalOutlinedIcon from "@mui/icons-material/TerminalOutlined";
+import ExtensionOutlinedIcon from "@mui/icons-material/ExtensionOutlined";
+import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
+import ViewModuleOutlinedIcon from "@mui/icons-material/ViewModuleOutlined";
+import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import Link from "next/link";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import { TOGGLE_SIDEBAR_EVENT } from "@/components/MobileSidebarButton";
+import NeedsReviewDrawer, { OPEN_NEEDS_REVIEW_EVENT } from "@/components/NeedsReviewDrawer";
+import { BRAND_BLUE } from "@/lib/brand";
 import { useTheme, useColorScheme } from "@mui/material/styles";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 56;
 const SIDEBAR_COLLAPSED_COOKIE = "opendepot_sidebar_collapsed";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "opendepot.sidebar.collapsed";
+
+const REGISTRY_KIND_LINKS: { label: string; kind: string; icon: typeof GridViewIcon }[] = [
+  { label: "Agents", kind: "agent", icon: SmartToyOutlinedIcon },
+  { label: "Skills", kind: "skill", icon: ExtensionOutlinedIcon },
+  { label: "Modules", kind: "module", icon: ViewModuleOutlinedIcon },
+  { label: "Providers", kind: "provider", icon: CloudOutlinedIcon },
+];
 const SIDEBAR_PREFERENCE_MAX_AGE = 60 * 60 * 24 * 365;
 interface Namespace {
   name: string;
@@ -79,9 +94,10 @@ export default function Sidebar({
   const currentQ = searchParams.get("q") ?? "";
   const currentNs = searchParams.get("namespace") ?? "";
   const currentKind = searchParams.get("kind") ?? "";
-  const currentSort = searchParams.get("sort_by") ?? "name";
 
   const [searchValue, setSearchValue] = useState(currentQ);
+  const expandedDrawerRef = useRef<HTMLDivElement>(null);
+  const focusSearchOnExpand = useRef(false);
   const [namespaces, setNamespaces] = useState<Namespace[]>(initialNamespaces);
 
   // Dev token input state
@@ -97,7 +113,7 @@ export default function Sidebar({
   useEffect(() => {
     if (pathname !== "/") return;
     if (initialNamespaces.length > 0) return;
-    fetch(`/opendepot/ui/v1/namespaces`)
+    fetch(`/api/namespaces`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: { items: Namespace[] }) => {
         setNamespaces(data.items ?? []);
@@ -172,6 +188,7 @@ export default function Sidebar({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [needsReviewOpen, setNeedsReviewOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   useEffect(() => {
@@ -191,6 +208,12 @@ export default function Sidebar({
     return () => window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggleSidebar);
   }, []);
 
+  useEffect(() => {
+    const openDrawer = () => setNeedsReviewOpen(true);
+    window.addEventListener(OPEN_NEEDS_REVIEW_EVENT, openDrawer);
+    return () => window.removeEventListener(OPEN_NEEDS_REVIEW_EVENT, openDrawer);
+  }, []);
+
   const updateCollapsedPreference = useCallback((value: boolean) => {
     setCollapsed(value);
     document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${value}; path=/; max-age=${SIDEBAR_PREFERENCE_MAX_AGE}; samesite=lax`;
@@ -200,6 +223,26 @@ export default function Sidebar({
       // The in-memory state and cookie still preserve the preference when available.
     }
   }, []);
+
+  // The collapsed rail has no room for the search field, so its search button opens the sidebar on it.
+  const expandToSearch = () => {
+    focusSearchOnExpand.current = true;
+    updateCollapsedPreference(false);
+  };
+
+  // The drawer content also renders in the mobile drawer, so the field is looked up inside the desktop one.
+  useEffect(() => {
+    if (collapsed || !focusSearchOnExpand.current) return;
+    focusSearchOnExpand.current = false;
+    expandedDrawerRef.current?.querySelector<HTMLInputElement>("[data-sidebar-search]")?.focus();
+  }, [collapsed]);
+
+  const openNeedsReview = () => {
+    if (isMobile) {
+      setMobileOpen(false);
+    }
+    setNeedsReviewOpen(true);
+  };
 
   const collapseSidebar = () => {
     if (isMobile) {
@@ -227,9 +270,9 @@ export default function Sidebar({
   // the CSS variable's channel so it automatically follows whichever color
   // scheme (and therefore which brand hue leads primary) is active.
   const primaryTintChannel = theme.vars?.palette.primary.mainChannel;
-  const selectedBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.12)` : "rgba(4,207,208,0.12)";
-  const selectedHoverBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.18)` : "rgba(4,207,208,0.18)";
-  const hoverTintBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.1)` : "rgba(4,207,208,0.1)";
+  const selectedBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.12)` : "rgba(3,222,184,0.12)";
+  const selectedHoverBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.18)` : "rgba(3,222,184,0.18)";
+  const hoverTintBg = primaryTintChannel ? `rgba(${primaryTintChannel} / 0.1)` : "rgba(3,222,184,0.1)";
   const secondaryLightChannel = theme.vars?.palette.secondary.lightChannel;
   const secondaryTintBorder = secondaryLightChannel ? `rgba(${secondaryLightChannel} / 0.3)` : "rgba(3,222,184,0.3)";
 
@@ -246,6 +289,8 @@ export default function Sidebar({
       : (userInfo.email[0] ?? "").toUpperCase()
     : "";
 
+  // Light-mode logo treatments key off the data-mui-color-scheme attribute in CSS,
+  // not React state, so the first paint matches the final look without a swap.
   const drawerContent = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Logo + Branding */}
@@ -257,8 +302,9 @@ export default function Sidebar({
           px: 2,
           py: 1.75,
           minHeight: 57,
-          background: "linear-gradient(135deg, #047df1 0%, #03deb8 100%)",
-          borderBottom: "none",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          "[data-mui-color-scheme='light'] &": { bgcolor: BRAND_BLUE, borderBottomColor: BRAND_BLUE },
         }}
       >
         <Box
@@ -268,16 +314,28 @@ export default function Sidebar({
         >
           <Box
             component="img"
+            src="/img/opendepot_dark_mode.svg"
+            alt="OpenDepot"
+            sx={{ height: "1.75rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "none" } }}
+          />
+          <Box
+            component="img"
             src="/img/opendepot_white.svg"
             alt="OpenDepot"
-            sx={{ height: "1.75rem", width: "auto" }}
+            sx={{ display: "none", height: "1.75rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "block" } }}
           />
         </Box>
         <Tooltip title="Collapse sidebar" placement="right">
           <IconButton
             size="small"
             onClick={collapseSidebar}
-            sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, flexShrink: 0 }}
+            sx={{
+              color: "text.secondary",
+              "&:hover": { color: "text.primary" },
+              "[data-mui-color-scheme='light'] &": { color: "#FFFFFF" },
+              "[data-mui-color-scheme='light'] &:hover": { color: "#FFFFFF", bgcolor: "rgba(255,255,255,0.12)" },
+              flexShrink: 0,
+            }}
           >
             <ChevronLeftIcon sx={{ fontSize: 18 }} />
           </IconButton>
@@ -285,7 +343,7 @@ export default function Sidebar({
       </Box>
 
       {/* Search */}
-      <Box sx={{ px: 1.5, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ px: 1.5, py: 1.5 }}>
         <Box
           component="form"
           onSubmit={handleSearchSubmit}
@@ -307,6 +365,7 @@ export default function Sidebar({
         >
           <SearchIcon sx={{ fontSize: 16, color: "text.secondary", flexShrink: 0 }} />
           <InputBase
+            inputProps={{ "data-sidebar-search": "" }}
             placeholder="Search resources…"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
@@ -328,20 +387,12 @@ export default function Sidebar({
       {/* Navigation */}
       <Box sx={{ overflowY: "auto", flex: 1 }}>
         {/* Pages */}
-        <Box sx={{ px: 2, pt: 2, pb: 1 }}>
-          <Typography
-            variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-          >
-            Navigation
-          </Typography>
-        </Box>
-        <List dense disablePadding>
+        <List dense disablePadding sx={{ pt: 1 }}>
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
               href="/"
-              selected={isOnHome}
+              selected={isOnHome && !currentKind}
               sx={{
                 mx: 1,
                 borderRadius: "6px",
@@ -353,10 +404,37 @@ export default function Sidebar({
               <GridViewIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
               <ListItemText
                 primary="Registry"
-                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: isOnHome ? 600 : 400 }}
+                primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: isOnHome && !currentKind ? 600 : 400 }}
               />
             </ListItemButton>
           </ListItem>
+          {REGISTRY_KIND_LINKS.map((item) => {
+            const Icon = item.icon;
+            const selected = isOnHome && currentKind === item.kind;
+            return (
+              <ListItem key={item.kind} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href={`/?kind=${item.kind}`}
+                  selected={selected}
+                  sx={{
+                    mx: 1,
+                    ml: 3,
+                    borderRadius: "6px",
+                    py: 0.5,
+                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                    "&.Mui-selected:hover": { background: selectedHoverBg },
+                  }}
+                >
+                  <Icon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary={item.label}
+                    primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: selected ? 600 : 400 }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
           <ListItem disablePadding>
             <ListItemButton
               component={Link}
@@ -418,35 +496,71 @@ export default function Sidebar({
             </ListItemButton>
           </ListItem>
           {securityPoliciesEnabled && (
-            <ListItem disablePadding>
-              <ListItemButton
-                component={Link}
-                href="/security-policies"
-                selected={pathname.startsWith("/security-policies")}
-                sx={{
-                  mx: 1,
-                  borderRadius: "6px",
-                  py: 0.5,
-                  "&.Mui-selected": { background: selectedBg, color: "primary.main" },
-                  "&.Mui-selected:hover": { background: selectedHoverBg },
-                }}
-              >
-                <PolicyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
-                <ListItemText
-                  primary="Security Policies"
-                  primaryTypographyProps={{
-                    fontSize: "0.8125rem",
-                    fontWeight: pathname.startsWith("/security-policies") ? 600 : 400,
+            <>
+              <ListItem disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href="/security-policies"
+                  selected={pathname.startsWith("/security-policies")}
+                  sx={{
+                    mx: 1,
+                    borderRadius: "6px",
+                    py: 0.5,
+                    "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                    "&.Mui-selected:hover": { background: selectedHoverBg },
                   }}
-                />
-              </ListItemButton>
-            </ListItem>
+                >
+                  <PolicyOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary="Security Policies"
+                    primaryTypographyProps={{
+                      fontSize: "0.8125rem",
+                      fontWeight: pathname.startsWith("/security-policies") ? 600 : 400,
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={openNeedsReview}
+                  sx={{
+                    mx: 1,
+                    ml: 3,
+                    borderRadius: "6px",
+                    py: 0.5,
+                  }}
+                >
+                  <RateReviewOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+                  <ListItemText
+                    primary="Needs review"
+                    primaryTypographyProps={{ fontSize: "0.8125rem" }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            </>
           )}
           <Divider sx={{ mx: 2, my: 1 }} />
           <ListItem disablePadding>
             <ListItemButton
+              component={Link}
+              href="/cli"
+              selected={pathname.startsWith("/cli")}
+              sx={{
+                mx: 1,
+                borderRadius: "6px",
+                py: 0.5,
+                "&.Mui-selected": { background: selectedBg, color: "primary.main" },
+                "&.Mui-selected:hover": { background: selectedHoverBg },
+              }}
+            >
+              <TerminalOutlinedIcon sx={{ fontSize: 16, mr: 1, opacity: 0.8 }} />
+              <ListItemText primary="Download CLI" primaryTypographyProps={{ fontSize: "0.8125rem" }} />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton
               component="a"
-              href="https://tonedefdev.github.io/opendepot"
+              href="/docs"
               target="_blank"
               rel="noopener noreferrer"
               sx={{ mx: 1, borderRadius: "6px", py: 0.5 }}
@@ -469,92 +583,14 @@ export default function Sidebar({
           </ListItem>
         </List>
 
-        {isOnHome && (
-          <>
-            <Divider sx={{ mx: 2, my: 1 }} />
-
-            {/* Kind filter */}
-            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-              <Typography
-                variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-              >
-                Kind
-              </Typography>
-            </Box>
-            <Box sx={{ px: 1.5, pb: 1, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-              {[
-                { label: "All", value: "" },
-                { label: "Module", value: "module" },
-                { label: "Provider", value: "provider" },
-              ].map((opt) => (
-                <Chip
-                  key={opt.value || "all"}
-                  label={opt.label}
-                  size="small"
-                  variant={currentKind === opt.value ? "filled" : "outlined"}
-                  color={currentKind === opt.value ? "primary" : "default"}
-                  onClick={() => navigate({ kind: opt.value })}
-                  sx={{ cursor: "pointer" }}
-                />
-              ))}
-            </Box>
-
-            <Divider sx={{ mx: 2, my: 1 }} />
-
-            {/* Sort */}
-            <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-              <Typography
-                variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
-              >
-                Sort by
-              </Typography>
-            </Box>
-            <List dense disablePadding>
-              {[
-                { label: "Name", value: "name" },
-                { label: "Namespace", value: "namespace" },
-                { label: "Latest Version", value: "latest_version" },
-                { label: "Last Scanned", value: "last_scanned" },
-              ].map((opt) => (
-                <ListItem key={opt.value} disablePadding>
-                  <ListItemButton
-                    selected={currentSort === opt.value}
-                    onClick={() => navigate({ sort_by: opt.value })}
-                    sx={{
-                      mx: 1,
-                      borderRadius: "6px",
-                      py: 0.5,
-                      "&.Mui-selected": {
-                        background: selectedBg,
-                        color: "primary.main",
-                      },
-                      "&.Mui-selected:hover": {
-                        background: selectedHoverBg,
-                      },
-                    }}
-                  >
-                    <ListItemText
-                      primary={opt.label}
-                      primaryTypographyProps={{ fontSize: "0.8125rem", fontWeight: currentSort === opt.value ? 600 : 400 }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-            </List>
-
-            <Divider sx={{ mx: 2, my: 1 }} />
-          </>
-        )}
-
         {/* Namespace filter */}
         {namespaces.length > 0 && (
           <>
+            <Divider sx={{ mx: 2, my: 1 }} />
             <Box sx={{ px: 2, pt: 1, pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Typography
                 variant="caption"
-                sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+                sx={{ color: "text.secondary", fontWeight: 600 }}
               >
                 Namespace
               </Typography>
@@ -589,7 +625,7 @@ export default function Sidebar({
                       primary={ns.name}
                       primaryTypographyProps={{
                         fontSize: "0.8125rem",
-                        fontFamily: "monospace",
+                        fontFamily: "var(--od-font-mono)",
                         fontWeight: currentNs === ns.name ? 600 : 400,
                         noWrap: true,
                       }}
@@ -627,7 +663,7 @@ export default function Sidebar({
         <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Typography
             variant="caption"
-            sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600 }}
+            sx={{ color: "text.secondary", fontWeight: 600 }}
           >
             Appearance
           </Typography>
@@ -638,7 +674,8 @@ export default function Sidebar({
               size="small"
               sx={{ color: "text.secondary", "&:hover": { bgcolor: hoverTintBg, color: "primary.main" } }}
             >
-              {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 16 }} /> : <DarkModeIcon sx={{ fontSize: 16 }} />)}
+              <DarkModeIcon sx={{ fontSize: 16, "[data-mui-color-scheme='dark'] &": { display: "none" } }} />
+              <LightModeIcon sx={{ fontSize: 16, display: "none", "[data-mui-color-scheme='dark'] &": { display: "block" } }} />
             </IconButton>
           </Tooltip>
         </Box>
@@ -648,7 +685,7 @@ export default function Sidebar({
           <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
             <Typography
               variant="caption"
-              sx={{ textTransform: "uppercase", letterSpacing: "0.08em", color: "text.secondary", fontWeight: 600, display: "block", mb: 0.75 }}
+              sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.75 }}
             >
               Dev Token
             </Typography>
@@ -747,31 +784,80 @@ export default function Sidebar({
         <IconButton
           onClick={() => updateCollapsedPreference(false)}
           aria-label="Expand sidebar"
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: 57, mb: "-5px", p: 0, borderRadius: 0, flexShrink: 0, "&:hover": { opacity: 0.85, bgcolor: hoverTintBg } }}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            height: 57,
+            mb: "-5px",
+            p: 0,
+            borderRadius: 0,
+            flexShrink: 0,
+            "&:hover": { opacity: 0.85, bgcolor: hoverTintBg },
+            "[data-mui-color-scheme='light'] &": { bgcolor: BRAND_BLUE },
+            "[data-mui-color-scheme='light'] &:hover": { bgcolor: BRAND_BLUE },
+          }}
         >
           <Box
             component="img"
             src="/img/opendepot_icon.svg"
             alt="OpenDepot"
-            sx={{ height: "1.25rem", width: "auto" }}
+            sx={{ height: "1.25rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "none" } }}
+          />
+          <Box
+            component="img"
+            src="/img/opendepot_icon_white.svg"
+            alt="OpenDepot"
+            sx={{ display: "none", height: "1.25rem", width: "auto", "[data-mui-color-scheme='light'] &": { display: "block" } }}
           />
         </IconButton>
       </Tooltip>
       <Divider sx={{ width: "80%", mb: 0.5 }} />
+      <Tooltip title="Search" placement="right">
+        <IconButton
+          onClick={expandToSearch}
+          aria-label="Search resources"
+          sx={{ color: "text.secondary", borderRadius: "6px", "&:hover": { bgcolor: hoverTintBg } }}
+        >
+          <SearchIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Registry" placement="right">
         <IconButton
           component={Link}
           href="/"
           sx={{
-            color: isOnHome ? "primary.main" : "text.secondary",
+            color: isOnHome && !currentKind ? "primary.main" : "text.secondary",
             borderRadius: "6px",
-            bgcolor: isOnHome ? selectedBg : "transparent",
+            bgcolor: isOnHome && !currentKind ? selectedBg : "transparent",
             "&:hover": { bgcolor: hoverTintBg },
           }}
         >
           <GridViewIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Tooltip>
+      {REGISTRY_KIND_LINKS.map((item) => {
+        const Icon = item.icon;
+        const selected = isOnHome && currentKind === item.kind;
+        return (
+          <Tooltip key={item.kind} title={item.label} placement="right">
+            <IconButton
+              component={Link}
+              href={`/?kind=${item.kind}`}
+              aria-label={item.label}
+              sx={{
+                color: selected ? "primary.main" : "text.secondary",
+                borderRadius: "6px",
+                bgcolor: selected ? selectedBg : "transparent",
+                "&:hover": { bgcolor: hoverTintBg },
+              }}
+            >
+              <Icon sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Tooltip>
+        );
+      })}
       <Tooltip title="Assembly Line" placement="right">
         <IconButton
           component={Link}
@@ -831,11 +917,42 @@ export default function Sidebar({
           </IconButton>
         </Tooltip>
       )}
+      {securityPoliciesEnabled && (
+        <Tooltip title="Needs review" placement="right">
+          <IconButton
+            onClick={openNeedsReview}
+            aria-label="Needs review"
+            sx={{
+              color: needsReviewOpen ? "primary.main" : "text.secondary",
+              borderRadius: "6px",
+              bgcolor: needsReviewOpen ? selectedBg : "transparent",
+              "&:hover": { bgcolor: hoverTintBg },
+            }}
+          >
+            <RateReviewOutlinedIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Divider sx={{ width: "80%", my: 0.5 }} />
+      <Tooltip title="Download CLI" placement="right">
+        <IconButton
+          component={Link}
+          href="/cli"
+          aria-label="Download CLI"
+          sx={{
+            color: pathname.startsWith("/cli") ? "primary.main" : "text.secondary",
+            borderRadius: "6px",
+            bgcolor: pathname.startsWith("/cli") ? selectedBg : "transparent",
+            "&:hover": { bgcolor: hoverTintBg },
+          }}
+        >
+          <TerminalOutlinedIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Documentation" placement="right">
         <IconButton
           component="a"
-          href="https://tonedefdev.github.io/opendepot"
+          href="/docs"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Open documentation"
@@ -865,14 +982,21 @@ export default function Sidebar({
           size="small"
           sx={{ color: "text.secondary", mb: 0.5, "&:hover": { bgcolor: hoverTintBg } }}
         >
-          {colorModeMounted && (resolvedMode === "dark" ? <LightModeIcon sx={{ fontSize: 18 }} /> : <DarkModeIcon sx={{ fontSize: 18 }} />)}
+          <DarkModeIcon sx={{ fontSize: 18, "[data-mui-color-scheme='dark'] &": { display: "none" } }} />
+          <LightModeIcon sx={{ fontSize: 18, display: "none", "[data-mui-color-scheme='dark'] &": { display: "block" } }} />
         </IconButton>
       </Tooltip>
       {userInfo ? (
         <Tooltip title={userInfo.name ?? userInfo.email} placement="right">
-          <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
-            {avatarInitials}
-          </Avatar>
+          <IconButton
+            onClick={() => updateCollapsedPreference(false)}
+            aria-label="Expand sidebar to view account"
+            sx={{ p: 0, borderRadius: "50%", "&:hover": { opacity: 0.85 } }}
+          >
+            <Avatar sx={{ width: 28, height: 28, fontSize: "0.7rem", bgcolor: "primary.main" }}>
+              {avatarInitials}
+            </Avatar>
+          </IconButton>
         </Tooltip>
       ) : (
         <Tooltip title="Sign in" placement="right">
@@ -888,6 +1012,7 @@ export default function Sidebar({
 
   return (
     <>
+      <NeedsReviewDrawer open={needsReviewOpen} onClose={() => setNeedsReviewOpen(false)} />
       {/* Temporary drawer for mobile */}
       <Drawer
         variant="temporary"
@@ -920,6 +1045,7 @@ export default function Sidebar({
       >
         <Box sx={{ position: "relative", height: "100%" }}>
           <Box
+            ref={expandedDrawerRef}
             aria-hidden={collapsed}
             sx={{
               position: "absolute",

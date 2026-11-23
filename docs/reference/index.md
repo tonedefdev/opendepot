@@ -7,7 +7,7 @@ tags:
 
 # Reference
 
-Technical reference documentation for OpenDepot APIs and version constraint syntax.
+Technical reference documentation for OpenDepot APIs, the `opendepot` CLI, and version constraint syntax.
 
 <div class="grid cards" markdown>
 
@@ -15,7 +15,13 @@ Technical reference documentation for OpenDepot APIs and version constraint synt
 
     ---
 
-    HTTP endpoints (service discovery, OIDC auth flows, module and provider download), authentication modes, Kubernetes custom resource types (`Module`, `Provider`, `Version`, `Depot`, `GroupBinding`), and scan result types.
+    HTTP endpoints (service discovery, OIDC auth flows, module, provider, Skill, and Agent download), authentication modes, Kubernetes custom resource types (`Module`, `Provider`, `Skill`, `Agent`, `Version`, `Depot`, `GroupBinding`), and scan result types.
+
+- :material-console: &nbsp;[__CLI Reference__](cli.md)
+
+    ---
+
+    The `opendepot` CLI for installing, verifying, and listing Skills and Agents from a registry.
 
 - :material-tag-multiple: &nbsp;[__Version Constraints__](version-constraints.md)
 

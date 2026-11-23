@@ -8,7 +8,107 @@ import opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 type ServiceDiscoveryResponse struct {
 	ModulesURL   string       `json:"modules.v1"`
 	ProvidersURL string       `json:"providers.v1"`
+	AgentsURL    string       `json:"agents.v1"`
 	LoginV1      *LoginV1Info `json:"login.v1,omitempty"`
+}
+
+// AgentVersionsResponse is the JSON body returned by the agents.v1 versions endpoint.
+type AgentVersionsResponse struct {
+	Versions []AgentVersionSummary `json:"versions"`
+	// UnavailableCandidates lists candidates that cannot be installed. It is omitted when empty,
+	// and servers that predate it never send it, so clients must treat a missing field as "not reported".
+	UnavailableCandidates []AgentUnavailableCandidate `json:"unavailableCandidates,omitempty"`
+}
+
+// AgentVersionSummary describes a single Skill or Agent Version. Yanked Versions stay listed
+// and are skipped by version constraint resolution on the client. Blocked Versions stay listed
+// with their Jev block reasons but are never served by the download endpoint.
+type AgentVersionSummary struct {
+	Version      string   `json:"version"`
+	Yanked       bool     `json:"yanked"`
+	Blocked      bool     `json:"blocked"`
+	BlockReasons []string `json:"blockReasons,omitempty"`
+}
+
+// AgentAvailabilityStatus is the availability category of a Skill or Agent candidate or catalog resource.
+//   - Available: a catalog resource whose latest installable Version can be downloaded. Never used on a candidate.
+//   - Blocked: Jev blocked a versioned candidate. The Version string is set.
+//   - Rejected: a terminal decision, such as a branch lifecycle rejection or a non-Jev rejection. The candidate may be unversioned.
+//   - Pending: an ordinary in-progress state, such as an unsynced or unassigned branch. It is not a rejection and may become installable.
+//   - AssessmentFailed: the candidate could not be synced or assessed for a reason other than a Jev block decision.
+type AgentAvailabilityStatus string
+
+const (
+	AgentAvailabilityAvailable        AgentAvailabilityStatus = "available"
+	AgentAvailabilityBlocked          AgentAvailabilityStatus = "blocked"
+	AgentAvailabilityRejected         AgentAvailabilityStatus = "rejected"
+	AgentAvailabilityPending          AgentAvailabilityStatus = "pending"
+	AgentAvailabilityAssessmentFailed AgentAvailabilityStatus = "assessmentFailed"
+)
+
+// AgentUnavailableCandidate describes a Skill or Agent candidate that cannot be installed. It explains
+// why a newer candidate is missing. It never makes an artifact downloadable, and the download endpoint
+// keeps refusing it.
+//
+// Safe to expose: the status, the Version or commit identifier, and the sanitized Reasons, which are
+// Jev block reasons or branch lifecycle reasons. Never expose artifact URLs, archive content, credentials,
+// or raw Kubernetes or internal errors.
+type AgentUnavailableCandidate struct {
+	// Version is the semantic version of a versioned candidate. It is empty for an unversioned branch candidate.
+	Version string `json:"version,omitempty"`
+	// Commit is the full commit SHA of an unversioned branch candidate. It is empty when Version is set.
+	Commit string `json:"commit,omitempty"`
+	// Status is the availability category of this candidate. It is never Available.
+	Status AgentAvailabilityStatus `json:"status"`
+	// Reasons are short, sanitized diagnostic strings that explain the status.
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+// AgentCatalogResponse is the JSON body returned by the paginated agents.v1 catalog endpoint.
+// It lists only the Skill and Agent resources that the caller can see.
+type AgentCatalogResponse struct {
+	Items      []AgentCatalogItem `json:"items"`
+	TotalCount int                `json:"totalCount"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"pageSize"`
+}
+
+// AgentCatalogItem summarizes one visible Skill or Agent resource for listing.
+//
+// Status is Blocked or Rejected when the newest unavailable candidate has that status, even when an older
+// version is still installable. Otherwise it is Available when LatestVersion is installable, and it is the
+// newest candidate's status when nothing is installable. LatestVersion is the latest installable Version.
+// RiskLevel and RiskScore describe LatestVersion only and never a blocked or rejected candidate. When they
+// are omitted, the assessment is unknown, not safe.
+//
+// Description is the author-declared frontmatter description of LatestVersion. It is untrusted text and is
+// omitted when LatestVersion is omitted or has no description.
+type AgentCatalogItem struct {
+	Kind                 string                     `json:"kind"`
+	Namespace            string                     `json:"namespace"`
+	Name                 string                     `json:"name"`
+	Status               AgentAvailabilityStatus    `json:"status"`
+	LatestVersion        string                     `json:"latestVersion,omitempty"`
+	RiskLevel            string                     `json:"riskLevel,omitempty"`
+	RiskScore            *float64                   `json:"riskScore,omitempty"`
+	UnavailableCandidate *AgentUnavailableCandidate `json:"unavailableCandidate,omitempty"`
+	Description          string                     `json:"description,omitempty"`
+}
+
+// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.
+type AgentDownloadResponse struct {
+	Protocols           []string                         `json:"protocols"`
+	Kind                string                           `json:"kind"`
+	Name                string                           `json:"name"`
+	Version             string                           `json:"version"`
+	Yanked              bool                             `json:"yanked"`
+	Filename            string                           `json:"filename"`
+	DownloadURL         string                           `json:"download_url"`
+	Shasum              string                           `json:"shasum"`
+	ShasumsURL          string                           `json:"shasums_url"`
+	ShasumsSignatureURL string                           `json:"shasums_signature_url"`
+	SigningKeys         *ProviderSigningKeys             `json:"signing_keys"`
+	Assessment          *opendepotv1alpha1.JevAssessment `json:"assessment,omitempty"`
 }
 
 // LoginV1Info carries the OIDC authorization endpoints advertised to tofu CLI
@@ -126,6 +226,16 @@ type BrowseResource struct {
 	// Module-specific fields.
 	Provider string `json:"provider,omitempty"`
 	RepoURL  string `json:"repoUrl,omitempty"`
+	// Skill and Agent source fields. SourceRef is only set when the source tracks a branch.
+	SourceRef    string `json:"sourceRef,omitempty"`
+	SourceCommit string `json:"sourceCommit,omitempty"`
+	SourcePath   string `json:"sourcePath,omitempty"`
+	// JevRiskLevel is the Jev risk level of the latest Skill or Agent Version, when it has been assessed.
+	JevRiskLevel string `json:"jevRiskLevel,omitempty"`
+	// Blocked reports that Jev blocked the latest Skill or Agent Version, so the card shows a "Blocked by Jev" status.
+	Blocked bool `json:"blocked,omitempty"`
+	// BlockReasons explains why Jev blocked the latest Skill or Agent Version.
+	BlockReasons []string `json:"blockReasons,omitempty"`
 	// Provider-specific fields.
 	ProviderNamespace string             `json:"providerNamespace,omitempty"`
 	UpstreamRegistry  string             `json:"upstreamRegistry,omitempty"`
@@ -138,6 +248,9 @@ type BrowseResource struct {
 	// Download stats (populated from Prometheus over the configured lookback).
 	TotalDownloads   int64  `json:"totalDownloads,omitempty"`
 	LastDownloadedAt string `json:"lastDownloadedAt,omitempty"`
+	// LastUpdated is the RFC 3339 UTC creation time of the newest Version, or of the resource itself when it has
+	// no Versions. It is omitted when unknown.
+	LastUpdated string `json:"lastUpdated,omitempty"`
 }
 
 // BrowseResourceList is the JSON body returned by the browse resources list endpoint.
@@ -183,6 +296,15 @@ type BrowseVersionSummary struct {
 	SchemaMessage string `json:"schemaMessage,omitempty"`
 	// SchemaAttemptedAt is the RFC3339 timestamp of the most recent extraction attempt.
 	SchemaAttemptedAt string `json:"schemaAttemptedAt,omitempty"`
+	// Commit is the full commit SHA downloaded for this branch Version.
+	Commit string `json:"commit,omitempty"`
+	// BranchPhase is the lifecycle phase of this branch Version. Only set for branch Versions.
+	BranchPhase string `json:"branchPhase,omitempty"`
+	// Blocked is true for a branch Version that Jev blocked or the branch lifecycle rejected
+	// before a version was assigned. Such a Version has no Version string and is never served.
+	Blocked bool `json:"blocked,omitempty"`
+	// BlockReasons explains why the Version was blocked. Only set when Blocked is true.
+	BlockReasons []string `json:"blockReasons,omitempty"`
 }
 
 // BrowseVersionList is the paginated response for the version listing endpoint.
@@ -256,6 +378,23 @@ type BrowseResourceDetail struct {
 	// ReadmeContent is the decoded (plain markdown) README.md content for the module's
 	// latest version, if one could be resolved. Only populated for module resources.
 	ReadmeContent *string `json:"readmeContent,omitempty"`
+	// DefinitionContent is the decoded definition file of the latest Version. Only populated for skill and agent resources.
+	DefinitionContent *string `json:"definitionContent,omitempty"`
+	// DefinitionFileName is the file name of the definition, such as SKILL.md or AGENT.md.
+	DefinitionFileName string `json:"definitionFileName,omitempty"`
+	// AgentMetadata is the frontmatter of the latest Version. Only populated for skill and agent resources.
+	AgentMetadata *opendepotv1alpha1.AgentMetadata `json:"agentMetadata,omitempty"`
+	// JevAssessment is the TypeSafe Jev assessment of the latest Version, when Jev ran for it.
+	// Only populated for skill and agent resources.
+	JevAssessment *opendepotv1alpha1.JevAssessment `json:"jevAssessment,omitempty"`
+	// JevExemptionGovernance reports which ScanPolicy governs the Version of JevAssessment and how its jevExemptions
+	// match. The policy names are omitted for OIDC callers, which browse cannot authorize against ScanPolicies.
+	JevExemptionGovernance *opendepotv1alpha1.JevExemptionGovernance `json:"jevExemptionGovernance,omitempty"`
+	// JevUnblock is the server-computed unblock state of the latest Version. The policy names are omitted for OIDC
+	// callers, and NamesHidden is set. The state is computed before the names are withheld.
+	JevUnblock *opendepotv1alpha1.JevUnblock `json:"jevUnblock,omitempty"`
+	// JevThresholds are the JevPolicy thresholds configured on the skill or agent, when set.
+	JevThresholds *opendepotv1alpha1.JevPolicy `json:"jevThresholds,omitempty"`
 }
 
 // BrowseScanFindings is the JSON body returned by the scan-findings endpoint.
@@ -284,6 +423,8 @@ type BrowseGraphDepot struct {
 	PollingIntervalMinutes *int     `json:"pollingIntervalMinutes,omitempty"`
 	ManagedModuleNames     []string `json:"managedModuleNames,omitempty"`
 	ManagedProviderNames   []string `json:"managedProviderNames,omitempty"`
+	ManagedSkillNames      []string `json:"managedSkillNames,omitempty"`
+	ManagedAgentNames      []string `json:"managedAgentNames,omitempty"`
 }
 
 // BrowseGraphModule is a module node in the depots relationship graph.
@@ -310,6 +451,18 @@ type BrowseGraphProvider struct {
 	Synced            bool   `json:"synced"`
 }
 
+// BrowseGraphAgent is a skill or agent node in the depots relationship graph.
+// Kind is "skill" or "agent".
+type BrowseGraphAgent struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Namespace     string `json:"namespace"`
+	Name          string `json:"name"`
+	Synced        bool   `json:"synced"`
+	SyncStatus    string `json:"syncStatus,omitempty"`
+	LatestVersion string `json:"latestVersion,omitempty"`
+}
+
 // BrowseGraphEdge is a directed edge in the depots relationship graph.
 // Source and Target are node IDs.
 type BrowseGraphEdge struct {
@@ -323,6 +476,8 @@ type BrowseGraphSummary struct {
 	TotalDepots    int `json:"totalDepots"`
 	TotalModules   int `json:"totalModules"`
 	TotalProviders int `json:"totalProviders"`
+	TotalSkills    int `json:"totalSkills"`
+	TotalAgents    int `json:"totalAgents"`
 }
 
 // BrowseDepotGraph is the full graph payload for the depot relationship view.
@@ -330,6 +485,8 @@ type BrowseDepotGraph struct {
 	Depots      []BrowseGraphDepot    `json:"depots"`
 	Modules     []BrowseGraphModule   `json:"modules"`
 	Providers   []BrowseGraphProvider `json:"providers"`
+	Skills      []BrowseGraphAgent    `json:"skills"`
+	Agents      []BrowseGraphAgent    `json:"agents"`
 	Edges       []BrowseGraphEdge     `json:"edges"`
 	Summary     BrowseGraphSummary    `json:"summary"`
 	GeneratedAt string                `json:"generatedAt"`
@@ -338,15 +495,54 @@ type BrowseDepotGraph struct {
 // BrowseStats is the aggregate stats payload returned by the stats endpoint.
 type BrowseStats struct {
 	TotalModules        int                  `json:"totalModules"`
+	ModulesSynced       int                  `json:"modulesSynced"`
 	TotalProviders      int                  `json:"totalProviders"`
+	ProvidersSynced     int                  `json:"providersSynced"`
+	TotalSkills         int                  `json:"totalSkills"`
+	SkillsSynced        int                  `json:"skillsSynced"`
+	TotalAgents         int                  `json:"totalAgents"`
+	AgentsSynced        int                  `json:"agentsSynced"`
 	TotalVersions       int                  `json:"totalVersions"`
+	VersionsSynced      int                  `json:"versionsSynced"`
 	TotalStorageBytes   int64                `json:"totalStorageBytes"`
 	TotalDownloads      int64                `json:"totalDownloads"`
 	DownloadWindow      string               `json:"downloadWindow"`
 	SyncHealth          SyncHealthStats      `json:"syncHealth"`
 	SecurityPosture     SecurityPostureStats `json:"securityPosture"`
+	Jev                 JevStats             `json:"jev"`
 	StorageDistribution []StorageBackendStat `json:"storageDistribution"`
-	MostDownloaded      []PopularResource    `json:"mostDownloaded"`
+	MostDownloaded      MostDownloadedStats  `json:"mostDownloaded"`
+}
+
+// JevStats aggregates the Jev assessments recorded on visible Versions. AssessedVersions counts Versions
+// that have a jevAssessment. InputTokens sums across every assessed Version, including failed and blocked
+// ones, because Jev bills every call that returns usage.
+type JevStats struct {
+	AssessedVersions    int               `json:"assessedVersions"`
+	BlockedVersions     int               `json:"blockedVersions"`
+	NeedsReviewVersions int               `json:"needsReviewVersions"`
+	ExemptedVersions    int               `json:"exemptedVersions"`
+	FailedVersions      int               `json:"failedVersions"`
+	AssessedChunks      int64             `json:"assessedChunks"`
+	InputTokens         int64             `json:"inputTokens"`
+	RiskLevels          JevRiskLevelStats `json:"riskLevels"`
+}
+
+// JevRiskLevelStats counts assessed Versions that Jev scored, by the overall risk level it assigned.
+type JevRiskLevelStats struct {
+	Minimal  int `json:"minimal"`
+	Low      int `json:"low"`
+	Moderate int `json:"moderate"`
+	High     int `json:"high"`
+	Critical int `json:"critical"`
+}
+
+// MostDownloadedStats ranks the most downloaded resources separately for each kind.
+type MostDownloadedStats struct {
+	Modules   []PopularResource `json:"modules"`
+	Providers []PopularResource `json:"providers"`
+	Skills    []PopularResource `json:"skills"`
+	Agents    []PopularResource `json:"agents"`
 }
 
 // SyncHealthStats breaks down version sync health.

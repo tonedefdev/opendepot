@@ -5,13 +5,12 @@ import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Autocomplete from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
-import DepotGraph from "@/components/DepotGraph";
+import DepotGraph, { agentVersionItems, type AgentVersionMeta } from "@/components/DepotGraph";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
 import type { BrowseDepotGraph, BrowseStorageConfig } from "@/lib/api";
+import { kindChipSx } from "./chipStyles";
+import { kindColor } from "@/lib/kindColors";
 
-const DEPOT_COLOR = "#04cfd0";
-const MODULE_COLOR = "#03deb8";
-const PROVIDER_COLOR = "#047df1";
-const VERSION_COLOR = "#8b949e";
 
 type DepotOption = {
 	id: string;
@@ -26,13 +25,14 @@ interface DepotsGraphClientProps {
 	providerVersionMetaByKey: Record<string, Array<{ version: string; name?: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
 	moduleVersionMetaByKey: Record<string, Array<{ version: string; fileName?: string; checksum?: string; lastScanned?: string }>>;
 	moduleDetailByKey: Record<string, { storageConfig?: BrowseStorageConfig; githubAuthenticated?: boolean }>;
+	agentVersionMetaByKey?: Record<string, AgentVersionMeta[]>;
 }
 
 function makeDepotKey(namespace: string, name: string): string {
 	return `${namespace}/${name}`;
 }
 
-export default function DepotsGraphClient({ graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey = {}, moduleVersionMetaByKey, moduleDetailByKey }: DepotsGraphClientProps) {
+export default function DepotsGraphClient({ graph, moduleVersionsByKey, providerVersionsByKey, providerVersionMetaByKey = {}, moduleVersionMetaByKey, moduleDetailByKey, agentVersionMetaByKey = {} }: DepotsGraphClientProps) {
 	const depotOptions = React.useMemo<DepotOption[]>(
 		() =>
 			graph.depots.map((depot) => ({
@@ -60,6 +60,8 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 
 		const moduleKeySet = new Set<string>();
 		const providerKeySet = new Set<string>();
+		const skillKeySet = new Set<string>();
+		const agentKeySet = new Set<string>();
 		const moduleIdSet = new Set<string>();
 		const providerIdSet = new Set<string>();
 
@@ -70,6 +72,12 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 			(depot.managedProviderNames ?? []).forEach((name) => {
 				providerKeySet.add(makeDepotKey(depot.namespace, name));
 			});
+			(depot.managedSkillNames ?? []).forEach((name) => {
+				skillKeySet.add(makeDepotKey(depot.namespace, name));
+			});
+			(depot.managedAgentNames ?? []).forEach((name) => {
+				agentKeySet.add(makeDepotKey(depot.namespace, name));
+			});
 		});
 
 		const selectedDepotIds = new Set(depots.map((depot) => depot.id));
@@ -78,9 +86,9 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 				return;
 			}
 
-			const module = graph.modules.find((item) => item.id === edge.source || item.id === edge.target);
-			if (module) {
-				moduleIdSet.add(module.id);
+			const graphModule = graph.modules.find((item) => item.id === edge.source || item.id === edge.target);
+			if (graphModule) {
+				moduleIdSet.add(graphModule.id);
 			}
 
 			const provider = graph.providers.find((item) => item.id === edge.source || item.id === edge.target);
@@ -99,10 +107,15 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 			return providerKeySet.has(providerKey) || providerIdSet.has(provider.id);
 		});
 
+		const skills = graph.skills.filter((skill) => skillKeySet.has(makeDepotKey(skill.namespace, skill.name)));
+		const agents = graph.agents.filter((agent) => agentKeySet.has(makeDepotKey(agent.namespace, agent.name)));
+
 		const allowedNodeIds = new Set<string>([
 			...depots.map((depot) => depot.id),
 			...modules.map((module) => module.id),
 			...providers.map((provider) => provider.id),
+			...skills.map((skill) => skill.id),
+			...agents.map((agent) => agent.id),
 		]);
 
 		const edges = graph.edges.filter(
@@ -114,11 +127,15 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 			depots,
 			modules,
 			providers,
+			skills,
+			agents,
 			edges,
 			summary: {
 				totalDepots: depots.length,
 				totalModules: modules.length,
 				totalProviders: providers.length,
+				totalSkills: skills.length,
+				totalAgents: agents.length,
 			},
 		};
 	}, [graph, selectedDepotKeys]);
@@ -144,8 +161,13 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 			return sum + new Set(versions.filter(Boolean)).size;
 		}, 0);
 
-		return moduleVersionTotal + providerVersionTotal;
-	}, [filteredGraph.modules, filteredGraph.providers, moduleVersionMetaByKey, moduleVersionsByKey, providerVersionMetaByKey, providerVersionsByKey]);
+		const agentVersionTotal = [
+			...filteredGraph.skills.map((skill) => ({ item: skill, kind: "skill" as const })),
+			...filteredGraph.agents.map((agent) => ({ item: agent, kind: "agent" as const })),
+		].reduce((sum, { item, kind }) => sum + agentVersionItems(kind, item, agentVersionMetaByKey).length, 0);
+
+		return moduleVersionTotal + providerVersionTotal + agentVersionTotal;
+	}, [filteredGraph.agents, filteredGraph.modules, filteredGraph.providers, filteredGraph.skills, agentVersionMetaByKey, moduleVersionMetaByKey, moduleVersionsByKey, providerVersionMetaByKey, providerVersionsByKey]);
 
 	return (
 		<>
@@ -182,46 +204,22 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 				</Box>
 
 				<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-				<Chip
-					label={`${filteredGraph.summary.totalDepots} depots`}
-					size="small"
-					variant="outlined"
-					sx={{
-						color: DEPOT_COLOR,
-						borderColor: DEPOT_COLOR,
-						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: DEPOT_COLOR },
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalModules} modules`}
-					size="small"
-					variant="outlined"
-					sx={{
-						color: MODULE_COLOR,
-						borderColor: MODULE_COLOR,
-						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: MODULE_COLOR },
-					}}
-				/>
-				<Chip
-					label={`${filteredGraph.summary.totalProviders} providers`}
-					size="small"
-					variant="outlined"
-					sx={{
-						color: PROVIDER_COLOR,
-						borderColor: PROVIDER_COLOR,
-						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: PROVIDER_COLOR },
-					}}
-				/>
-				<Chip
-					label={`${totalVersions} versions`}
-					size="small"
-					variant="outlined"
-					sx={{
-						color: VERSION_COLOR,
-						borderColor: VERSION_COLOR,
-						'[data-mui-color-scheme="light"] &': { color: "#fff", bgcolor: VERSION_COLOR },
-					}}
-				/>
+					{([
+						{ kind: "depot", count: filteredGraph.summary.totalDepots, noun: "depot" },
+						{ kind: "module", count: filteredGraph.summary.totalModules, noun: "module" },
+						{ kind: "provider", count: filteredGraph.summary.totalProviders, noun: "provider" },
+						{ kind: "skill", count: filteredGraph.summary.totalSkills, noun: "skill" },
+						{ kind: "agent", count: filteredGraph.summary.totalAgents, noun: "agent" },
+						{ kind: "version", count: totalVersions, noun: "version" },
+					] as const).map(({ kind, count, noun }) => (
+						<Chip
+							key={kind}
+							label={`${count} ${count === 1 ? noun : `${noun}s`}`}
+							icon={<DepotKindIcon kind={kind} />}
+							size="small"
+							sx={{ ...(kindChipSx(kind, kindColor(kind)) as object), textTransform: "none" }}
+						/>
+					))}
 			</Box>
 			</Box>
 
@@ -232,6 +230,7 @@ export default function DepotsGraphClient({ graph, moduleVersionsByKey, provider
 				providerVersionMetaByKey={providerVersionMetaByKey}
 				moduleVersionMetaByKey={moduleVersionMetaByKey}
 				moduleDetailByKey={moduleDetailByKey}
+				agentVersionMetaByKey={agentVersionMetaByKey}
 			/>
 		</>
 	);

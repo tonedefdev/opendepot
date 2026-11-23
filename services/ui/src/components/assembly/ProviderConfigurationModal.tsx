@@ -20,9 +20,12 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
 import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
+import ProviderLogo, { hasProviderLogo } from "@/components/ProviderLogo";
+import { PROVIDER_COLOR } from "@/lib/kindColors";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import CopyButton from "@/components/CopyButton";
@@ -80,7 +83,7 @@ export default function ProviderConfigurationModal({
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const code = useMemo(
     () => renderProviderPreview(localName, alias, schema, value, referenceOptions),
     [localName, alias, schema, value, referenceOptions],
@@ -136,8 +139,12 @@ export default function ProviderConfigurationModal({
     >
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <SettingsInputComponentIcon sx={{ fontSize: 20, color: "warning.main" }} />
+          <Box sx={{ width: 28, height: 28, display: "grid", placeItems: "center", flexShrink: 0 }}>
+            {hasProviderLogo(localName) ? (
+              <ProviderLogo provider={localName} size={28} />
+            ) : (
+              <DepotKindIcon kind="provider" sx={{ fontSize: 20, color: PROVIDER_COLOR }} />
+            )}
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             provider.{localName}{alias ? `.${alias}` : ""} — Configuration
@@ -235,12 +242,15 @@ export default function ProviderConfigurationModal({
                   borderRadius: 1,
                   border: "1px solid",
                   borderColor: "divider",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--od-font-mono)",
                   fontSize: "0.75rem",
                   lineHeight: 1.5,
                   overflow: "auto",
                   whiteSpace: "pre",
                   ...style,
+                  // Dark keeps the brand black. Light uses a neutral grey (R = G = B) because the blue-tinted
+                  // background.default reads as blue on the Assembly Line code blocks.
+                  backgroundColor: resolvedMode === "light" ? "#f5f5f5" : "background.default",
                 }}
               >
                 {tokens.map((line, lineIndex) => (

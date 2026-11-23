@@ -47,7 +47,6 @@ import {
   type FieldValue,
   type ModuleInputValue,
   type Multiplicity,
-  type ProviderBinding,
   type ProviderConfiguration,
   type ProviderOption,
   type ReferenceOption,
@@ -311,7 +310,7 @@ export function duplicateMapKeys(value: ModuleInputValue | undefined): string[] 
   };
 
   visit(value);
-  return Array.from(duplicates).sort();
+  return Array.from(duplicates).sort((a, b) => a.localeCompare(b));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -337,10 +336,7 @@ export function serializeAssemblyDocument(nodes: Node<RawNodeData>[]) {
       version: node.data.version,
       localName: node.data.instanceName,
       values: Object.fromEntries(
-        Object.entries(node.data.values).filter(([, value]) => {
-          const field = scalarInputValue(value);
-          return moduleInputValueProvided(value);
-        }),
+        Object.entries(node.data.values).filter(([, value]) => moduleInputValueProvided(value)),
       ),
       multiplicity: node.data.multiplicity,
       providerBindings: node.data.providerBindings,
@@ -377,7 +373,12 @@ async function fetchContract(namespace: string, name: string, version: string): 
 
 function slugifyInstanceName(raw: string): string {
   let base = raw.replace(/^terraform-[a-z0-9]+-/i, "");
-  base = base.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  base = base.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  let start = 0;
+  let end = base.length;
+  while (start < end && base[start] === "_") start++;
+  while (end > start && base[end - 1] === "_") end--;
+  base = base.slice(start, end);
   if (!base) base = "module";
   if (/^[0-9]/.test(base)) base = `m_${base}`;
   return base;
@@ -394,6 +395,7 @@ function uniqueInstanceName(base: string, existing: Set<string>): string {
 
 function AssemblyCanvasInner({ modules, providers }: Props) {
   const [resourceMenuOpen, setResourceMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(true);
   const [mobileMapOpen, setMobileMapOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<RawNodeData>([]);
   const [query, setQuery] = useState("");
@@ -1052,7 +1054,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           target: node.id,
           targetHandle: "in",
           animated: true,
-          style: compatible ? { stroke: "#03deb8" } : { stroke: "#f85149", strokeDasharray: "4 3" },
+          style: compatible ? { stroke: "var(--od-accent)" } : { stroke: "#f85149", strokeDasharray: "4 3" },
           label: compatible
             ? `${variable.name}${selectorSuffix}${outputSelectorSuffix}`
             : `${variable.name}${selectorSuffix}${outputSelectorSuffix} (type mismatch?)`,
@@ -1080,9 +1082,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             target: node.id,
             targetHandle: "in",
             animated: true,
-            style: { stroke: "#04cfd0" },
+            style: { stroke: "var(--mui-palette-primary-main)" },
             label: "count",
-            labelStyle: { fill: "#04cfd0", fontSize: 10 },
+            labelStyle: { fill: "var(--mui-palette-primary-main)", fontSize: 10 },
           });
         }
       }
@@ -1096,9 +1098,9 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           target: node.id,
           targetHandle: "in",
           animated: true,
-          style: { stroke: "#04cfd0" },
+          style: { stroke: "var(--mui-palette-primary-main)" },
           label: "for_each",
-          labelStyle: { fill: "#04cfd0", fontSize: 10 },
+          labelStyle: { fill: "var(--mui-palette-primary-main)", fontSize: 10 },
         });
       }
 
@@ -1192,6 +1194,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
       }),
     [
       nodes,
+      changeOptionalFieldVisibility,
       referenceOptionsByNode,
       fieldErrorsByNode,
       instanceNameErrorsByNode,
@@ -1308,7 +1311,7 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
           flexShrink: 0,
           borderRight: "1px solid",
           borderColor: "divider",
-          display: { xs: resourceMenuOpen ? "flex" : "none", sm: "flex" },
+          display: { xs: resourceMenuOpen ? "flex" : "none", sm: desktopMenuOpen ? "flex" : "none" },
           flexDirection: "column",
           position: { xs: "absolute", sm: "static" },
           inset: { xs: "0 auto 0 0", sm: "auto" },
@@ -1481,6 +1484,26 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
         >
           {resourceMenuOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
         </IconButton>
+        <IconButton
+          aria-label={desktopMenuOpen ? "Collapse Assembly Line menu" : "Expand Assembly Line menu"}
+          onClick={(event) => {
+            event.stopPropagation();
+            setDesktopMenuOpen((open) => !open);
+          }}
+          sx={{
+            display: { xs: "none", sm: "flex" },
+            position: "absolute",
+            top: "50%",
+            left: desktopMenuOpen ? -21 : 0,
+            transform: "translateY(-50%)",
+            zIndex: 11,
+            bgcolor: "transparent",
+            borderRadius: "50%",
+            "&:hover": { bgcolor: "action.hover" },
+          }}
+        >
+          {desktopMenuOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+        </IconButton>
         <ReactFlow
           nodes={renderNodes}
           edges={edges}
@@ -1502,14 +1525,23 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
               borderRadius: 6,
             }}
           />
-          <Box sx={{ display: { xs: mobileMapOpen ? "block" : "none", sm: "block" } }}>
+          <Box
+            sx={{
+              display: { xs: mobileMapOpen ? "block" : "none", sm: "block" },
+              // MiniMap paints nodes with SVG fill attributes, which cannot resolve theme CSS variables, so the
+              // colors are applied through per-type classes instead.
+              "& .od-minimap-variable": { fill: "var(--od-assembly-variable)" },
+              "& .od-minimap-module": { fill: "var(--od-assembly-module)" },
+              "& .od-minimap-provider": { fill: "var(--mui-palette-warning-main)" },
+            }}
+          >
             <MiniMap
               style={{
                 background: "var(--mui-palette-background-paper)",
                 border: "1px solid var(--mui-palette-divider)",
                 borderRadius: 6,
               }}
-              nodeColor={(n) => (n.type === "variable" ? "#04cfd0" : n.type === "provider" ? "#d29922" : "#03deb8")}
+              nodeClassName={(n) => `od-minimap-${n.type === "variable" || n.type === "provider" ? n.type : "module"}`}
             />
           </Box>
         </ReactFlow>
@@ -1559,10 +1591,10 @@ function AssemblyCanvasInner({ modules, providers }: Props) {
             <Box sx={{ mt: 2, overflow: "hidden", border: "1px solid #30363d", borderRadius: 1, bgcolor: "#0d1117", boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)" }}>
               <Box sx={{ height: 34, px: 1.5, display: "flex", alignItems: "center", gap: 1, bgcolor: "#161b22", borderBottom: "1px solid #30363d", color: "#8b949e" }}>
                 <TerminalIcon sx={{ fontSize: 16, color: "#03deb8" }} />
-                <Typography sx={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#c9d1d9" }}>
+                <Typography sx={{ fontFamily: "var(--od-font-mono)", fontSize: "0.7rem", color: "#c9d1d9" }}>
                   OpenTofu
                 </Typography>
-                <Typography sx={{ ml: "auto", fontFamily: "monospace", fontSize: "0.65rem", color: exporting ? "#03deb8" : exportError ? "#f85149" : "#8b949e", textTransform: "uppercase" }}>
+                <Typography sx={{ ml: "auto", fontFamily: "var(--od-font-mono)", fontSize: "0.65rem", color: exporting ? "#03deb8" : exportError ? "#f85149" : "#8b949e", textTransform: "uppercase" }}>
                   {exporting ? "running" : exportError ? "failed" : "complete"}
                 </Typography>
               </Box>

@@ -1,0 +1,308 @@
+/*
+Copyright 2026 Tony Owens.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+)
+
+var _ = Describe("Skill Controller", func() {
+	Context("When reconciling a resource", func() {
+		const resourceName = "test-skill"
+		const branchCommit = "0123456789abcdef0123456789abcdef01234567"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		newSkill := func(versions []opendepotv1alpha1.SkillVersion, limit *int) *opendepotv1alpha1.Skill {
+			return &opendepotv1alpha1.Skill{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: opendepotv1alpha1.SkillSpec{
+					AgentSourceConfig: opendepotv1alpha1.AgentSourceConfig{
+						RepoOwner:           "tonedefdev",
+						Path:                "skills/test-skill",
+						VersionHistoryLimit: limit,
+					},
+					Versions: versions,
+				},
+			}
+		}
+
+		reconcileSkill := func() {
+			controllerReconciler := &SkillReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		newSkillWithStorage := func(versions []opendepotv1alpha1.SkillVersion) *opendepotv1alpha1.Skill {
+			skill := newSkill(versions, nil)
+			skill.Spec.AgentSourceConfig.StorageConfig = &opendepotv1alpha1.StorageConfig{
+				S3: &opendepotv1alpha1.AmazonS3Config{Bucket: "test-bucket", Region: "us-east-1"},
+			}
+
+			return skill
+		}
+
+		setSourcePresign := func(presign *opendepotv1alpha1.PresignConfig) {
+			skill := &opendepotv1alpha1.Skill{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			skill.Spec.AgentSourceConfig.StorageConfig.Presign = presign
+			Expect(k8sClient.Update(ctx, skill)).To(Succeed())
+		}
+
+		AfterEach(func() {
+			Expect(k8sClient.DeleteAllOf(ctx, &opendepotv1alpha1.Version{}, client.InNamespace("default"),
+				client.MatchingLabels{"opendepot.defdev.io/skill": resourceName})).To(Succeed())
+
+			skill := &opendepotv1alpha1.Skill{}
+			err := k8sClient.Get(ctx, typeNamespacedName, skill)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, skill)).To(Succeed())
+			}
+		})
+
+		It("should create a Version for each skill version and set the status", func() {
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}, {Version: "v1.1.0"}}, nil)
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+
+			reconcileSkill()
+
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}, version)).To(Succeed())
+			Expect(version.Spec.Type).To(Equal(opendepotv1alpha1.OpenDepotSkill))
+			Expect(version.Spec.Version).To(Equal("1.0.0"))
+			Expect(version.Spec.FileName).NotTo(BeNil())
+			Expect(version.Spec.AgentSourceRef).NotTo(BeNil())
+			Expect(*version.Spec.AgentSourceRef.Name).To(Equal(resourceName))
+			Expect(version.Spec.AgentSourceRef.Path).To(Equal("skills/test-skill"))
+			Expect(version.Labels).To(HaveKeyWithValue("opendepot.defdev.io/skill", resourceName))
+			Expect(version.OwnerReferences).To(HaveLen(1))
+
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-1-1-0", Namespace: "default"}, &opendepotv1alpha1.Version{})).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Status.Synced).To(BeTrue())
+			Expect(skill.Status.SyncStatus).To(Equal("Successfully synced skill"))
+			Expect(skill.Status.LatestVersion).NotTo(BeNil())
+			Expect(*skill.Status.LatestVersion).To(Equal("v1.1.0"))
+			Expect(skill.Status.VersionRefs).To(HaveLen(2))
+			Expect(skill.Status.VersionRefs["1.0.0"].Name).To(Equal("skill-test-skill-1-0-0"))
+			Expect(skill.Status.VersionRefs["v1.1.0"].Synced).To(BeTrue())
+		})
+
+		It("should not modify an existing Version on subsequent reconciles", func() {
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}}, nil)
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			version := &opendepotv1alpha1.Version{}
+			versionKey := client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			version.Spec.Yanked = true
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Yanked).To(BeTrue())
+		})
+
+		It("should sync presign changes from the skill to its existing Versions", func() {
+			enabled := true
+			ttl := metav1.Duration{Duration: 15 * time.Minute}
+			skill := newSkillWithStorage([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}})
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			checksum := "sha256:0123456789abcdef"
+			version.Status.Checksum = &checksum
+			Expect(k8sClient.Status().Update(ctx, version)).To(Succeed())
+			before := version.DeepCopy()
+
+			presign := &opendepotv1alpha1.PresignConfig{Enabled: &enabled, TTL: &ttl}
+			setSourcePresign(presign)
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).To(Equal(presign))
+			Expect(*version.Spec.AgentSourceRef.Name).To(Equal(*before.Spec.AgentSourceRef.Name))
+			Expect(version.Spec.AgentSourceRef.Path).To(Equal(before.Spec.AgentSourceRef.Path))
+			Expect(version.Spec.AgentSourceRef.StorageConfig.S3).To(Equal(before.Spec.AgentSourceRef.StorageConfig.S3))
+			Expect(version.Spec.FileName).To(Equal(before.Spec.FileName))
+			Expect(version.Spec.SourceCommit).To(Equal(before.Spec.SourceCommit))
+			Expect(version.Status.Checksum).To(Equal(before.Status.Checksum))
+
+			resourceVersion := version.ResourceVersion
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.ResourceVersion).To(Equal(resourceVersion))
+		})
+
+		It("should clear presign on the skill Version when presign is removed from the skill", func() {
+			enabled := true
+			skill := newSkillWithStorage([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}})
+			skill.Spec.AgentSourceConfig.StorageConfig.Presign = &opendepotv1alpha1.PresignConfig{Enabled: &enabled}
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).NotTo(BeNil())
+
+			setSourcePresign(nil)
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign).To(BeNil())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.S3).NotTo(BeNil())
+		})
+
+		It("should sync presign to a yanked skill Version without changing its yanked state", func() {
+			enabled := true
+			skill := newSkillWithStorage([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}})
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			version.Spec.Yanked = true
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			setSourcePresign(&opendepotv1alpha1.PresignConfig{Enabled: &enabled})
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Yanked).To(BeTrue())
+			Expect(*version.Spec.AgentSourceRef.StorageConfig.Presign.Enabled).To(BeTrue())
+			Expect(version.Spec.AgentSourceRef.StorageConfig.Presign.TTL).NotTo(BeNil())
+		})
+
+		It("should trim versions to the version history limit", func() {
+			limit := 1
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}, {Version: "2.0.0"}}, &limit)
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Spec.Versions).To(Equal([]opendepotv1alpha1.SkillVersion{{Version: "2.0.0"}}))
+			Expect(skill.Status.VersionRefs).To(HaveLen(1))
+			Expect(k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{}))).To(BeTrue())
+		})
+
+		It("should delete Versions that are removed from the skill spec", func() {
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Version: "1.0.0"}, {Version: "2.0.0"}}, nil)
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			skill.Spec.Versions = []opendepotv1alpha1.SkillVersion{{Version: "2.0.0"}}
+			Expect(k8sClient.Update(ctx, skill)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-1-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{}))).To(BeTrue())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "skill-test-skill-2-0-0", Namespace: "default"}, &opendepotv1alpha1.Version{})).To(Succeed())
+		})
+
+		It("should create a branch Version named after the commit and copy back its assigned version", func() {
+			ref := "main"
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Commit: branchCommit, State: "Pending"}}, nil)
+			skill.Spec.AgentSourceConfig.Ref = &ref
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-" + branchCommit, Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			Expect(version.Spec.Version).To(BeEmpty())
+			Expect(version.Spec.SourceCommit).To(Equal(branchCommit))
+			Expect(*version.Spec.AgentSourceRef.Ref).To(Equal("main"))
+			Expect(version.Labels).To(HaveKeyWithValue("opendepot.defdev.io/commit", branchCommit))
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Status.VersionRefs).To(BeEmpty())
+			Expect(skill.Status.LatestVersion).To(BeNil())
+
+			version.Spec.Version = "1.0.0"
+			Expect(k8sClient.Update(ctx, version)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Spec.Versions[0].Version).To(Equal("1.0.0"))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Assigned"))
+			Expect(skill.Status.VersionRefs["1.0.0"].Name).To(Equal(versionKey.Name))
+			Expect(skill.Status.VersionRefs["1.0.0"].Commit).To(Equal(branchCommit))
+			Expect(*skill.Status.LatestVersion).To(Equal("v1.0.0"))
+		})
+
+		It("should copy a rejected branch Version back to its entry without a semantic version", func() {
+			ref := "main"
+			skill := newSkill([]opendepotv1alpha1.SkillVersion{{Commit: branchCommit, State: "Pending"}}, nil)
+			skill.Spec.AgentSourceConfig.Ref = &ref
+			Expect(k8sClient.Create(ctx, skill)).To(Succeed())
+			reconcileSkill()
+
+			versionKey := client.ObjectKey{Name: "skill-test-skill-" + branchCommit, Namespace: "default"}
+			version := &opendepotv1alpha1.Version{}
+			Expect(k8sClient.Get(ctx, versionKey, version)).To(Succeed())
+			version.Status.BranchPhase = "Rejected"
+			Expect(k8sClient.Status().Update(ctx, version)).To(Succeed())
+
+			reconcileSkill()
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, skill)).To(Succeed())
+			Expect(skill.Spec.Versions).To(HaveLen(1))
+			Expect(skill.Spec.Versions[0].State).To(Equal("Rejected"))
+			Expect(skill.Spec.Versions[0].Version).To(BeEmpty())
+			Expect(skill.Status.VersionRefs).To(BeEmpty())
+			Expect(k8sClient.Get(ctx, versionKey, &opendepotv1alpha1.Version{})).To(Succeed())
+		})
+	})
+})

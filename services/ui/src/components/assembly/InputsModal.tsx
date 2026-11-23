@@ -22,10 +22,10 @@ import CloseFullscreenIcon from "@mui/icons-material/CloseFullscreen";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import WidgetsIcon from "@mui/icons-material/Widgets";
-import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
 import { useColorScheme } from "@mui/material/styles";
 import { Highlight, type Language, themes } from "prism-react-renderer";
+import { lightCodeTheme } from "@/lib/codeTheme";
 import Prism from "prismjs";
 import "prismjs/components/prism-hcl";
 import ReactMarkdown from "react-markdown";
@@ -99,7 +99,7 @@ function MarkdownDescription({ text }: { text: string }) {
         "& a": { color: "primary.main", textDecoration: "none" },
         "& a:hover": { textDecoration: "underline" },
         "& code": {
-          fontFamily: "monospace",
+          fontFamily: "var(--od-font-mono)",
           fontSize: "0.6875rem",
           color: "warning.main",
           bgcolor: "action.hover",
@@ -168,8 +168,7 @@ export default function InputsModal({
 }: Props) {
   const { mode, systemMode } = useColorScheme();
   const resolvedMode = mode === "system" ? systemMode : mode;
-  const ModuleIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
-  const prismTheme = resolvedMode === "light" ? themes.github : themes.nightOwl;
+  const prismTheme = resolvedMode === "light" ? lightCodeTheme : themes.nightOwl;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
@@ -252,7 +251,7 @@ export default function InputsModal({
       <DialogTitle component="div" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box sx={{ width: 24, height: 24, display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <ModuleIcon sx={{ fontSize: 20, color: "#03deb8" }} />
+            <DepotKindIcon kind="module" sx={{ fontSize: 20, color: "var(--od-assembly-module)" }} />
           </Box>
           <Typography component="h2" variant="subtitle1" fontWeight={700} noWrap sx={{ flex: 1, minWidth: 0 }}>
             module.{instanceName} — Inputs
@@ -450,12 +449,15 @@ export default function InputsModal({
                   borderRadius: 1,
                   border: "1px solid",
                   borderColor: "divider",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--od-font-mono)",
                   fontSize: "0.75rem",
                   lineHeight: 1.5,
                   overflow: "auto",
                   whiteSpace: "pre",
                   ...style,
+                  // Dark keeps the brand black. Light uses a neutral grey (R = G = B) because the blue-tinted
+                  // background.default reads as blue on the Assembly Line code blocks.
+                  backgroundColor: resolvedMode === "light" ? "#f5f5f5" : "background.default",
                 }}
               >
                 {tokens.map((line, i) => (

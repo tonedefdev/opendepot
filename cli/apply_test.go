@@ -1,0 +1,960 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+const (
+	skillDoc = "---\nname: lint\ndescription: Lints things\n---\nLint body\n"
+	agentDoc = "---\nname: reviewer\ndescription: Reviews things\n---\nReview body\n"
+)
+
+// TestMain points HOME at a throwaway directory for the whole package so that no test can
+// write user-level install targets into the developer's real home directory.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "opendepot-test-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
+
+func testApp(reg *fakeRegistry, dir string) *app {
+	return &app{
+		in:         bufio.NewReader(strings.NewReader("")),
+		out:        io.Discard,
+		httpClient: reg.server.Client(),
+		scheme:     "http",
+		dir:        dir,
+		tokenFor:   func(string) string { return reg.token },
+	}
+}
+
+func writeProject(t *testing.T, dir, host, signingKey string) {
+	t.Helper()
+	pin := ""
+	if signingKey != "" {
+		pin = fmt.Sprintf("\n  signing_key = %q", signingKey)
+	}
+
+	body := fmt.Sprintf(`opendepot {
+  targets = ["copilot", "claude", "agents-md"]
+}
+
+agent_skill "lint" {
+  source  = "%[1]s/acme/lint"
+  version = ">= 1.0.0"%[2]s
+}
+
+agent "reviewer" {
+  source  = "%[1]s/acme/reviewer"
+  version = ">= 1.0.0"%[2]s
+}
+`, host, pin)
+	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func publishStandard(t *testing.T, reg *fakeRegistry) {
+	t.Helper()
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindAgent, "reviewer", release{version: "1.0.0", files: map[string]string{"reviewer.md": agentDoc}})
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(content)
+}
+
+func isolateHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+}
+
+func writeSkillProject(t *testing.T, dir, host, version string) {
+	t.Helper()
+	body := fmt.Sprintf(`opendepot {
+  targets = ["copilot", "claude"]
+}
+
+agent_skill "lint" {
+  source  = "%[1]s/acme/lint"
+  version = "%[2]s"
+}
+`, host, version)
+	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// assertNoWrites fails if any install target, AGENTS.md, or the lock file exists in dir or the home install roots.
+func assertNoWrites(t *testing.T, dir string) {
+	t.Helper()
+	home := os.Getenv("HOME")
+	for _, p := range []string{
+		filepath.Join(home, ".copilot"),
+		filepath.Join(home, ".claude"),
+		filepath.Join(dir, agentsMDFile),
+		filepath.Join(dir, lockFileName),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("%s was written despite a failed verification", p)
+		}
+	}
+}
+
+func TestInitInstallsAllTargetsAndIsIdempotent(t *testing.T) {
+	isolateHome(t)
+	home := os.Getenv("HOME")
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+	a := testApp(reg, dir)
+	ctx := context.Background()
+
+	if err := a.applyProject(ctx, applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	for _, p := range []string{
+		".copilot/skills/lint/SKILL.md",
+		".claude/skills/lint/SKILL.md",
+		".copilot/agents/reviewer.agent.md",
+		".claude/agents/reviewer.md",
+	} {
+		if _, err := os.Stat(filepath.Join(home, p)); err != nil {
+			t.Fatalf("missing install target %s: %v", p, err)
+		}
+	}
+
+	agents := readFile(t, filepath.Join(dir, agentsMDFile))
+	if strings.Count(agents, agentsBeginPrefix) != 2 {
+		t.Fatalf("expected two AGENTS.md blocks:\n%s", agents)
+	}
+
+	lock := readFile(t, filepath.Join(dir, lockFileName))
+	if err := a.applyProject(ctx, applyOptions{}); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(dir, lockFileName)); got != lock {
+		t.Fatalf("second apply changed the lock file:\n%s\n---\n%s", lock, got)
+	}
+
+	if got := readFile(t, filepath.Join(dir, agentsMDFile)); got != agents {
+		t.Fatalf("second apply changed AGENTS.md")
+	}
+
+	if err := a.verifyProject(); err != nil {
+		t.Fatalf("verify after apply: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(home, ".claude/agents/reviewer.md"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.verifyProject(); err == nil {
+		t.Fatal("expected verify to fail after an installed file was modified")
+	}
+}
+
+func TestTamperedArchiveFailsBeforeWrites(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	reg.files["reviewer-1.0.0.tar.gz"] = []byte("tampered bytes")
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "does not match signed SHA256SUMS") {
+		t.Fatalf("expected zh mismatch, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestTamperedSumsFailsSignature(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	reg.tamperSums()
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "does not verify") {
+		t.Fatalf("expected signature failure, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestRotatedKeyRequiresTrustNewKey(t *testing.T) {
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+	a := testApp(reg, dir)
+	ctx := context.Background()
+
+	if err := a.applyProject(ctx, applyOptions{}); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+
+	before := readFile(t, filepath.Join(dir, lockFileName))
+	oldKey := fingerprintOf(reg.signer)
+	if !strings.Contains(before, oldKey) {
+		t.Fatalf("lock does not pin the first signing key:\n%s", before)
+	}
+
+	reg.rotate(t, newTestKey(t, "Rotated Signer"))
+	err := a.applyProject(ctx, applyOptions{noPrompt: true})
+	if err == nil || !strings.Contains(err.Error(), "trust-new-key") {
+		t.Fatalf("expected rotated key to fail under no-prompt, got %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(dir, lockFileName)); got != before {
+		t.Fatalf("failed rotation changed the lock file")
+	}
+
+	if err := a.applyProject(ctx, applyOptions{trustNewKey: true}); err != nil {
+		t.Fatalf("apply with trust-new-key: %v", err)
+	}
+
+	after := readFile(t, filepath.Join(dir, lockFileName))
+	if !strings.Contains(after, fingerprintOf(reg.signer)) || strings.Contains(after, oldKey) {
+		t.Fatalf("lock was not re-pinned to the new key:\n%s", after)
+	}
+}
+
+func TestResignedLockedVersionFailsSignatureHash(t *testing.T) {
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+	a := testApp(reg, dir)
+	ctx := context.Background()
+
+	if err := a.applyProject(ctx, applyOptions{}); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+
+	before := readFile(t, filepath.Join(dir, lockFileName))
+	reg.resignAt(t, time.Now())
+	err := a.applyProject(ctx, applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "signature_hash") {
+		t.Fatalf("expected re-signed locked version to fail the signature_hash check, got %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(dir, lockFileName)); got != before {
+		t.Fatalf("failed re-sign check changed the lock file")
+	}
+}
+
+func TestSigningKeyPinMismatchFailsWithoutPrompt(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	publishStandard(t, reg)
+	other := newTestKey(t, "Other Signer")
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, fingerprintOf(other))
+
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{trustNewKey: true})
+	if err == nil || !strings.Contains(err.Error(), "does not match configured signing_key") {
+		t.Fatalf("expected pin mismatch, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+
+	writeProject(t, dir, reg.host, fingerprintOf(reg.signer))
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply with matching pin: %v", err)
+	}
+}
+
+func TestConfiguredSigningKeyNeverPrompts(t *testing.T) {
+	fatal := func(string) bool {
+		t.Fatal("configured signing_key must not prompt")
+		return false
+	}
+
+	if _, err := decideSigningKey("AAAA", "", "BBBB", false, false, fatal); err == nil {
+		t.Fatal("expected mismatch error")
+	}
+}
+
+func TestBlockedVersionIsNotInstalled(t *testing.T) {
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "blocked by a Jev policy") {
+		t.Fatalf("expected blocked version to fail apply, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "/lint\n  version 1.0.0 is blocked by a Jev policy\n  - risk score 0.8 above 0.5") {
+		t.Fatalf("blocked error not displayed with source and indented reasons: %q", err.Error())
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, lockFileName)); !os.IsNotExist(statErr) {
+		t.Fatalf("blocked version wrote a lock file: %v", statErr)
+	}
+}
+
+func TestYankedSkippedUnlessAllowed(t *testing.T) {
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint",
+		release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}},
+		release{version: "1.1.0", yanked: true, files: map[string]string{"SKILL.md": skillDoc}},
+	)
+	reg.publish(t, kindAgent, "reviewer", release{version: "1.0.0", files: map[string]string{"reviewer.md": agentDoc}})
+
+	dir := t.TempDir()
+	writeProject(t, dir, reg.host, "")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	lock := readFile(t, filepath.Join(dir, lockFileName))
+	if strings.Contains(lock, `"1.1.0"`) {
+		t.Fatalf("yanked version was installed without -allow-yanked:\n%s", lock)
+	}
+
+	allowDir := t.TempDir()
+	writeProject(t, allowDir, reg.host, "")
+	if err := testApp(reg, allowDir).applyProject(context.Background(), applyOptions{allowYanked: true}); err != nil {
+		t.Fatalf("apply with allow-yanked: %v", err)
+	}
+
+	if !strings.Contains(readFile(t, filepath.Join(allowDir, lockFileName)), `"1.1.0"`) {
+		t.Fatal("expected -allow-yanked to install the yanked version")
+	}
+}
+
+func TestPathValidationRejectsUnsafeLockPaths(t *testing.T) {
+	isolateHome(t)
+	home := os.Getenv("HOME")
+
+	for _, p := range []string{
+		"", ".", "AGENTS.md", "../escape", "/abs/path",
+		filepath.Join(home, ".copilot"),
+		filepath.Join(home, ".copilot", "skills"),
+		filepath.Join(home, ".copilot", "skills", "lint", "nested"),
+		filepath.Join(home, ".ssh", "authorized_keys"),
+		filepath.Join(home, ".claude", "settings.json"),
+		filepath.Join(home, ".codex", "config.toml"),
+		filepath.Join(home, ".codex", "agents", "reviewer.md"),
+		filepath.Join(home, ".agents", "AGENTS.md"),
+		filepath.Join(home, "..", "escape"),
+	} {
+		if safeInstallPath(p) {
+			t.Fatalf("safeInstallPath(%q) = true, want false", p)
+		}
+	}
+
+	for _, p := range []string{
+		".github/skills/lint",
+		filepath.Join(home, ".copilot", "skills", "lint"),
+		filepath.Join(home, ".copilot", "agents", "reviewer.agent.md"),
+		filepath.Join(home, ".claude", "skills", "lint"),
+		filepath.Join(home, ".claude", "agents", "reviewer.md"),
+		filepath.Join(home, ".agents", "skills", "lint"),
+		filepath.Join(home, ".codex", "agents", "reviewer.toml"),
+	} {
+		if !safeInstallPath(p) {
+			t.Fatalf("safeInstallPath(%q) = false, want true", p)
+		}
+	}
+}
+
+func TestInitHTTPE2EInstallsSkillTargetsAndWritesLockMetadata(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+		"SKILL.md":  skillDoc,
+		"rules.txt": "rule one\n",
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+	a := testApp(reg, dir)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	for _, p := range []string{
+		".copilot/skills/lint/SKILL.md",
+		".copilot/skills/lint/rules.txt",
+		".claude/skills/lint/SKILL.md",
+		".claude/skills/lint/rules.txt",
+	} {
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), p)); err != nil {
+			t.Fatalf("missing install target %s: %v", p, err)
+		}
+	}
+
+	lock := readFile(t, filepath.Join(dir, lockFileName))
+	for _, want := range []string{
+		`signing_key`,
+		fingerprintOf(reg.signer),
+		`signature_hash = "sha256:`,
+		`h1:`,
+		`zh:`,
+	} {
+		if !strings.Contains(lock, want) {
+			t.Fatalf("lock missing %q:\n%s", want, lock)
+		}
+	}
+}
+
+func TestInitHTTPE2ENoopRerunLeavesInstalledFilesAndLockUntouched(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+		"SKILL.md":  skillDoc,
+		"rules.txt": "rule one\n",
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+	a := testApp(reg, dir)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	home := os.Getenv("HOME")
+	paths := []string{
+		filepath.Join(home, ".copilot/skills/lint/SKILL.md"),
+		filepath.Join(home, ".copilot/skills/lint/rules.txt"),
+		filepath.Join(home, ".claude/skills/lint/SKILL.md"),
+		filepath.Join(home, ".claude/skills/lint/rules.txt"),
+		filepath.Join(dir, lockFileName),
+	}
+	before := map[string]time.Time{}
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat %s: %v", p, err)
+		}
+
+		before[p] = info.ModTime()
+	}
+
+	lock := readFile(t, filepath.Join(dir, lockFileName))
+	time.Sleep(1100 * time.Millisecond)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(dir, lockFileName)); got != lock {
+		t.Fatalf("second apply changed the lock file:\n%s\n---\n%s", lock, got)
+	}
+
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat after rerun %s: %v", p, err)
+		}
+
+		if !info.ModTime().Equal(before[p]) {
+			t.Fatalf("expected %s to stay untouched, mtime %v -> %v", p, before[p], info.ModTime())
+		}
+	}
+}
+
+func TestInitHTTPE2EUpgradeMinorVersionRewritesLock(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+		"SKILL.md":  skillDoc,
+		"rules.txt": "rule one\n",
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+	a := testApp(reg, dir)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	before := readFile(t, filepath.Join(dir, lockFileName))
+	reg.publish(t, kindSkill, "lint", release{version: "1.1.0", files: map[string]string{
+		"SKILL.md": `---
+name: lint
+description: Lints things better
+---
+Lint body v1.1
+`,
+	}})
+
+	if err := a.applyProject(context.Background(), applyOptions{upgrade: true}); err != nil {
+		t.Fatalf("upgrade apply: %v", err)
+	}
+
+	after := readFile(t, filepath.Join(dir, lockFileName))
+	if before == after {
+		t.Fatal("expected -upgrade to rewrite the lock file")
+	}
+
+	if !strings.Contains(after, `version        = "1.1.0"`) || strings.Contains(after, `version        = "1.0.0"`) {
+		t.Fatalf("lock did not move to 1.1.0:\n%s", after)
+	}
+}
+
+func TestInitHTTPE2EUpgradeRemovesStaleFiles(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+		"SKILL.md":  skillDoc,
+		"rules.txt": "rule one\n",
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+	a := testApp(reg, dir)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	reg.publish(t, kindSkill, "lint", release{version: "1.1.0", files: map[string]string{
+		"SKILL.md": `---
+name: lint
+description: Lints things better
+---
+Lint body v1.1
+`,
+	}})
+	if err := a.applyProject(context.Background(), applyOptions{upgrade: true}); err != nil {
+		t.Fatalf("upgrade apply: %v", err)
+	}
+
+	home := os.Getenv("HOME")
+	for _, p := range []string{
+		".copilot/skills/lint/rules.txt",
+		".claude/skills/lint/rules.txt",
+	} {
+		if _, err := os.Stat(filepath.Join(home, p)); !os.IsNotExist(err) {
+			t.Fatalf("expected stale file %s to be removed, stat err = %v", p, err)
+		}
+	}
+}
+
+func TestVerifyHTTPE2EPassesUntouchedInstall(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+		"SKILL.md":  skillDoc,
+		"rules.txt": "rule one\n",
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+	a := testApp(reg, dir)
+
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if err := a.verifyProject(); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+}
+
+func TestInitAndVerifyHTTPE2ETamperingFailures(t *testing.T) {
+	t.Run("archive zh mismatch", func(t *testing.T) {
+		isolateHome(t)
+		reg := newFakeRegistry(t)
+		reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+			"SKILL.md":  skillDoc,
+			"rules.txt": "rule one\n",
+		}})
+		reg.files["lint-1.0.0.tar.gz"] = []byte("tampered bytes")
+		dir := t.TempDir()
+		writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+
+		err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+		if err == nil || !strings.Contains(err.Error(), "does not match signed SHA256SUMS") {
+			t.Fatalf("expected zh mismatch, got %v", err)
+		}
+
+		assertNoWrites(t, dir)
+	})
+
+	t.Run("SHA256SUMS signature failure", func(t *testing.T) {
+		isolateHome(t)
+		reg := newFakeRegistry(t)
+		reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+			"SKILL.md":  skillDoc,
+			"rules.txt": "rule one\n",
+		}})
+		reg.tamperSums()
+		dir := t.TempDir()
+		writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+
+		err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+		if err == nil || !strings.Contains(err.Error(), "does not verify") {
+			t.Fatalf("expected signature failure, got %v", err)
+		}
+
+		assertNoWrites(t, dir)
+	})
+
+	t.Run("modified installed file fails verify", func(t *testing.T) {
+		isolateHome(t)
+		reg := newFakeRegistry(t)
+		reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{
+			"SKILL.md":  skillDoc,
+			"rules.txt": "rule one\n",
+		}})
+		dir := t.TempDir()
+		a := testApp(reg, dir)
+		writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+
+		if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude/skills/lint/SKILL.md"), []byte("edited"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		err := a.verifyProject()
+		wantMsg := filepath.Join(os.Getenv("HOME"), ".claude/skills/lint") + " has been modified"
+		if err == nil || !strings.Contains(err.Error(), wantMsg) {
+			t.Fatalf("expected verify failure for modified install, got %v", err)
+		}
+	})
+}
+
+func TestInitHTTPE2ERejectsUnsupportedProtocolMajor(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", protocols: []string{"2.0"}, files: map[string]string{
+		"SKILL.md": skillDoc,
+	}})
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0, < 2.0.0")
+
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), `unsupported agents protocol "2.0"`) {
+		t.Fatalf("expected unsupported protocol error, got %v", err)
+	}
+}
+
+// versionOverlay edits the lint versions response so tests can simulate server-side changes between runs.
+// hide removes listed versions from versions, and unavailable replaces unavailableCandidates.
+type versionOverlay struct {
+	mu          sync.Mutex
+	hide        map[string]bool
+	unavailable []unavailableCandidate
+}
+
+func (o *versionOverlay) set(hide []string, unavailable ...unavailableCandidate) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.hide = map[string]bool{}
+	for _, v := range hide {
+		o.hide[v] = true
+	}
+
+	o.unavailable = unavailable
+}
+
+func (o *versionOverlay) rewrite(body map[string]any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	kept := []any{}
+	list, _ := body["versions"].([]any)
+	for _, item := range list {
+		entry := item.(map[string]any)
+		if o.hide[entry["version"].(string)] {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	body["versions"] = kept
+	if len(o.unavailable) > 0 {
+		body["unavailableCandidates"] = o.unavailable
+	}
+}
+
+// overlayLintVersions wraps the registry handler so only the lint versions response is rewritten.
+// It must run before any request is made.
+func overlayLintVersions(reg *fakeRegistry) *versionOverlay {
+	overlay := &versionOverlay{}
+	inner := reg.server.Config.Handler
+	reg.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/lint/versions") {
+			inner.ServeHTTP(w, r)
+			return
+		}
+
+		rec := httptest.NewRecorder()
+		inner.ServeHTTP(rec, r)
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		overlay.rewrite(body)
+		writeJSON(w, body)
+	})
+
+	return overlay
+}
+
+func lockedVersion(t *testing.T, dir, source string) string {
+	t.Helper()
+	lock, err := loadLock(filepath.Join(dir, lockFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e, ok := lock.find(source)
+	if !ok {
+		t.Fatalf("lock has no entry for %s", source)
+	}
+
+	return e.Version
+}
+
+func TestNewerBlockedVersionRefusesFallbackWithoutWrites(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is blocked by a Jev policy") || !strings.Contains(err.Error(), "--allow-older-versions") {
+		t.Fatalf("expected refusal naming the blocked version, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "version 1.0.0 satisfies") {
+		t.Fatalf("refusal does not name the installable version: %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestAllowOlderVersionsInstallsFallbackWithWarning(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", blocked: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	var buf bytes.Buffer
+	a := testApp(reg, dir)
+	a.out = &buf
+	if err := a.applyProject(context.Background(), applyOptions{allowOlderVersions: true}); err != nil {
+		t.Fatalf("apply with --allow-older-versions: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "⚠") || !strings.Contains(out, "version 2.0.0 is blocked by a Jev policy") {
+		t.Fatalf("expected fallback warning naming the skipped version:\n%s", out)
+	}
+}
+
+func TestRejectedNewerVersionRefuses(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusRejected, Reasons: []string{"Superseded"}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is rejected") || strings.Contains(err.Error(), "blocked by a Jev policy") {
+		t.Fatalf("expected rejected refusal, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestUnversionedRejectedCommitDoesNotRefuse(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Commit: "3f2a9c1d0b7e4a5f6c8d9e0a1b2c3d4e5f607182", Status: statusRejected, Reasons: []string{"Superseded"}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("unversioned commit refused apply: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+}
+
+func TestPendingCandidateDoesNotRefuse(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusPending})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("pending candidate refused apply: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, reg.host+"/acme/lint"); got != "1.0.0" {
+		t.Fatalf("locked version = %q, want 1.0.0", got)
+	}
+}
+
+func TestApplyAssessedItemDoesNotSayContentIsSent(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", assessed: true, files: map[string]string{"SKILL.md": skillDoc}})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	var buf bytes.Buffer
+	a := testApp(reg, dir)
+	a.out = &buf
+	if err := a.applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "TypeSafe Jev assessment") {
+		t.Fatalf("expected the assessment block, got:\n%s", buf.String())
+	}
+
+	if strings.Contains(buf.String(), "sent to TypeSafe") {
+		t.Fatalf("apply output must not say content was sent to TypeSafe:\n%s", buf.String())
+	}
+}
+
+func TestAssessmentFailedRefusesWithoutJevWording(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set(nil, unavailableCandidate{Version: "2.0.0", Status: statusAssessmentFailed})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "version 2.0.0 failed assessment") || strings.Contains(err.Error(), "Jev policy") {
+		t.Fatalf("expected assessment failure refusal, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestGenuineEmptyResultReportsNoVersion(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+	overlay.set([]string{"1.0.0"})
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{allowOlderVersions: true})
+	if err == nil || !strings.Contains(err.Error(), "no version satisfies") || strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("expected no-version error, got %v", err)
+	}
+
+	assertNoWrites(t, dir)
+}
+
+func TestLockedUnavailableVersionRequiresUpgrade(t *testing.T) {
+	isolateHome(t)
+	reg := newFakeRegistry(t)
+	reg.publish(t, kindSkill, "lint", release{version: "1.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	reg.publish(t, kindSkill, "lint", release{version: "2.0.0", files: map[string]string{"SKILL.md": skillDoc}})
+	overlay := overlayLintVersions(reg)
+
+	dir := t.TempDir()
+	writeSkillProject(t, dir, reg.host, ">= 1.0.0")
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{}); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+
+	source := reg.host + "/acme/lint"
+	if got := lockedVersion(t, dir, source); got != "2.0.0" {
+		t.Fatalf("initial locked version = %q, want 2.0.0", got)
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusBlocked, Reasons: []string{"cvss above threshold"}})
+	for _, opts := range []applyOptions{{}, {allowOlderVersions: true}} {
+		err := testApp(reg, dir).applyProject(context.Background(), opts)
+		if err == nil || !strings.Contains(err.Error(), "version 2.0.0 is blocked by a Jev policy") || !strings.Contains(err.Error(), "lock file pins this version") {
+			t.Fatalf("locked blocked version with %+v: %v", opts, err)
+		}
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusRejected, Reasons: []string{"Superseded"}})
+	err := testApp(reg, dir).applyProject(context.Background(), applyOptions{allowOlderVersions: true})
+	if err == nil || !strings.Contains(err.Error(), "locked version 2.0.0 is rejected; re-run with --upgrade to choose another") {
+		t.Fatalf("locked rejected version: %v", err)
+	}
+
+	overlay.set([]string{"2.0.0"}, unavailableCandidate{Version: "2.0.0", Status: statusBlocked, Reasons: []string{"cvss above threshold"}})
+	err = testApp(reg, dir).applyProject(context.Background(), applyOptions{upgrade: true})
+	if err == nil || !strings.Contains(err.Error(), "--allow-older-versions") {
+		t.Fatalf("upgrade without the flag should refuse the fallback, got %v", err)
+	}
+
+	if got := lockedVersion(t, dir, source); got != "2.0.0" {
+		t.Fatalf("refusals changed the lock to %q", got)
+	}
+
+	if err := testApp(reg, dir).applyProject(context.Background(), applyOptions{upgrade: true, allowOlderVersions: true}); err != nil {
+		t.Fatalf("upgrade with --allow-older-versions: %v", err)
+	}
+
+	if got := lockedVersion(t, dir, source); got != "1.0.0" {
+		t.Fatalf("locked version after explicit fallback = %q, want 1.0.0", got)
+	}
+}

@@ -27,6 +27,11 @@ data:
 
         access_log /dev/stdout combined;
 
+        map $http_upgrade $connection_upgrade {
+            default upgrade;
+            ''      close;
+        }
+
         upstream opendepot_server {
             server ${OPENDEPOT_SERVER_HOST};
         }
@@ -34,6 +39,12 @@ data:
         upstream nextjs {
             server 127.0.0.1:3000;
         }
+
+        {{- if .Values.docs.enabled }}
+        upstream opendepot_docs {
+            server docs.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.docs.service.port }};
+        }
+        {{- end }}
 
         server {
             listen 8080;
@@ -98,11 +109,27 @@ data:
                 proxy_set_header   X-Request-ID      $request_id;
             }
 
+            {{- if .Values.docs.enabled }}
+            location = /docs {
+                # Keep the redirect relative. Absolute redirects would carry the internal listen port (8080).
+                absolute_redirect off;
+                return 301 /docs/;
+            }
+
+            location /docs/ {
+                proxy_pass         http://opendepot_docs;
+                proxy_set_header   Host              $host;
+                proxy_set_header   X-Forwarded-For   $remote_addr;
+                proxy_set_header   X-Forwarded-Proto $scheme;
+                proxy_set_header   X-Request-ID      $request_id;
+            }
+            {{- end }}
+
             location / {
                 proxy_pass          http://nextjs;
                 proxy_http_version  1.1;
                 proxy_set_header    Upgrade           $http_upgrade;
-                proxy_set_header    Connection        "upgrade";
+                proxy_set_header    Connection        $connection_upgrade;
                 proxy_set_header    Host              $host;
                 proxy_set_header    X-Forwarded-For   $remote_addr;
                 proxy_set_header    X-Forwarded-Proto $scheme;

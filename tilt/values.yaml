@@ -18,6 +18,10 @@ provider:
     limits:
       memory: 1Gi
 
+agent:
+  enabled: true
+  image:
+    repository: ghcr.io/tonedefdev/opendepot/agent-controller
 module:
   image:
     repository: ghcr.io/tonedefdev/opendepot/module-controller
@@ -40,6 +44,8 @@ depot:
 
 version:
   zapLogLevel: 5
+  gpg:
+    secretName: opendepot-provider-gpg
   image:
     repository: ghcr.io/tonedefdev/opendepot/version-controller
 
@@ -163,3 +169,5 @@ dex:
           - http://localhost:10008/login
           - http://localhost:10009/login
           - http://localhost:10010/login
+branchSourcing:
+  enabled: true

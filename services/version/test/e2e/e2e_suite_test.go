@@ -41,11 +41,21 @@ var (
 
 	// serverImage is the server image to deploy for e2e tests.
 	serverImage = "server:e2e-test"
+
+	// branchDepotImage and branchAgentImage are the controllers the branch sourcing context runs.
+	branchDepotImage = "depot-controller:e2e-test"
+	branchAgentImage = "agent-controller:e2e-test"
 )
 
 const (
 	// helmReleaseName is the existing Helm release that owns module/version/server.
 	helmReleaseName = "opendepot"
+
+	// signingSecretName is the Secret that holds the ephemeral GPG key the version controller uses to sign Skill and Agent versions.
+	signingSecretName = "opendepot-gpg"
+
+	// signingSecretKey is the Secret key that holds the base64-encoded armored GPG private key.
+	signingSecretKey = "OPENDEPOT_PROVIDER_GPG_PRIVATE_KEY_BASE64"
 )
 
 // TestE2E runs the end-to-end test suite for the version controller.
@@ -133,6 +143,14 @@ var _ = BeforeSuite(func() {
 	cmd = exec.Command("kubectl", "create", "namespace", namespace)
 	_, _ = utils.Run(cmd) // ignore error if namespace already exists
 
+	By("generating an ephemeral GPG signing key and storing it in a Secret")
+	err = utils.EnsureGPGSigningSecret(namespace, signingSecretName, signingSecretKey)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GPG signing key Secret")
+
+	By("storing the GitHub App credentials in the GitHub application Secret")
+	err = utils.EnsureGitHubAppSecret(namespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create the GitHub App Secret")
+
 	By("upgrading Helm release to configure version controller with local images")
 	chartPath, err := utils.GetChartPath()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -152,6 +170,8 @@ var _ = BeforeSuite(func() {
 		"--set", "module.enabled=false",
 		"--set", fmt.Sprintf("version.image.repository=%s", versionRepo),
 		"--set", fmt.Sprintf("version.image.tag=%s", versionTag),
+		"--set", "version.gpg.secretName="+signingSecretName,
+		"--set", "server.gpg.secretName="+signingSecretName,
 		"--set", "server.anonymousAuth=true",
 		"--set", fmt.Sprintf("server.image.repository=%s", serverRepo),
 		"--set", fmt.Sprintf("server.image.tag=%s", serverTag),
@@ -162,6 +182,7 @@ var _ = BeforeSuite(func() {
 		"--wait",
 		"--timeout", "3m",
 	)
+	cmd.Args = append(cmd.Args, utils.CoverageHelmArgs()...)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to upgrade Helm release")
 })
@@ -170,6 +191,8 @@ var _ = AfterSuite(func() {
 	if !utils.KindClusterConfigured() {
 		return
 	}
+
+	ExpectWithOffset(1, utils.CollectCoverage(namespace)).To(Succeed())
 
 	By("uninstalling Helm release to clean up version e2e resources")
 	cmd := exec.Command("helm", "uninstall", helmReleaseName,

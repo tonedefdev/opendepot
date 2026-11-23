@@ -20,15 +20,13 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import CloseIcon from "@mui/icons-material/Close";
-import WidgetsIcon from "@mui/icons-material/Widgets";
-import WidgetsOutlinedIcon from "@mui/icons-material/WidgetsOutlined";
+import { DepotKindIcon } from "@/components/DepotKindIcon";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import { useColorScheme } from "@mui/material/styles";
 import Link from "next/link";
 import type { ContractOutput, ContractRequiredProvider, ContractVariable } from "@/lib/api";
 import { GRADE_COLOR, renderTypeCompact, typesRoughlyCompatible } from "@/lib/ctyType";
-import type { FieldValue, ModuleInputValue, Multiplicity, ProviderBinding, ProviderOption, ReferenceOption, VariableOption } from "./types";
+import type { ModuleInputValue, Multiplicity, ProviderBinding, ProviderOption, ReferenceOption, VariableOption } from "./types";
 import { forEachShapeFromTypeSpec, isForEachCompatible } from "./typeSpec";
 import InputsModal from "./InputsModal";
 import ProvidersModal from "./ProvidersModal";
@@ -140,9 +138,6 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
   const [repeatAnchor, setRepeatAnchor] = useState<HTMLElement | null>(null);
   const identityTextRef = React.useRef<HTMLSpanElement>(null);
   const [identityTruncated, setIdentityTruncated] = useState(false);
-  const { mode, systemMode } = useColorScheme();
-  const resolvedMode = mode === "system" ? systemMode : mode;
-  const WidgetIcon = resolvedMode === "light" ? WidgetsIcon : WidgetsOutlinedIcon;
   const errorCount = Object.keys(fieldErrors).length;
   const configuredProviderCount = requiredProviders.filter(
     (provider) => providerBindings[provider.localName]?.providerNodeId,
@@ -194,10 +189,12 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
   // stacked card read as a bright white slab against the node body/header.
   // A fixed, solid grey fill fixes that on its own — the extra 1px outline
   // layer isn't needed once the fill itself reads as clearly darker.
-  const stackedCardShadow =
-    resolvedMode === "light"
-      ? "4px 4px 0 0 #d0d7de, 0 2px 6px rgba(0,0,0,0.15)"
-      : "4px 4px 0 0 var(--mui-palette-background-default), 4px 4px 0 1px var(--mui-palette-divider), 0 2px 6px rgba(0,0,0,0.4)";
+  const stackedCardShadowDark =
+    "4px 4px 0 0 var(--mui-palette-background-default), 4px 4px 0 1px var(--mui-palette-divider), 0 2px 6px rgba(0,0,0,0.4)";
+  const stackedCardShadowLight = "4px 4px 0 0 #d0d7de, 0 2px 6px rgba(0,0,0,0.15)";
+  // Solid offset block with no blur, matching the marketing site's terminal windows (site-root/styles.css .cli-window).
+  // --od-accent is mint in dark mode and blue in light mode, as on the marketing site.
+  const forEachShadow = "8px 8px 0 0 var(--od-accent)";
 
   return (
     <Box
@@ -211,13 +208,18 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
         // layered box-shadow stacked-card look rather than extra DOM nodes —
         // percentage/inset positioning doesn't work reliably against a
         // parent whose height is itself auto (content-driven).
-        boxShadow: isRepeated ? stackedCardShadow : 3,
+        boxShadow: multiplicity.kind === "for_each" ? forEachShadow : isRepeated ? stackedCardShadowDark : 3,
+        ...(isRepeated &&
+          multiplicity.kind !== "for_each" && {
+            "[data-mui-color-scheme='light'] &": { boxShadow: stackedCardShadowLight },
+          }),
         overflow: "hidden",
       }}
     >
       <Box sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <WidgetIcon sx={{ fontSize: 16, opacity: 0.7, color: "#03deb8" }} />
+          {/* Primary accent (mint in dark mode, blue in light), matching the for_each shadow. */}
+          <DepotKindIcon kind="module" sx={{ fontSize: 16, color: "var(--od-assembly-module)" }} />
           <Typography variant="caption" color="text.secondary">
             module.
           </Typography>
@@ -239,7 +241,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
               size="small"
               icon={isRepeated ? <RepeatIcon sx={{ fontSize: "12px !important" }} /> : undefined}
               label={multiplicity.kind === "none" ? "single" : multiplicity.kind}
-              color={countTypeError ? "error" : isRepeated ? "info" : "default"}
+              color={countTypeError ? "error" : isRepeated ? "primary" : "default"}
               variant={isRepeated || countTypeError ? "filled" : "outlined"}
               onClick={(e) => setRepeatAnchor(e.currentTarget)}
               sx={{ height: 18, fontSize: "0.65rem", cursor: "pointer" }}
@@ -587,7 +589,7 @@ function ModuleNode({ data }: NodeProps<ModuleNodeData>) {
                     right: "auto",
                     width: 8,
                     height: 8,
-                    background: "#03deb8",
+                    background: "var(--od-accent)",
                   }}
                 />
               </Box>
