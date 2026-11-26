@@ -219,7 +219,7 @@ These are the assumptions the spikes changed or confirmed. Edit `release-0.13.0.
 8. **Step 2 (g) and Step 16 (Codex MCP):** the Codex project config path is `.codex/config.toml`, not `.mcp.json`. Confirm project trust before Step 16 writes that file.
 9. **Step 2 (h) and Step 23 (delegation):** stop generating Copilot `handoffs`. Render a generated `Delegation` section for Copilot, Claude, and `agents-md`. Use `Agent(...)` in Claude `tools:`. Decide separately whether to remove `handoffs` from the `pkg/agentspec` Copilot table, and whether to add `skills` and `hooks` to it.
 10. **Step 2 (i) and Step 16 (MCP):** `server.json` targets schema `2025-12-11`. Validate the required `name`, `description`, and `version`, and each `packages[]` entry's `registryType`, `identifier`, and `transport`.
-11. **Step 1 (not part of Step 2):** the Jev suggest design still depends on the canary diagnosis. The diagnosis is pending a decision on live trials versus transcript-only evidence. See the Wave 0 report.
+11. **Step 1 (not part of Step 2):** complete. The live 2×2 confirmation trials (gpt-6-luna, 3 interleaved rounds, 12 scored trials) are recorded in `.github/plans/jev-skill-suggest-design.md` under "Canary diagnosis". Only the refined skill text with the Zeta prompt passed (3/3). The Find prompt failed in every cell, and the v1 skill text failed because its frontmatter is invalid YAML. The Step 31 fix is recorded in the release plan.
 
 ## Open items not verified in Wave 0
 
