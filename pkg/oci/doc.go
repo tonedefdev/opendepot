@@ -16,5 +16,4 @@ limitations under the License.
 
 // Package oci is the home of OCI artifact support: content-addressed registry storage,
 // the upstream registry client, and Helm and generic artifact packaging.
-// It is an empty skeleton until its implementation lands.
 package oci
