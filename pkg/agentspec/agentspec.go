@@ -120,7 +120,7 @@ var (
 			"memory", "effort", "background", "omitClaudeMd", "isolation", "color",
 		)),
 		PlatformCopilot: union(agentSkillsAgentKeys, keySet(
-			"target", "disable-model-invocation", "user-invocable", "mcp-servers", "argument-hint", "handoffs",
+			"target", "disable-model-invocation", "user-invocable", "mcp-servers", "argument-hint", "handoffs", "skills",
 		)),
 		PlatformCodex: agentSkillsAgentKeys,
 		PlatformOpenCode: keySet(

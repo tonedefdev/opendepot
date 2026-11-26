@@ -22,11 +22,6 @@ COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY pkg/utils/go.mod pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 COPY pkg/registry/go.mod pkg/registry/
-COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
-COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
-COPY pkg/utils/go.mod pkg/utils/
-COPY pkg/testutils/go.mod pkg/testutils/
-COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
 COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
