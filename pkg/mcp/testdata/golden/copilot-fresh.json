@@ -24,7 +24,7 @@
     },
     "opendepot-summarizer": {
       "type": "stdio",
-      "command": "python",
+      "command": ".opendepot/mcp/summarizer/.venv/bin/python",
       "args": [
         "-m",
         "summarizer"

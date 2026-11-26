@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -36,6 +37,9 @@ var (
 
 	// fetchModules are Python modules that download or install packages from the network when they run.
 	fetchModules = []string{"pip", "ensurepip", "uv", "uvx", "pipx"}
+
+	// nodeLoaderFlags are node options that load a module or preload script before the verified file runs.
+	nodeLoaderFlags = []string{"--import", "--experimental-loader", "--loader", "--require"}
 )
 
 // LaunchDescriptor is the opendepot-mcp.json file that describes how to start a vendored MCP server.
@@ -122,6 +126,11 @@ func (d LaunchDescriptor) Validate() error {
 
 	if d.Runtime == RuntimeNode || d.Runtime == RuntimePython {
 		errs = append(errs, validateInterpreterArgs(d.Runtime, d.Args)...)
+		if d.Transport == TransportStdio {
+			if err := validateScriptPath(d.Args); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
 
 	for _, arg := range d.Args {
@@ -178,6 +187,7 @@ func validateImage(ref, digest string) []error {
 
 // validateCommand rejects any command that is not an exact allow-listed name for the runtime, and any value that
 // contains whitespace or control characters. An unknown runtime is reported by Validate, so it is not repeated here.
+// For the node and python runtimes, a vendored relative path whose basename is an allow-listed name is also accepted.
 func validateCommand(runtime, command string) error {
 	if strings.ContainsFunc(command, func(r rune) bool { return isControl(r) || r == ' ' }) {
 		return fmt.Errorf("command %q must not contain whitespace or control characters", command)
@@ -188,22 +198,60 @@ func validateCommand(runtime, command string) error {
 		return nil
 	}
 
-	if !slices.Contains(allowed, command) {
-		return fmt.Errorf(
-			"command %q is not permitted for runtime %q; allowed commands are %s",
-			command, runtime, strings.Join(allowed, ", "),
-		)
+	if slices.Contains(allowed, command) {
+		return nil
 	}
 
-	return nil
+	if (runtime == RuntimeNode || runtime == RuntimePython) &&
+		isVendoredPath(command) && slices.Contains(allowed, path.Base(command)) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"command %q is not permitted for runtime %q; allowed commands are %s",
+		command, runtime, strings.Join(allowed, ", "),
+	)
+}
+
+// isVendoredPath reports whether p is a relative path that stays inside the vendored tree. It is isLocalPath with no
+// ".." segment at any position, so a path such as bin/../python is refused as well.
+func isVendoredPath(p string) bool {
+	return isLocalPath(p) && !slices.Contains(strings.Split(p, "/"), "..")
+}
+
+// validateScriptPath requires the first argument that is not a flag to be a vendored relative path, so a stdio launch
+// of node or python stays inside the vendored tree.
+func validateScriptPath(args []string) error {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if !isVendoredPath(arg) {
+			return fmt.Errorf("script path %q must be a relative path inside the vendored tree", arg)
+		}
+
+		return nil
+	}
+
+	return errors.New("a script path inside the vendored tree is required for stdio launches")
 }
 
 // validateInterpreterArgs rejects arguments that make node or python run inline code instead of the verified file.
 // Inline flags are refused at any index, including attached (-c<code>) and combined (-Ic) forms and the = form of the
-// long flags. For python, -m is refused when it names a package fetcher, in its separate and attached forms.
+// long flags. For python, -m is refused when it names a package fetcher, in its separate and attached forms. Node
+// loader flags and any argument that names a remote URL or a data: module are refused for both runtimes.
 func validateInterpreterArgs(runtime string, args []string) []error {
 	var errs []error
 	for i, arg := range args {
+		if runtime == RuntimeNode && isNodeLoaderArg(arg) {
+			errs = append(errs, fmt.Errorf("argument %q loads code before the verified file", arg))
+		}
+
+		if isRemoteOrDataRef(arg) {
+			errs = append(errs, fmt.Errorf("argument %q references remote or data: code", arg))
+		}
+
 		if name, _, _ := strings.Cut(arg, "="); name == "--eval" || name == "--print" {
 			errs = append(errs, fmt.Errorf("argument %q runs inline code; launch the verified file instead", arg))
 			continue
@@ -250,6 +298,28 @@ func validateInterpreterArgs(runtime string, args []string) []error {
 func isFetchModule(module string) bool {
 	top, _, _ := strings.Cut(strings.ToLower(module), ".")
 	return slices.Contains(fetchModules, top)
+}
+
+// isNodeLoaderArg reports whether arg is a node option that loads code before the verified file. The separate and =
+// forms of the long flags are matched, and so is any short-flag cluster containing r, which includes node's -r.
+func isNodeLoaderArg(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	if slices.Contains(nodeLoaderFlags, name) {
+		return true
+	}
+
+	return len(arg) >= 2 && arg[0] == '-' && arg[1] != '-' && strings.ContainsRune(arg[1:], 'r')
+}
+
+// isRemoteOrDataRef reports whether arg starts with a data: URL, contains a :// scheme separator, or carries a data:
+// URL as the value of an = form. Matching is case-insensitive for data:.
+func isRemoteOrDataRef(arg string) bool {
+	if strings.HasPrefix(strings.ToLower(arg), "data:") || strings.Contains(arg, "://") {
+		return true
+	}
+
+	_, value, ok := strings.Cut(arg, "=")
+	return ok && strings.HasPrefix(strings.ToLower(value), "data:")
 }
 
 // isControl reports whether r is an ASCII control character, including NUL, tab, and newline.

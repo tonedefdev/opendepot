@@ -17,5 +17,5 @@ command = 'docker'
 args = ['run', '--rm', '-i', 'opendepot.example.com/mcp/search@sha256:4d0c5a3e1f9b2c7d8e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9011223344556']
 
 [mcp_servers.opendepot-summarizer]
-command = 'python'
+command = '.opendepot/mcp/summarizer/.venv/bin/python'
 args = ['-m', 'summarizer']

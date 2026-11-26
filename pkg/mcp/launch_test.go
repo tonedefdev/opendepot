@@ -9,7 +9,7 @@ import (
 func TestLaunchDescriptorRoundTrip(t *testing.T) {
 	desc := LaunchDescriptor{
 		Command:   testNode,
-		Args:      []string{"vendor/filesystem/dist/index.js", "--stdio"},
+		Args:      []string{"vendor/filesystem/dist/index.js", testStdioFlag},
 		Transport: TransportStdio,
 		Runtime:   RuntimeNode,
 	}
@@ -225,15 +225,16 @@ func TestLaunchDescriptorRejectsBypasses(t *testing.T) {
 		runtime string
 	}{
 		{"absolute node path", "/usr/bin/node", RuntimeNode},
-		{"relative node path", "./node", RuntimeNode},
 		{"parent escape to node", "../node", RuntimeNode},
 		{"parent escape to sh", "../../bin/sh", RuntimeNode},
+		{"parent escape to python", "../bin/python", RuntimePython},
+		{"nested parent escape to python", ".opendepot/../../bin/python", RuntimePython},
 		{"node with exe suffix", "node.exe", RuntimeNode},
 		{"node with different case", "Node", RuntimeNode},
 		{"python3 under node runtime", "python3", RuntimeNode},
 		{"node under python runtime", "node", RuntimePython},
 		{"absolute python path", "/usr/bin/python3", RuntimePython},
-		{"venv python path", ".venv/bin/python", RuntimePython},
+		{"windows drive python path", `C:\Python\python.exe`, RuntimePython},
 		{"shell under python runtime", "sh", RuntimePython},
 		{"node under oci runtime", "node", RuntimeOCI},
 		{"python under oci runtime", "python", RuntimeOCI},
@@ -318,7 +319,7 @@ func TestLaunchDescriptorAllowsListedCommands(t *testing.T) {
 	allowed := []LaunchDescriptor{
 		{Command: testNode, Args: []string{testEntryFile, "--verbose"}, Transport: TransportStdio, Runtime: RuntimeNode},
 		{Command: "python", Args: []string{"-m", "pytest"}, Transport: TransportStdio, Runtime: RuntimePython},
-		{Command: "python3", Args: []string{"-u", "server.py"}, Transport: TransportStdio, Runtime: RuntimePython},
+		{Command: "python3", Args: []string{"-u", testServerScript}, Transport: TransportStdio, Runtime: RuntimePython},
 		{Command: "podman", Transport: TransportStdio, Runtime: RuntimeOCI, ImageRef: testImageRef, ImageDigest: testDigest},
 		{Command: "nerdctl", Transport: TransportStdio, Runtime: RuntimeOCI, ImageRef: testImageRef, ImageDigest: testDigest},
 	}
@@ -327,6 +328,147 @@ func TestLaunchDescriptorAllowsListedCommands(t *testing.T) {
 		if err := desc.Validate(); err != nil {
 			t.Errorf("Validate(%s %v) error = %v, want nil", desc.Command, desc.Args, err)
 		}
+	}
+}
+
+// TestLaunchDescriptorVendoredInterpreterPath covers the vendored relative interpreter paths that node and python
+// may launch, and the absolute and escaping paths that must still be refused.
+func TestLaunchDescriptorVendoredInterpreterPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		args    []string
+		runtime string
+		wantErr string
+	}{
+		{
+			"vendored venv python", ".opendepot/mcp/summarizer/.venv/bin/python", []string{"-m", "summarizer"},
+			RuntimePython, "",
+		},
+		{
+			"vendored venv python3", ".opendepot/mcp/summarizer/.venv/bin/python3", []string{testServerScript},
+			RuntimePython, "",
+		},
+		{"vendored relative node", "./node", []string{testEntryFile}, RuntimeNode, ""},
+		{"vendored node in package", ".opendepot/mcp/filesystem/bin/node", []string{testEntryFile}, RuntimeNode, ""},
+		{"absolute venv python", "/usr/bin/python3", []string{testServerScript}, RuntimePython, testShellError},
+		{"escaping venv python", "../bin/python", []string{testServerScript}, RuntimePython, testShellError},
+		{
+			"escape hidden in venv path", ".opendepot/../../bin/python", []string{testServerScript},
+			RuntimePython, testShellError,
+		},
+		{
+			"vendored path with wrong basename", ".opendepot/mcp/bin/sh", []string{testServerScript},
+			RuntimePython, testShellError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := LaunchDescriptor{Command: tc.command, Args: tc.args, Transport: TransportStdio, Runtime: tc.runtime}
+			err := desc.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() error = %v, want nil", err)
+				}
+
+				if _, err := desc.Entry(); err != nil {
+					t.Fatalf("Entry() error = %v, want nil", err)
+				}
+
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestLaunchDescriptorRejectsLoaderDataAndEscapes covers node loader flags, data: and :// arguments, and script paths
+// that leave the vendored tree. Each case must be refused by Validate and Entry.
+func TestLaunchDescriptorRejectsLoaderDataAndEscapes(t *testing.T) {
+	const (
+		loaderError = "loads code before the verified file"
+		remoteError = "remote or data: code"
+		scriptError = "vendored tree"
+	)
+
+	tests := []struct {
+		name    string
+		runtime string
+		args    []string
+		wantErr string
+	}{
+		{
+			"node --import data url", RuntimeNode,
+			[]string{"--import", "data:text/javascript,console.log(1)", testEntryFile}, loaderError,
+		},
+		{
+			"node --import=data url", RuntimeNode,
+			[]string{"--import=data:text/javascript,console.log(1)", testEntryFile}, loaderError,
+		},
+		{"node --import local file", RuntimeNode, []string{"--import", "./hook.mjs", testEntryFile}, loaderError},
+		{"node --import=local file", RuntimeNode, []string{"--import=./hook.mjs", testEntryFile}, loaderError},
+		{
+			"node --experimental-loader", RuntimeNode,
+			[]string{"--experimental-loader", "./loader.mjs", testEntryFile}, loaderError,
+		},
+		{
+			"node --experimental-loader=", RuntimeNode,
+			[]string{"--experimental-loader=./loader.mjs", testEntryFile}, loaderError,
+		},
+		{"node --loader", RuntimeNode, []string{"--loader", "./loader.mjs", testEntryFile}, loaderError},
+		{"node --loader=", RuntimeNode, []string{"--loader=./loader.mjs", testEntryFile}, loaderError},
+		{"node --require", RuntimeNode, []string{"--require", testPreloadScript, testEntryFile}, loaderError},
+		{"node --require=", RuntimeNode, []string{"--require=" + testPreloadScript, testEntryFile}, loaderError},
+		{"node -r separate", RuntimeNode, []string{"-r", testPreloadScript, testEntryFile}, loaderError},
+		{"node -r attached", RuntimeNode, []string{"-rdist/preload.js", testEntryFile}, loaderError},
+		{"node -r in a cluster", RuntimeNode, []string{"-pr", testPreloadScript, testEntryFile}, loaderError},
+		{"node data argument", RuntimeNode, []string{"data:text/javascript,console.log(1)", testEntryFile}, remoteError},
+		{
+			"node DATA argument is case-insensitive", RuntimeNode,
+			[]string{"DATA:text/javascript,x", testEntryFile}, remoteError,
+		},
+		{"node file url argument", RuntimeNode, []string{"file:///tmp/x.js"}, remoteError},
+		{"node https argument", RuntimeNode, []string{"https://example.com/x.js"}, remoteError},
+		{"python data argument", RuntimePython, []string{"data:text/x-python,print(1)"}, remoteError},
+		{"python https argument", RuntimePython, []string{"-m", "https://example.com/x.py"}, remoteError},
+		{"python http argument", RuntimePython, []string{"http://example.com/server.py"}, remoteError},
+		{"node script escapes the tree", RuntimeNode, []string{"../outside.js"}, scriptError},
+		{"node script with nested escape", RuntimeNode, []string{"dist/../../outside.js"}, scriptError},
+		{"node absolute script", RuntimeNode, []string{"/opt/outside.js"}, scriptError},
+		{"node windows script", RuntimeNode, []string{`C:\outside.js`}, scriptError},
+		{"node without a script path", RuntimeNode, []string{testStdioFlag}, scriptError},
+		{"python script escapes the tree", RuntimePython, []string{"../server.py"}, scriptError},
+		{"python absolute script", RuntimePython, []string{"/opt/server.py"}, scriptError},
+		{"python without a script path", RuntimePython, []string{"-u"}, scriptError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			command := testNodeOrPython(tc.runtime)
+			desc := LaunchDescriptor{Command: command, Args: tc.args, Transport: TransportStdio, Runtime: tc.runtime}
+			err := desc.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
+			}
+
+			if _, err := desc.Entry(); err == nil {
+				t.Error("Entry() accepted a refused descriptor")
+			}
+		})
+	}
+}
+
+// TestLaunchDescriptorStreamableHTTPSkipsScriptPath keeps the remote transport valid without a local script path.
+func TestLaunchDescriptorStreamableHTTPSkipsScriptPath(t *testing.T) {
+	desc := LaunchDescriptor{
+		Command: testNode, Transport: TransportStreamableHTTP, Runtime: RuntimeNode, URL: testRemoteURL,
+	}
+	if err := desc.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
 	}
 }
 

@@ -242,7 +242,6 @@ func validateRepository(repo Repository) error {
 	return nil
 }
 
-// validRegistryType reports whether value is one of the registry types this package accepts.
 // hasDotSegment reports whether any slash-separated segment of a server name is . or .., which would traverse a path.
 func hasDotSegment(name string) bool {
 	for _, segment := range strings.Split(name, "/") {
@@ -254,6 +253,7 @@ func hasDotSegment(name string) bool {
 	return false
 }
 
+// validRegistryType reports whether value is one of the registry types this package accepts.
 func validRegistryType(value string) bool {
 	switch value {
 	case RegistryTypeNPM, RegistryTypePyPI, RegistryTypeOCI, RegistryTypeNuGet, RegistryTypeMCPB:

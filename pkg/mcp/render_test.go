@@ -20,7 +20,7 @@ func testManagedServers() []ManagedServer {
 			Name: "opendepot-filesystem",
 			Launch: LaunchDescriptor{
 				Command:   testNode,
-				Args:      []string{".opendepot/mcp/filesystem/" + testEntryFile, "--stdio"},
+				Args:      []string{".opendepot/mcp/filesystem/" + testEntryFile, testStdioFlag},
 				Transport: TransportStdio,
 				Runtime:   RuntimeNode,
 			},
