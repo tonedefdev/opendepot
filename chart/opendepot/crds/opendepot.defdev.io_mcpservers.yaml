@@ -1,0 +1,458 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: mcpservers.opendepot.defdev.io
+spec:
+  group: opendepot.defdev.io
+  names:
+    kind: MCPServer
+    listKind: MCPServerList
+    plural: mcpservers
+    singular: mcpserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: The type of the MCP server package source. One of 'Image', 'Npm',
+        'PyPI', or 'Source'
+      jsonPath: .spec.mcpServerSourceConfig.source.type
+      name: Source
+      type: string
+    - description: The latest available version of the MCPServer
+      jsonPath: .status.latestVersion
+      name: LatestVersion
+      type: string
+    - description: Whether the MCPServer has synced successfully
+      jsonPath: .status.synced
+      name: Synced
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MCPServer is the Schema for the mcpservers API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MCPServerSpec defines the desired state of MCPServer.
+            properties:
+              forceSync:
+                description: A flag to force an MCPServer to synchronize.
+                type: boolean
+              mcpServerSourceConfig:
+                description: The configuration of the MCPServer, which defines where
+                  its content comes from and how it is versioned.
+                properties:
+                  entrypoint:
+                    description: The entrypoint that overrides the default binary
+                      or console script of the package.
+                    properties:
+                      args:
+                        description: The arguments to pass to the command.
+                        items:
+                          maxLength: 1024
+                          type: string
+                        maxItems: 32
+                        type: array
+                      command:
+                        description: The command to run.
+                        maxLength: 255
+                        type: string
+                    type: object
+                  githubClientConfig:
+                    description: The Github client configuration settings.
+                    properties:
+                      useAuthenticatedClient:
+                        description: |-
+                          This flag determines whether the GitHub client used to download modules
+                          will be authenticated with a Github App. It's highly recommended
+                          to enable this flag to avoid GitHub API rate limiting. When enabled, the namespace where the Module resource exists
+                          must contain a Secret named 'opendepot-github-application-secret'. The secret must contain a githubAppID,
+                          githubInstallID, and githubPrivateKey field. The private key must also be base64 encoded before being added
+                          as data to the secret. When accessed, the controller will base64 decode the key to build an in-memory client
+                          to authenticate with the Github API.
+                        type: boolean
+                    type: object
+                  immutable:
+                    description: |-
+                      When true, enforces that the ChecksumSHA256 of the Version always matches the value stored in this field
+                      and in any destination storage config.
+                    type: boolean
+                  jevPolicy:
+                    description: The thresholds that gate a Version on its Jev assessment.
+                    properties:
+                      maxDestructiveProbability:
+                        description: The maximum destructive action probability. A
+                          Version is blocked when its probability is above this value.
+                        type: number
+                      maxExfiltrationProbability:
+                        description: The maximum data exfiltration probability. A
+                          Version is blocked when its probability is above this value.
+                        type: number
+                      maxHiddenInstructionsProbability:
+                        description: The maximum hidden instructions probability.
+                          A Version is blocked when its probability is above this
+                          value.
+                        type: number
+                      maxInjectionProbability:
+                        description: The maximum prompt injection probability. A Version
+                          is blocked when its probability is above this value.
+                        type: number
+                      maxRemoteExecutionProbability:
+                        description: The maximum remote execution probability. A Version
+                          is blocked when its probability is above this value.
+                        type: number
+                      maxRiskScore:
+                        description: The maximum risk score. A Version is blocked
+                          when its risk score is above this value.
+                        type: number
+                      maxScopeMismatchProbability:
+                        description: The maximum scope mismatch probability. A Version
+                          is blocked when its probability is above this value.
+                        type: number
+                      minConfidence:
+                        description: A Version is blocked and flagged for review when
+                          any part's risk confidence is below this value.
+                        type: number
+                      minSafeProbability:
+                        description: The minimum safe probability. A Version is blocked
+                          when its safe probability is below this value.
+                        type: number
+                    type: object
+                  jevSecretRef:
+                    description: |-
+                      A reference to the key in a Secret in the same namespace that holds the TypeSafe Jev token.
+                      The key defaults to 'jevToken' when omitted.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  name:
+                    description: The name of the MCP server. If omitted, the name
+                      of the MCPServer resource is used in its place.
+                    type: string
+                  source:
+                    description: The source that the MCP server package is built from.
+                    properties:
+                      image:
+                        description: The OCIArtifact that holds the container image.
+                          Only valid when type is 'Image'.
+                        properties:
+                          ociArtifactRef:
+                            description: A reference to the OCIArtifact resource in
+                              the same namespace. The OCIArtifact must have artifactType
+                              Image.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - ociArtifactRef
+                        type: object
+                      npm:
+                        description: The npm package. Only valid when type is 'Npm'.
+                        properties:
+                          package:
+                            description: The name of the npm package.
+                            maxLength: 214
+                            pattern: ^(@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*$
+                            type: string
+                          registry:
+                            description: The npm registry that hosts the package.
+                              It must be on the allow-list.
+                            type: string
+                        required:
+                        - package
+                        type: object
+                      pypi:
+                        description: The PyPI package. Only valid when type is 'PyPI'.
+                        properties:
+                          index:
+                            description: The simple index that hosts the package.
+                              It must be on the allow-list.
+                            type: string
+                          package:
+                            description: The name of the PyPI package.
+                            maxLength: 255
+                            type: string
+                          platforms:
+                            description: The wheel platform tags to vendor, such as
+                              manylinux_2_28_x86_64.
+                            items:
+                              type: string
+                            maxItems: 8
+                            type: array
+                          pythonVersion:
+                            description: The Python version to vendor wheels for,
+                              such as 3.12.
+                            pattern: ^3\.[0-9]+$
+                            type: string
+                        required:
+                        - package
+                        type: object
+                      source:
+                        description: The GitHub repository. Only valid when type is
+                          'Source'.
+                        properties:
+                          path:
+                            description: The path within the repository to the directory
+                              that contains the MCP server.
+                            type: string
+                          repoOwner:
+                            description: Owner of the Github repository.
+                            type: string
+                          repoUrl:
+                            description: The full URL of the Github repository.
+                            type: string
+                          tagPrefix:
+                            description: |-
+                              The prefix of the Git tags that version this source, such as 'my-server/'. The prefix is
+                              stripped from each tag to produce the version. If omitted, tags are used as-is.
+                            type: string
+                        required:
+                        - path
+                        - repoOwner
+                        type: object
+                      type:
+                        description: The type of the package source. One of 'Image',
+                          'Npm', 'PyPI', or 'Source'.
+                        enum:
+                        - Image
+                        - Npm
+                        - PyPI
+                        - Source
+                        type: string
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: set exactly the block that matches type
+                      rule: (self.type == 'Image') == has(self.image) && (self.type
+                        == 'Npm') == has(self.npm) && (self.type == 'PyPI') == has(self.pypi)
+                        && (self.type == 'Source') == has(self.source)
+                  storageConfig:
+                    description: The external storage configuration settings.
+                    properties:
+                      azureStorage:
+                        properties:
+                          accountName:
+                            description: The Azure Storage Account name.
+                            type: string
+                          accountUrl:
+                            description: The Azure Storage Account URL.
+                            type: string
+                          resourceGroup:
+                            description: The Azure Resource Group where the Azure
+                              Storage Account is located.
+                            type: string
+                          subscriptionID:
+                            description: The Azure subscription ID where the Azure
+                              Storage Account is located.
+                            type: string
+                        required:
+                        - accountName
+                        - accountUrl
+                        - resourceGroup
+                        - subscriptionID
+                        type: object
+                      fileSystem:
+                        description: The configuration settings for storing Versions
+                          on a local filesystem.
+                        properties:
+                          directoryPath:
+                            description: The directory path on the file system where
+                              the Version will be stored.
+                            type: string
+                        type: object
+                      gcs:
+                        description: The configuration settings for storing Versions
+                          in a Google Cloud Storage bucket.
+                        properties:
+                          bucket:
+                            description: The GCS bucket name.
+                            type: string
+                        required:
+                        - bucket
+                        type: object
+                      presign:
+                        description: |-
+                          Presign is the optional configuration for pre-signed URL generation.
+                          Agents treat an unset fallbackToProxy as false. Providers and modules treat it as true.
+                        properties:
+                          enabled:
+                            description: When true, download requests are redirected
+                              to the storage backend via a pre-signed URL.
+                            type: boolean
+                          fallbackToProxy:
+                            description: |-
+                              When true, if pre-sign generation fails the server falls back to proxying the download.
+                              No CRD default. Providers and modules treat an unset value as true. Agents treat an unset value as false.
+                            type: boolean
+                          ttl:
+                            default: 15m
+                            description: |-
+                              TTL controls how long the pre-signed URL remains valid (e.g. "15m", "1h").
+                              If omitted, defaults to 15 minutes.
+                            type: string
+                        type: object
+                      s3:
+                        description: The configuration settings for storing Versions
+                          in an Amazon S3 bucket.
+                        properties:
+                          bucket:
+                            description: The S3 bucket name.
+                            type: string
+                          key:
+                            description: |-
+                              The S3 bucket key, ie: 'my/bucket/prefix'
+                              The file name will be automatically generated by the opendepot-module-controller.
+                            type: string
+                          region:
+                            description: The AWS region for the bucket.
+                            type: string
+                        required:
+                        - bucket
+                        - region
+                        type: object
+                    type: object
+                  transport:
+                    default: stdio
+                    description: The transport that the MCP server speaks.
+                    enum:
+                    - stdio
+                    - streamable-http
+                    type: string
+                  versionConstraints:
+                    description: A comma separated list of version constraints such
+                      as '1.2.1' or '>= 1.0.0, < 2.0.0' or '~> 1.0.0, != 1.0.2'.
+                    type: string
+                  versionHistoryLimit:
+                    description: The number of versions to keep stored in the registry
+                      at any given time.
+                    minimum: 0
+                    type: integer
+                required:
+                - source
+                type: object
+              versions:
+                description: The versions of the MCPServer that the controller should
+                  keep in sync.
+                items:
+                  description: MCPServerVersion holds details about the Version resource
+                    under management.
+                  properties:
+                    fileName:
+                      description: The file name of the MCP server package.
+                      type: string
+                    name:
+                      description: The name of the MCPServer.
+                      type: string
+                    synced:
+                      description: Whether the Version for the MCPServer has synced
+                        or not.
+                      type: boolean
+                    version:
+                      description: The version of the MCPServer.
+                      type: string
+                  required:
+                  - name
+                  - synced
+                  - version
+                  type: object
+                type: array
+            required:
+            - mcpServerSourceConfig
+            - versions
+            type: object
+          status:
+            description: MCPServerStatus defines the observed state of MCPServer.
+            properties:
+              latestVersion:
+                description: The latest available version of the MCPServer.
+                type: string
+              syncStatus:
+                description: A field for declaring current status information about
+                  how the resource is being reconciled.
+                type: string
+              synced:
+                description: A flag to determine if the MCPServer has successfully
+                  synced to its desired state.
+                type: boolean
+              versionRefs:
+                additionalProperties:
+                  description: MCPServerVersion holds details about the Version resource
+                    under management.
+                  properties:
+                    fileName:
+                      description: The file name of the MCP server package.
+                      type: string
+                    name:
+                      description: The name of the MCPServer.
+                      type: string
+                    synced:
+                      description: Whether the Version for the MCPServer has synced
+                        or not.
+                      type: boolean
+                    version:
+                      description: The version of the MCPServer.
+                      type: string
+                  required:
+                  - name
+                  - synced
+                  - version
+                  type: object
+                description: A map of the MCPServerVersion references that have been
+                  successfully created by the controller.
+                type: object
+            required:
+            - syncStatus
+            - synced
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

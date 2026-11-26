@@ -60,11 +60,50 @@ spec:
                     '"platform" in groups || "platform-readonly" in groups'
                 minLength: 1
                 type: string
+              jevSecretRef:
+                description: |-
+                  JevSecretRef is a reference to the key in a Secret in the server namespace that holds the TypeSafe Jev token used
+                  for suggest, advise, and handoff calls made by this binding's callers. The key defaults to 'jevToken' when omitted.
+                properties:
+                  key:
+                    description: The key of the secret to select from.  Must be a
+                      valid secret key.
+                    type: string
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  optional:
+                    description: Specify whether the Secret or its key must be defined
+                    type: boolean
+                required:
+                - key
+                type: object
+                x-kubernetes-map-type: atomic
+              mcpServerResources:
+                description: |-
+                  MCPServerResources is the list of glob patterns for MCPServer resource names this binding grants access to.
+                  The * wildcard is supported. Empty or omitted means no MCPServers are accessible.
+                items:
+                  type: string
+                type: array
               moduleResources:
                 description: |-
                   ModuleResources is the list of glob patterns for Module resource names this binding grants access to.
                   The * wildcard is supported (e.g. "terraform-aws-*").
                   Empty or omitted means no modules are accessible.
+                items:
+                  type: string
+                type: array
+              ociArtifactResources:
+                description: |-
+                  OCIArtifactResources is the list of glob patterns for OCIArtifact resource names this binding grants access to.
+                  The * wildcard is supported. Empty or omitted means no OCIArtifacts are accessible.
                 items:
                   type: string
                 type: array
@@ -86,6 +125,26 @@ spec:
                   ScanPolicyNamespaces is the allow-list of namespaces where this binding
                   may read or manage ScanPolicy resources. An empty list denies access.
                   The literal "*" allows every namespace reachable by the server.
+                items:
+                  type: string
+                type: array
+              schematicManagement:
+                description: |-
+                  SchematicManagement grants permission to create, update, delete, import, and duplicate Schematic resources.
+                  When omitted it is true, so saving works by default. Set it to false to make this binding read-only for Schematics.
+                type: boolean
+              schematicNamespaces:
+                description: |-
+                  SchematicNamespaces is the list of namespaces, in addition to this binding's own namespace, where this binding
+                  may write Schematic resources. The literal "*" allows every namespace reachable by the server. Writes are always
+                  allowed in the binding's own namespace unless schematicManagement is false.
+                items:
+                  type: string
+                type: array
+              schematicResources:
+                description: |-
+                  SchematicResources is the list of glob patterns for Schematic resource names this binding grants read access to.
+                  The * wildcard is supported. Empty or omitted means no Schematics are accessible.
                 items:
                   type: string
                 type: array

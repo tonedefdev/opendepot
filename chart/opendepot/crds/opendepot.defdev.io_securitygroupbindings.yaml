@@ -48,6 +48,10 @@ spec:
               expression:
                 minLength: 1
                 type: string
+              mcpServerResources:
+                items:
+                  type: string
+                type: array
               moduleResources:
                 items:
                   type: string
@@ -58,7 +62,15 @@ spec:
                 items:
                   type: string
                 type: array
+              ociArtifactResources:
+                items:
+                  type: string
+                type: array
               providerResources:
+                items:
+                  type: string
+                type: array
+              schematicResources:
                 items:
                   type: string
                 type: array
