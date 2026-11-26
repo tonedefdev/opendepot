@@ -111,6 +111,35 @@ func TestCheckDialAddrBlocksUnsafeAddresses(t *testing.T) {
 	}
 }
 
+func TestCheckDialAddrDeniesSpecialUsePrefixes(t *testing.T) {
+	tests := []struct {
+		prefix string
+		addr   string
+	}{
+		{prefix: "0.0.0.0/8", addr: "0.1.2.3"},
+		{prefix: "192.0.0.0/24", addr: "192.0.0.8"},
+		{prefix: "192.0.2.0/24", addr: "192.0.2.10"},
+		{prefix: "198.18.0.0/15", addr: "198.19.255.254"},
+		{prefix: "198.51.100.0/24", addr: "198.51.100.7"},
+		{prefix: "203.0.113.0/24", addr: "203.0.113.200"},
+		{prefix: "240.0.0.0/4", addr: "240.0.0.1"},
+		{prefix: "64:ff9b::/96", addr: "64:ff9b::808:808"},
+		{prefix: "2002::/16", addr: "2002:0102:0304::1"},
+		{prefix: "fec0::/10", addr: "feff::1"},
+	}
+
+	for _, tc := range tests {
+		addr := netip.MustParseAddr(tc.addr)
+		if !netip.MustParsePrefix(tc.prefix).Contains(addr) {
+			t.Fatalf("test address %s is not inside %s", tc.addr, tc.prefix)
+		}
+
+		if err := checkDialAddr(addr); err == nil {
+			t.Errorf("checkDialAddr(%s) allowed %s", tc.addr, tc.prefix)
+		}
+	}
+}
+
 func TestGuardedDialerRefusesLoopbackInProduction(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

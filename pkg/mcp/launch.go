@@ -26,21 +26,24 @@ var (
 	imageRefPattern    = regexp.MustCompile(`^[a-z0-9.-]+(:[0-9]{1,5})?(/[a-z0-9._-]+)+$`)
 	imageDigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
-	// shellCommands wrap their arguments in a shell. A launch through one of them is not a direct exec.
-	shellCommands = []string{"sh", "bash", "dash", "zsh", "ksh", "fish", "csh", "tcsh", "cmd", "powershell", "pwsh"}
+	// runtimeCommands are the only commands a descriptor may name for each runtime. Each entry is an exact name with
+	// no directory, so absolute paths, relative escapes, shells, and wrappers such as env or sudo are all refused.
+	runtimeCommands = map[string][]string{
+		RuntimeNode:   {"node"},
+		RuntimePython: {"python", "python3"},
+		RuntimeOCI:    {"docker", "podman", "nerdctl"},
+	}
 
-	// fetchCommands download packages from the network when they run. Launches must use the vendored copy.
-	fetchCommands = []string{"npx", "bunx", "pnpx", "uvx", "uv", "pipx", "pip", "pip3", "npm", "pnpm", "yarn"}
-
-	// inlineFlags make an interpreter run code from its arguments instead of the verified script.
-	inlineFlags = []string{"-c", "-e", "-p", "--eval", "--print"}
+	// fetchModules are Python modules that download or install packages from the network when they run.
+	fetchModules = []string{"pip", "ensurepip", "uv", "uvx", "pipx"}
 )
 
 // LaunchDescriptor is the opendepot-mcp.json file that describes how to start a vendored MCP server.
 //
-// Command and Args name the locally installed, verified copy, relative to the project root for node and python.
-// For the oci runtime, Command is the container engine (docker when empty), ImageRef and ImageDigest pin the image,
-// and Args are passed to the container after the image. URL is required for streamable-http.
+// Command and Args name the locally installed, verified copy. Command must be an exact name from the runtime's
+// allow-list: node for node; python or python3 for python; docker, podman, or nerdctl for oci (docker when empty).
+// For the oci runtime, ImageRef and ImageDigest pin the image, and Args are passed to the container after the image.
+// URL is required for streamable-http.
 type LaunchDescriptor struct {
 	Command     string   `json:"command,omitempty"`
 	Args        []string `json:"args,omitempty"`
@@ -112,14 +115,13 @@ func (d LaunchDescriptor) Validate() error {
 	}
 
 	if d.Command != "" {
-		if err := validateCommand(d.Command); err != nil {
+		if err := validateCommand(d.Runtime, d.Command); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	interpreter := d.Runtime == RuntimeNode || d.Runtime == RuntimePython
-	if interpreter && len(d.Args) > 0 && slices.Contains(inlineFlags, d.Args[0]) {
-		errs = append(errs, fmt.Errorf("argument %q runs inline code; launch the verified file instead", d.Args[0]))
+	if d.Runtime == RuntimeNode || d.Runtime == RuntimePython {
+		errs = append(errs, validateInterpreterArgs(d.Runtime, d.Args)...)
 	}
 
 	for _, arg := range d.Args {
@@ -174,35 +176,80 @@ func validateImage(ref, digest string) []error {
 	return errs
 }
 
-// validateCommand rejects commands that are not a direct exec of a file: shells, package fetchers, and any value
-// that contains whitespace or control characters.
-func validateCommand(command string) error {
+// validateCommand rejects any command that is not an exact allow-listed name for the runtime, and any value that
+// contains whitespace or control characters. An unknown runtime is reported by Validate, so it is not repeated here.
+func validateCommand(runtime, command string) error {
 	if strings.ContainsFunc(command, func(r rune) bool { return isControl(r) || r == ' ' }) {
 		return fmt.Errorf("command %q must not contain whitespace or control characters", command)
 	}
 
-	name := commandName(command)
-	if slices.Contains(shellCommands, name) {
-		return fmt.Errorf("command %q is a shell; launch the verified file directly", command)
+	allowed, ok := runtimeCommands[runtime]
+	if !ok {
+		return nil
 	}
 
-	if slices.Contains(fetchCommands, name) {
-		return fmt.Errorf("command %q fetches packages at launch; use the locally installed copy", command)
+	if !slices.Contains(allowed, command) {
+		return fmt.Errorf(
+			"command %q is not permitted for runtime %q; allowed commands are %s",
+			command, runtime, strings.Join(allowed, ", "),
+		)
 	}
 
 	return nil
 }
 
-// commandName returns the lowercase base name of command without a directory or a .exe or .cmd suffix.
-func commandName(command string) string {
-	if i := strings.LastIndexAny(command, `/\`); i >= 0 {
-		command = command[i+1:]
+// validateInterpreterArgs rejects arguments that make node or python run inline code instead of the verified file.
+// Inline flags are refused at any index, including attached (-c<code>) and combined (-Ic) forms and the = form of the
+// long flags. For python, -m is refused when it names a package fetcher, in its separate and attached forms.
+func validateInterpreterArgs(runtime string, args []string) []error {
+	var errs []error
+	for i, arg := range args {
+		if name, _, _ := strings.Cut(arg, "="); name == "--eval" || name == "--print" {
+			errs = append(errs, fmt.Errorf("argument %q runs inline code; launch the verified file instead", arg))
+			continue
+		}
+
+		if len(arg) < 2 || arg[0] != '-' || arg[1] == '-' {
+			continue
+		}
+
+		cluster := arg[1:]
+		modIdx := -1
+		if runtime == RuntimePython {
+			modIdx = strings.IndexByte(cluster, 'm')
+		}
+
+		flags := cluster
+		if modIdx >= 0 {
+			flags = cluster[:modIdx]
+		}
+
+		if strings.ContainsAny(flags, "cep") {
+			errs = append(errs, fmt.Errorf("argument %q runs inline code; launch the verified file instead", arg))
+			continue
+		}
+
+		if modIdx < 0 {
+			continue
+		}
+
+		module := cluster[modIdx+1:]
+		if module == "" && i+1 < len(args) {
+			module = args[i+1]
+		}
+
+		if isFetchModule(module) {
+			errs = append(errs, fmt.Errorf("module %q fetches packages at launch; use the locally installed copy", module))
+		}
 	}
 
-	name := strings.ToLower(command)
-	name = strings.TrimSuffix(name, ".exe")
+	return errs
+}
 
-	return strings.TrimSuffix(name, ".cmd")
+// isFetchModule reports whether a python -m target, or its top-level package, is a package fetcher.
+func isFetchModule(module string) bool {
+	top, _, _ := strings.Cut(strings.ToLower(module), ".")
+	return slices.Contains(fetchModules, top)
 }
 
 // isControl reports whether r is an ASCII control character, including NUL, tab, and newline.

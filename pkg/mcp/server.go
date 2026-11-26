@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -128,6 +129,10 @@ func (s *ServerJSON) Validate() error {
 			s.Name, serverNamePattern, minServerNameLength, maxServerNameLength))
 	}
 
+	if hasDotSegment(s.Name) {
+		errs = append(errs, fmt.Errorf("name %q must not contain a . or .. segment", s.Name))
+	}
+
 	if n := utf8.RuneCountInString(s.Description); n < 1 || n > maxDescriptionLength {
 		errs = append(errs, fmt.Errorf("description must be 1 to %d characters", maxDescriptionLength))
 	}
@@ -238,6 +243,17 @@ func validateRepository(repo Repository) error {
 }
 
 // validRegistryType reports whether value is one of the registry types this package accepts.
+// hasDotSegment reports whether any slash-separated segment of a server name is . or .., which would traverse a path.
+func hasDotSegment(name string) bool {
+	for _, segment := range strings.Split(name, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+
+	return false
+}
+
 func validRegistryType(value string) bool {
 	switch value {
 	case RegistryTypeNPM, RegistryTypePyPI, RegistryTypeOCI, RegistryTypeNuGet, RegistryTypeMCPB:

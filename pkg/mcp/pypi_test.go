@@ -80,6 +80,40 @@ func wheelNames(release PyPIRelease) []string {
 	return names
 }
 
+func TestParseWheelNameRejectsUnsafeFilenamesAndTags(t *testing.T) {
+	rejected := []string{
+		"../evil-1.0-py3-none-any.whl",
+		"-evil-1.0-py3-none-any.whl",
+		"evil/x-1.0-py3-none-any.whl",
+		"evil-1.0-py3-none-any .whl",
+		"evil-1.0-py3-none-any.whl;rm",
+		"evil-1.0-py3-none-any.whl\n",
+		"evil-1.0-py3-none-any.tar.gz",
+		"evil-1.0-py3-none-a$b.whl",
+		"evil-1.0-py3-none-x86 64.whl",
+		"evil-1.0-py3-n/one-any.whl",
+		"evil-1.0-py3-none-any\\x.whl",
+	}
+
+	for _, filename := range rejected {
+		if _, err := parseWheelName(filename); err == nil {
+			t.Errorf("parseWheelName(%q) accepted an unsafe filename", filename)
+		}
+	}
+
+	accepted := []string{
+		"example_tool-2.0.0-py3-none-any.whl",
+		"a+b!c-1.0-py3-none-any.whl",
+		"pkg-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+	}
+
+	for _, filename := range accepted {
+		if _, err := parseWheelName(filename); err != nil {
+			t.Errorf("parseWheelName(%q) error = %v, want nil", filename, err)
+		}
+	}
+}
+
 func TestResolvePyPIFiltersWheels(t *testing.T) {
 	index, client := newPyPIServer(t)
 	ctx := context.Background()

@@ -51,16 +51,17 @@ func TestLaunchDescriptorValidate(t *testing.T) {
 			},
 		},
 		{
-			name: "server flag -p after the script is not an inline flag",
+			name: "inline flag -p after the script is refused at any index",
 			desc: LaunchDescriptor{
 				Command:   testNode,
 				Args:      []string{testEntryFile, "-p", "8080"},
 				Transport: TransportStdio,
 				Runtime:   RuntimeNode,
 			},
+			wantErr: testInlineError,
 		},
 		{
-			name: "python stdio with venv path",
+			name: "python stdio",
 			desc: LaunchDescriptor{
 				Command: testPython, Args: []string{"-m", "server"}, Transport: TransportStdio, Runtime: RuntimePython,
 			},
@@ -128,21 +129,21 @@ func TestLaunchDescriptorValidate(t *testing.T) {
 			desc: LaunchDescriptor{
 				Command: "npx", Args: []string{"-y", "some-server"}, Transport: TransportStdio, Runtime: RuntimeNode,
 			},
-			wantErr: "fetches packages",
+			wantErr: testShellError,
 		},
 		{
 			name: "uvx fetches at launch",
 			desc: LaunchDescriptor{
 				Command: "uvx", Args: []string{"some-server"}, Transport: TransportStdio, Runtime: RuntimePython,
 			},
-			wantErr: "fetches packages",
+			wantErr: testShellError,
 		},
 		{
 			name: "inline code flag",
 			desc: LaunchDescriptor{
 				Command: testNode, Args: []string{"-e", "require('x')"}, Transport: TransportStdio, Runtime: RuntimeNode,
 			},
-			wantErr: "runs inline code",
+			wantErr: testInlineError,
 		},
 		{
 			name:    "command with whitespace",
@@ -193,6 +194,149 @@ func TestLaunchDescriptorValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// bypassCase is one launch shape that must be refused.
+type bypassCase struct {
+	name    string
+	desc    LaunchDescriptor
+	wantErr string
+}
+
+// TestLaunchDescriptorRejectsBypasses covers launch shapes that would run a shell, a wrapper, a package fetch, or
+// inline code while still naming an allowed interpreter.
+func TestLaunchDescriptorRejectsBypasses(t *testing.T) {
+	wrappers := []string{"env", "xargs", "nohup", "timeout", "nice", "stdbuf", "setsid", "sudo", "busybox", "exec"}
+
+	tests := make([]bypassCase, 0, 64)
+	for _, w := range wrappers {
+		tests = append(tests, bypassCase{
+			name: "wrapper " + w + " for node",
+			desc: LaunchDescriptor{
+				Command: w, Args: []string{testEntryFile}, Transport: TransportStdio, Runtime: RuntimeNode,
+			},
+			wantErr: testShellError,
+		})
+	}
+
+	commands := []struct {
+		name    string
+		command string
+		runtime string
+	}{
+		{"absolute node path", "/usr/bin/node", RuntimeNode},
+		{"relative node path", "./node", RuntimeNode},
+		{"parent escape to node", "../node", RuntimeNode},
+		{"parent escape to sh", "../../bin/sh", RuntimeNode},
+		{"node with exe suffix", "node.exe", RuntimeNode},
+		{"node with different case", "Node", RuntimeNode},
+		{"python3 under node runtime", "python3", RuntimeNode},
+		{"node under python runtime", "node", RuntimePython},
+		{"absolute python path", "/usr/bin/python3", RuntimePython},
+		{"venv python path", ".venv/bin/python", RuntimePython},
+		{"shell under python runtime", "sh", RuntimePython},
+		{"node under oci runtime", "node", RuntimeOCI},
+		{"python under oci runtime", "python", RuntimeOCI},
+		{"absolute docker path", "/usr/bin/docker", RuntimeOCI},
+		{"sh under oci runtime", "sh", RuntimeOCI},
+		{"npx fetcher under node runtime", "npx", RuntimeNode},
+	}
+
+	for _, c := range commands {
+		tests = append(tests, bypassCase{
+			name:    c.name,
+			desc:    LaunchDescriptor{Command: c.command, Args: []string{"x"}, Transport: TransportStdio, Runtime: c.runtime},
+			wantErr: testShellError,
+		})
+	}
+
+	inline := []struct {
+		name    string
+		runtime string
+		args    []string
+	}{
+		{"node -e", RuntimeNode, []string{"-e", "x"}},
+		{"node -p", RuntimeNode, []string{"-p", "x"}},
+		{"node --eval", RuntimeNode, []string{"--eval", "x"}},
+		{"node --eval=", RuntimeNode, []string{"--eval=x"}},
+		{"node --print=", RuntimeNode, []string{"--print=x"}},
+		{"node -e attached", RuntimeNode, []string{"-erequire('x')"}},
+		{"node -p attached", RuntimeNode, []string{"-p8080"}},
+		{"node -e after script", RuntimeNode, []string{testEntryFile, "-e", "x"}},
+		{"python -c", RuntimePython, []string{"-c", "print(1)"}},
+		{"python -c attached", RuntimePython, []string{"-cprint(1)"}},
+		{"python combined -Ic", RuntimePython, []string{"-Ic", "x"}},
+		{"python combined -uc", RuntimePython, []string{"-uc", "x"}},
+		{"python -c after module", RuntimePython, []string{"-m", "pytest", "-c", "x"}},
+	}
+
+	for _, c := range inline {
+		tests = append(tests, bypassCase{
+			name: c.name,
+			desc: LaunchDescriptor{
+				Command: testNodeOrPython(c.runtime), Args: c.args, Transport: TransportStdio, Runtime: c.runtime,
+			},
+			wantErr: testInlineError,
+		})
+	}
+
+	fetch := []struct {
+		name string
+		args []string
+	}{
+		{"python -m pip", []string{"-m", "pip", "install", "x"}},
+		{"python -mpip attached", []string{"-mpip", "install", "x"}},
+		{"python -m ensurepip", []string{"-m", "ensurepip"}},
+		{"python -m uv", []string{"-m", "uv", "run"}},
+		{"python -m pip submodule", []string{"-m", "pip.__main__"}},
+		{"python combined -Sm pip", []string{"-Sm", "pip"}},
+	}
+
+	for _, c := range fetch {
+		tests = append(tests, bypassCase{
+			name:    c.name,
+			desc:    LaunchDescriptor{Command: testPython, Args: c.args, Transport: TransportStdio, Runtime: RuntimePython},
+			wantErr: testFetchError,
+		})
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.desc.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
+			}
+
+			if _, err := tc.desc.Entry(); err == nil {
+				t.Error("Entry() accepted a bypass descriptor")
+			}
+		})
+	}
+}
+
+func TestLaunchDescriptorAllowsListedCommands(t *testing.T) {
+	allowed := []LaunchDescriptor{
+		{Command: testNode, Args: []string{testEntryFile, "--verbose"}, Transport: TransportStdio, Runtime: RuntimeNode},
+		{Command: "python", Args: []string{"-m", "pytest"}, Transport: TransportStdio, Runtime: RuntimePython},
+		{Command: "python3", Args: []string{"-u", "server.py"}, Transport: TransportStdio, Runtime: RuntimePython},
+		{Command: "podman", Transport: TransportStdio, Runtime: RuntimeOCI, ImageRef: testImageRef, ImageDigest: testDigest},
+		{Command: "nerdctl", Transport: TransportStdio, Runtime: RuntimeOCI, ImageRef: testImageRef, ImageDigest: testDigest},
+	}
+
+	for _, desc := range allowed {
+		if err := desc.Validate(); err != nil {
+			t.Errorf("Validate(%s %v) error = %v, want nil", desc.Command, desc.Args, err)
+		}
+	}
+}
+
+// testNodeOrPython returns a command that is valid for runtime, so the inline-code cases fail only on their arguments.
+func testNodeOrPython(runtime string) string {
+	if runtime == RuntimePython {
+		return testPython
+	}
+
+	return testNode
 }
 
 func TestLaunchDescriptorEntry(t *testing.T) {

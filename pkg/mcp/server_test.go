@@ -141,6 +141,21 @@ func TestParseServerJSONRejects(t *testing.T) {
 			wantErr: keyName,
 		},
 		{
+			name:    "name with parent-directory segments",
+			data:    serverDoc(t, map[string]any{keyName: "../.."}),
+			wantErr: keyName,
+		},
+		{
+			name:    "name with dot namespace segment",
+			data:    serverDoc(t, map[string]any{keyName: "./server"}),
+			wantErr: keyName,
+		},
+		{
+			name:    "name with parent-directory server segment",
+			data:    serverDoc(t, map[string]any{keyName: "io.example/.."}),
+			wantErr: keyName,
+		},
+		{
 			name:    "name longer than 200 characters",
 			data:    serverDoc(t, map[string]any{keyName: "io.example/" + strings.Repeat("a", 190)}),
 			wantErr: keyName,

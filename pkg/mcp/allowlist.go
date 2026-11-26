@@ -83,6 +83,21 @@ func checkURL(al *AllowList, u *url.URL, plainHTTP bool) error {
 // cgnatPrefix is the shared address space (RFC 6598). Some clouds route instance metadata through it.
 var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 
+// specialUsePrefixes are non-public and special-use ranges that the netip predicates do not cover. They are denied
+// explicitly so the policy does not depend on the stdlib classification of these blocks.
+var specialUsePrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("fec0::/10"),
+}
+
 // checkDialAddr is the production IP policy. It fails closed for every address that is not plainly public unicast.
 func checkDialAddr(addr netip.Addr) error {
 	addr = addr.Unmap()
@@ -101,9 +116,21 @@ func checkDialAddr(addr netip.Addr) error {
 		return errors.New("private address")
 	case cgnatPrefix.Contains(addr):
 		return errors.New("shared address space")
+	case inSpecialUse(addr):
+		return errors.New("special-use address")
 	}
 
 	return nil
+}
+
+func inSpecialUse(addr netip.Addr) bool {
+	for _, p := range specialUsePrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // allowLoopbackOnly is a test-only IP policy. It admits loopback addresses so httptest servers can be reached, and it

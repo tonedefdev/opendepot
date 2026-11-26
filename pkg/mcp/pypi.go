@@ -16,10 +16,11 @@ import (
 var ErrNoCompatibleWheel = errors.New("mcp: no compatible wheel")
 
 var (
-	pypiNamePattern     = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)
-	pypiSeparators      = regexp.MustCompile(`[-_.]+`)
-	platformTagPattern  = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-	pythonVersionRegexp = regexp.MustCompile(`^3\.[0-9]+$`)
+	pypiNamePattern      = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)
+	pypiSeparators       = regexp.MustCompile(`[-_.]+`)
+	platformTagPattern   = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+	pythonVersionRegexp  = regexp.MustCompile(`^3\.[0-9]+$`)
+	wheelFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+!-]*\.whl$`)
 )
 
 // PyPIFilter selects wheels. Empty Platforms accepts every platform tag, and an empty PythonVersion accepts every
@@ -193,23 +194,33 @@ type wheelName struct {
 
 // parseWheelName splits a wheel filename into its name and compressed python, ABI, and platform tag sets.
 func parseWheelName(filename string) (wheelName, error) {
-	stem, ok := strings.CutSuffix(filename, ".whl")
-	if !ok {
+	if !wheelFilenamePattern.MatchString(filename) {
 		return wheelName{}, fmt.Errorf("mcp: %q is not a wheel filename", filename)
 	}
 
+	stem := strings.TrimSuffix(filename, ".whl")
 	parts := strings.Split(stem, "-")
 	if len(parts) != 5 && len(parts) != 6 {
 		return wheelName{}, fmt.Errorf("mcp: wheel filename %q has an unexpected shape", filename)
 	}
 
 	tail := parts[len(parts)-3:]
-	return wheelName{
+	wheel := wheelName{
 		name:     parts[0],
 		python:   strings.Split(tail[0], "."),
 		abi:      strings.Split(tail[1], "."),
 		platform: strings.Split(tail[2], "."),
-	}, nil
+	}
+
+	for _, tags := range [][]string{wheel.python, wheel.abi, wheel.platform} {
+		for _, tag := range tags {
+			if !platformTagPattern.MatchString(tag) {
+				return wheelName{}, fmt.Errorf("mcp: wheel filename %q has an invalid tag %q", filename, tag)
+			}
+		}
+	}
+
+	return wheel, nil
 }
 
 // wheelCompatible reports whether a wheel fits the platform and Python filter.
