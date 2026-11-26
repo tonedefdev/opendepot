@@ -239,13 +239,18 @@ func validateScriptPath(args []string) error {
 
 // validateInterpreterArgs rejects arguments that make node or python run inline code instead of the verified file.
 // Inline flags are refused at any index, including attached (-c<code>) and combined (-Ic) forms and the = form of the
-// long flags. For python, -m is refused when it names a package fetcher, in its separate and attached forms. Node
-// loader flags and any argument that names a remote URL or a data: module are refused for both runtimes.
+// long flags. For python, -m is refused when it names a package fetcher, in its separate and attached forms. For node,
+// loader flags and --run (in its bare and = forms) are refused. Any argument that names a remote URL or a data: module
+// is refused for both runtimes.
 func validateInterpreterArgs(runtime string, args []string) []error {
 	var errs []error
 	for i, arg := range args {
 		if runtime == RuntimeNode && isNodeLoaderArg(arg) {
 			errs = append(errs, fmt.Errorf("argument %q loads code before the verified file", arg))
+		}
+
+		if name, _, _ := strings.Cut(arg, "="); runtime == RuntimeNode && name == "--run" {
+			errs = append(errs, fmt.Errorf("argument %q runs a package script; launch the verified file instead", arg))
 		}
 
 		if isRemoteOrDataRef(arg) {

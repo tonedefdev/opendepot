@@ -386,11 +386,12 @@ func TestLaunchDescriptorVendoredInterpreterPath(t *testing.T) {
 	}
 }
 
-// TestLaunchDescriptorRejectsLoaderDataAndEscapes covers node loader flags, data: and :// arguments, and script paths
-// that leave the vendored tree. Each case must be refused by Validate and Entry.
+// TestLaunchDescriptorRejectsLoaderDataAndEscapes covers node loader flags, node --run, data: and :// arguments, and
+// script paths that leave the vendored tree. Each case must be refused by Validate and Entry.
 func TestLaunchDescriptorRejectsLoaderDataAndEscapes(t *testing.T) {
 	const (
 		loaderError = "loads code before the verified file"
+		runError    = "runs a package script"
 		remoteError = "remote or data: code"
 		scriptError = "vendored tree"
 	)
@@ -426,6 +427,8 @@ func TestLaunchDescriptorRejectsLoaderDataAndEscapes(t *testing.T) {
 		{"node -r separate", RuntimeNode, []string{"-r", testPreloadScript, testEntryFile}, loaderError},
 		{"node -r attached", RuntimeNode, []string{"-rdist/preload.js", testEntryFile}, loaderError},
 		{"node -r in a cluster", RuntimeNode, []string{"-pr", testPreloadScript, testEntryFile}, loaderError},
+		{"node --run", RuntimeNode, []string{"--run", "build"}, runError},
+		{"node --run=", RuntimeNode, []string{"--run=build"}, runError},
 		{"node data argument", RuntimeNode, []string{"data:text/javascript,console.log(1)", testEntryFile}, remoteError},
 		{
 			"node DATA argument is case-insensitive", RuntimeNode,
