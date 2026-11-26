@@ -21,6 +21,10 @@ COPY pkg/testutils/go.mod pkg/testutils/
 COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
+COPY pkg/agentassembly/go.mod pkg/agentassembly/
+COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
+COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
+COPY pkg/schematic/go.mod pkg/schematic/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
 COPY services/version/go.mod services/version/go.sum services/version/

@@ -1,6 +1,7 @@
-# select final stage via build args (defaults: no Trivy, no OpenTofu)
+# select final stage via build args (defaults: no Trivy, no OpenTofu, no MCP runtimes)
 ARG INCLUDE_TRIVY=false
 ARG INCLUDE_TOFU=false
+ARG INCLUDE_MCP_RUNTIMES=false
 
 # Build the manager binary
 FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
@@ -21,7 +22,16 @@ COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
 COPY pkg/utils/go.mod pkg/utils/
 COPY pkg/testutils/go.mod pkg/testutils/
 COPY pkg/registry/go.mod pkg/registry/
+COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
+COPY pkg/github/go.mod pkg/github/go.sum pkg/github/
+COPY pkg/utils/go.mod pkg/utils/
+COPY pkg/testutils/go.mod pkg/testutils/
+COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
+COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
+COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
+COPY pkg/agentassembly/go.mod pkg/agentassembly/
+COPY pkg/schematic/go.mod pkg/schematic/
 COPY services/version/go.mod services/version/go.sum services/version/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
 COPY services/server/go.mod services/server/go.sum services/server/
@@ -92,15 +102,43 @@ RUN set -eux; \
   unzip -o "${archive}" tofu -d /usr/local/bin; \
   chmod 0755 /usr/local/bin/tofu
 
+# runtime-false: distroless runtime for the default image (no Node.js or Python)
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS runtime-false
+
+# runtime-true: Node.js and Python with pip3 for MCP vendoring. Node.js is verified against the release checksum file.
+FROM python:3.13-slim-bookworm@sha256:f0fa218d5b06f9b9235024fa061cde2cb141f726de52134471053d2d9b5324a3 AS runtime-true
+ARG TARGETARCH
+ARG NODE_VERSION=26.13.1
+RUN set -eux; \
+	apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl libatomic1 \
+	&& rm -rf /var/lib/apt/lists/*; \
+	case "${TARGETARCH}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; esac; \
+	base="https://nodejs.org/dist/v${NODE_VERSION}"; \
+	archive="node-v${NODE_VERSION}-linux-${node_arch}.tar.gz"; \
+	cd /tmp; \
+	curl -fsSL -o "${archive}" "${base}/${archive}"; \
+	curl -fsSL -o SHASUMS256.txt "${base}/SHASUMS256.txt"; \
+	grep " ${archive}\$" SHASUMS256.txt | sha256sum -c -; \
+	tar -xzf "${archive}" -C /usr/local --strip-components=1; \
+	rm -f "${archive}" SHASUMS256.txt; \
+	npm install -g npm@12.2.3; \
+	npm cache clean --force; \
+	pip3 install --no-cache-dir --upgrade pip==26.3 setuptools==84.2.1; \
+	node --version; \
+	npm --version; \
+	python3 --version; \
+	pip3 --version
+
 # final image without Trivy or OpenTofu binaries
-FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false-false
+FROM runtime-${INCLUDE_MCP_RUNTIMES} AS final-false-false
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with OpenTofu binary bundled (assembly line)
-FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-false-true
+FROM runtime-${INCLUDE_MCP_RUNTIMES} AS final-false-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=tofu-release /usr/local/bin/tofu /usr/local/bin/tofu
@@ -108,7 +146,7 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with Trivy binary bundled
-FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true-false
+FROM runtime-${INCLUDE_MCP_RUNTIMES} AS final-true-false
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=trivy-release /usr/local/bin/trivy /usr/local/bin/trivy
@@ -116,7 +154,7 @@ USER 65532:65532
 ENTRYPOINT ["/version-controller"]
 
 # final image with Trivy and OpenTofu binaries bundled
-FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS final-true-true
+FROM runtime-${INCLUDE_MCP_RUNTIMES} AS final-true-true
 WORKDIR /
 COPY --from=builder /workspace/version-controller .
 COPY --from=trivy-release /usr/local/bin/trivy /usr/local/bin/trivy
