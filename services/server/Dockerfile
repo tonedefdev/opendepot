@@ -23,12 +23,10 @@ COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
-COPY services/module/go.mod services/module/go.sum services/module/
 COPY services/version/go.mod services/version/go.sum services/version/
-COPY services/provider/go.mod services/provider/go.sum services/provider/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent -dropuse=./services/iac -dropuse=./services/oci -dropuse=./pkg/agentassembly -dropuse=./pkg/mcp -dropuse=./pkg/oci -dropuse=./pkg/schematic
 
 # Download dependencies in workspace mode so replace directives resolve local modules
 WORKDIR /workspace/services/server

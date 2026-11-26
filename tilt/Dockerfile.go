@@ -60,17 +60,17 @@ RUN cd services/depot && CGO_ENABLED=0 go build -o /workspace/bin/depot-controll
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.10 AS module-runtime
+FROM golang:1.26.10 AS iac-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
-COPY services/module/go.mod services/module/go.sum services/module/
-RUN go work init ./api/v1alpha1 ./pkg/utils ./services/module \
-  && cd services/module && go mod download
+COPY services/iac/go.mod services/iac/go.sum services/iac/
+RUN go work init ./api/v1alpha1 ./pkg/utils ./services/iac \
+  && cd services/iac && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/utils/ pkg/utils/
-COPY services/module/ services/module/
-RUN cd services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-controller ./cmd \
+COPY services/iac/ services/iac/
+RUN cd services/iac && CGO_ENABLED=0 go build -o /workspace/bin/iac-controller ./cmd \
   && chown -R 65532:65532 /workspace
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
@@ -86,21 +86,6 @@ COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/utils/ pkg/utils/
 COPY services/agent/ services/agent/
 RUN cd services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controller ./cmd \
-  && chown -R 65532:65532 /workspace
-ENV GOCACHE=/workspace/.cache/go-build
-USER 65532:65532
-
-FROM golang:1.26.10 AS provider-runtime
-WORKDIR /workspace
-COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
-COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
-COPY services/provider/go.mod services/provider/go.sum services/provider/
-RUN go work init ./api/v1alpha1 ./pkg/utils ./services/provider \
-  && cd services/provider && go mod download
-COPY api/v1alpha1/ api/v1alpha1/
-COPY pkg/utils/ pkg/utils/
-COPY services/provider/ services/provider/
-RUN cd services/provider && CGO_ENABLED=0 go build -o /workspace/bin/provider-controller ./cmd \
   && chown -R 65532:65532 /workspace
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
