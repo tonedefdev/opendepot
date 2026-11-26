@@ -96,28 +96,28 @@ docker_build_with_restart(
 )
 
 docker_build_with_restart(
-    'ghcr.io/tonedefdev/opendepot/module-controller',
+    'ghcr.io/tonedefdev/opendepot/iac-controller',
     '.',
     dockerfile='tilt/Dockerfile.go',
-    target='module-runtime',
-    only=['tilt/Dockerfile.go', 'services/module', 'api/v1alpha1', 'pkg/utils'],
+    target='iac-runtime',
+    only=['tilt/Dockerfile.go', 'services/iac', 'api/v1alpha1', 'pkg/utils'],
     ignore=go_image_ignores,
-    entrypoint=['/workspace/bin/module-controller'],
+    entrypoint=['/workspace/bin/iac-controller'],
     live_update=[
         fall_back_on([
             'api/v1alpha1/go.mod',
             'api/v1alpha1/go.sum',
             'pkg/utils/go.mod',
             'pkg/utils/go.sum',
-            'services/module/go.mod',
-            'services/module/go.sum',
+            'services/iac/go.mod',
+            'services/iac/go.sum',
             'tilt/Dockerfile.go',
         ]),
-        sync('services/module', '/workspace/services/module'),
+        sync('services/iac', '/workspace/services/iac'),
         sync('api/v1alpha1', '/workspace/api/v1alpha1'),
         sync('pkg/utils', '/workspace/pkg/utils'),
-        run('cd /workspace/services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-controller ./cmd', trigger=[
-            'services/module',
+        run('cd /workspace/services/iac && CGO_ENABLED=0 go build -o /workspace/bin/iac-controller ./cmd', trigger=[
+            'services/iac',
             'api/v1alpha1',
             'pkg/utils',
         ]),
@@ -147,35 +147,6 @@ docker_build_with_restart(
         sync('pkg/utils', '/workspace/pkg/utils'),
         run('cd /workspace/services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controller ./cmd', trigger=[
             'services/agent',
-            'api/v1alpha1',
-            'pkg/utils',
-        ]),
-    ],
-)
-
-docker_build_with_restart(
-    'ghcr.io/tonedefdev/opendepot/provider-controller',
-    '.',
-    dockerfile='tilt/Dockerfile.go',
-    target='provider-runtime',
-    only=['tilt/Dockerfile.go', 'services/provider', 'api/v1alpha1', 'pkg/utils'],
-    ignore=go_image_ignores,
-    entrypoint=['/workspace/bin/provider-controller'],
-    live_update=[
-        fall_back_on([
-            'api/v1alpha1/go.mod',
-            'api/v1alpha1/go.sum',
-            'pkg/utils/go.mod',
-            'pkg/utils/go.sum',
-            'services/provider/go.mod',
-            'services/provider/go.sum',
-            'tilt/Dockerfile.go',
-        ]),
-        sync('services/provider', '/workspace/services/provider'),
-        sync('api/v1alpha1', '/workspace/api/v1alpha1'),
-        sync('pkg/utils', '/workspace/pkg/utils'),
-        run('cd /workspace/services/provider && CGO_ENABLED=0 go build -o /workspace/bin/provider-controller ./cmd', trigger=[
-            'services/provider',
             'api/v1alpha1',
             'pkg/utils',
         ]),

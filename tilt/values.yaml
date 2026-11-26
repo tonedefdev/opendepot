@@ -10,7 +10,7 @@ monitoring:
 provider:
   enabled: true
   image:
-    repository: ghcr.io/tonedefdev/opendepot/provider-controller
+    repository: ghcr.io/tonedefdev/opendepot/iac-controller
   resources:
     requests:
       cpu: 100m
@@ -24,7 +24,7 @@ agent:
     repository: ghcr.io/tonedefdev/opendepot/agent-controller
 module:
   image:
-    repository: ghcr.io/tonedefdev/opendepot/module-controller
+    repository: ghcr.io/tonedefdev/opendepot/iac-controller
   resources:
     requests:
       cpu: 100m

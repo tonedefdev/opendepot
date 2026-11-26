@@ -3,20 +3,24 @@ go 1.26.0
 use (
 	./api/v1alpha1
 	./cli
+	./pkg/agentassembly
 	./pkg/agentspec
 	./pkg/archive
 	./pkg/github
 	./pkg/hclschema
 	./pkg/jev
+	./pkg/mcp
+	./pkg/oci
 	./pkg/registry
+	./pkg/schematic
 	./pkg/signing
 	./pkg/storage
 	./pkg/testutils
 	./pkg/utils
 	./services/agent
 	./services/depot
-	./services/module
-	./services/provider
+	./services/iac
+	./services/oci
 	./services/server
 	./services/version
 )

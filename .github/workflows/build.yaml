@@ -26,9 +26,14 @@ jobs:
             path: services/version
             buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"
             tagSuffix: "-assembly"
-          - name: module-controller
+          - name: iac-controller
             context: .
-            path: services/module
+            path: services/iac
+            buildArgs: ""
+            tagSuffix: ""
+          - name: oci-controller
+            context: .
+            path: services/oci
             buildArgs: ""
             tagSuffix: ""
           - name: agent-controller
@@ -51,11 +56,6 @@ jobs:
             path: services/server
             buildArgs: "INCLUDE_TOFU=true"
             tagSuffix: "-assembly"
-          - name: provider-controller
-            context: .
-            path: services/provider
-            buildArgs: ""
-            tagSuffix: ""
           - name: ui
             context: services/ui
             path: services/ui
@@ -121,13 +121,13 @@ jobs:
           - name: version-controller
           - name: version-controller
             tagSuffix: "-assembly"
-          - name: module-controller
+          - name: iac-controller
+          - name: oci-controller
           - name: agent-controller
           - name: depot-controller
           - name: server
           - name: server
             tagSuffix: "-assembly"
-          - name: provider-controller
           - name: ui
           - name: docs
 
