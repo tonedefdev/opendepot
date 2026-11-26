@@ -100,23 +100,32 @@ RUN set -eux; \
 # runtime-false: distroless runtime for the default image (no Node.js or Python)
 FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS runtime-false
 
-# runtime-true: Node.js and Python with pip3 for MCP vendoring. Node.js is verified against the release checksum file.
-FROM python:3.13-slim-bookworm@sha256:f0fa218d5b06f9b9235024fa061cde2cb141f726de52134471053d2d9b5324a3 AS runtime-true
+# node-release: upstream Node.js release, verified against the release checksum file; only copied into runtime-true when INCLUDE_MCP_RUNTIMES=true
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS node-release
 ARG TARGETARCH
 ARG NODE_VERSION=26.13.1
 RUN set -eux; \
+  apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*; \
+  case "${TARGETARCH}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; esac; \
+  base="https://nodejs.org/dist/v${NODE_VERSION}"; \
+  archive="node-v${NODE_VERSION}-linux-${node_arch}.tar.gz"; \
+  cd /tmp; \
+  curl -fsSL -o "${archive}" "${base}/${archive}"; \
+  curl -fsSL -o SHASUMS256.txt "${base}/SHASUMS256.txt"; \
+  grep " ${archive}\$" SHASUMS256.txt | sha256sum -c -; \
+  mkdir -p /opt/node; \
+  tar -xzf "${archive}" -C /opt/node --strip-components=1; \
+  rm -f "${archive}" SHASUMS256.txt
+
+# runtime-true: Node.js and Python with pip3 for MCP vendoring. Node.js is copied from the verified node-release stage, so curl is not installed here.
+FROM python:3.13-slim-bookworm@sha256:f0fa218d5b06f9b9235024fa061cde2cb141f726de52134471053d2d9b5324a3 AS runtime-true
+COPY --from=node-release /opt/node/ /usr/local/
+RUN set -eux; \
 	apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates curl libatomic1 \
+	&& apt-get install -y --no-install-recommends libatomic1 \
 	&& rm -rf /var/lib/apt/lists/*; \
-	case "${TARGETARCH}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; esac; \
-	base="https://nodejs.org/dist/v${NODE_VERSION}"; \
-	archive="node-v${NODE_VERSION}-linux-${node_arch}.tar.gz"; \
-	cd /tmp; \
-	curl -fsSL -o "${archive}" "${base}/${archive}"; \
-	curl -fsSL -o SHASUMS256.txt "${base}/SHASUMS256.txt"; \
-	grep " ${archive}\$" SHASUMS256.txt | sha256sum -c -; \
-	tar -xzf "${archive}" -C /usr/local --strip-components=1; \
-	rm -f "${archive}" SHASUMS256.txt; \
 	npm install -g npm@12.2.3; \
 	npm cache clean --force; \
 	pip3 install --no-cache-dir --upgrade pip==26.3 setuptools==84.2.1; \
