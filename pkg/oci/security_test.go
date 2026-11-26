@@ -199,6 +199,7 @@ func TestCheckDialAddrDeniesSpecialUsePrefixes(t *testing.T) {
 		{prefix: "203.0.113.0/24", addr: "203.0.113.200"},
 		{prefix: "240.0.0.0/4", addr: "240.0.0.1"},
 		{prefix: "64:ff9b::/96", addr: "64:ff9b::808:808"},
+		{prefix: "64:ff9b:1::/48", addr: "64:ff9b:1::1"},
 		{prefix: "2002::/16", addr: "2002:0102:0304::1"},
 		{prefix: "fec0::/10", addr: "feff::1"},
 	}
