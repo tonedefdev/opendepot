@@ -205,14 +205,10 @@ var _ = BeforeSuite(func() {
 		"--set", "monitoring.enabled=false",
 		"--set", "monitoring.bundled.enabled=false",
 		"--set", "depot.enabled=false",
-		// The Module and Provider reconcilers both run in the iac binary. Until the chart exposes iac.* values,
-		// both legacy deployments are enabled so each family's RBAC exists, and both run the iac image.
-		"--set", "module.enabled=true",
-		"--set", fmt.Sprintf("module.image.repository=%s", iacRepo),
-		"--set", fmt.Sprintf("module.image.tag=%s", iacTag),
-		"--set", "provider.enabled=true",
-		"--set", fmt.Sprintf("provider.image.repository=%s", iacRepo),
-		"--set", fmt.Sprintf("provider.image.tag=%s", iacTag),
+		// The Module and Provider reconcilers both run in the single iac-controller deployment.
+		"--set", "iac.enabled=true",
+		"--set", fmt.Sprintf("iac.image.repository=%s", iacRepo),
+		"--set", fmt.Sprintf("iac.image.tag=%s", iacTag),
 		"--set", fmt.Sprintf("version.image.repository=%s", versionRepo),
 		"--set", fmt.Sprintf("version.image.tag=%s", versionTag),
 		"--set", fmt.Sprintf("server.gpg.secretName=%s", gpgSecretName),

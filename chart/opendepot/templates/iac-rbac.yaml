@@ -1,8 +1,8 @@
-{{- if and .Values.module.enabled .Values.rbac.create }}
+{{- if and (fromJson (include "opendepot.iac.value" (dict "root" . "key" "enabled" "default" true))).v .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
 metadata:
-  name: module-controller-role
+  name: iac-controller-role
   {{- if .Values.rbac.scopeToNamespace }}
   namespace: {{ .Values.global.namespace }}
   {{- end }}
@@ -11,6 +11,7 @@ rules:
   - opendepot.defdev.io
   resources:
   - modules
+  - providers
   verbs:
   - create
   - delete
@@ -23,12 +24,14 @@ rules:
   - opendepot.defdev.io
   resources:
   - modules/finalizers
+  - providers/finalizers
   verbs:
   - update
 - apiGroups:
   - opendepot.defdev.io
   resources:
   - modules/status
+  - providers/status
   verbs:
   - get
   - patch
@@ -49,16 +52,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ if .Values.rbac.scopeToNamespace }}RoleBinding{{ else }}ClusterRoleBinding{{ end }}
 metadata:
-  name: module-controller-role-binding
+  name: iac-controller-role-binding
   {{- if .Values.rbac.scopeToNamespace }}
   namespace: {{ .Values.global.namespace }}
   {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ if .Values.rbac.scopeToNamespace }}Role{{ else }}ClusterRole{{ end }}
-  name: module-controller-role
+  name: iac-controller-role
 subjects:
 - kind: ServiceAccount
-  name: module-controller
+  name: iac-controller
   namespace: {{ .Values.global.namespace }}
 {{- end }}

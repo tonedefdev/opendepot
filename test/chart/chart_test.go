@@ -2,6 +2,8 @@ package chart
 
 import (
 	"encoding/base64"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -266,13 +268,15 @@ func TestChartResourceEnablement(t *testing.T) {
 		"optional resources disabled": {
 			values: map[string]string{
 				"dex.enabled":                "false",
+				"iac.enabled":                "false",
 				"monitoring.bundled.enabled": "false",
 				"monitoring.enabled":         "false",
-				"provider.enabled":           "false",
 				"ui.enabled":                 "false",
 			},
 			absent: [][2]string{
-				{"Deployment", "provider-controller"},
+				{"Deployment", "iac-controller"},
+				{"ServiceAccount", "iac-controller"},
+				{"ClusterRole", "iac-controller-role"},
 				{"Deployment", "ui"},
 				{"Service", "ui"},
 				{"Deployment", "opendepot-dex"},
@@ -282,18 +286,41 @@ func TestChartResourceEnablement(t *testing.T) {
 		"optional resources enabled": {
 			values: map[string]string{
 				"dex.enabled":                  "true",
+				"iac.enabled":                  "true",
 				"monitoring.bundled.enabled":   "true",
 				"monitoring.enabled":           "true",
-				"provider.enabled":             "true",
 				"ui.enabled":                   "true",
 				"ui.sessionPasswordSecretName": "ui-session",
 			},
 			present: [][2]string{
-				{"Deployment", "provider-controller"},
+				{"Deployment", "iac-controller"},
+				{"ServiceAccount", "iac-controller"},
+				{"ClusterRole", "iac-controller-role"},
 				{"Deployment", "ui"},
 				{"Service", "ui"},
 				{"Deployment", "opendepot-dex"},
 				{"Prometheus", "opendepot-monitoring-prometheus"},
+			},
+		},
+		"legacy module values disable iac": {
+			values: map[string]string{
+				"module.enabled":   "false",
+				"provider.enabled": "false",
+			},
+			absent: [][2]string{
+				{"Deployment", "iac-controller"},
+				{"ServiceAccount", "iac-controller"},
+			},
+		},
+		"legacy module and provider values render iac": {
+			values: map[string]string{
+				"module.enabled":   "true",
+				"provider.enabled": "true",
+			},
+			present: [][2]string{{"Deployment", "iac-controller"}},
+			absent: [][2]string{
+				{"Deployment", "module-controller"},
+				{"Deployment", "provider-controller"},
 			},
 		},
 		"monitoring and ServiceMonitor independently disabled": {
@@ -490,4 +517,244 @@ func TestServerClientCredentialsAudiencesRequired(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIaCControllerValueFallback(t *testing.T) {
+	tests := map[string]struct {
+		values      map[string]string
+		contains    []string
+		notContains []string
+	}{
+		"defaults": {
+			contains: []string{
+				"name: iac-controller",
+				"replicas: 1",
+				`image: "ghcr.io/tonedefdev/opendepot/iac-controller:`,
+				"cpu: 1000m",
+			},
+			notContains: []string{"module-controller", "provider-controller"},
+		},
+		"iac values": {
+			values: map[string]string{
+				"iac.replicaCount":     "2",
+				"iac.image.repository": "registry.example.com/iac",
+				"iac.image.tag":        "v1.2.3",
+				"iac.zapLogLevel":      "5",
+			},
+			contains: []string{
+				"replicas: 2",
+				`image: "registry.example.com/iac:v1.2.3"`,
+				"--zap-log-level=5",
+			},
+		},
+		"legacy module values fall back": {
+			values: map[string]string{
+				"module.replicaCount":     "2",
+				"module.image.repository": "registry.example.com/module",
+				"module.zapLogLevel":      "4",
+			},
+			contains: []string{
+				"replicas: 2",
+				`image: "registry.example.com/module:`,
+				"--zap-log-level=4",
+			},
+		},
+		"legacy provider values fall back": {
+			values: map[string]string{
+				"provider.image.tag": "v9.9.9",
+			},
+			contains: []string{`iac-controller:v9.9.9"`},
+		},
+		"iac takes precedence over legacy values": {
+			values: map[string]string{
+				"module.replicaCount":   "2",
+				"provider.replicaCount": "4",
+				"iac.replicaCount":      "3",
+			},
+			contains:    []string{"replicas: 3"},
+			notContains: []string{"replicas: 2", "replicas: 4"},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			rendered := renderTemplate(t, test.values, nil, "templates/iac-deployment.yaml")
+			for _, expected := range test.contains {
+				assert.Contains(t, rendered, expected)
+			}
+			for _, unexpected := range test.notContains {
+				assert.NotContains(t, rendered, unexpected)
+			}
+		})
+	}
+}
+
+func TestOCIControllerEnablement(t *testing.T) {
+	ociResources := [][2]string{
+		{"Deployment", "oci-controller"},
+		{"ServiceAccount", "oci-controller"},
+		{"ClusterRole", "oci-controller-role"},
+		{"ClusterRoleBinding", "oci-controller-role-binding"},
+	}
+
+	tests := map[string]struct {
+		values   map[string]string
+		present  bool
+		flagHits int
+		flag     string
+	}{
+		"disabled by default": {
+			values:   map[string]string{},
+			present:  false,
+			flagHits: 0,
+		},
+		"enabled with an empty allow-list": {
+			values:   map[string]string{"oci.enabled": "true"},
+			present:  true,
+			flagHits: 4,
+			flag:     `"--oci-allowed-registries="`,
+		},
+		"enabled with one registry": {
+			values: map[string]string{
+				"oci.enabled":              "true",
+				"oci.allowedRegistries[0]": "ghcr.io",
+			},
+			present:  true,
+			flagHits: 4,
+			flag:     `"--oci-allowed-registries=ghcr.io"`,
+		},
+		"enabled with several registries": {
+			values: map[string]string{
+				"oci.enabled":              "true",
+				"oci.allowedRegistries[0]": "ghcr.io",
+				"oci.allowedRegistries[1]": "docker.io",
+			},
+			present:  true,
+			flagHits: 4,
+			flag:     `"--oci-allowed-registries=ghcr.io,docker.io"`,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			rendered := renderChart(t, test.values, nil)
+			resources := renderedResources(t, rendered)
+			for _, source := range ociResources {
+				assert.Equal(t, test.present, hasResource(resources, source[0], source[1]), "unexpected render state for %s/%s", source[0], source[1])
+			}
+
+			if test.flag == "" {
+				assert.NotContains(t, rendered, "--oci-allowed-registries")
+				return
+			}
+
+			assert.Equal(t, test.flagHits, strings.Count(rendered, test.flag), "unexpected count for %q", test.flag)
+		})
+	}
+}
+
+func TestNotesDeprecationWarning(t *testing.T) {
+	tests := map[string]struct {
+		values   map[string]string
+		warning  bool
+		contains []string
+	}{
+		"default install is silent": {
+			values:  map[string]string{},
+			warning: false,
+		},
+		"module values warn": {
+			values:   map[string]string{"module.replicaCount": "2"},
+			warning:  true,
+			contains: []string{"module.* -> iac.*"},
+		},
+		"provider values warn": {
+			values:   map[string]string{"provider.enabled": "true"},
+			warning:  true,
+			contains: []string{"provider.* -> iac.*"},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			notes := renderNotes(t, test.values)
+			if !test.warning {
+				assert.NotContains(t, notes, "deprecated")
+				return
+			}
+
+			assert.Contains(t, notes, "the module.* and provider.* values are deprecated")
+			for _, expected := range test.contains {
+				assert.Contains(t, notes, expected)
+			}
+		})
+	}
+}
+
+// renderNotes renders templates/NOTES.txt. helm template skips NOTES, so the chart is copied to a temporary
+// directory and the NOTES body is wrapped in a ConfigMap. The template logic that runs is the same.
+func renderNotes(t *testing.T, values map[string]string) string {
+	t.Helper()
+
+	chartCopy := t.TempDir()
+	copyChart(t, chartPath(t), chartCopy)
+
+	templates := filepath.Join(chartCopy, "templates")
+	notes, err := os.ReadFile(filepath.Join(templates, "NOTES.txt"))
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(filepath.Join(templates, "NOTES.txt")))
+
+	notesDefinition := "{{- define \"opendepot.notesBody\" -}}\n" + string(notes) + "\n{{- end -}}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(templates, "_notes.tpl"), []byte(notesDefinition), 0o600))
+
+	wrapper := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: notes-check\ndata:\n  notes: |\n" +
+		"{{ include \"opendepot.notesBody\" . | indent 4 }}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(templates, "notes-check.yaml"), []byte(wrapper), 0o600))
+
+	return renderedChart(t, chartCopy, values, []string{"templates/notes-check.yaml"})
+}
+
+func renderedChart(t *testing.T, chart string, values map[string]string, templateFiles []string) string {
+	t.Helper()
+
+	rendered, err := helm.RenderTemplateE(
+		t,
+		&helm.Options{
+			KubectlOptions: &k8s.KubectlOptions{Namespace: "default"},
+			Logger:         logger.Discard,
+			SetValues:      values,
+		},
+		chart,
+		"opendepot",
+		templateFiles,
+	)
+	require.NoError(t, err)
+	return rendered
+}
+
+func copyChart(t *testing.T, source, destination string) {
+	t.Helper()
+
+	require.NoError(t, filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		return os.WriteFile(target, content, 0o600)
+	}))
 }

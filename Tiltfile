@@ -286,10 +286,9 @@ k8s_resource('opendepot-dex', labels=['infrastructure'])
 k8s_resource('opendepot-monitoring-operator', resource_deps=['prometheus-operator-crds'], labels=['infrastructure'])
 k8s_resource(new_name='server-rbac', objects=['server:ServiceAccount:opendepot-system', 'server-role:ClusterRole', 'server-role-binding:ClusterRoleBinding'], labels=['infrastructure'])
 k8s_resource('server', resource_deps=['opendepot-dex', 'dev-tls', 'server-rbac'], labels=['backend'])
-k8s_resource('module-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
+k8s_resource('iac-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource('agent-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource('depot-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
-k8s_resource('provider-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource(new_name='trivy-cache', objects=['opendepot-trivy-cache:PersistentVolumeClaim:opendepot-system'], labels=['infrastructure'])
 k8s_resource('version-controller', resource_deps=['server', 'opendepot-crds'], labels=['backend'])
 k8s_resource(
@@ -303,7 +302,7 @@ k8s_resource(
 local_resource(
     'seed-sample-resources',
     cmd='tilt/scripts/seed-resources.sh',
-    resource_deps=['module-controller', 'provider-controller', 'agent-controller', 'version-controller'],
+    resource_deps=['iac-controller', 'agent-controller', 'version-controller'],
     auto_init=False,
     labels=['controls'],
 )

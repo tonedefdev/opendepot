@@ -138,6 +138,9 @@ spec:
         - "--jev-endpoint={{ .Values.scanning.jev.endpoint }}"
         - --jev-max-retries={{ .Values.scanning.jev.maxRetries }}
         - --branch-sourcing-enabled={{ .Values.branchSourcing.enabled }}
+        {{- if .Values.oci.enabled }}
+        - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
+        {{- end }}
         {{- if .Values.scanning.enabled }}
         - --scanning-enabled=true
         - --scan-block-on-critical={{ .Values.scanning.blockOnCritical }}
