@@ -2,6 +2,7 @@ package agentassembly
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"unicode/utf8"
 )
@@ -13,6 +14,14 @@ var (
 	validContext = []string{ContextTaskOnly, ContextSummary, ContextFullTranscript, ContextOutputs}
 	validTargets = []string{TargetCopilot, TargetClaude, TargetAgentsMD}
 	validDecided = []string{DecidedByJev, DecidedByUser}
+
+	// refNamePattern bounds the namespace and name of a published resource so they cannot carry separators, quotes,
+	// or control characters into a rendered file.
+	refNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+	// refVersionPattern admits exact versions and the constraints that Version may hold before export. Commas, '#',
+	// and control characters are excluded. Export still requires an exact version.
+	refVersionPattern = regexp.MustCompile(`^[0-9A-Za-z.+<>=~^!* -]{0,64}$`)
+	toolNamePattern   = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
 )
 
 // checkStructure rejects documents that are malformed. It runs before the rules, so the rules can assume that every
@@ -60,6 +69,14 @@ func checkNode(n Node, seen map[string]bool) error {
 		return structural("node %q needs ref namespace and name", n.ID)
 	}
 
+	if !refNamePattern.MatchString(n.Ref.Namespace) || !refNamePattern.MatchString(n.Ref.Name) {
+		return structural("node %q ref namespace and name must match %s", n.ID, refNamePattern.String())
+	}
+
+	if !refVersionPattern.MatchString(n.Ref.Version) {
+		return structural("node %q ref version %q contains characters that are not allowed", n.ID, n.Ref.Version)
+	}
+
 	return nil
 }
 
@@ -101,6 +118,10 @@ func checkLinkFields(l Link) error {
 	for _, tool := range l.Tools {
 		if tool == "" {
 			return structural("link %q has an empty tool name", l.ID)
+		}
+
+		if !toolNamePattern.MatchString(tool) {
+			return structural("link %q has tool name %q that does not match %s", l.ID, tool, toolNamePattern.String())
 		}
 	}
 

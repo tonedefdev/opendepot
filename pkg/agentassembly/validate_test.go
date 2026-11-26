@@ -24,6 +24,63 @@ const (
 	testGhost     = "ghost"
 )
 
+// TestStructureRejectsInjectionBeforeRendering checks that a namespace, name, version, or tool carrying a newline,
+// comma, hash, or control character is refused by the structural check that runs before any rule or render.
+func TestStructureRejectsInjectionBeforeRendering(t *testing.T) {
+	setPlannerRef := func(mutate func(*Ref)) func(*Document) {
+		return func(d *Document) {
+			mutate(&findNode(d, testPlanner).Ref)
+		}
+	}
+
+	setTools := func(tools ...string) func(*Document) {
+		return func(d *Document) {
+			findLink(d, "calls-github").Tools = tools
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Document)
+	}{
+		{"namespace with newline", setPlannerRef(func(r *Ref) { r.Namespace = "acme\nsource = \"x\"" })},
+		{"namespace with hash", setPlannerRef(func(r *Ref) { r.Namespace = "acme#evil" })},
+		{"namespace with comma", setPlannerRef(func(r *Ref) { r.Namespace = "acme,evil" })},
+		{"name with newline", setPlannerRef(func(r *Ref) { r.Name = "planner\n}" })},
+		{"name with hash", setPlannerRef(func(r *Ref) { r.Name = "planner#evil" })},
+		{"name with comma", setPlannerRef(func(r *Ref) { r.Name = "planner,evil" })},
+		{"name with control byte", setPlannerRef(func(r *Ref) { r.Name = "planner\x00" })},
+		{"version with newline", setPlannerRef(func(r *Ref) { r.Version = "1.0.0\nsource = \"x\"" })},
+		{"version with hash", setPlannerRef(func(r *Ref) { r.Version = "1.0.0 # pinned" })},
+		{"version with comma", setPlannerRef(func(r *Ref) { r.Version = "1.0.0, 2.0.0" })},
+		{"version with control byte", setPlannerRef(func(r *Ref) { r.Version = "1.0.0\x07" })},
+		{"tool with newline", setTools("list_issues\nevil")},
+		{"tool with hash", setTools("list#issues")},
+		{"tool with comma", setTools("list_issues,get_pull_request")},
+		{"tool with space", setTools("list issues")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := baseDoc()
+			tc.mutate(&doc)
+
+			if _, err := Validate(doc, Options{}); !errors.Is(err, ErrInvalidDocument) {
+				t.Fatalf("Validate() error = %v, want ErrInvalidDocument", err)
+			}
+		})
+	}
+
+	t.Run("pre-export constraint is still a valid document", func(t *testing.T) {
+		doc := baseDoc()
+		setPlannerRef(func(r *Ref) { r.Version = "~> 2.0" })(&doc)
+
+		if _, err := Validate(doc, Options{}); errors.Is(err, ErrInvalidDocument) {
+			t.Fatalf("Validate() rejected a constraint that export is expected to pin: %v", err)
+		}
+	})
+}
+
 func testRef(name string) Ref {
 	return Ref{Namespace: testNamespace, Name: name, Version: testVersion}
 }
