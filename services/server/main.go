@@ -108,7 +108,11 @@ func main() {
 	opendepotStatsQueryTimeout := flag.Duration("stats-query-timeout", 5*time.Second, "maximum duration for a Prometheus statistics query")
 	opendepotCertPath := flag.String("tls-cert-path", "", "path to TLS certificate file for HTTPS server")
 	opendepotCertKey := flag.String("tls-cert-key", "", "path to TLS certificate key file for HTTPS server")
+	opendepotOCIAllowedRegistries := flag.String("oci-allowed-registries", "", "comma-separated OCI registries allowed for auth decisions; empty denies all registries")
 	flag.Parse()
+
+	ociAllowedRegistries := parseOCIAllowedRegistries(*opendepotOCIAllowedRegistries)
+	logger.Info("oci allowed registries", "registries", ociAllowedRegistries)
 
 	if *opendepotAssemblyEnabled {
 		if *opendepotRegistryHost == "" {
@@ -368,4 +372,17 @@ func parseClientCredentialsAudiences(raw string) []string {
 	}
 
 	return audiences
+}
+
+// parseOCIAllowedRegistries splits the comma-separated registry list, trimming whitespace and
+// dropping empty entries. An empty result denies all registries.
+func parseOCIAllowedRegistries(value string) []string {
+	var registries []string
+	for _, registry := range strings.Split(value, ",") {
+		if registry = strings.TrimSpace(registry); registry != "" {
+			registries = append(registries, registry)
+		}
+	}
+
+	return registries
 }

@@ -22,6 +22,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -48,10 +49,13 @@ func main() {
 
 	var probeAddr string
 	var enableLeaderElection bool
+	var ociAllowedRegistries string
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8083", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
+		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -59,6 +63,9 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
+	setupLog.Info("oci allowed registries", "registries", allowedRegistries)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -85,4 +92,17 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// parseOCIAllowedRegistries splits the comma-separated registry list, trimming whitespace and
+// dropping empty entries. An empty result denies all registries.
+func parseOCIAllowedRegistries(value string) []string {
+	var registries []string
+	for _, registry := range strings.Split(value, ",") {
+		if registry = strings.TrimSpace(registry); registry != "" {
+			registries = append(registries, registry)
+		}
+	}
+
+	return registries
 }

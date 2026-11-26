@@ -102,6 +102,7 @@ func main() {
 	var agentAllowedDomains string
 	var jevEnabled bool
 	var branchSourcingEnabled bool
+	var ociAllowedRegistries string
 	var jevEndpoint string
 	var jevMaxRetries int
 	flag.BoolVar(&scanningEnabled, "scanning-enabled", false,
@@ -128,6 +129,8 @@ func main() {
 		"Number of times a failed Jev assessment is run again before it stays failed.")
 	flag.BoolVar(&branchSourcingEnabled, "branch-sourcing-enabled", false,
 		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
+	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
+		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
 	var assemblyEnabled bool
 	var tofuBinPath string
 	var schemaExtractionTimeout time.Duration
@@ -151,6 +154,9 @@ func main() {
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	logf.SetLogger(logger)
+
+	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
+	logger.Info("oci allowed registries", "registries", allowedRegistries)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -401,4 +407,17 @@ func deletePodUntilSuccessful(clientset kubernetes.Interface, namespace, podName
 	}
 
 	return false
+}
+
+// parseOCIAllowedRegistries splits the comma-separated registry list, trimming whitespace and
+// dropping empty entries. An empty result denies all registries.
+func parseOCIAllowedRegistries(value string) []string {
+	var registries []string
+	for _, registry := range strings.Split(value, ",") {
+		if registry = strings.TrimSpace(registry); registry != "" {
+			registries = append(registries, registry)
+		}
+	}
+
+	return registries
 }
