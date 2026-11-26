@@ -342,7 +342,7 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 **Step 1. Explain the 0/5 result from the refined Jev suggest canary.**
 - **Depends on:** none.
 - **Files:** `.github/plans/jev-skill-suggest-design.md`, in a new "Canary diagnosis" section only.
-- Re-run the v2 and refined canaries with `gpt-6-luna`, using interleaved trials. Record session IDs, CLI call counts, the skill text in use, the prompt, and the permission flags. Determine whether the drop came from the skill text, the prompt, or the permissions. Record the cause and the proposed fix. Step 31 depends on this result.
+- Re-run the v2 and refined canaries with `gpt-6-luna`, using interleaved trials. Record session IDs, CLI call counts, the skill text in use, the prompt, and the permission flags. Determine whether the drop came from the skill text, the prompt, or the permissions. Record the cause and the proposed fix. Step 31 depends on this result. Result: recorded in `jev-skill-suggest-design.md` under "Canary diagnosis" (live 2×2 trials, 3 rounds).
 
 **Step 2. Library and feasibility spikes.**
 - **Depends on:** none.
@@ -416,7 +416,12 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
   - `oci/<namespace>/<repo>/tags/<tag>`, a small JSON file that points to a digest
 - Writes are idempotent, and each blob's digest is checked on write and on read.
 - Upstream client wrapper on oras-go. It checks the registry allow-list on every request, including redirects, which blocks SSRF. Credentials come from a dockerconfigjson. It lists tags, pulls by digest, follows indexes filtered by platform, and pulls referrers.
+  - Pin `oras.land/oras-go/v2` at `v2.7.0`. Do not use v3, which is a breaking redesign. `auth.Client` keeps a custom `CheckRedirect` and strips cross-origin `Authorization`, but it does not block internal addresses, so add a `CheckRedirect` and dial-time IP validation to enforce the allow-list.
+  - Parse the dockerconfigjson `auths` map in memory into a custom `CredentialFunc`. Never write a temporary file. (Spikes a.)
 - Helm: parses `Chart.yaml` metadata into `HelmChartMetadata`, packages a chart `.tgz` into an OCI manifest with the Helm media types, and renders `index.yaml` deterministically from a list of chart entries with server-relative URLs.
+  - SDK choice: use `helm.sh/helm/v4` (`v4.3.2`, packages `pkg/chart/v2/loader` and `pkg/repo/v1`) for the new code. The v3 SDK (`v3.22.1`, `pkg/chart/loader` and `pkg/repo`) is the alternative. Pick one. Both declare `go 1.26.0` and are Apache-2.0.
+  - Media types: config `application/vnd.cncf.helm.config.v1+json`, chart layer `application/vnd.cncf.helm.chart.content.v1.tar+gzip`, provenance `application/vnd.cncf.helm.chart.provenance.v1.prov`.
+  - Helm `>= 3.8.0` is the floor for `helm pull oci://` compatibility. (Spikes b.)
 - Generic: wraps a release asset as a single-layer OCI artifact with the configured media types.
 - Unit tests: digest checks, allow-list including redirects, platform filtering, `index.yaml` golden files, and Helm media types.
 
@@ -448,10 +453,10 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
   - Pull the index or manifest, filtered by platform, and its blobs into storage through `pkg/oci`. Mirror referrers too.
   - On later reconciles, compare the upstream digest and set `tagDrift` when it moved. Never re-sync when `immutable` is unset or true.
 - GitHub (Helm and Generic): download the release asset matching `assetPattern` and package it through `pkg/oci`. Helm Versions set `status.helmChart`.
-- Verify: when `verify` is set, check the cosign signature against the public key Secret. When `required` is true, a missing or invalid signature blocks the Version.
+- Verify: when `verify` is set, check the cosign signature against the public key Secret using `github.com/sigstore/cosign/v2` (`v2.6.5`, `go 1.25.0`) with `CheckOpts{SigVerifier, IgnoreTlog: true}`. Do not use `sigstore-go`: it declares `go 1.27.0` and omits OCI `.sig` verification. Fallback, if the cosign closure is judged too large: `github.com/sigstore/sigstore` (`v1.11.4`) with `oras-go` to fetch the `.sig` tag or referrer and verify the simple-signing payload. Add a runtime key-only verification test in this step, because Wave 0 verified only the API and footprint. When `required` is true, a missing or invalid signature blocks the Version. (Spikes d.)
 - Scan, when `scanning.enabled` is true:
-  - Image: `trivy image --input` on an OCI layout built from storage.
-  - Helm: `trivy config` on the unpacked chart.
+  - Image: `trivy image --input <unpacked OCI layout directory>` with `--skip-db-update --skip-java-db-update --offline-scan`. A tar of the layout is rejected, and the DB cache must already be seeded. (Spikes c.)
+  - Helm: `trivy config --skip-check-update` on the unpacked chart.
   - Generic: `trivy fs`.
   - Write results to `status.ociScan`, and apply ScanPolicy with scan type `oci`.
 - Set `archiveSizeBytes` to `totalSizeBytes`.
@@ -487,8 +492,8 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 - **Depends on:** 2, 10, 16.
 - **Files:** `services/version/internal/controller/mcp_sync.go`, `mcp_vendor.go`, `mcp_jev.go`, and their `_test.go` files.
 - By source type:
-  - Npm: resolve the exact version and run the vendoring command from Step 2 in a scratch directory with no network access except the allow-listed registry. Fail the Version when a native addon is found, with the finding `mcp-native-addon`.
-  - PyPI: download wheels only, for each configured platform. A package that only ships an sdist fails with `mcp-sdist-only`.
+  - Npm: resolve the exact version. In a scratch directory with no network access except the allow-listed registry, generate a lockfile with `npm install --package-lock-only --ignore-scripts`, then run `npm ci --omit=dev --ignore-scripts`. Never run install scripts. Detect native addons from lockfile metadata and package tarballs, for every platform (not the installed tree): `binding.gyp`, `hasInstallScript` on a native build dependency, `*.node` files, and platform-constrained optional packages (`os`/`cpu`). Fail the Version with `mcp-native-addon` when one is found. (Spikes e.)
+  - PyPI: for each configured platform, run `pip3 download --only-binary=:all: --platform <tag> --python-version <v> --no-deps`. Add `--implementation cp --abi cp<v>` to pin the ABI where the wheel set needs it. Never fetch an sdist, because pip runs its build backend. Treat `from versions: none` as `mcp-sdist-only` and fail the Version. (Spikes f.)
   - Image: resolve the referenced OCIArtifact Version by tag, and record its digest. No archive.
   - Source: archive the repo path, the same way Skills are archived. `runnable=false`.
 - Package the vendored tree and a generated `opendepot-mcp.json` launch descriptor (from `pkg/mcp`) into an archive. Sign `SHA256SUMS` with the existing agent signing code, and run `trivy fs` on the vendored tree with scan type `mcp`.
@@ -498,9 +503,9 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 **Step 16. `pkg/mcp` library.**
 - **Depends on:** 2, 5.
 - **Files:** `pkg/mcp/**`.
-- Parse and validate `server.json` with the schema version confirmed in Step 2. Define the `opendepot-mcp.json` launch descriptor: command, args, transport, and runtime (`node`, `python`, or `oci`).
+- Parse and validate `server.json` against schema `2025-12-11` (`https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`). Do not target the unreleased draft. Required: `name` (`^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`), `description`, and `version`. Each `packages[]` entry requires `registryType`, `identifier`, and `transport`. (Spikes i.) Define the `opendepot-mcp.json` launch descriptor: command, args, transport, and runtime (`node`, `python`, or `oci`).
 - npm packument and PyPI JSON clients, with allow-list checks.
-- Client config renderers for each install target: Copilot (`.vscode/mcp.json`), Claude (`.mcp.json`), Codex (the project-level config file, path confirmed in Step 2), and a custom path.
+- Client config renderers for each install target: Copilot (`.vscode/mcp.json`), Claude (`.mcp.json`), Codex (`.codex/config.toml`, with `[mcp_servers.<name>]` TOML tables, not `.mcp.json`; confirm the project-trust requirement before writing it), and a custom path. (Spikes g.)
   - Each entry launches the locally installed, verified copy. For Image, the entry runs the pinned digest from the OpenDepot OCI endpoint.
   - The renderers merge into existing files and only change entries marked as managed by OpenDepot.
 - Golden-file tests.
@@ -559,8 +564,8 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 - **Files:** `pkg/agentassembly/**`.
 - The document types, the validation rules and codes in [Agent assembly document](#agent-assembly-document-pkgagentassembly-held-in-schematicspecdocument-when-assemblykind-agent), and the canonical digest.
 - Renderers for `copilot`, `claude`, and `agents-md`:
-  - Map `delegates` modes to each platform's supported keys, confirmed in Step 2(h). Where a platform has no key, add a generated "Delegation" section to the body.
-  - Each agent's `tools` lists only its own linked MCP tools, plus the platform's delegation tool when the agent has `delegates` links.
+  - Do not emit Copilot `handoffs` frontmatter, because the Copilot harness does not accept it. Render handoffs and delegation allowlists as a generated "Delegation" body section for `copilot`, `claude`, and `agents-md`. For Claude, use `Agent(...)` in `tools:` where applicable. `agents-md` has no key table in `pkg/agentspec`, so it validates against the declared platform. Update the `pkg/agentspec` key tables only if a new key is needed, such as Copilot `skills` or `hooks`. (Spikes h.)
+  - Each agent's `tools` lists only its own linked MCP tools, plus the platform's delegation tool (Copilot `task`, Claude `Agent`) when the agent has `delegates` links.
 - An `opendepot.hcl` renderer with `agent`, `agent_skill`, and `mcp_server` blocks.
 - Runtime route policy, used by Step 32:
   - Given `assembly.json`, `from`, `to`, and the iteration state, return allow or deny with a reason.
@@ -643,6 +648,9 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 - **Depends on:** 1, 30.
 - **Files:** the CLI skill or AGENTS.md text that the CLI ships. The Developer finds the file starting from `cli/agentsmd.go`, and no other step edits it.
 - Apply the fix from Step 1, and tell agents to run `opendepot suggest` before `list` and `describe`.
+- Step 1 root cause: the original 0/5 drop came from the prompt, which never triggered the skill. The v1 `SKILL.md` description was also invalid YAML (an unquoted `: `), which removed the skill from the catalog. Keep the refined body. Add:
+  - a CI test that parses every shipped `SKILL.md` frontmatter as YAML and fails on invalid YAML;
+  - explicit trigger wording in the catalog `description`, which is the always-loaded text. The wording should name a task that needs a skill or agent the agent does not have, and include the `opendepot suggest` instruction. This wording is untested, so confirm it with a follow-up canary. (`jev-skill-suggest-design.md`, "Canary diagnosis".)
 
 **Step 32. CLI `assembly route` hook.**
 - **Depends on:** 2, 22, 23.
@@ -651,7 +659,7 @@ Steps marked **[SHARED]** change shared files (`api/v1alpha1/types.go`, `go.work
 - Exit codes: 0 allows, 2 denies (with the reason on stderr), and 1 is an error.
 - The deterministic policy comes from `pkg/agentassembly`. Retry counters are kept in the state file, keyed by the assembly digest and link.
 - With `--jev`, the CLI calls `POST /opendepot/agents/v1/handoff` with a timeout of 3 s or less. When the server can't be reached, it uses the saved decision. Jev can only turn an allow into a "stop retrying", never a deny into an allow.
-- Document how to wire it into hooks for each platform, as confirmed in Step 2(g).
+- Document how to wire it into hooks for each platform, as confirmed in Step 2(g). Delegation matchers: Copilot `^(task|runSubagent|Agent|Task)$`, which denies with JSON `permissionDecision: deny` on stdout. Claude `Agent|Task`, which denies with `hookSpecificOutput.permissionDecision: deny` or exit 2. `runSubagent` is deprecated in Copilot (removal February 2027), so keep it in the matcher only for compatibility.
 
 **Step 33. CLI command wiring. [SHARED]**
 - **Depends on:** 29, 30, 32.
