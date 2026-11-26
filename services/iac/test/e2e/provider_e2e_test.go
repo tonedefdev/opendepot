@@ -615,6 +615,25 @@ spec:
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to disable anonymous auth")
 
+		By("waiting for the server rollout to complete")
+		_, err = utils.Run(exec.Command("kubectl", "rollout", "status", "deployment/server",
+			"-n", providerNamespace,
+			"--timeout=2m",
+		))
+		Expect(err).NotTo(HaveOccurred(), "Server rollout did not complete after disabling anonymous auth")
+
+		By("waiting for terminating server pods from the previous ReplicaSet to be removed")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods",
+				"-n", providerNamespace,
+				"-l", "app=server",
+				"-o", "jsonpath={range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{\"\\n\"}{end}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(output)).To(BeEmpty(), "terminating server pods are still present")
+		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
 		By("restarting port-forward after server pod restart")
 		if pfCancel != nil {
 			pfCancel()

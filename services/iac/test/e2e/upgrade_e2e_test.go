@@ -33,6 +33,11 @@ import (
 // legacyChartTag is the last release tag that ships the module-controller and provider-controller Deployments.
 const legacyChartTag = "v0.12.0"
 
+// legacyControllerTag is the published module-controller and provider-controller image tag for legacyChartTag.
+const legacyControllerTag = "0.12.0"
+
+const legacyControllerRegistry = "ghcr.io/tonedefdev/opendepot"
+
 var _ = Describe("Upgrade from the pre-iac chart", Ordered, func() {
 	const (
 		upgradeNamespace        = "opendepot-system"
@@ -49,24 +54,20 @@ var _ = Describe("Upgrade from the pre-iac chart", Ordered, func() {
 		legacyChartDir string
 	)
 
-	// installRelease runs helm upgrade for the given chart. It sets only module.* and provider.* keys for the
-	// iac image, so the same values work for the pre-iac chart and for the local chart.
-	installRelease := func(chartPath string) {
-		iacRepo, iacTag := utils.SplitImageRef(projectImage)
+	// installRelease runs helm upgrade for the given chart. controllerSets carries the module.* and provider.*
+	// image and enablement keys for the phase, so the pre-iac chart gets its real controller images and the
+	// local chart gets the iac image through the legacy keys.
+	installRelease := func(chartPath string, controllerSets ...string) {
 		versionRepo, versionTag := utils.SplitImageRef(versionImage)
 		serverRepo, serverTag := utils.SplitImageRef(serverImage)
 
-		cmd := exec.Command("helm", "upgrade", helmReleaseName, chartPath,
+		args := []string{"upgrade", helmReleaseName, chartPath,
 			"--install",
 			"--namespace", upgradeNamespace,
 			"--skip-crds",
 			"--set", "monitoring.enabled=false",
 			"--set", "monitoring.bundled.enabled=false",
 			"--set", "depot.enabled=false",
-			"--set", fmt.Sprintf("module.image.repository=%s", iacRepo),
-			"--set", fmt.Sprintf("module.image.tag=%s", iacTag),
-			"--set", fmt.Sprintf("provider.image.repository=%s", iacRepo),
-			"--set", fmt.Sprintf("provider.image.tag=%s", iacTag),
 			"--set", fmt.Sprintf("version.image.repository=%s", versionRepo),
 			"--set", fmt.Sprintf("version.image.tag=%s", versionTag),
 			"--set", fmt.Sprintf("server.gpg.secretName=%s", gpgSecretName),
@@ -77,10 +78,11 @@ var _ = Describe("Upgrade from the pre-iac chart", Ordered, func() {
 			"--set", "storage.filesystem.hostPath=/data/modules",
 			"--set", "scanning.cache.accessMode=ReadWriteOnce",
 			"--set", "version.resources.limits.memory=2Gi",
-			"--wait",
-			"--timeout", "3m",
-		)
-		_, err := utils.Run(cmd)
+		}
+		args = append(args, controllerSets...)
+		args = append(args, "--wait", "--timeout", "3m")
+
+		_, err := utils.Run(exec.Command("helm", args...))
 		Expect(err).NotTo(HaveOccurred(), "Failed to run helm upgrade with chart "+chartPath)
 	}
 
@@ -108,8 +110,14 @@ var _ = Describe("Upgrade from the pre-iac chart", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to extract the pre-iac chart")
 		legacyChartDir = filepath.Join(legacyTempDir, "chart", "opendepot")
 
-		By("installing the pre-iac chart with module and provider controllers")
-		installRelease(legacyChartDir)
+		By("installing the pre-iac chart with the published module and provider controllers")
+		installRelease(legacyChartDir,
+			"--set", fmt.Sprintf("module.image.repository=%s/module-controller", legacyControllerRegistry),
+			"--set", fmt.Sprintf("module.image.tag=%s", legacyControllerTag),
+			"--set", "provider.enabled=true",
+			"--set", fmt.Sprintf("provider.image.repository=%s/provider-controller", legacyControllerRegistry),
+			"--set", fmt.Sprintf("provider.image.tag=%s", legacyControllerTag),
+		)
 
 		By("applying the test Module CR")
 		moduleYAML := fmt.Sprintf(`
@@ -220,7 +228,13 @@ spec:
 		chartPath, err := utils.GetChartPath()
 		Expect(err).NotTo(HaveOccurred(), "Failed to resolve the local chart path")
 
-		installRelease(chartPath)
+		iacRepo, iacTag := utils.SplitImageRef(projectImage)
+		installRelease(chartPath,
+			"--set", fmt.Sprintf("module.image.repository=%s", iacRepo),
+			"--set", fmt.Sprintf("module.image.tag=%s", iacTag),
+			"--set", fmt.Sprintf("provider.image.repository=%s", iacRepo),
+			"--set", fmt.Sprintf("provider.image.tag=%s", iacTag),
+		)
 	})
 
 	It("should roll out the iac-controller Deployment", func() {
