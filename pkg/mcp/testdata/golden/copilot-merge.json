@@ -1,0 +1,46 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "api-key",
+      "description": "API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "opendepot-filesystem": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        ".opendepot/mcp/filesystem/dist/index.js",
+        "--stdio"
+      ]
+    },
+    "opendepot-remote": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/mcp"
+    },
+    "opendepot-search": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "opendepot.example.com/mcp/search@sha256:4d0c5a3e1f9b2c7d8e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9011223344556"
+      ]
+    },
+    "opendepot-summarizer": {
+      "type": "stdio",
+      "command": ".opendepot/mcp/summarizer/.venv/bin/python",
+      "args": [
+        "-m",
+        "summarizer"
+      ]
+    }
+  }
+}

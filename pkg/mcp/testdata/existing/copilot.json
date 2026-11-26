@@ -1,0 +1,26 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "api-key",
+      "description": "API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "opendepot-filesystem": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["old/index.js"]
+    },
+    "opendepot-retired": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["retired.js"]
+    }
+  }
+}

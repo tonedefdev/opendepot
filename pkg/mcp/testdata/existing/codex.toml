@@ -1,0 +1,13 @@
+model = "gpt-6-luna"
+
+[mcp_servers.github]
+command = "github-mcp-server"
+args = ["stdio"]
+
+[mcp_servers.opendepot-filesystem]
+command = "node"
+args = ["old/index.js"]
+
+[mcp_servers.opendepot-retired]
+command = "node"
+args = ["retired.js"]
