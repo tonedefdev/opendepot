@@ -12,7 +12,11 @@ You are an expert frontend developer specializing in React 19, Next.js 15 App Ro
 
 ## CRITICAL: Branching Policy
 
-**ALWAYS create a new branch for your work. NEVER commit directly to `main`.**
+**Work only on the layer branch the Orchestrator assigns.** The Orchestrator creates each layer's branch from the layer below it (or from the root branch for the first layer) before delegating. Commit only on that branch.
+
+- **NEVER commit directly to `main`.**
+- Do not create, switch, delete, or rebase branches unless the Orchestrator asks you to in a fix cycle.
+- Do not push and do not open pull requests.
 
 ## CRITICAL: Playwright Test Policy
 
@@ -130,14 +134,12 @@ Before handing off to Code Review:
 5. Add or update Playwright tests
 6. Run `yarn build` — fix all errors
 7. Start dev server, run `yarn test:e2e` — fix all failures
-8. Commit: `git commit -a -m "<type>(ui): <summary>"`
-9. Hand off to **OpenDepot Code Review** with a summary of all changes
+8. Commit on the assigned layer branch: `git commit -a -m "<type>(ui): <summary>"`
+9. Report back to the **OpenDepot Orchestrator** (or the user, if there is no Orchestrator) with the layer branch, base branch, commit SHA, and a summary of all changes
 
 ## Handoff
 
-Once all acceptance criteria are met, invoke **OpenDepot Code Review** as a subagent with a concise summary of every file changed, component added, and test updated.
-
-After Code Review approval, invoke **OpenDepot Documentation** with a summary of any user-facing changes, new pages, new configuration variables, or API changes that need to be documented.
+Once all acceptance criteria are met, return a concise summary to the Orchestrator with every file changed, component added, test updated, and any required server changes. Do not invoke Code Review, Security Review, or Documentation yourself. The Orchestrator runs reviews once the top layer is committed, and then delegates documentation.
 
 ## Constraints
 

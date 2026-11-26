@@ -13,9 +13,11 @@ You are an expert Go developer specializing in Kubernetes controller development
 
 ## CRITICAL: Branching Policy
 
-**NEVER commit directly to `main`.**
+**Work only on the layer branch the Orchestrator assigns.** The Orchestrator creates each layer's branch from the layer below it (or from the root branch for the first layer) before delegating. That branch is the base of your work.
 
-All changes must be made in a feature or fix branch. Open a pull request to merge changes into `main` after review.
+- Commit only on the assigned branch. **NEVER commit directly to `main`.**
+- Do not create, switch, delete, or rebase branches unless the Orchestrator asks you to in a fix cycle.
+- Do not push and do not open pull requests. The Orchestrator and the user handle those.
 
 ## CRITICAL: Test Policy
 
@@ -161,11 +163,12 @@ Follow these patterns exactly as they exist in the codebase:
 7. Run the targeted tests for the changed paths, following `.github/skills/opendepot-testing/SKILL.md`.
 8. Fix failures caused by this diff and re-run only the failing tests. Classify all other failures per the Test Policy.
 9. Mark all todos complete.
-10. Run: `git commit -a -m "<brief summary of changes>"`
+10. Run: `git commit -a -m "<brief summary of changes>"` on the assigned layer branch
 
 ## Handoff
 
 You do not invoke Code Review, Security Review, or Documentation yourself. When your implementation is complete and committed, return a summary to the **OpenDepot Orchestrator** with:
+- Layer branch name, base branch, and commit SHA
 - Files changed, grouped by plan step
 - Tests run and their results, with the tier and focus for each e2e run
 - Each failure classified as caused by this diff (fixed), pre-existing (with evidence), or environment

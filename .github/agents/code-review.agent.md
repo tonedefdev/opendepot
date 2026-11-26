@@ -21,7 +21,7 @@ Do not report on untouched code, pre-existing failures, Trivy or seed-job setup,
 ## Starting Point
 Your **first two actions** are always:
 1. Read the generated plan with the memory tool — this is the ground truth for what was supposed to be implemented
-2. Run `git --no-pager diff main` to see exactly what was changed, including uncommitted work
+2. Run `git --no-pager diff <root-branch>` to see exactly what was changed across the whole stack, including uncommitted work. Take the root branch from the Execution Plan in the scope contract (`main` unless the Orchestrator says otherwise)
 
 If no plan exists in session memory, ask the Orchestrator to provide the implementation summary or re-run the Planner agent before proceeding.
 
@@ -62,7 +62,7 @@ The scanner reads the token from `SONAR_TOKEN`. Never pass the token as a comman
 The scan analyzes the checked-out working tree. Community Edition has no branch or pull request analysis, so filter the results yourself.
 
 ### Collect and Filter Results
-1. Get the changed line ranges with `git --no-pager diff -U0 main`. For each file, record the new-side line ranges from the `@@ ... +start,count @@` hunk headers.
+1. Get the changed line ranges with `git --no-pager diff -U0 <root-branch>`, where the root branch comes from the scope contract. For each file, record the new-side line ranges from the `@@ ... +start,count @@` hunk headers.
 2. Fetch open issues, paginating with `p=` if `paging.total` exceeds the page size:
    ```bash
    zsh -ic 'curl -s -u "$SONAR_TOKEN:" "${SONAR_HOST_URL:-http://localhost:9000}/api/issues/search?projectKeys=opendepot&resolved=false&ps=500"'

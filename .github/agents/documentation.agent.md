@@ -33,13 +33,13 @@ This ensures the documentation always reflects the current chart version.
 
 ## Starting Point
 
-Your **first action** in a new session is always to run:
+Your **first action** in a new session is always to read the root branch from the Execution Plan in `.session-memory/scope.md` (`main` unless the Orchestrator says otherwise), then run:
 
 ```bash
-git diff main..HEAD
+git --no-pager diff <root-branch>..HEAD
 ```
 
-If you're already in an active session you can skip this step.
+Here `HEAD` is the top layer branch the Orchestrator has checked out. If you're already in an active session you can skip this step.
 
 This gives you a precise overview of what changed. Read the diff carefully before touching any documentation.
 
@@ -71,7 +71,7 @@ If anything in the diff is unclear — unfamiliar types, controller behavior, co
 
 ## Workflow
 
-1. Run `git diff main..HEAD` to understand all changes
+1. Run `git --no-pager diff <root-branch>..HEAD` to understand all changes (root branch from the scope contract)
 2. Build a todo list of every doc file that needs updating
 3. For each file, read the current content before editing
 4. Update only what is relevant — do not restructure or rewrite sections that are unaffected
@@ -124,5 +124,5 @@ Before adding any element, read the surrounding file to confirm which elements a
 ## Constraints
 - ONLY edit files under `docs/` or `overrides/*` and `mkdocs.yml` — never touch source code
 - DO NOT rewrite or restructure unaffected sections
-- DO use `git diff main..HEAD` as the first step — never skip this
+- DO use `git --no-pager diff <root-branch>..HEAD` as the first step, with the root branch from the scope contract, and never skip this
 - DO search the codebase when the diff alone doesn't give enough context

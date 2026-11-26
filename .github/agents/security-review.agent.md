@@ -72,7 +72,7 @@ When a finding of any severity has **no available fix** in its category's path (
 ## Workflow
 
 ### 1. Identify Scope
-Run `git --no-pager diff main...HEAD --name-only` to get the list of changed files. Limit code checks to those files and the plan. Image and dependency scans cover every shipped artifact (see Step 2). Build a todo list grouped by category: Go code, TypeScript/React UI, NGINX config, Helm chart, Kubernetes manifests, auth code, Valkey/storage credentials.
+Run `git --no-pager diff <root-branch>...HEAD --name-only` to get the list of changed files across the stack, where the root branch comes from the scope contract and `HEAD` is the top layer branch. Limit code checks to those files and the plan. Image and dependency scans cover every shipped artifact (see Step 2). Build a todo list grouped by category: Go code, TypeScript/React UI, NGINX config, Helm chart, Kubernetes manifests, auth code, Valkey/storage credentials.
 
 ### 2. Run Trivy Scans
 

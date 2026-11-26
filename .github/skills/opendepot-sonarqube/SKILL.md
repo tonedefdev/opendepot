@@ -149,7 +149,7 @@ zsh -ic 'curl -s -u "$SONAR_TOKEN:" "${SONAR_HOST_URL:-http://localhost:9000}/ap
 
 Community Edition has no pull request analysis, so decide what is in scope yourself.
 
-1. Get changed line ranges with `git --no-pager diff -U0 main`. This includes uncommitted work. `main...HEAD` covers only committed work, so do not use it alone.
+1. Get changed line ranges with `git --no-pager diff -U0 <root-branch>`, where the root branch is the base of the stack (`main` unless the scope contract says otherwise). This includes uncommitted work and every layer in the stack. `<root-branch>...HEAD` covers only committed work, so do not use it alone.
 2. For each file, record the new-side ranges from the `@@ -a,b +start,count @@` hunk headers.
 3. Keep an issue as in scope only when its `component` (file path after the `opendepot:` prefix) and `line` fall inside a changed range.
 
