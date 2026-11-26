@@ -1,0 +1,130 @@
+{
+  "target": "copilot",
+  "nodes": [
+    {
+      "id": "planner",
+      "kind": "agent",
+      "ref": { "namespace": "acme", "name": "release-planner", "version": "1.2.0" },
+      "entry": true,
+      "label": "Plans the release"
+    },
+    {
+      "id": "reviewer",
+      "kind": "agent",
+      "ref": { "namespace": "acme", "name": "code-reviewer", "version": "2.0.1" },
+      "entry": false,
+      "label": "Reviews the release branch"
+    },
+    {
+      "id": "writer",
+      "kind": "agent",
+      "ref": { "namespace": "acme", "name": "release-writer", "version": "1.0.0" },
+      "entry": false,
+      "label": "Writes the release notes"
+    },
+    {
+      "id": "scanner",
+      "kind": "agent",
+      "ref": { "namespace": "acme", "name": "dependency-scanner", "version": "0.4.0" },
+      "entry": false,
+      "label": "Scans dependencies"
+    },
+    {
+      "id": "release-notes",
+      "kind": "skill",
+      "ref": { "namespace": "acme", "name": "release-notes", "version": "1.1.0" },
+      "entry": false,
+      "label": "Release notes"
+    },
+    {
+      "id": "changelog",
+      "kind": "skill",
+      "ref": { "namespace": "acme", "name": "changelog", "version": "0.3.2" },
+      "entry": false,
+      "label": "Changelog"
+    },
+    {
+      "id": "github",
+      "kind": "mcpServer",
+      "ref": { "namespace": "acme", "name": "github", "version": "1.0.0" },
+      "entry": false,
+      "label": "GitHub"
+    },
+    {
+      "id": "files",
+      "kind": "mcpServer",
+      "ref": { "namespace": "acme", "name": "files", "version": "0.9.0" },
+      "entry": false,
+      "label": "Workspace files"
+    }
+  ],
+  "links": [
+    {
+      "id": "calls-files",
+      "from": "reviewer",
+      "to": "files",
+      "type": "calls"
+    },
+    {
+      "id": "calls-github",
+      "from": "planner",
+      "to": "github",
+      "type": "calls",
+      "tools": ["list_issues", "get_pull_request"]
+    },
+    {
+      "id": "delegate-review",
+      "from": "planner",
+      "to": "reviewer",
+      "type": "delegates",
+      "mode": "subagent",
+      "context": "summary",
+      "decision": {
+        "decidedBy": "jev",
+        "model": "gpt-6-luna",
+        "probabilities": { "subagent": 0.82, "handoff": 0.1, "parallel": 0.08 },
+        "confidence": 0.8,
+        "riskFlags": [],
+        "decidedAt": "2026-11-20T10:00:00Z"
+      }
+    },
+    {
+      "id": "delegate-scan",
+      "from": "planner",
+      "to": "scanner",
+      "type": "delegates",
+      "mode": "parallel",
+      "context": "outputs",
+      "outputs": ["findings"],
+      "group": "research"
+    },
+    {
+      "id": "delegate-write",
+      "from": "planner",
+      "to": "writer",
+      "type": "delegates",
+      "mode": "handoff",
+      "context": "task-only"
+    },
+    {
+      "id": "retry-review",
+      "from": "reviewer",
+      "to": "planner",
+      "type": "retry",
+      "maxIterations": 3,
+      "until": "all review comments are resolved"
+    },
+    {
+      "id": "uses-changelog",
+      "from": "writer",
+      "to": "changelog",
+      "type": "uses"
+    },
+    {
+      "id": "uses-release-notes",
+      "from": "planner",
+      "to": "release-notes",
+      "type": "uses"
+    }
+  ]
+}
