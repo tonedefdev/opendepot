@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"path"
 	"regexp"
@@ -83,8 +84,9 @@ func (s *Store) PutBlob(
 	return s.put(ctx, blobsDir, namespace, repo, expected, content)
 }
 
-// GetBlob opens the blob addressed by d. The stored content is hashed in full before the reader is returned, so a
-// corrupt blob fails with ErrDigestMismatch and no bytes are returned to the caller.
+// GetBlob opens the blob addressed by d. The stored content is opened once and hashed as it is read. If the bytes do
+// not hash to d, the read that reaches the end of the blob fails with ErrDigestMismatch, so a corrupt blob never
+// completes successfully.
 func (s *Store) GetBlob(ctx context.Context, namespace, repo string, d digest.Digest) (io.ReadCloser, error) {
 	return s.get(ctx, blobsDir, namespace, repo, d)
 }
@@ -220,27 +222,12 @@ func (s *Store) get(ctx context.Context, kind, namespace, repo string, d digest.
 		return nil, err
 	}
 
-	verify, err := s.backend.GetObject(ctx, &types.StorageObjectInput{FilePath: &key, Method: types.Get})
+	rc, err := s.backend.GetObject(ctx, &types.StorageObjectInput{FilePath: &key, Method: types.Get})
 	if err != nil {
 		return nil, fmt.Errorf("oci: get %s: %w", d, err)
 	}
 
-	stored, err := digestReader(verify)
-	closeReader(verify)
-	if err != nil {
-		return nil, fmt.Errorf("oci: read %s: %w", d, err)
-	}
-
-	if stored != d {
-		return nil, fmt.Errorf("%w: stored %s has digest %s", ErrDigestMismatch, d, stored)
-	}
-
-	rc, err := s.backend.GetObject(ctx, &types.StorageObjectInput{FilePath: &key, Method: types.Get})
-	if err != nil {
-		return nil, fmt.Errorf("oci: reopen %s: %w", d, err)
-	}
-
-	return readCloser(rc), nil
+	return newVerifyingReader(readCloser(rc), d), nil
 }
 
 func (s *Store) objectPath(kind, namespace, repo string, d digest.Digest) (string, error) {
@@ -283,14 +270,44 @@ func validateName(kind, value string, pattern *regexp.Regexp) error {
 	return nil
 }
 
-// digestReader returns the sha256 digest of everything in r.
-func digestReader(r io.Reader) (digest.Digest, error) {
-	h := sha256.New()
-	if _, err := io.Copy(h, r); err != nil {
-		return "", err
+// verifyingReader hashes the bytes as they are read from a single backend stream and fails with ErrDigestMismatch
+// when the stream ends with a digest other than want. The stream is opened once, so the bytes that are verified are
+// the bytes that are returned.
+type verifyingReader struct {
+	rc   io.ReadCloser
+	h    hash.Hash
+	want digest.Digest
+	err  error
+}
+
+func newVerifyingReader(rc io.ReadCloser, want digest.Digest) *verifyingReader {
+	return &verifyingReader{rc: rc, h: sha256.New(), want: want}
+}
+
+// Read returns the stream's bytes and, at io.EOF, compares the computed digest to the expected one.
+func (v *verifyingReader) Read(p []byte) (int, error) {
+	if v.err != nil {
+		return 0, v.err
 	}
 
-	return digest.NewDigestFromBytes(digest.SHA256, h.Sum(nil)), nil
+	n, err := v.rc.Read(p)
+	_, _ = v.h.Write(p[:n])
+	if !errors.Is(err, io.EOF) {
+		return n, err
+	}
+
+	if got := digest.NewDigestFromBytes(digest.SHA256, v.h.Sum(nil)); got != v.want {
+		v.err = fmt.Errorf("%w: stored %s has digest %s", ErrDigestMismatch, v.want, got)
+		return 0, v.err
+	}
+
+	v.err = io.EOF
+	return n, io.EOF
+}
+
+// Close closes the underlying backend stream.
+func (v *verifyingReader) Close() error {
+	return v.rc.Close()
 }
 
 // hashContent returns the sha256 digest and raw sum of everything in r, reading from the start. r is left

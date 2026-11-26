@@ -12,6 +12,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/tonedefdev/opendepot/pkg/storage"
+	"github.com/tonedefdev/opendepot/pkg/storage/types"
 )
 
 func newTestStore(t *testing.T) (*Store, string) {
@@ -153,13 +154,79 @@ func TestGetBlobRejectsStoredDigestMismatch(t *testing.T) {
 	}
 
 	rc, err := store.GetBlob(ctx, "acme", "chart", d)
-	if !errors.Is(err, ErrDigestMismatch) {
-		if rc != nil {
-			_ = rc.Close()
-		}
+	if err != nil {
+		t.Fatalf("GetBlob: %v", err)
+	}
 
+	_, err = io.ReadAll(rc)
+	_ = rc.Close()
+	if !errors.Is(err, ErrDigestMismatch) {
 		t.Fatalf("expected ErrDigestMismatch on tampered blob, got %v", err)
 	}
+}
+
+// fakeBackend serves a sequence of bodies, one per GetObject call, and counts the opens.
+type fakeBackend struct {
+	storage.FileSystem
+	bodies [][]byte
+	opens  int
+}
+
+func (f *fakeBackend) GetObject(_ context.Context, _ *types.StorageObjectInput) (io.Reader, error) {
+	idx := min(f.opens, len(f.bodies)-1)
+	f.opens++
+
+	return bytes.NewReader(f.bodies[idx]), nil
+}
+
+func TestGetBlobOpensBackendOnceAndVerifiesReturnedStream(t *testing.T) {
+	ctx := context.Background()
+	good := []byte("original")
+	d := digest.FromBytes(good)
+
+	t.Run("second open returns different bytes", func(t *testing.T) {
+		backend := &fakeBackend{bodies: [][]byte{good, []byte("tampered")}}
+		store, err := NewStore(backend, "root")
+		if err != nil {
+			t.Fatalf("NewStore: %v", err)
+		}
+
+		rc, err := store.GetBlob(ctx, "acme", "chart", d)
+		if err != nil {
+			t.Fatalf("GetBlob: %v", err)
+		}
+
+		if got := readAllClose(t, rc); !bytes.Equal(got, good) {
+			t.Fatalf("returned bytes %q, want %q", got, good)
+		}
+
+		if backend.opens != 1 {
+			t.Fatalf("expected a single backend open, got %d", backend.opens)
+		}
+	})
+
+	t.Run("tampered single stream is rejected at EOF", func(t *testing.T) {
+		backend := &fakeBackend{bodies: [][]byte{[]byte("tampered")}}
+		store, err := NewStore(backend, "root")
+		if err != nil {
+			t.Fatalf("NewStore: %v", err)
+		}
+
+		rc, err := store.GetBlob(ctx, "acme", "chart", d)
+		if err != nil {
+			t.Fatalf("GetBlob: %v", err)
+		}
+
+		_, err = io.ReadAll(rc)
+		_ = rc.Close()
+		if !errors.Is(err, ErrDigestMismatch) {
+			t.Fatalf("expected ErrDigestMismatch, got %v", err)
+		}
+
+		if backend.opens != 1 {
+			t.Fatalf("expected a single backend open, got %d", backend.opens)
+		}
+	})
 }
 
 func TestGetBlobNotFound(t *testing.T) {
