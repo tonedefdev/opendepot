@@ -7,8 +7,7 @@ monitoring:
   bundled:
     enabled: true
 
-provider:
-  enabled: true
+iac:
   image:
     repository: ghcr.io/tonedefdev/opendepot/iac-controller
   resources:
@@ -22,15 +21,6 @@ agent:
   enabled: true
   image:
     repository: ghcr.io/tonedefdev/opendepot/agent-controller
-module:
-  image:
-    repository: ghcr.io/tonedefdev/opendepot/iac-controller
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      memory: 1Gi
 
 depot:
   image:

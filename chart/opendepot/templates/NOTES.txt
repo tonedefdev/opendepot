@@ -1,0 +1,19 @@
+{{- if or .Values.module .Values.provider }}
+################################################################################
+WARNING: the module.* and provider.* values are deprecated.
+The module-controller and provider-controller deployments are merged into iac-controller.
+These values still work in 0.13.0 but are removed in 0.14.0. Move them to iac.*:
+{{- if .Values.module }}
+  module.* -> iac.*
+{{- end }}
+{{- if .Values.provider }}
+  provider.* -> iac.*
+{{- end }}
+################################################################################
+{{- end }}
+
+OpenDepot {{ .Chart.AppVersion }} is installed in namespace {{ .Values.global.namespace }}.
+{{- if .Values.oci.enabled }}
+
+The oci-controller is enabled. Upstream registries are limited to: {{ if .Values.oci.allowedRegistries }}{{ join ", " .Values.oci.allowedRegistries }}{{ else }}none (every mirror is denied){{ end }}.
+{{- end }}

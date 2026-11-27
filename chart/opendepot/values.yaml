@@ -39,25 +39,36 @@ version:
   tolerations: []
   affinity: {}
 
-## Module Service (Orchestrates version creation and management)
-module:
-  enabled: true
+## IaC Service (Module and Provider reconcilers, merged into one deployment)
+## Every key is optional. An unset iac.<key> falls back to the deprecated module.<key> or provider.<key>
+## (removed in 0.14.0), then to the built-in default. Keep the defaults out of this block so the fallback works.
+## Built-in defaults: enabled true, replicaCount 1, zapLogLevel "", image.repository
+## ghcr.io/tonedefdev/opendepot/iac-controller, image.tag "" (uses global.image.tag), runAsGroup 65532,
+## resources requests 100m cpu / 128Mi memory / 128Mi ephemeral-storage and limits 1000m cpu / 512Mi memory,
+## nodeSelector {}, tolerations [], affinity {}.
+iac: {}
+
+## OCI Service (OCIArtifact reconciler; disabled by default)
+oci:
+  enabled: false
   replicaCount: 1
   # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
   # default (info). Set to 5 to enable verbose debug logging.
   zapLogLevel: ""
+  # allowedRegistries is the upstream registry allow-list passed to depot, oci, version, and server
+  # as --oci-allowed-registries. It is only passed when oci.enabled is true. An empty list denies all mirrors.
+  allowedRegistries: []
   image:
-    repository: ghcr.io/tonedefdev/opendepot/module-controller
+    repository: ghcr.io/tonedefdev/opendepot/oci-controller
     tag: ""  # Overrides global.image.tag when set
   resources:
     requests:
       cpu: 100m
       memory: 128Mi
-      ephemeral-storage: 128Mi
     limits:
-      cpu: 1000m
+      cpu: 500m
       memory: 512Mi
-  # GID for the module-controller pod and container.
+  # GID for the oci-controller pod and container.
   runAsGroup: 65532
   nodeSelector: {}
   tolerations: []
@@ -105,29 +116,6 @@ depot:
       cpu: 1000m
       memory: 512Mi
   # GID for the depot-controller pod and container.
-  runAsGroup: 65532
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-## Provider Service (Manages provider versions from the OpenTofu Registry API)
-provider:
-  enabled: false
-  replicaCount: 1
-  # zapLogLevel sets --zap-log-level on the controller. Leave empty for the
-  # default (info). Set to 5 to enable verbose debug logging.
-  zapLogLevel: ""
-  image:
-    repository: ghcr.io/tonedefdev/opendepot/provider-controller
-    tag: ""  # Overrides global.image.tag when set
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 1000m
-      memory: 512Mi
-  # GID for the provider-controller pod and container.
   runAsGroup: 65532
   nodeSelector: {}
   tolerations: []

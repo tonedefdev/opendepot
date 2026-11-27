@@ -1,29 +1,38 @@
-{{- if .Values.provider.enabled }}
+{{- if (fromJson (include "opendepot.iac.value" (dict "root" . "key" "enabled" "default" true))).v }}
+{{- $replicaCount := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "replicaCount" "default" 1))).v }}
+{{- $zapLogLevel := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "zapLogLevel" "default" ""))).v }}
+{{- $repository := (fromJson (include "opendepot.iac.value" (dict "root" . "section" "image" "key" "repository" "default" "ghcr.io/tonedefdev/opendepot/iac-controller"))).v }}
+{{- $imageTag := (fromJson (include "opendepot.iac.value" (dict "root" . "section" "image" "key" "tag" "default" ""))).v }}
+{{- $runAsGroup := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "runAsGroup" "default" 65532))).v }}
+{{- $resources := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "resources" "default" (dict "requests" (dict "cpu" "100m" "memory" "128Mi" "ephemeral-storage" "128Mi") "limits" (dict "cpu" "1000m" "memory" "512Mi"))))).v }}
+{{- $nodeSelector := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "nodeSelector" "default" (dict)))).v }}
+{{- $tolerations := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "tolerations" "default" (list)))).v }}
+{{- $affinity := (fromJson (include "opendepot.iac.value" (dict "root" . "key" "affinity" "default" (dict)))).v }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: provider-controller
+  name: iac-controller
   namespace: {{ .Values.global.namespace }}
   labels:
-    app: provider-controller
+    app: iac-controller
     control-plane: controller
 spec:
-  replicas: {{ .Values.provider.replicaCount }}
+  replicas: {{ $replicaCount }}
   selector:
     matchLabels:
-      app: provider-controller
+      app: iac-controller
       control-plane: controller
   template:
     metadata:
       labels:
-        app: provider-controller
+        app: iac-controller
         control-plane: controller
     spec:
-      serviceAccountName: provider-controller
+      serviceAccountName: iac-controller
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
-        runAsGroup: {{ .Values.provider.runAsGroup }}
+        runAsGroup: {{ $runAsGroup }}
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
@@ -38,7 +47,7 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsUser: 65532
-          runAsGroup: {{ .Values.provider.runAsGroup }}
+          runAsGroup: {{ $runAsGroup }}
         resources:
           limits:
             cpu: 100m
@@ -47,15 +56,15 @@ spec:
             cpu: 10m
             memory: 16Mi
         volumeMounts:
-        - name: provider-tmp
+        - name: iac-tmp
           mountPath: /tmp
       containers:
-      - name: provider-controller
-        image: "{{ .Values.provider.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.provider.image.tag }}"
+      - name: iac-controller
+        image: "{{ $repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) $imageTag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-        {{- if .Values.provider.zapLogLevel }}
+        {{- if $zapLogLevel }}
         args:
-        - --zap-log-level={{ .Values.provider.zapLogLevel }}
+        - --zap-log-level={{ $zapLogLevel }}
         {{- end }}
         {{- if or .Values.rbac.scopeToNamespace .Values.coverage.enabled }}
         env:
@@ -76,32 +85,32 @@ spec:
           {{- if not .Values.global.developmentMode }}
           readOnlyRootFilesystem: true
           {{- end }}
-          runAsGroup: {{ .Values.provider.runAsGroup }}
+          runAsGroup: {{ $runAsGroup }}
         resources:
-          {{- toYaml .Values.provider.resources | nindent 10 }}
+          {{- toYaml $resources | nindent 10 }}
         volumeMounts:
-        - name: provider-tmp
+        - name: iac-tmp
           mountPath: /tmp
         {{- if .Values.coverage.enabled }}
         - name: coverage
           mountPath: /coverage
         {{- end }}
       volumes:
-      - name: provider-tmp
+      - name: iac-tmp
         emptyDir: {}
       {{- if .Values.coverage.enabled }}
       - name: coverage
         emptyDir: {}
       {{- end }}
-      {{- with .Values.provider.nodeSelector }}
+      {{- with $nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.provider.affinity }}
+      {{- with $affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.provider.tolerations }}
+      {{- with $tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

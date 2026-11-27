@@ -64,6 +64,9 @@ spec:
         {{- if .Values.server.policyManagement.enabled }}
         - --policy-management-enabled
         {{- end }}
+        {{- if .Values.oci.enabled }}
+        - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
+        {{- end }}
         {{- if and .Values.server.oidc.enabled .Values.server.oidc.dexProxy.enabled }}
         {{- if not .Values.dex.enabled }}
         {{- fail "server.oidc.dexProxy.enabled requires dex.enabled=true" }}

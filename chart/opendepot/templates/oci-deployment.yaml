@@ -1,38 +1,39 @@
-{{- if .Values.module.enabled }}
+{{- if .Values.oci.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: module-controller
+  name: oci-controller
   namespace: {{ .Values.global.namespace }}
   labels:
-    app: module-controller
+    app: oci-controller
     control-plane: controller
 spec:
-  replicas: {{ .Values.module.replicaCount }}
+  replicas: {{ .Values.oci.replicaCount }}
   selector:
     matchLabels:
-      app: module-controller
+      app: oci-controller
       control-plane: controller
   template:
     metadata:
       labels:
-        app: module-controller
+        app: oci-controller
         control-plane: controller
     spec:
-      serviceAccountName: module-controller
+      serviceAccountName: oci-controller
       securityContext:
         seccompProfile:
           type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 65532
-        runAsGroup: {{ .Values.module.runAsGroup }}
+        runAsGroup: {{ .Values.oci.runAsGroup }}
       containers:
-      - name: deployment-controller
-        image: "{{ .Values.module.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.module.image.tag }}"
+      - name: oci-controller
+        image: "{{ .Values.oci.image.repository }}:{{ default (default .Chart.AppVersion .Values.global.image.tag) .Values.oci.image.tag }}"
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-        {{- if .Values.module.zapLogLevel }}
         args:
-        - --zap-log-level={{ .Values.module.zapLogLevel }}
+        - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
+        {{- if .Values.oci.zapLogLevel }}
+        - --zap-log-level={{ .Values.oci.zapLogLevel }}
         {{- end }}
         {{- if or .Values.rbac.scopeToNamespace .Values.coverage.enabled }}
         env:
@@ -54,21 +55,21 @@ spec:
           readOnlyRootFilesystem: true
           {{- end }}
         resources:
-          {{- toYaml .Values.module.resources | nindent 10 }}
+          {{- toYaml .Values.oci.resources | nindent 10 }}
         {{- if .Values.coverage.enabled }}
         volumeMounts:
         - name: coverage
           mountPath: /coverage
         {{- end }}
-      {{- with .Values.module.nodeSelector }}
+      {{- with .Values.oci.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.module.affinity }}
+      {{- with .Values.oci.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.module.tolerations }}
+      {{- with .Values.oci.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

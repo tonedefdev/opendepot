@@ -32,6 +32,9 @@ spec:
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         args:
         - --branch-sourcing-enabled={{ .Values.branchSourcing.enabled }}
+        {{- if .Values.oci.enabled }}
+        - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
+        {{- end }}
         {{- if .Values.depot.zapLogLevel }}
         - --zap-log-level={{ .Values.depot.zapLogLevel }}
         {{- end }}

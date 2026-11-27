@@ -615,6 +615,25 @@ spec:
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to disable anonymous auth")
 
+		By("waiting for the server rollout to complete")
+		_, err = utils.Run(exec.Command("kubectl", "rollout", "status", "deployment/server",
+			"-n", providerNamespace,
+			"--timeout=2m",
+		))
+		Expect(err).NotTo(HaveOccurred(), "Server rollout did not complete after disabling anonymous auth")
+
+		By("waiting for terminating server pods from the previous ReplicaSet to be removed")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods",
+				"-n", providerNamespace,
+				"-l", "app=server",
+				"-o", "jsonpath={range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{\"\\n\"}{end}",
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(output)).To(BeEmpty(), "terminating server pods are still present")
+		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
 		By("restarting port-forward after server pod restart")
 		if pfCancel != nil {
 			pfCancel()
@@ -628,15 +647,19 @@ spec:
 			"-n", providerNamespace,
 		)
 		Expect(pfCmd.Start()).To(Succeed(), "Failed to restart port-forward")
-		time.Sleep(3 * time.Second)
 
 		By("verifying unauthenticated request returns 401")
-		unauthResp, err := http.Get(fmt.Sprintf( //nolint:noctx
-			"http://localhost:%s/opendepot/providers/v1/%s/%s/versions",
-			serverPortForwardPort, providerNamespace, providerCRName))
-		Expect(err).NotTo(HaveOccurred())
-		_ = unauthResp.Body.Close()
-		Expect(unauthResp.StatusCode).To(Equal(http.StatusUnauthorized))
+		Eventually(func() int {
+			unauthResp, requestErr := http.Get(fmt.Sprintf( //nolint:noctx
+				"http://localhost:%s/opendepot/providers/v1/%s/%s/versions",
+				serverPortForwardPort, providerNamespace, providerCRName))
+			if requestErr != nil {
+				return 0
+			}
+			_ = unauthResp.Body.Close()
+
+			return unauthResp.StatusCode
+		}, 30*time.Second, 500*time.Millisecond).Should(Equal(http.StatusUnauthorized))
 
 		mirrorVersionsURL := fmt.Sprintf("%s/opendepot/providers/mirror/v1/%s/registry.opentofu.org/hashicorp/null/index.json",
 			mirrorTLSServer.URL, providerNamespace)
