@@ -82,6 +82,12 @@ Follow these patterns exactly as they exist in the codebase:
 - Use `fmt.Errorf("context: %w", err)` for error wrapping
 - Return errors from `Reconcile` to trigger requeue with backoff
 
+**Prefer battle-tested libraries over hand-rolled code**:
+- Do not hand-roll OAuth2/OIDC flows, cryptographic signature verifiers, parsers, or bounded LRU/TTL caches when a maintained, well-known library already exists in the workspace (`go.mod` / `go.work`) or the ecosystem. Examples: `golang.org/x/oauth2/clientcredentials`, `github.com/sigstore/sigstore`, `github.com/hashicorp/golang-lru/v2/expirable`.
+- Before writing one of these, search `go.mod` and `go.work` for an existing library. Promote an existing `// indirect` requirement to a direct one instead of copying its code.
+- Any added dependency must show 0 fixable CVEs: run `trivy fs --scanners vuln --ignore-unfixed services/<name>/go.mod` from the repo root.
+- Wrap library calls so their errors never carry secrets, tokens, or response bodies. Keep the surrounding time and expiry logic on the package clock (for example `ociNow`) so tests stay deterministic.
+
 **Go formatting — control flow spacing**:
 - Always add a blank line **before** `if`, `for`, `return`, and `select` statements when they follow other statements in the same block. This applies inside function bodies, closures, and loop bodies.
 - Always add a blank line **after** a closure body (the closing `}`) before the next statement in the outer block.

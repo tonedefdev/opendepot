@@ -408,6 +408,8 @@ assembly:
 # as false and configure a real connector instead.
 dex:
   enabled: false
+  image:
+    tag: v2.46.1
   config:
     # issuer is the public URL of the Dex service. Clients redirect here for
     # authorization. Change this to the external URL of your Dex deployment.
@@ -592,12 +594,22 @@ monitoring:
     enabled: false
   grafana:
     enabled: false
+    image:
+      tag: 13.3.2
   alertmanager:
     enabled: false
+    alertmanagerSpec:
+      image:
+        tag: v0.35.1
   kubeStateMetrics:
     enabled: false
+    image:
+      tag: v2.20.0
   nodeExporter:
     enabled: false
+  prometheus-node-exporter:
+    image:
+      tag: v1.13.1
   defaultRules:
     create: false
   kubeApiServer:
@@ -613,10 +625,17 @@ monitoring:
   kubelet:
     enabled: false
   prometheusOperator:
+    image:
+      tag: v0.95.2
+    prometheusConfigReloader:
+      image:
+        tag: v0.95.2
     serviceMonitor:
       enabled: false
   prometheus:
     prometheusSpec:
+      image:
+        tag: v3.16.0-distroless
       replicas: 1
       retention: 90d
       serviceMonitorSelectorNilUsesHelmValues: false
