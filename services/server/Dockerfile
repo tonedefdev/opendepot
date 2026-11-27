@@ -83,13 +83,14 @@ COPY cli/ cli/
 RUN set -eux; \
 	cd cli; \
 	mkdir -p /out; \
+	version="${CLI_VERSION#v}"; \
 	for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
 		goos="${target%/*}"; \
 		goarch="${target#*/}"; \
 		ext=""; \
 		if [ "${goos}" = "windows" ]; then ext=".exe"; fi; \
 		GOWORK=off CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
-			go build -trimpath -ldflags "-s -w -X main.buildVersion=${CLI_VERSION}" \
+			go build -trimpath -ldflags "-s -w -X main.buildVersion=${version}" \
 			-o "/out/opendepot_${goos}_${goarch}${ext}" .; \
 	done; \
 	cd /out; \
