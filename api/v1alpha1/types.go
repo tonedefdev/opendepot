@@ -26,6 +26,9 @@ const (
 	OpenDepotProvider                        = "Provider"
 	OpenDepotSkill                           = "Skill"
 	OpenDepotAgent                           = "Agent"
+	OpenDepotOCIArtifact                     = "OCIArtifact"
+	OpenDepotMCPServer                       = "MCPServer"
+	OpenDepotSchematic                       = "Schematic"
 	OpenTofuRegistryHost                     = "registry.opentofu.org"
 	TerraformRegistryHost                    = "registry.terraform.io"
 )
@@ -43,6 +46,10 @@ type DepotSpec struct {
 	SkillConfigs []AgentSourceConfig `json:"skillConfigs,omitempty"`
 	// The agent configuration and version details for each agent that should be managed by the Depot controller.
 	AgentConfigs []AgentSourceConfig `json:"agentConfigs,omitempty"`
+	// The OCI artifact configuration and version details for each OCIArtifact that should be managed by the Depot controller.
+	OCIArtifactConfigs []OCIArtifactConfig `json:"ociArtifactConfigs,omitempty"`
+	// The MCP server configuration and version details for each MCPServer that should be managed by the Depot controller.
+	MCPServerConfigs []MCPServerSourceConfig `json:"mcpServerConfigs,omitempty"`
 	// The polling interval in minutes for how often the Depot controller should check for new versions of the modules it manages.
 	// If not specified, the default is 0.
 	PollingIntervalMinutes *int `json:"pollingIntervalMinutes,omitempty"`
@@ -113,6 +120,10 @@ type DepotStatus struct {
 	Skills []string `json:"skills,omitempty"`
 	// The list of Agent resource names created and managed by this Depot.
 	Agents []string `json:"agents,omitempty"`
+	// The list of OCIArtifact resource names created and managed by this Depot.
+	OCIArtifacts []string `json:"ociArtifacts,omitempty"`
+	// The list of MCPServer resource names created and managed by this Depot.
+	MCPServers []string `json:"mcpServers,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -964,12 +975,12 @@ type JevSkippedFile struct {
 	Reason string `json:"reason"`
 }
 
-// ScanPolicyTargetRef identifies the Module, Provider, Skill, or Agent resources a ScanPolicy applies to.
+// ScanPolicyTargetRef identifies the Module, Provider, Skill, Agent, OCIArtifact, or MCPServer resources a ScanPolicy applies to.
 type ScanPolicyTargetRef struct {
-	// The kind of resource this reference targets. One of 'Module', 'Provider', 'Skill', or 'Agent'.
-	// +kubebuilder:validation:Enum=Module;Provider;Skill;Agent
+	// The kind of resource this reference targets. One of 'Module', 'Provider', 'Skill', 'Agent', 'OCIArtifact', or 'MCPServer'.
+	// +kubebuilder:validation:Enum=Module;Provider;Skill;Agent;OCIArtifact;MCPServer
 	Kind string `json:"kind"`
-	// The name of the Module, Provider, Skill, or Agent resource. Matching is exact; the single
+	// The name of the Module, Provider, Skill, Agent, OCIArtifact, or MCPServer resource. Matching is exact; the single
 	// literal '*' matches every resource of the given kind in the namespace.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -994,7 +1005,7 @@ type ScanExemption struct {
 	// +optional
 	PkgNames []string `json:"pkgNames,omitempty"`
 	// The scan types this exemption applies to. When omitted every scan type is covered.
-	// +kubebuilder:validation:items:Enum=binary;source;module;agent
+	// +kubebuilder:validation:items:Enum=binary;source;module;agent;oci;mcp
 	// +optional
 	ScanTypes []string `json:"scanTypes,omitempty"`
 	// The severities this exemption covers. Matching is exact and case insensitive; the
@@ -1150,9 +1161,13 @@ type VersionSpec struct {
 	ModuleConfigRef *ModuleConfig `json:"moduleConfigRef,omitempty"`
 	// The reference to the Provider resource's config.
 	ProviderConfigRef *ProviderConfig `json:"providerConfigRef,omitempty"`
+	// The reference to the OCIArtifact resource's config. Set by the oci controller.
+	OCIArtifactConfigRef *OCIArtifactConfig `json:"ociArtifactConfigRef,omitempty"`
+	// The reference to the MCPServer resource's config. Set by the agent controller.
+	MCPServerSourceRef *MCPServerSourceConfig `json:"mcpServerSourceRef,omitempty"`
 	// The operating system this Version of the Provider supports.
 	OperatingSystem string `json:"operatingSystem,omitempty"`
-	// The type of resource. One of 'Module', 'Provider', 'Skill', or 'Agent'
+	// The type of resource. One of 'Module', 'Provider', 'Skill', 'Agent', 'OCIArtifact', or 'MCPServer'
 	Type string `json:"type"`
 	// The version of the Module, Provider, Skill, or Agent. For a branch Version of a Skill or Agent this
 	// is empty until the Version controller assigns a semantic version, and it can be set only once.
@@ -1248,6 +1263,108 @@ type VersionStatus struct {
 	// +kubebuilder:validation:Enum=Pending;Held;Assigned;Rejected
 	// +optional
 	BranchPhase string `json:"branchPhase,omitempty"`
+	// OCIManifest holds the OCI manifest or index that this OCIArtifact Version serves. Only populated for
+	// OCIArtifact Versions.
+	// +optional
+	OCIManifest *OCIManifestStatus `json:"ociManifest,omitempty"`
+	// HelmChart holds the chart metadata parsed from Chart.yaml. Only populated for Helm OCIArtifact Versions.
+	// +optional
+	HelmChart *HelmChartMetadata `json:"helmChart,omitempty"`
+	// OCIScan is the Trivy scan result for an OCIArtifact Version. Only populated for OCIArtifact Versions when scanning is enabled.
+	// +optional
+	OCIScan *SourceScan `json:"ociScan,omitempty"`
+	// MCPMetadata holds the server metadata parsed from an MCPServer Version's server.json and package.
+	// Only populated for MCPServer Versions.
+	// +optional
+	MCPMetadata *MCPMetadata `json:"mcpMetadata,omitempty"`
+}
+
+// OCIManifestStatus describes the OCI manifest or index that an OCIArtifact Version serves.
+type OCIManifestStatus struct {
+	// The sha256 digest of the manifest or index that is served. It never changes after the Version syncs.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Digest string `json:"digest"`
+	// The media type of the manifest or index.
+	// +kubebuilder:validation:MaxLength=255
+	MediaType string `json:"mediaType"`
+	// The artifact type declared by the manifest, if any.
+	// +kubebuilder:validation:MaxLength=255
+	ArtifactType string `json:"artifactType,omitempty"`
+	// The digest that the upstream tag pointed to when the Version was synced.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	UpstreamDigest string `json:"upstreamDigest,omitempty"`
+	// True when the upstream tag now points to a different digest than the one served. The served digest never changes.
+	TagDrift bool `json:"tagDrift,omitempty"`
+	// The platforms, such as linux/amd64, that the index serves.
+	// +kubebuilder:validation:MaxItems=16
+	Platforms []string `json:"platforms,omitempty"`
+	// The total size in bytes of the manifest's blobs.
+	// +kubebuilder:validation:Minimum=0
+	TotalSizeBytes int64 `json:"totalSizeBytes"`
+	// Whether the upstream cosign signature was verified. Only set when a signature check ran.
+	SignatureVerified *bool `json:"signatureVerified,omitempty"`
+}
+
+// HelmChartMetadata holds the fields that the OCIArtifact Version parsed from a Helm chart's Chart.yaml.
+type HelmChartMetadata struct {
+	// The name of the chart.
+	// +kubebuilder:validation:MaxLength=255
+	Name string `json:"name,omitempty"`
+	// The version of the chart.
+	// +kubebuilder:validation:MaxLength=255
+	Version string `json:"version,omitempty"`
+	// The version of the application that the chart deploys.
+	// +kubebuilder:validation:MaxLength=255
+	AppVersion string `json:"appVersion,omitempty"`
+	// A short description of the chart.
+	// +kubebuilder:validation:MaxLength=1024
+	Description string `json:"description,omitempty"`
+	// The Kubernetes version constraint declared by the chart.
+	// +kubebuilder:validation:MaxLength=255
+	KubeVersion string `json:"kubeVersion,omitempty"`
+	// Whether the chart is deprecated.
+	Deprecated bool `json:"deprecated,omitempty"`
+	// The keywords declared by the chart.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=64
+	Keywords []string `json:"keywords,omitempty"`
+	// The chart dependencies declared by the chart.
+	// +kubebuilder:validation:MaxItems=64
+	Dependencies []HelmChartDependency `json:"dependencies,omitempty"`
+}
+
+// HelmChartDependency is a dependency declared by a Helm chart.
+type HelmChartDependency struct {
+	// The name of the dependency chart.
+	// +kubebuilder:validation:MaxLength=512
+	Name string `json:"name,omitempty"`
+	// The version constraint of the dependency chart.
+	// +kubebuilder:validation:MaxLength=512
+	Version string `json:"version,omitempty"`
+	// The repository that hosts the dependency chart.
+	// +kubebuilder:validation:MaxLength=512
+	Repository string `json:"repository,omitempty"`
+}
+
+// MCPMetadata holds the server metadata that an MCPServer Version parsed from its server.json and package.
+type MCPMetadata struct {
+	// The name of the MCP server.
+	// +kubebuilder:validation:MaxLength=255
+	ServerName string `json:"serverName,omitempty"`
+	// A short description of the MCP server.
+	// +kubebuilder:validation:MaxLength=1024
+	Description string `json:"description,omitempty"`
+	// The transport that the MCP server speaks.
+	// +kubebuilder:validation:Enum=stdio;streamable-http
+	Transport string `json:"transport,omitempty"`
+	// Whether the MCP server can run. False for the Source type.
+	Runnable bool `json:"runnable"`
+	// The PyPI wheel platforms that were vendored into the Version.
+	// +kubebuilder:validation:MaxItems=8
+	Platforms []string `json:"platforms,omitempty"`
+	// The sha256 digest of the package that the Version vendors.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	PackageDigest string `json:"packageDigest,omitempty"`
 }
 
 // BumpAssessment records how the semantic version bump of a branch Version was chosen. It never
@@ -1484,6 +1601,37 @@ type GroupBindingSpec struct {
 	// The literal "*" allows every namespace reachable by the server.
 	// +optional
 	ScanPolicyNamespaces []string `json:"scanPolicyNamespaces,omitempty"`
+
+	// OCIArtifactResources is the list of glob patterns for OCIArtifact resource names this binding grants access to.
+	// The * wildcard is supported. Empty or omitted means no OCIArtifacts are accessible.
+	// +optional
+	OCIArtifactResources []string `json:"ociArtifactResources,omitempty"`
+
+	// MCPServerResources is the list of glob patterns for MCPServer resource names this binding grants access to.
+	// The * wildcard is supported. Empty or omitted means no MCPServers are accessible.
+	// +optional
+	MCPServerResources []string `json:"mcpServerResources,omitempty"`
+
+	// SchematicResources is the list of glob patterns for Schematic resource names this binding grants read access to.
+	// The * wildcard is supported. Empty or omitted means no Schematics are accessible.
+	// +optional
+	SchematicResources []string `json:"schematicResources,omitempty"`
+
+	// SchematicManagement grants permission to create, update, delete, import, and duplicate Schematic resources.
+	// When omitted it is true, so saving works by default. Set it to false to make this binding read-only for Schematics.
+	// +optional
+	SchematicManagement *bool `json:"schematicManagement,omitempty"`
+
+	// SchematicNamespaces is the list of namespaces, in addition to this binding's own namespace, where this binding
+	// may write Schematic resources. The literal "*" allows every namespace reachable by the server. Writes are always
+	// allowed in the binding's own namespace unless schematicManagement is false.
+	// +optional
+	SchematicNamespaces []string `json:"schematicNamespaces,omitempty"`
+
+	// JevSecretRef is a reference to the key in a Secret in the server namespace that holds the TypeSafe Jev token used
+	// for suggest, advise, and handoff calls made by this binding's callers. The key defaults to 'jevToken' when omitted.
+	// +optional
+	JevSecretRef *corev1.SecretKeySelector `json:"jevSecretRef,omitempty"`
 }
 
 // GroupBindingStatus defines the observed state of GroupBinding.
@@ -1522,6 +1670,9 @@ type SecurityGroupBindingSpec struct {
 	SkillResources                []string `json:"skillResources,omitempty"`
 	AgentResources                []string `json:"agentResources,omitempty"`
 	NamespaceWidePolicyManagement bool     `json:"namespaceWidePolicyManagement,omitempty"`
+	OCIArtifactResources          []string `json:"ociArtifactResources,omitempty"`
+	MCPServerResources            []string `json:"mcpServerResources,omitempty"`
+	SchematicResources            []string `json:"schematicResources,omitempty"`
 }
 
 type SecurityGroupBindingStatus struct {
