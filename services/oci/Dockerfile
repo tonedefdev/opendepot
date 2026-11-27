@@ -41,6 +41,7 @@ WORKDIR /workspace
 # Copy source
 COPY api/v1alpha1/ api/v1alpha1/
 COPY services/oci/cmd/ services/oci/cmd/
+COPY services/oci/internal/ services/oci/internal/
 
 # Build (COVER=1 adds coverage counters and the coverage build tag)
 ARG COVER=0
