@@ -47,6 +47,7 @@ type DepotSpec struct {
 	// The agent configuration and version details for each agent that should be managed by the Depot controller.
 	AgentConfigs []AgentSourceConfig `json:"agentConfigs,omitempty"`
 	// The OCI artifact configuration and version details for each OCIArtifact that should be managed by the Depot controller.
+	// +kubebuilder:validation:MaxItems=64
 	OCIArtifactConfigs []OCIArtifactConfig `json:"ociArtifactConfigs,omitempty"`
 	// The MCP server configuration and version details for each MCPServer that should be managed by the Depot controller.
 	MCPServerConfigs []MCPServerSourceConfig `json:"mcpServerConfigs,omitempty"`

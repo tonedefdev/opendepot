@@ -621,6 +621,9 @@ func TestOpenDepotOCIArtifactConfigValidationRules(t *testing.T) {
 
 	build := markerText(t, "ociartifact_types.go", "OCIArtifactConfig", "Build")
 	assertMarkers(t, build, "Requires the chart value `oci.builds.enabled`.")
+
+	ociArtifactConfigs := markerText(t, "types.go", "DepotSpec", "OCIArtifactConfigs")
+	assertMarkers(t, ociArtifactConfigs, "+kubebuilder:validation:MaxItems=64")
 }
 
 func TestOpenDepotOCIBuildSourceValidationRules(t *testing.T) {
@@ -640,17 +643,17 @@ func TestOpenDepotOCIBuildSourceValidationRules(t *testing.T) {
 	contextPath := markerText(t, "ociartifact_types.go", "OCIBuildSource", "ContextPath")
 	assertMarkers(t, contextPath,
 		`+kubebuilder:default="."`,
-		"+kubebuilder:validation:MaxLength=1024",
+		"+kubebuilder:validation:MaxLength=256",
 		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`",
-		`+kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.'))",message="contextPath must be a relative path without dot segments"`,
+		`+kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && self != '..' && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.'))",message="contextPath must be a relative path without dot segments"`,
 	)
 
 	dockerfilePath := markerText(t, "ociartifact_types.go", "OCIBuildSource", "DockerfilePath")
 	assertMarkers(t, dockerfilePath,
 		`+kubebuilder:default="Dockerfile"`,
-		"+kubebuilder:validation:MaxLength=1024",
+		"+kubebuilder:validation:MaxLength=256",
 		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`",
-		`+kubebuilder:validation:XValidation:rule="!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.')",message="dockerfilePath must be a relative path without dot segments"`,
+		`+kubebuilder:validation:XValidation:rule="self != '.' && self != '..' && !self.startsWith('/') && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.')",message="dockerfilePath must be a relative path without dot segments"`,
 	)
 
 	target := markerText(t, "ociartifact_types.go", "OCIBuildSource", "Target")

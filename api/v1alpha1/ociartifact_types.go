@@ -153,17 +153,17 @@ type OCIBuildSource struct {
 	// The directory that is sent to the build as its context, relative to the root of the repository.
 	// Defaults to '.' when omitted.
 	// +kubebuilder:default="."
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`
-	// +kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.'))",message="contextPath must be a relative path without dot segments"
+	// +kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && self != '..' && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.'))",message="contextPath must be a relative path without dot segments"
 	// +optional
 	ContextPath string `json:"contextPath,omitempty"`
 	// The path of the Dockerfile, relative to the root of the repository, like docker build -f. It may be outside
 	// the context. Defaults to 'Dockerfile' when omitted.
 	// +kubebuilder:default="Dockerfile"
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`
-	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.')",message="dockerfilePath must be a relative path without dot segments"
+	// +kubebuilder:validation:XValidation:rule="self != '.' && self != '..' && !self.startsWith('/') && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.')",message="dockerfilePath must be a relative path without dot segments"
 	// +optional
 	DockerfilePath string `json:"dockerfilePath,omitempty"`
 	// The build stage to build, as in docker build --target.
