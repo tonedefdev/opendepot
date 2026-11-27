@@ -51,6 +51,7 @@ COPY pkg/github/ pkg/github/
 COPY pkg/utils/ pkg/utils/
 COPY pkg/registry/ pkg/registry/
 COPY pkg/hclschema/ pkg/hclschema/
+COPY pkg/oci/ pkg/oci/
 COPY services/version/cmd/ services/version/cmd/
 COPY services/version/internal/ services/version/internal/
 COPY services/version/checks/ services/version/checks/

@@ -75,7 +75,6 @@ var _ = Describe("Version Controller unsupported types", func() {
 			Expect(current.Status.Synced).To(BeFalse())
 			Expect(current.Status.SyncStatus).To(Equal("unsupported in this build"))
 		},
-		Entry("OCIArtifact", "test-oci-unsupported", opendepotv1alpha1.OpenDepotOCIArtifact),
 		Entry("MCPServer", "test-mcp-unsupported", opendepotv1alpha1.OpenDepotMCPServer),
 	)
 })

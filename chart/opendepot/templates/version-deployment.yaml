@@ -141,6 +141,7 @@ spec:
         {{- if .Values.oci.enabled }}
         - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
         {{- end }}
+        - --filesystem-mount-path={{ .Values.storage.filesystem.mountPath }}
         {{- if .Values.scanning.enabled }}
         - --scanning-enabled=true
         - --scan-block-on-critical={{ .Values.scanning.blockOnCritical }}
