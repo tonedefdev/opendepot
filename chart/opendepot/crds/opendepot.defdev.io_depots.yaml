@@ -1179,6 +1179,130 @@ spec:
                       - Image
                       - Generic
                       type: string
+                    build:
+                      description: |-
+                        The GitHub repository that the Image is built from in-cluster with rootless BuildKit. Only valid for Image.
+                        Requires the chart value `oci.builds.enabled`.
+                      properties:
+                        buildArgs:
+                          description: Non-secret build arguments. Values are stored
+                            in plain text in the resource and the image history. Do
+                            not put secrets here.
+                          items:
+                            description: OCIBuildArg is a non-secret build argument
+                              that is passed to the Dockerfile as --build-arg.
+                            properties:
+                              name:
+                                description: The name of the build argument.
+                                maxLength: 128
+                                pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+                                type: string
+                                x-kubernetes-validations:
+                                - message: reserved build argument
+                                  rule: '!self.startsWith(''BUILDKIT_'') && self !=
+                                    ''SOURCE_DATE_EPOCH'''
+                              value:
+                                description: The value of the build argument. Control
+                                  characters and newlines are not allowed.
+                                maxLength: 4096
+                                pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                                type: string
+                            required:
+                            - name
+                            - value
+                            type: object
+                          maxItems: 32
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        contextPath:
+                          default: .
+                          description: |-
+                            The directory that is sent to the build as its context, relative to the root of the repository.
+                            Defaults to '.' when omitted.
+                          maxLength: 1024
+                          pattern: ^[A-Za-z0-9._/-]+$
+                          type: string
+                          x-kubernetes-validations:
+                          - message: contextPath must be a relative path without dot
+                              segments
+                            rule: self == '.' || (!self.startsWith('/') && !self.split('/').exists(s,
+                              s == '..' || s == '.'))
+                        dockerfilePath:
+                          default: Dockerfile
+                          description: |-
+                            The path of the Dockerfile, relative to the root of the repository, like docker build -f. It may be outside
+                            the context. Defaults to 'Dockerfile' when omitted.
+                          maxLength: 1024
+                          pattern: ^[A-Za-z0-9._/-]+$
+                          type: string
+                          x-kubernetes-validations:
+                          - message: dockerfilePath must be a relative path without
+                              dot segments
+                            rule: '!self.startsWith(''/'') && !self.split(''/'').exists(s,
+                              s == ''..'' || s == ''.'')'
+                        repoOwner:
+                          description: Owner of the Github repository.
+                          maxLength: 39
+                          pattern: ^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$
+                          type: string
+                        repoUrl:
+                          description: The full URL of the Github repository. The
+                            controller validates it at runtime.
+                          maxLength: 512
+                          type: string
+                        resources:
+                          description: The compute resources for each build. The controller
+                            clamps each value to the chart maximum.
+                          properties:
+                            cpu:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: The CPU that each build Job requests, such
+                                as 2 or 500m.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            ephemeralStorage:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: The ephemeral storage that each build Job
+                                requests, such as 10Gi.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            memory:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: The memory that each build Job requests,
+                                such as 4Gi.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                          type: object
+                        tagPrefix:
+                          description: |-
+                            The prefix of the Git tags that version this source, such as 'my-chart/'. The prefix is
+                            stripped from each tag to produce the version. If omitted, tags are used as-is.
+                          maxLength: 128
+                          type: string
+                        target:
+                          description: The build stage to build, as in docker build
+                            --target.
+                          maxLength: 128
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
+                          type: string
+                        timeoutSeconds:
+                          description: The maximum time in seconds that a build may
+                            run. The controller clamps it to the chart maximum.
+                          format: int32
+                          maximum: 7200
+                          minimum: 60
+                          type: integer
+                      required:
+                      - repoOwner
+                      type: object
                     github:
                       description: The GitHub release assets that the artifact is
                         built from. Only valid for Helm and Generic artifacts.
@@ -1417,10 +1541,16 @@ spec:
                   - artifactType
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of mirror or github is required
-                    rule: has(self.mirror) != has(self.github)
-                  - message: images can only be mirrored
+                  - message: exactly one of mirror, github, or build is required
+                    rule: '(has(self.mirror) ? 1 : 0) + (has(self.github) ? 1 : 0)
+                      + (has(self.build) ? 1 : 0) == 1'
+                  - message: images can only be mirrored or built
                     rule: '!has(self.github) || self.artifactType != ''Image'''
+                  - message: build is only valid for Image
+                    rule: '!has(self.build) || self.artifactType == ''Image'''
+                  - message: build platforms must be linux
+                    rule: '!has(self.build) || !has(self.platforms) || self.platforms.all(p,
+                      p.startsWith(''linux/''))'
                   - message: platforms is only valid for Image
                     rule: '!has(self.platforms) || self.artifactType == ''Image'''
                   - message: tagPattern and versionConstraints are mutually exclusive
