@@ -109,6 +109,9 @@ type VersionReconciler struct {
 	SchemaExtractionTimeout time.Duration
 	// OCIAllowedRegistries lists the upstream registries that an OCIArtifact may mirror from. An empty list denies every registry.
 	OCIAllowedRegistries []string
+	// FilesystemMountPath is the root under which OCIArtifact blobs may be written to the filesystem storage backend. An
+	// empty path disables the check.
+	FilesystemMountPath string
 	// ociRegistryFor builds the upstream client for a mirror. A nil value uses oci.NewUpstream.
 	ociRegistryFor func(allowed []string, dockerConfigJSON []byte) (ociRegistry, error)
 	// ociGithubClientFor builds the GitHub client for a GitHub OCIArtifact. A nil value uses the GitHub client helper.

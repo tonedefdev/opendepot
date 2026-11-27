@@ -103,6 +103,7 @@ func main() {
 	var jevEnabled bool
 	var branchSourcingEnabled bool
 	var ociAllowedRegistries string
+	var filesystemMountPath string
 	var jevEndpoint string
 	var jevMaxRetries int
 	flag.BoolVar(&scanningEnabled, "scanning-enabled", false,
@@ -131,6 +132,8 @@ func main() {
 		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
 	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
 		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
+	flag.StringVar(&filesystemMountPath, "filesystem-mount-path", "/data/modules",
+		"Allowed root path for filesystem storage. OCIArtifact directories outside this prefix are rejected.")
 	var assemblyEnabled bool
 	var tofuBinPath string
 	var schemaExtractionTimeout time.Duration
@@ -321,6 +324,7 @@ func main() {
 		TofuBinPath:             tofuBinPath,
 		SchemaExtractionTimeout: schemaExtractionTimeout,
 		OCIAllowedRegistries:    allowedRegistries,
+		FilesystemMountPath:     filesystemMountPath,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Version")
 		os.Exit(1)

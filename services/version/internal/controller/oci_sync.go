@@ -62,11 +62,20 @@ const (
 	maxOCIAssetBytes int64 = 1 << 30
 	// maxHelmChartBytes bounds the decompressed size of a Helm chart archive.
 	maxHelmChartBytes int64 = 64 << 20
+	// maxHelmLayerBytes bounds a Helm chart layer that is mirrored or spooled.
+	maxHelmLayerBytes int64 = 64 << 20
+	// maxGenericLayerBytes bounds a Generic artifact layer that is mirrored or spooled.
+	maxGenericLayerBytes int64 = 1 << 30
+	// maxImageBlobBytes bounds an image blob that is mirrored.
+	maxImageBlobBytes int64 = 4 << 30
 )
 
 var (
 	// errOCIInvalid is returned when upstream content or the spec cannot produce a valid artifact. Retrying does not help.
 	errOCIInvalid = errors.New("invalid OCI artifact")
+	// errOCIBlobTooLarge is returned when a blob is larger than its artifact type allows, or streams past its descriptor.
+	// It is always wrapped with errOCIInvalid.
+	errOCIBlobTooLarge = errors.New("blob exceeds its size limit")
 	// errHelmChartTooLarge is returned when a chart archive decompresses to more than the allowed size.
 	errHelmChartTooLarge = errors.New("helm chart archive exceeds the maximum decompressed size")
 	// errOCIAssetTooLarge is returned when a GitHub release asset is larger than maxOCIAssetBytes.
@@ -234,11 +243,19 @@ func (r *VersionReconciler) mirrorOCIArtifact(
 	}
 
 	blobs, err := r.ociBlobStoreFor(ctx, version)
+	if errors.Is(err, errOCIInvalid) {
+		return r.terminalOCI(ctx, req, fmt.Sprintf("Failed to sync OCI artifact: %v", err))
+	}
+
 	if err != nil {
 		return r.failOCISync(ctx, req, version, "open storage", err)
 	}
 
-	if err := mirrorOCIContent(ctx, registry, repository, blobs, root); err != nil {
+	if err := mirrorOCIContent(ctx, registry, repository, blobs, root, ociBlobLimit(config.ArtifactType)); err != nil {
+		if errors.Is(err, errOCIBlobTooLarge) {
+			return r.terminalOCI(ctx, req, fmt.Sprintf("Failed to sync OCI artifact: %v", err))
+		}
+
 		return r.failOCISync(ctx, req, version, "mirror content", err)
 	}
 
@@ -646,6 +663,10 @@ func (r *VersionReconciler) ociBlobStoreFor(ctx context.Context, version *opende
 		return ociBlobStore{}, err
 	}
 
+	if err := checkOCIFilesystemRoot(soi.StorageConfig, r.FilesystemMountPath); err != nil {
+		return ociBlobStore{}, err
+	}
+
 	name := version.Name
 	store, err := oci.NewStore(ociStorageBackend{
 		Storage:       backend,
@@ -658,6 +679,40 @@ func (r *VersionReconciler) ociBlobStoreFor(ctx context.Context, version *opende
 	}
 
 	return ociBlobStore{store: store, namespace: version.Namespace, repo: version.Name}, nil
+}
+
+// checkOCIFilesystemRoot rejects a filesystem directoryPath that does not stay under mountPath. It applies the same
+// prefix check that the server applies to filesystem downloads. An empty mountPath disables the check.
+func checkOCIFilesystemRoot(cfg *opendepotv1alpha1.StorageConfig, mountPath string) error {
+	if mountPath == "" || cfg.FileSystem == nil || cfg.FileSystem.DirectoryPath == nil {
+		return nil
+	}
+
+	allowedRoot := path.Clean(mountPath)
+	if !strings.HasPrefix(path.Clean(*cfg.FileSystem.DirectoryPath)+"/", allowedRoot+"/") {
+		return fmt.Errorf("%w: filesystem directoryPath %q is outside the filesystem mount path %q",
+			errOCIInvalid, *cfg.FileSystem.DirectoryPath, allowedRoot)
+	}
+
+	return nil
+}
+
+// ociBlobLimit returns the largest blob that an artifact of artifactType may mirror or spool.
+func ociBlobLimit(artifactType string) int64 {
+	switch artifactType {
+	case ociArtifactHelm:
+		return maxHelmLayerBytes
+	case ociArtifactGeneric:
+		return maxGenericLayerBytes
+	default:
+		return maxImageBlobBytes
+	}
+}
+
+// errOCIBlobSize returns the error for a blob whose descriptor is larger than limit.
+func errOCIBlobSize(desc ocispec.Descriptor, limit int64) error {
+	return fmt.Errorf("%w: %w: blob %s is %d bytes and the limit is %d",
+		errOCIInvalid, errOCIBlobTooLarge, desc.Digest, desc.Size, limit)
 }
 
 // ociStorageRoot returns the key prefix under which the OCI store writes. Object storage uses its key prefix, and the
@@ -779,16 +834,17 @@ func ociBlobSize(manifests []oci.PlatformManifest) int64 {
 }
 
 // mirrorOCIContent copies the root manifest or index, the platform manifests it selects, their blobs, and the referrers
-// of the root and of each platform manifest into blobs.
+// of the root and of each platform manifest into blobs. A blob larger than limit fails the copy.
 func mirrorOCIContent(
 	ctx context.Context,
 	registry ociRegistry,
 	repository string,
 	blobs ociBlobStore,
 	root *oci.ResolvedManifest,
+	limit int64,
 ) error {
 	seen := map[digest.Digest]bool{}
-	if err := mirrorOCIManifest(ctx, registry, repository, blobs, root, seen); err != nil {
+	if err := mirrorOCIManifest(ctx, registry, repository, blobs, root, seen, limit); err != nil {
 		return err
 	}
 
@@ -799,7 +855,7 @@ func mirrorOCIContent(
 
 	referrers := 0
 	for _, subject := range subjects {
-		if err := mirrorOCIReferrers(ctx, registry, repository, blobs, subject, seen, &referrers); err != nil {
+		if err := mirrorOCIReferrers(ctx, registry, repository, blobs, subject, seen, &referrers, limit); err != nil {
 			return err
 		}
 	}
@@ -816,6 +872,7 @@ func mirrorOCIManifest(
 	blobs ociBlobStore,
 	rm *oci.ResolvedManifest,
 	seen map[digest.Digest]bool,
+	limit int64,
 ) error {
 	if !seen[rm.Descriptor.Digest] {
 		if err := blobs.putManifest(ctx, rm.Content); err != nil {
@@ -839,7 +896,7 @@ func mirrorOCIManifest(
 				continue
 			}
 
-			if err := mirrorOCIBlob(ctx, registry, repository, blobs, desc); err != nil {
+			if err := mirrorOCIBlob(ctx, registry, repository, blobs, desc, limit); err != nil {
 				return err
 			}
 
@@ -859,6 +916,7 @@ func mirrorOCIReferrers(
 	subject ocispec.Descriptor,
 	seen map[digest.Digest]bool,
 	count *int,
+	limit int64,
 ) error {
 	referrers, err := registry.Referrers(ctx, repository, subject, "")
 	if err != nil {
@@ -880,7 +938,7 @@ func mirrorOCIReferrers(
 			return err
 		}
 
-		if err := mirrorOCIManifest(ctx, registry, repository, blobs, rm, seen); err != nil {
+		if err := mirrorOCIManifest(ctx, registry, repository, blobs, rm, seen, limit); err != nil {
 			return err
 		}
 	}
@@ -888,27 +946,61 @@ func mirrorOCIReferrers(
 	return nil
 }
 
-// mirrorOCIBlob fetches a blob into a temp file, which pkg/oci verifies against desc, and stores it.
+// mirrorOCIBlob fetches a blob into a temp file, which pkg/oci verifies against desc, and stores it. A descriptor larger
+// than limit is rejected before the blob is fetched.
 func mirrorOCIBlob(
 	ctx context.Context,
 	registry ociRegistry,
 	repository string,
 	blobs ociBlobStore,
 	desc ocispec.Descriptor,
+	limit int64,
 ) error {
+	if desc.Size > limit {
+		return errOCIBlobSize(desc, limit)
+	}
+
 	rc, err := registry.FetchBlob(ctx, repository, desc)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rc.Close() }()
 
-	spool, err := spoolToTemp(rc)
+	spool, err := spoolBlob(rc, desc)
 	if err != nil {
 		return err
 	}
 	defer removeTempFile(spool)
 
 	return blobs.putBlob(ctx, desc, spool)
+}
+
+// spoolBlob copies a blob into a temp file and rewinds it. The copy stops after desc.Size+1 bytes, so a stream that
+// overruns its descriptor fails without filling the disk, and a stream that ends early fails as well.
+func spoolBlob(rc io.Reader, desc ocispec.Descriptor) (*os.File, error) {
+	spool, err := spoolToTemp(io.LimitReader(rc, desc.Size+1))
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := spool.Stat()
+	if err != nil {
+		removeTempFile(spool)
+		return nil, err
+	}
+
+	switch {
+	case info.Size() > desc.Size:
+		removeTempFile(spool)
+		return nil, fmt.Errorf("%w: %w: blob %s streams past its %d bytes",
+			errOCIInvalid, errOCIBlobTooLarge, desc.Digest, desc.Size)
+	case info.Size() != desc.Size:
+		removeTempFile(spool)
+		return nil, fmt.Errorf("%w: blob %s is %d bytes and its descriptor says %d",
+			errOCIInvalid, desc.Digest, info.Size(), desc.Size)
+	}
+
+	return spool, nil
 }
 
 // spoolOCIPrimary returns a temp file that holds the chart archive of a Helm artifact or the content of a Generic
@@ -949,13 +1041,17 @@ func spoolOCIPrimary(
 		return nil, fmt.Errorf("%w: unsupported artifactType %q", errOCIInvalid, artifactType)
 	}
 
+	if limit := ociBlobLimit(artifactType); layer.Size > limit {
+		return nil, errOCIBlobSize(layer, limit)
+	}
+
 	rc, err := blobs.getBlob(ctx, layer.Digest)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rc.Close() }()
 
-	return spoolToTemp(rc)
+	return spoolBlob(rc, layer)
 }
 
 // storePackagedOCI stores a packaged GitHub artifact and returns its manifest status.

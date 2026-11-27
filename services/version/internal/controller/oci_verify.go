@@ -17,16 +17,12 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +30,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sigstore/sigstore/pkg/signature"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -64,45 +62,45 @@ func cosignSignatureTag(subject digest.Digest) string {
 	return strings.ReplaceAll(subject.String(), ":", "-") + ".sig"
 }
 
-// parseCosignPublicKey parses a PEM-encoded PKIX public key, the format that `cosign generate-key-pair` writes.
-func parseCosignPublicKey(pemData []byte) (crypto.PublicKey, error) {
-	block, _ := pem.Decode(pemData)
-	if block == nil {
-		return nil, errors.New("cosign public key is not PEM encoded")
-	}
-
-	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+// parseCosignPublicKey parses a PEM-encoded PKIX public key, the format that `cosign generate-key-pair` writes, and
+// returns a verifier for it.
+func parseCosignPublicKey(pemData []byte) (signature.Verifier, error) {
+	key, err := cryptoutils.UnmarshalPEMToPublicKey(pemData)
 	if err != nil {
 		return nil, fmt.Errorf("parse cosign public key: %w", err)
 	}
 
-	switch key.(type) {
-	case *ecdsa.PublicKey, ed25519.PublicKey, *rsa.PublicKey:
-		return key, nil
+	verifier, err := signature.LoadVerifier(key, cosignHashFor(key))
+	if err != nil {
+		return nil, fmt.Errorf("load cosign public key: %w", err)
+	}
+
+	return verifier, nil
+}
+
+// cosignHashFor returns the hash that a public key is verified with. ECDSA keys use the hash that matches their curve
+// size, and RSA keys use SHA-256. Ed25519 signs the payload directly, so the hash is not used.
+func cosignHashFor(key crypto.PublicKey) crypto.Hash {
+	ecKey, ok := key.(*ecdsa.PublicKey)
+	if !ok {
+		return crypto.SHA256
+	}
+
+	switch ecKey.Curve.Params().BitSize {
+	case 384:
+		return crypto.SHA384
+	case 521:
+		return crypto.SHA512
 	default:
-		return nil, fmt.Errorf("unsupported cosign public key type %T", key)
+		return crypto.SHA256
 	}
 }
 
-// verifyCosignPayloadSignature checks sig over payload with key. ECDSA signatures are ASN.1 encoded over the SHA-256
-// digest of the payload, which is how cosign signs. Ed25519 signs the payload directly and RSA uses PKCS#1 v1.5.
-func verifyCosignPayloadSignature(key crypto.PublicKey, payload, sig []byte) error {
-	sum := sha256.Sum256(payload)
-	switch k := key.(type) {
-	case *ecdsa.PublicKey:
-		if !ecdsa.VerifyASN1(k, sum[:], sig) {
-			return errors.New("signature does not match the cosign public key")
-		}
-	case ed25519.PublicKey:
-		if !ed25519.Verify(k, payload, sig) {
-			return errors.New("signature does not match the cosign public key")
-		}
-	case *rsa.PublicKey:
-		if err := rsa.VerifyPKCS1v15(k, crypto.SHA256, sum[:], sig); err != nil {
-			return errors.New("signature does not match the cosign public key")
-		}
-	default:
-		return fmt.Errorf("unsupported cosign public key type %T", key)
+// verifyCosignPayloadSignature checks sig over payload with the verifier. Cosign signs the payload, and the verifier
+// hashes it with the key's hash before it checks the signature.
+func verifyCosignPayloadSignature(verifier signature.Verifier, payload, sig []byte) error {
+	if err := verifier.VerifySignature(bytes.NewReader(sig), bytes.NewReader(payload)); err != nil {
+		return fmt.Errorf("signature does not match the cosign public key: %w", err)
 	}
 
 	return nil
@@ -118,7 +116,7 @@ func verifyCosignSignature(
 	subject digest.Digest,
 	publicKeyPEM []byte,
 ) error {
-	key, err := parseCosignPublicKey(publicKeyPEM)
+	verifier, err := parseCosignPublicKey(publicKeyPEM)
 	if err != nil {
 		return err
 	}
@@ -136,7 +134,7 @@ func verifyCosignSignature(
 				continue
 			}
 
-			failure = verifyCosignLayer(ctx, registry, repository, key, subject, layer, encoded)
+			failure = verifyCosignLayer(ctx, registry, repository, verifier, subject, layer, encoded)
 			if failure == nil {
 				return nil
 			}
@@ -151,7 +149,7 @@ func verifyCosignLayer(
 	ctx context.Context,
 	registry ociRegistry,
 	repository string,
-	key crypto.PublicKey,
+	verifier signature.Verifier,
 	subject digest.Digest,
 	layer ocispec.Descriptor,
 	encoded string,
@@ -166,7 +164,7 @@ func verifyCosignLayer(
 		return err
 	}
 
-	if err := verifyCosignPayloadSignature(key, payload, sig); err != nil {
+	if err := verifyCosignPayloadSignature(verifier, payload, sig); err != nil {
 		return err
 	}
 

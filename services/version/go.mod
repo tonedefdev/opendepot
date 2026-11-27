@@ -47,6 +47,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.28.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
+	github.com/sigstore/sigstore v1.10.11 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	k8s.io/streaming v0.37.2 // indirect
 )

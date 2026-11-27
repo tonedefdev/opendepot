@@ -134,7 +134,7 @@ var _ = Describe("OCIArtifact Trivy scans", func() {
 
 			root, err := registry.FetchManifest(ctx, "registry.example.com/team/app", index.Digest.String(), nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(mirrorOCIContent(ctx, registry, "registry.example.com/team/app", blobs, root)).To(Succeed())
+			Expect(mirrorOCIContent(ctx, registry, "registry.example.com/team/app", blobs, root, maxImageBlobBytes)).To(Succeed())
 
 			var args []string
 			var layoutDir string
