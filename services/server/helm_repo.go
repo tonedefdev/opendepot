@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -129,7 +130,13 @@ func HelmChartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chart := findVisibleHelmChart(principal, versions, matches[1])
+	chart, err := findVisibleHelmChart(principal, versions, matches[1])
+	if errors.Is(err, errHelmChartAmbiguous) {
+		http.Error(w, "chart is provided by more than one Version", http.StatusConflict)
+
+		return
+	}
+
 	if chart == nil {
 		http.Error(w, "chart not found", http.StatusNotFound)
 
@@ -196,21 +203,33 @@ func visibleHelmVersions(principal *ociPrincipal, versions []opendepotv1alpha1.V
 	return visible
 }
 
-// findVisibleHelmChart returns the visible Helm Version whose chart name and version make base, as <name>-<version>.
+// errHelmChartAmbiguous is returned when more than one visible Helm Version has the same chart name and version.
+var errHelmChartAmbiguous = errors.New("chart version is provided by more than one visible Version")
+
+// findVisibleHelmChart returns the visible Helm Version whose chart name and version make base, as
+// <name>-<version>. When more than one visible Version matches, it returns errHelmChartAmbiguous, since serving either
+// one would be arbitrary.
 func findVisibleHelmChart(
 	principal *ociPrincipal,
 	versions []opendepotv1alpha1.Version,
 	base string,
-) *opendepotv1alpha1.Version {
+) (*opendepotv1alpha1.Version, error) {
+	var match *opendepotv1alpha1.Version
 	charts := visibleHelmVersions(principal, versions)
 	for i := range charts {
 		md := charts[i].Status.HelmChart
-		if md.Name+"-"+md.Version == base {
-			return &charts[i]
+		if md.Name+"-"+md.Version != base {
+			continue
 		}
+
+		if match != nil {
+			return nil, fmt.Errorf("%w: %s", errHelmChartAmbiguous, base)
+		}
+
+		match = &charts[i]
 	}
 
-	return nil
+	return match, nil
 }
 
 // buildHelmIndex renders index.yaml for the Helm Versions that the principal may see. Each chart archive is spooled

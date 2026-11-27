@@ -997,3 +997,52 @@ func TestOCIDistributionCorruptBlobNeverCompletes(t *testing.T) {
 		t.Fatalf("ranged status = %d, want 500 for a corrupt blob", ranged.Code)
 	}
 }
+
+func TestOCIDistributionSameLengthCorruptBlobNeverCompletesWith200(t *testing.T) {
+	env := newOCITestEnv(t, true)
+	env.addArtifact(ociTestArtifact, "", "Image")
+	layer := []byte("original-layer")
+	env.publishImage(t, ociTestArtifact, ociTestTagOne, layer)
+
+	layerDigest := digest.FromBytes(layer)
+	corrupt := filepathForBlob(env.root, ociTestVersionName(ociTestArtifact, ociTestTagOne), layerDigest)
+
+	// The tampered bytes match the original length, so only the digest check can catch the corruption.
+	tampered := []byte("tampered-layer")
+	if len(tampered) != len(layer) {
+		t.Fatalf("tampered length = %d, want %d", len(tampered), len(layer))
+	}
+
+	if err := overwriteFile(corrupt, tampered); err != nil {
+		t.Fatalf("overwrite blob: %v", err)
+	}
+
+	blobPath := "/v2/" + ociTestNamespace + "/" + ociTestArtifact + "/blobs/" + layerDigest.String()
+	rec := ociTestRequest(http.MethodGet, blobPath, nil)
+	if rec.Code == http.StatusOK {
+		t.Fatal("same-length corrupt blob completed with 200")
+	}
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 for a corrupt blob", rec.Code)
+	}
+
+	if bytes.Contains(rec.Body.Bytes(), tampered) {
+		t.Fatal("corrupt bytes reached the response body")
+	}
+}
+
+func TestOCIDistributionDuplicateRepositoryIsAmbiguous(t *testing.T) {
+	env := newOCITestEnv(t, false)
+	env.addBinding("*")
+	env.addArtifact("dup-first", "shared", "Image")
+	env.addArtifact("dup-second", "shared", "Image")
+	env.publishImage(t, "dup-first", ociTestTagOne)
+
+	manifest := ociTestRequest(http.MethodGet, "/v2/"+ociTestNamespace+"/shared/manifests/"+ociTestTagOne,
+		ociTestBearer(t))
+	assertOCIStatus(t, manifest, http.StatusConflict, ociCodeUnknown)
+
+	tags := ociTestRequest(http.MethodGet, "/v2/"+ociTestNamespace+"/shared/tags/list", ociTestBearer(t))
+	assertOCIStatus(t, tags, http.StatusConflict, ociCodeUnknown)
+}

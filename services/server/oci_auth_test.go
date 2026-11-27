@@ -30,7 +30,7 @@ type ociTestIdP struct {
 
 // newOCITestIdP starts a token endpoint that issues token for the client credentials grant. A request with any other
 // client ID or secret gets 401 invalid_client.
-func newOCITestIdP(t *testing.T, clientID, clientSecret, token string, lifetime int64) *ociTestIdP {
+func newOCITestIdP(t *testing.T, clientSecret, token string, lifetime int64) *ociTestIdP {
 	t.Helper()
 
 	idp := &ociTestIdP{}
@@ -45,7 +45,7 @@ func newOCITestIdP(t *testing.T, clientID, clientSecret, token string, lifetime 
 		}
 
 		user, secret, ok := r.BasicAuth()
-		if !ok || user != clientID || secret != clientSecret {
+		if !ok || user != ociTestClientID || secret != clientSecret {
 			w.Header().Set(ociTestContentType, "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
@@ -79,7 +79,7 @@ func isolateOCICredentialCache(t *testing.T) {
 	t.Helper()
 
 	original := ociCredentialCache
-	ociCredentialCache = newTTLCache[*ociPrincipal](ociTokenCacheMaxEntries)
+	ociCredentialCache = newTTLCache[ociIdentity](ociTokenCacheMaxEntries)
 	t.Cleanup(func() { ociCredentialCache = original })
 }
 
@@ -217,7 +217,7 @@ func TestAuthenticateOCIRequestClientCredentialsExchangeIsCachedUntilExpiry(t *t
 	isolateOCICredentialCache(t)
 
 	token := agentTestBearerToken(t, []string{ociTestGroup})
-	idp := newOCITestIdP(t, ociTestClientID, ociTestClientSecret, token, 3600)
+	idp := newOCITestIdP(t, ociTestClientSecret, token, 3600)
 	setOCITokenURL(t, idp.server.URL+ociTestTokenPath)
 	clock := setOCIClock(t, time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 
@@ -258,6 +258,96 @@ func TestAuthenticateOCIRequestClientCredentialsExchangeIsCachedUntilExpiry(t *t
 	}
 }
 
+// ociTestCachedCredentialsEnv returns an OCI test environment whose client credentials are exchanged with a mock IdP.
+// The first exchange has already been cached when it returns. It also returns the IdP and the request target.
+func ociTestCachedCredentialsEnv(t *testing.T, lifetime int64) (*ociTestEnv, *ociTestIdP, string) {
+	t.Helper()
+
+	env := newOCITestEnv(t, false)
+	env.addBinding("*")
+	env.addArtifact("podinfo-app", "podinfo", "Image")
+	env.publishImage(t, "podinfo-app", ociTestTagOne)
+	isolateOCICredentialCache(t)
+
+	token := agentTestBearerToken(t, []string{ociTestGroup})
+	idp := newOCITestIdP(t, ociTestClientSecret, token, lifetime)
+	setOCITokenURL(t, idp.server.URL+ociTestTokenPath)
+	setOCIClock(t, time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+
+	target := "/v2/" + ociTestNamespace + "/podinfo/manifests/" + ociTestTagOne
+	assertOCIStatus(t, ociTestRequest(http.MethodGet, target, ociTestBasic(ociTestClientID, ociTestClientSecret)),
+		http.StatusOK, "")
+
+	return env, idp, target
+}
+
+func TestOCIClientCredentialsNarrowedBindingAppliesToCachedCredentials(t *testing.T) {
+	env, idp, target := ociTestCachedCredentialsEnv(t, 3600)
+
+	env.cluster.mu.Lock()
+	env.cluster.bindings[0].Spec.OCIArtifactResources = []string{"unlisted-*"}
+	env.cluster.mu.Unlock()
+
+	rec := ociTestRequest(http.MethodGet, target, ociTestBasic(ociTestClientID, ociTestClientSecret))
+	assertOCIStatus(t, rec, http.StatusNotFound, ociCodeNameUnknown)
+
+	if calls := idp.calls.Load(); calls != 1 {
+		t.Fatalf("IdP calls = %d, want 1: the cached identity should be reused", calls)
+	}
+}
+
+func TestOCIClientCredentialsDeletedBindingAppliesToCachedCredentials(t *testing.T) {
+	env, idp, target := ociTestCachedCredentialsEnv(t, 3600)
+
+	env.cluster.mu.Lock()
+	env.cluster.bindings = nil
+	env.cluster.mu.Unlock()
+
+	rec := ociTestRequest(http.MethodGet, target, ociTestBasic(ociTestClientID, ociTestClientSecret))
+	assertOCIStatus(t, rec, http.StatusForbidden, ociCodeDenied)
+
+	if calls := idp.calls.Load(); calls != 1 {
+		t.Fatalf("IdP calls = %d, want 1: the cached identity should be reused", calls)
+	}
+}
+
+func TestAuthenticateOCIRequestClientCredentialsCacheLifetimeIsCapped(t *testing.T) {
+	env := newOCITestEnv(t, false)
+	env.addBinding("*")
+	isolateOCICredentialCache(t)
+
+	token := agentTestBearerToken(t, []string{ociTestGroup})
+	idp := newOCITestIdP(t, ociTestClientSecret, token, int64((24 * time.Hour).Seconds()))
+	setOCITokenURL(t, idp.server.URL+ociTestTokenPath)
+	clock := setOCIClock(t, time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+
+	exchange := func() {
+		t.Helper()
+
+		principal, status := authenticateOCIRequest(ociTestClientCredentialsRequest())
+		if status != 0 || principal == nil || principal.binding == nil {
+			t.Fatalf("exchange status = %d, principal = %v, want a bound principal", status, principal)
+		}
+	}
+
+	exchange()
+	if calls := idp.calls.Load(); calls != 1 {
+		t.Fatalf("IdP calls after first exchange = %d, want 1", calls)
+	}
+
+	*clock = clock.Add(ociIdentityCacheMaxAge - time.Second)
+	exchange()
+	if calls := idp.calls.Load(); calls != 1 {
+		t.Fatalf("IdP calls just before the cap = %d, want still 1", calls)
+	}
+
+	*clock = clock.Add(2 * time.Second)
+	exchange()
+	if calls := idp.calls.Load(); calls != 2 {
+		t.Fatalf("IdP calls after the cap = %d, want 2: a 24h token must not be cached past five minutes", calls)
+	}
+}
+
 func TestAuthenticateOCIRequestClientCredentialsRejectsBadSecret(t *testing.T) {
 	env := newOCITestEnv(t, false)
 	env.addBinding("*")
@@ -267,7 +357,7 @@ func TestAuthenticateOCIRequestClientCredentialsRejectsBadSecret(t *testing.T) {
 	const wrongSecret = "wrong-secret-4417"
 
 	token := agentTestBearerToken(t, []string{ociTestGroup})
-	idp := newOCITestIdP(t, ociTestClientID, rightSecret, token, 3600)
+	idp := newOCITestIdP(t, rightSecret, token, 3600)
 	setOCITokenURL(t, idp.server.URL+ociTestTokenPath)
 	setOCIClock(t, time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 	logs := captureOCILogs(t)

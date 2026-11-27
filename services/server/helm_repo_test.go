@@ -365,6 +365,24 @@ func TestHelmChartNotFoundCases(t *testing.T) {
 	}
 }
 
+func TestHelmChartDuplicateVersionIsAmbiguous(t *testing.T) {
+	env := newOCITestEnv(t, true)
+	isolateHelmIndexCache(t)
+	env.addArtifact("podinfo-first", ociTestChartName, ociTestHelmType)
+	env.addArtifact("podinfo-second", ociTestChartName, ociTestHelmType)
+	env.publishChart(t, "podinfo-first", ociTestChartName, ociTestTagOne, "first", nil)
+	env.publishChart(t, "podinfo-second", ociTestChartName, ociTestTagOne, "second", nil)
+
+	rec := ociTestHelmRequest(http.MethodGet, ociTestChartsPath+ociTestChartTGZ, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 for a duplicated chart version: %s", rec.Code, rec.Body.String())
+	}
+
+	if bytes.Contains(rec.Body.Bytes(), []byte("first")) || bytes.Contains(rec.Body.Bytes(), []byte("second")) {
+		t.Fatalf("duplicate chart error leaked a chart: %q", rec.Body.String())
+	}
+}
+
 func TestHelmBasicBearerPasswordAuthenticates(t *testing.T) {
 	env := newOCITestEnv(t, false)
 	isolateHelmIndexCache(t)

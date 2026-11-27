@@ -242,6 +242,12 @@ func resolveServableOCIVersions(
 	namespace, repository string,
 ) ([]opendepotv1alpha1.Version, bool) {
 	artifact, err := findOCIArtifact(r.Context(), principal.clientset, namespace, repository)
+	if errors.Is(err, errOCIArtifactAmbiguous) {
+		writeOCIError(w, http.StatusConflict, ociCodeUnknown, "repository name is claimed by more than one OCIArtifact")
+
+		return nil, false
+	}
+
 	if err != nil {
 		writeOCIKubeError(w, err)
 
@@ -274,8 +280,11 @@ func resolveServableOCIVersions(
 	return servable, true
 }
 
+// errOCIArtifactAmbiguous is returned when more than one OCIArtifact claims the same repository path.
+var errOCIArtifactAmbiguous = errors.New("repository path is claimed by more than one OCIArtifact")
+
 // findOCIArtifact returns the OCIArtifact whose repository path is repository, or nil when there is none. When more
-// than one matches, the first in name order wins.
+// than one matches, it returns errOCIArtifactAmbiguous, since serving either one would be arbitrary.
 func findOCIArtifact(
 	ctx context.Context,
 	clientset *kubernetes.Clientset,
@@ -296,17 +305,20 @@ func findOCIArtifact(
 		return nil, fmt.Errorf("unable to unmarshal ociartifacts list: %w", err)
 	}
 
-	sort.Slice(list.Items, func(i, j int) bool {
-		return list.Items[i].Name < list.Items[j].Name
-	})
-
+	var match *opendepotv1alpha1.OCIArtifact
 	for i := range list.Items {
-		if ociRepositoryName(&list.Items[i]) == repository {
-			return &list.Items[i], nil
+		if ociRepositoryName(&list.Items[i]) != repository {
+			continue
 		}
+
+		if match != nil {
+			return nil, fmt.Errorf("%w: %s", errOCIArtifactAmbiguous, repository)
+		}
+
+		match = &list.Items[i]
 	}
 
-	return nil, nil
+	return match, nil
 }
 
 // listOCIVersions lists the Versions in the namespace in name order.
@@ -807,7 +819,8 @@ func serveOCIStoredBlob(w http.ResponseWriter, r *http.Request, vs *ociVersionSt
 }
 
 // streamOCIBlob writes a stored blob with its digest, size, and content type. A Range request is served from a verified
-// copy, so a range never comes from a corrupt blob. HEAD writes the headers only.
+// copy, so a range never comes from a corrupt blob. A full GET is also spooled and verified before any header is
+// written, so a corrupt blob never completes with 200. HEAD writes the headers only.
 func streamOCIBlob(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -821,25 +834,25 @@ func streamOCIBlob(
 		return
 	}
 
-	var body io.ReadCloser
+	var spool *os.File
 	if r.Method != http.MethodHead {
-		rc, err := vs.store.GetBlob(r.Context(), vs.version.Namespace, vs.version.Name, desc.Digest)
+		file, err := spoolOCIBlob(r.Context(), vs, desc)
 		if err != nil {
 			writeOCIContentError(w, err)
 
 			return
 		}
 
-		defer func() { _ = rc.Close() }()
+		defer removeOCITempFile(file)
 
-		body = rc
+		spool = file
 	}
 
 	setOCIBlobHeaders(w, desc, contentType)
 	w.WriteHeader(http.StatusOK)
 
-	if body != nil {
-		if _, err := io.Copy(w, body); err != nil {
+	if spool != nil {
+		if _, err := io.Copy(w, spool); err != nil {
 			logger.Error("oci blob stream failed", "error", err, "digest", desc.Digest.String())
 		}
 	}

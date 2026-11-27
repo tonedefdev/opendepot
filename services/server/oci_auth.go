@@ -27,6 +27,7 @@ const (
 	ociTokenResponseMaxBytes = 64 << 10
 	ociTokenCacheMargin      = time.Minute
 	ociTokenCacheMaxEntries  = 256
+	ociIdentityCacheMaxAge   = 5 * time.Minute
 	ociSchemeHTTP            = "http"
 	ociSchemeHTTPS           = "https"
 )
@@ -34,9 +35,17 @@ const (
 // ociNow returns the current time. Tests replace it to move the credential and index caches past their expiry.
 var ociNow = time.Now
 
-// ociCredentialCache holds the principals of client credentials that were exchanged with the IdP. It is keyed by
-// ociCredentialCacheKey, so a secret is never stored in clear text.
-var ociCredentialCache = newTTLCache[*ociPrincipal](ociTokenCacheMaxEntries)
+// ociCredentialCache holds the verified identities of client credentials that were exchanged with the IdP. It is keyed
+// by ociCredentialCacheKey, so a secret is never stored in clear text. An identity holds no GroupBinding, so the
+// binding is resolved on every request and a change to a GroupBinding applies to cached credentials at once.
+var ociCredentialCache = newTTLCache[ociIdentity](ociTokenCacheMaxEntries)
+
+// ociIdentity is the verified identity of a client credentials caller. The cache holds it until expiresAt.
+type ociIdentity struct {
+	subject   string
+	groups    []string
+	expiresAt time.Time
+}
 
 // ociPrincipal is an authenticated caller of the OCI and Helm read routes.
 type ociPrincipal struct {
@@ -86,8 +95,8 @@ func authenticateOCIBasic(r *http.Request, username, password string) (*ociPrinc
 	cacheKey := ""
 	if exchangeable {
 		cacheKey = ociCredentialCacheKey(username, password)
-		if principal, ok := ociCredentialCache.get(cacheKey, ociNow()); ok {
-			return principal, 0
+		if identity, ok := ociCredentialCache.get(cacheKey, ociNow()); ok {
+			return principalForIdentity(r.Context(), identity)
 		}
 	}
 
@@ -102,8 +111,9 @@ func authenticateOCIBasic(r *http.Request, username, password string) (*ociPrinc
 	return authenticateOCIClientCredentials(r, cacheKey, username, password)
 }
 
-// authenticateOCIClientCredentials exchanges client credentials with the IdP token endpoint, validates the access token
-// that comes back, and caches the principal until the token expires less a safety margin.
+// authenticateOCIClientCredentials exchanges client credentials with the IdP token endpoint and verifies the access
+// token that comes back. The verified identity is cached for the token lifetime less a safety margin, capped at
+// ociIdentityCacheMaxAge. The principal is then resolved from the identity.
 func authenticateOCIClientCredentials(r *http.Request, cacheKey, clientID, clientSecret string) (*ociPrincipal, int) {
 	tokenURL, err := ociTokenURL()
 	if err != nil {
@@ -117,18 +127,85 @@ func authenticateOCIClientCredentials(r *http.Request, cacheKey, clientID, clien
 		return nil, http.StatusUnauthorized
 	}
 
-	principal, status := authenticateOCIBearer(withBearer(r, accessToken))
-	if status != 0 {
-		logger.Warn("OCI client credentials token rejected", "status", status)
+	identity, err := verifyOCIAccessToken(r.Context(), accessToken)
+	if err != nil {
+		logger.Warn("OCI client credentials token rejected", "error", err)
 		return nil, http.StatusUnauthorized
 	}
 
 	now := ociNow()
-	if lifetime > ociTokenCacheMargin {
-		ociCredentialCache.put(cacheKey, principal, now.Add(lifetime-ociTokenCacheMargin), now)
+	if ttl := min(lifetime-ociTokenCacheMargin, ociIdentityCacheMaxAge); ttl > 0 {
+		identity.expiresAt = now.Add(ttl)
+		ociCredentialCache.put(cacheKey, identity, identity.expiresAt, now)
 	}
 
-	return principal, 0
+	return principalForIdentity(r.Context(), identity)
+}
+
+// verifyOCIAccessToken verifies an access token that the IdP issued for client credentials and returns the identity it
+// carries. It applies the rules of the bearer path. The OIDC verifier is tried first, and the groups come from the
+// groups claim. Otherwise the client credentials verifier is tried, and the subject maps to the "client:<sub>" group.
+func verifyOCIAccessToken(ctx context.Context, rawToken string) (ociIdentity, error) {
+	if oidcVerifier != nil {
+		if idToken, err := oidcVerifier.Verify(ctx, rawToken); err == nil {
+			var claims map[string]any
+			if err := idToken.Claims(&claims); err != nil {
+				return ociIdentity{}, fmt.Errorf("extract JWT claims: %w", err)
+			}
+
+			groups, err := extractGroupsClaim(claims, *opendepotOIDCGroupsClaim)
+			if err != nil || len(groups) == 0 {
+				return ociIdentity{}, errors.New("token carries no usable groups claim")
+			}
+
+			return ociIdentity{subject: idToken.Subject, groups: groups}, nil
+		}
+	}
+
+	if !*opendepotOIDCAllowClientCredentials || len(oidcCCVerifiers) == 0 {
+		return ociIdentity{}, errors.New("token is not verified by the OIDC verifier")
+	}
+
+	iss, err := parseUnsignedJWTIssuer(rawToken)
+	if err != nil || iss != *opendepotOIDCIssuerURL {
+		return ociIdentity{}, errors.New("token is not issued by the configured issuer")
+	}
+
+	ccToken, err := verifyClientCredentialsToken(ctx, rawToken)
+	if err != nil {
+		return ociIdentity{}, fmt.Errorf("client credentials verification failed: %w", err)
+	}
+
+	var ccClaims map[string]any
+	if err := ccToken.Claims(&ccClaims); err != nil {
+		return ociIdentity{}, fmt.Errorf("extract client credentials claims: %w", err)
+	}
+
+	sub, _ := ccClaims["sub"].(string)
+	if sub == "" {
+		return ociIdentity{}, errors.New("client credentials token has no subject")
+	}
+
+	return ociIdentity{subject: sub, groups: []string{"client:" + sub}}, nil
+}
+
+// principalForIdentity builds the principal of a verified identity. The GroupBinding is resolved against the identity's
+// groups on every call, so a narrowed or deleted GroupBinding takes effect even for cached credentials. A caller that
+// no GroupBinding matches is forbidden, as it is on the bearer path.
+func principalForIdentity(ctx context.Context, identity ociIdentity) (*ociPrincipal, int) {
+	clientset, err := generateKubeClient(nil, nil, false)
+	if err != nil {
+		logger.Error("OCI principal client unavailable", "subject", identity.subject, "error", err)
+		return nil, http.StatusInternalServerError
+	}
+
+	binding, err := findGroupBinding(ctx, clientset, identity.groups)
+	if err != nil {
+		logger.Warn("GroupBinding evaluation failed", "subject", identity.subject, "error", err)
+		return nil, http.StatusForbidden
+	}
+
+	return &ociPrincipal{clientset: clientset, binding: binding}, 0
 }
 
 // exchangeOCIClientCredentials requests an access token with the client_credentials grant. The client authenticates
