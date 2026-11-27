@@ -851,27 +851,31 @@ spec:
                         description: |-
                           The directory that is sent to the build as its context, relative to the root of the repository.
                           Defaults to '.' when omitted.
-                        maxLength: 1024
+                        maxLength: 256
                         pattern: ^[A-Za-z0-9._/-]+$
                         type: string
                         x-kubernetes-validations:
                         - message: contextPath must be a relative path without dot
                             segments
-                          rule: self == '.' || (!self.startsWith('/') && !self.split('/').exists(s,
-                            s == '..' || s == '.'))
+                          rule: self == '.' || (!self.startsWith('/') && self != '..'
+                            && !self.startsWith('../') && !self.contains('/../') &&
+                            !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./')
+                            && !self.endsWith('/.'))
                       dockerfilePath:
                         default: Dockerfile
                         description: |-
                           The path of the Dockerfile, relative to the root of the repository, like docker build -f. It may be outside
                           the context. Defaults to 'Dockerfile' when omitted.
-                        maxLength: 1024
+                        maxLength: 256
                         pattern: ^[A-Za-z0-9._/-]+$
                         type: string
                         x-kubernetes-validations:
                         - message: dockerfilePath must be a relative path without
                             dot segments
-                          rule: '!self.startsWith(''/'') && !self.split(''/'').exists(s,
-                            s == ''..'' || s == ''.'')'
+                          rule: self != '.' && self != '..' && !self.startsWith('/')
+                            && !self.startsWith('../') && !self.contains('/../') &&
+                            !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./')
+                            && !self.endsWith('/.')
                       repoOwner:
                         description: Owner of the Github repository.
                         maxLength: 39
