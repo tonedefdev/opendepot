@@ -1,0 +1,18 @@
+{{- if .Values.oci.builds.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: version-controller-build-broker
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: version-controller
+spec:
+  type: ClusterIP
+  selector:
+    app: version-controller
+  ports:
+  - name: build-broker
+    port: {{ .Values.oci.builds.broker.port }}
+    targetPort: {{ .Values.oci.builds.broker.port }}
+    protocol: TCP
+{{- end }}

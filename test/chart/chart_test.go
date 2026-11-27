@@ -57,6 +57,34 @@ func renderTemplates(t *testing.T, values map[string]string, stringValues map[st
 	return rendered
 }
 
+func renderChartE(t *testing.T, values map[string]string) (string, error) {
+	t.Helper()
+
+	return helm.RenderTemplateE(
+		t,
+		&helm.Options{
+			KubectlOptions: &k8s.KubectlOptions{Namespace: "default"},
+			Logger:         logger.Discard,
+			SetValues:      values,
+		},
+		chartPath(t),
+		"opendepot",
+		nil,
+	)
+}
+
+func findResource(t *testing.T, resources []unstructured.Unstructured, kind, name string) unstructured.Unstructured {
+	t.Helper()
+
+	for _, resource := range resources {
+		if resource.GetKind() == kind && resource.GetName() == name {
+			return resource
+		}
+	}
+	require.Failf(t, "resource not found", "%s/%s", kind, name)
+	return unstructured.Unstructured{}
+}
+
 func unmarshal[T any](t *testing.T, rendered string) T {
 	t.Helper()
 
@@ -732,7 +760,196 @@ func renderedChart(t *testing.T, chart string, values map[string]string, templat
 	return rendered
 }
 
+func TestOCIBuildsDisabledByDefault(t *testing.T) {
+	rendered := renderChart(t, nil, nil)
+	resources := renderedResources(t, rendered)
+
+	for _, resource := range resources {
+		assert.NotContains(t, resource.GetName(), "opendepot-build", "unexpected build resource %s/%s", resource.GetKind(), resource.GetName())
+		assert.NotEqual(t, "version-controller-build-broker", resource.GetName())
+	}
+	assert.False(t, hasResource(resources, "ValidatingAdmissionPolicy", "opendepot-build-pods"))
+	assert.NotContains(t, rendered, "--oci-builds-")
+	assert.NotContains(t, rendered, "--oci-build-broker-")
+}
+
+func TestOCIBuildsEnabledRendersResources(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	resources := renderedResources(t, rendered)
+
+	assert.True(t, hasResource(resources, "Namespace", "opendepot-builds"))
+	assert.True(t, hasResource(resources, "ServiceAccount", "opendepot-build"))
+	assert.True(t, hasResource(resources, "Role", "version-controller-builds"))
+	assert.True(t, hasResource(resources, "RoleBinding", "version-controller-builds"))
+	assert.True(t, hasResource(resources, "NetworkPolicy", "opendepot-build"))
+	assert.True(t, hasResource(resources, "NetworkPolicy", "version-controller-build-broker"))
+	assert.True(t, hasResource(resources, "ValidatingAdmissionPolicy", "opendepot-build-pods"))
+	assert.True(t, hasResource(resources, "ValidatingAdmissionPolicyBinding", "opendepot-build-pods"))
+	assert.True(t, hasResource(resources, "ResourceQuota", "opendepot-build"))
+	assert.True(t, hasResource(resources, "Service", "version-controller-build-broker"))
+
+	version := unmarshal[appsv1.Deployment](t, renderTemplate(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil, "templates/version-deployment.yaml"))
+	args := strings.Join(version.Spec.Template.Spec.Containers[1].Args, " ")
+	assert.Contains(t, args, "--oci-builds-enabled=true")
+	assert.Contains(t, args, "--oci-builds-namespace=opendepot-builds")
+	assert.Contains(t, args, "--oci-builds-helper-image=ghcr.io/tonedefdev/opendepot/version-controller:0.12.0")
+	assert.Contains(t, args, "--oci-builds-require-scanning=true")
+	assert.Contains(t, args, "--oci-build-broker-addr=:8090")
+	assert.Contains(t, args, "--oci-build-broker-url=http://version-controller-build-broker.opendepot-system.svc:8090")
+	assert.Contains(t, args, "--oci-builds-allowed-repo-owners=")
+	assert.Contains(t, args, "--oci-builds-resources-default=cpu=1,memory=2Gi,ephemeral-storage=10Gi")
+
+	var brokerPort bool
+	for _, port := range version.Spec.Template.Spec.Containers[1].Ports {
+		if port.Name == "build-broker" && port.ContainerPort == 8090 {
+			brokerPort = true
+		}
+	}
+	assert.True(t, brokerPort)
+
+	oci := unmarshal[appsv1.Deployment](t, renderTemplate(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil, "templates/oci-deployment.yaml"))
+	ociArgs := strings.Join(oci.Spec.Template.Spec.Containers[0].Args, " ")
+	assert.Contains(t, ociArgs, "--oci-builds-enabled=true")
+	assert.Contains(t, ociArgs, "--oci-builds-allowed-repo-owners=")
+}
+
+func TestOCIBuildsFailGuards(t *testing.T) {
+	_, err := renderChartE(t, map[string]string{
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "oci.builds.enabled=true requires oci.enabled=true")
+
+	_, err = renderChartE(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "false",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "oci.builds.requireScanning=true requires scanning.enabled=true")
+}
+
+func TestOCIBuildsAdmissionPolicyAllowList(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	resources := renderedResources(t, rendered)
+	policy := findResource(t, resources, "ValidatingAdmissionPolicy", "opendepot-build-pods")
+
+	validations, found, err := unstructured.NestedSlice(policy.Object, "spec", "validations")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	var allowList string
+	for _, validation := range validations {
+		expression := validation.(map[string]interface{})["expression"].(string)
+		if strings.Contains(expression, "moby/buildkit") {
+			allowList = expression
+		}
+	}
+	assert.Contains(t, allowList, `"moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be"`)
+	assert.Contains(t, allowList, `"ghcr.io/tonedefdev/opendepot/version-controller:0.12.0"`)
+
+	binding := findResource(t, resources, "ValidatingAdmissionPolicyBinding", "opendepot-build-pods")
+	namespaces, _, err := unstructured.NestedString(binding.Object, "spec", "matchResources", "namespaceSelector", "matchLabels", "kubernetes.io/metadata.name")
+	require.NoError(t, err)
+	assert.Equal(t, "opendepot-builds", namespaces)
+}
+
+func TestOCIBuildsNetworkPolicyExceptFamilies(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	resources := renderedResources(t, rendered)
+	policy := findResource(t, resources, "NetworkPolicy", "opendepot-build")
+
+	egress, _, err := unstructured.NestedSlice(policy.Object, "spec", "egress")
+	require.NoError(t, err)
+
+	excepts := map[string][]interface{}{}
+	for _, rule := range egress {
+		for _, to := range rule.(map[string]interface{})["to"].([]interface{}) {
+			block, ok := to.(map[string]interface{})["ipBlock"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			except, _ := block["except"].([]interface{})
+			excepts[block["cidr"].(string)] = except
+		}
+	}
+
+	require.Contains(t, excepts, "0.0.0.0/0")
+	require.Contains(t, excepts, "::/0")
+	for _, except := range excepts["0.0.0.0/0"] {
+		assert.NotContains(t, except.(string), ":")
+	}
+	for _, except := range excepts["::/0"] {
+		assert.Contains(t, except.(string), ":")
+	}
+}
+
+func TestOCIBuildsRBACNamespaceScoped(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	resources := renderedResources(t, rendered)
+
+	role := findResource(t, resources, "Role", "version-controller-builds")
+	assert.Equal(t, "opendepot-builds", role.GetNamespace())
+
+	rules, _, err := unstructured.NestedSlice(role.Object, "rules")
+	require.NoError(t, err)
+	verbs := map[string][]string{}
+	for _, rule := range rules {
+		fields := rule.(map[string]interface{})
+		for _, resource := range fields["resources"].([]interface{}) {
+			for _, verb := range fields["verbs"].([]interface{}) {
+				verbs[resource.(string)] = append(verbs[resource.(string)], verb.(string))
+			}
+		}
+	}
+	assert.ElementsMatch(t, []string{"create", "get", "list", "watch", "delete"}, verbs["jobs"])
+	assert.ElementsMatch(t, []string{"get", "list", "watch"}, verbs["pods"])
+	assert.ElementsMatch(t, []string{"create", "delete"}, verbs["secrets"])
+	assert.ElementsMatch(t, []string{"create"}, verbs["events"])
+
+	binding := findResource(t, resources, "RoleBinding", "version-controller-builds")
+	assert.Equal(t, "opendepot-builds", binding.GetNamespace())
+	subjects, _, err := unstructured.NestedSlice(binding.Object, "subjects")
+	require.NoError(t, err)
+	require.Len(t, subjects, 1)
+	subject := subjects[0].(map[string]interface{})
+	assert.Equal(t, "version-controller", subject["name"])
+	assert.Equal(t, "opendepot-system", subject["namespace"])
+
+	for _, resource := range resources {
+		if resource.GetKind() == "ClusterRole" || resource.GetKind() == "ClusterRoleBinding" {
+			assert.NotContains(t, resource.GetName(), "builds")
+		}
+	}
+}
+
 func copyChart(t *testing.T, source, destination string) {
+
 	t.Helper()
 
 	require.NoError(t, filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
