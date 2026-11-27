@@ -46,6 +46,7 @@ COPY pkg/utils/ pkg/utils/
 COPY pkg/registry/ pkg/registry/
 COPY pkg/hclschema/ pkg/hclschema/
 COPY pkg/signing/ pkg/signing/
+COPY pkg/oci/ pkg/oci/
 COPY services/server/ services/server/
 
 # Build (COVER=1 adds coverage counters and the coverage build tag)
