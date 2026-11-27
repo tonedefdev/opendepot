@@ -1,0 +1,56 @@
+apiVersion: v1
+entries:
+  demo:
+  - apiVersion: v2
+    appVersion: "2.0"
+    created: "2026-02-01T09:00:00Z"
+    dependencies:
+    - name: redis
+      repository: https://charts.example.com
+      version: 17.x
+    description: Demo chart demo
+    digest: 2f5f257a5a5ddc0eb85c1337874af8f50c8d49f2a9cf7dd9a6ba80a45363be2f
+    keywords:
+    - demo
+    - test
+    kubeVersion: '>=1.25.0'
+    name: demo
+    urls:
+    - charts/demo-1.1.0.tgz
+    version: 1.1.0
+  - apiVersion: v2
+    appVersion: "2.0"
+    created: "2026-01-10T09:00:00Z"
+    dependencies:
+    - name: redis
+      repository: https://charts.example.com
+      version: 17.x
+    description: Demo chart demo
+    digest: 8a1f6a14026da67be9b00a7d506c9297f826f15b3eaa082ab68410bc37691c6c
+    keywords:
+    - demo
+    - test
+    kubeVersion: '>=1.25.0'
+    name: demo
+    urls:
+    - charts/demo-1.0.0.tgz
+    version: 1.0.0
+  other:
+  - apiVersion: v2
+    appVersion: "2.0"
+    created: "2026-01-15T09:00:00Z"
+    dependencies:
+    - name: redis
+      repository: https://charts.example.com
+      version: 17.x
+    description: Demo chart other
+    digest: 8f80cff19286d19a6c781743a7cd629fb8bc526cbb66a0e4c1376d83291c1aa6
+    keywords:
+    - demo
+    - test
+    kubeVersion: '>=1.25.0'
+    name: other
+    urls:
+    - charts/other-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-11-26T12:00:00Z"
