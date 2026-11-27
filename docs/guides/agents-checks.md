@@ -41,7 +41,7 @@ The shared base key set for skills is `name`, `description`, `license`, `compati
 |----------|----------------------------|----------------------------|
 | `agentskills` | None | None |
 | `claude` | `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `disallowed-tools`, `model`, `effort`, `context`, `agent`, `hooks`, `paths`, `shell` | `disallowedTools`, `permissionMode`, `mcpServers`, `hooks`, `maxTurns`, `skills`, `initialPrompt`, `memory`, `effort`, `background`, `omitClaudeMd`, `isolation`, `color` |
-| `copilot` | `argument-hint` | `target`, `disable-model-invocation`, `user-invocable`, `mcp-servers`, `argument-hint`, `handoffs` |
+| `copilot` | `argument-hint` | `target`, `disable-model-invocation`, `user-invocable`, `mcp-servers`, `argument-hint`, `handoffs`, `skills` |
 | `codex` | None | None |
 | `opencode` | None | Uses its own set instead of the base. Accepts only `name`, `description`, `mode`, `model`, `temperature`, `top_p`, `steps`, `disable`, `prompt`, `tools`, `permission`, `hidden`, and `color`. |
 | `pi` | `disable-model-invocation` | None |

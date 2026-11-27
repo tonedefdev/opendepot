@@ -73,3 +73,13 @@ vulnerabilities:
     paths:
       - usr/local/bin/trivy
     statement: "CVE-2026-97054 in the upstream Trivy 0.76.2 (latest release) binary; no upstream release bundles a fixed version yet."
+  # bundled npm 12.2.3; no upstream npm release ships glob 14; tracked in issue #113
+  - id: CVE-2026-118773
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/glob/package.json
+    statement: "CVE-2026-118773 in glob 13.0.6 bundled with npm 12.2.3; no upstream npm release ships glob 14 yet. Tracked in https://github.com/tonedefdev/opendepot/issues/113."
+  # bundled npm 12.2.3; no upstream npm release ships minimatch 11; tracked in issue #113
+  - id: CVE-2026-118764
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/minimatch/package.json
+    statement: "CVE-2026-118764 in minimatch 10.2.5 bundled with npm 12.2.3; no upstream npm release ships minimatch 11 yet. Tracked in https://github.com/tonedefdev/opendepot/issues/113."

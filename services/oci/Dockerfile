@@ -12,8 +12,8 @@ COPY pkg/agentassembly/go.mod pkg/agentassembly/
 COPY pkg/agentspec/go.mod pkg/agentspec/go.sum pkg/agentspec/
 COPY pkg/archive/go.mod pkg/archive/
 COPY pkg/jev/go.mod pkg/jev/
-COPY pkg/mcp/go.mod pkg/mcp/
-COPY pkg/oci/go.mod pkg/oci/
+COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
+COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
 COPY pkg/schematic/go.mod pkg/schematic/
 COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY pkg/storage/go.mod pkg/storage/go.sum pkg/storage/
