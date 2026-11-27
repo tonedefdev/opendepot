@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package mcp is the home of Model Context Protocol server support for MCPServer resources.
-// It is an empty skeleton until its implementation lands.
+// Package mcp parses and validates MCP server metadata and renders MCP client configuration for OpenDepot.
+//
+// It covers four things. ParseServerJSON validates server.json against schema 2025-12-11. ParseLaunchDescriptor
+// validates the opendepot-mcp.json launch descriptor. The Client fetches npm packuments and PyPI project metadata
+// through an allow-list with redirect and dial-time address checks. The Render functions merge OpenDepot-managed
+// entries into Copilot, Claude, Codex, and custom MCP config files without changing unmanaged entries.
 package mcp

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "customServers": {
+    "local-tool": {
+      "command": "my-tool",
+      "args": ["--verbose"]
+    },
+    "opendepot-retired": {
+      "command": "node",
+      "args": ["retired.js"]
+    }
+  }
+}

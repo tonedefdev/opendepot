@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "opendepot-filesystem": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["old/index.js"]
+    },
+    "opendepot-retired": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["retired.js"]
+    }
+  },
+  "theme": "dark"
+}

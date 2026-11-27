@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tonedefdev/opendepot-search",
+  "title": "OpenDepot Search",
+  "description": "Searches OpenDepot modules and providers",
+  "version": "1.2.0",
+  "websiteUrl": "https://opendepot.example.com",
+  "repository": {
+    "url": "https://github.com/tonedefdev/opendepot",
+    "source": "github",
+    "subfolder": "services/mcp/search"
+  },
+  "icons": [
+    {
+      "src": "https://opendepot.example.com/icon.png",
+      "mimeType": "image/png",
+      "sizes": ["48x48"],
+      "theme": "dark"
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "publisher-cli"
+    }
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@tonedefdev/opendepot-search",
+      "version": "1.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "oci",
+      "identifier": "opendepot.example.com/mcp/search@sha256:4d0c5a3e1f9b2c7d8e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9011223344556",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://127.0.0.1:8080/mcp"
+      }
+    }
+  ],
+  "remotes": [
+    {
+      "type": "sse",
+      "url": "https://opendepot.example.com/sse"
+    }
+  ]
+}
