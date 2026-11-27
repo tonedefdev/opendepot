@@ -49,6 +49,7 @@ import (
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 	"github.com/tonedefdev/opendepot/services/version/checks/agents"
+	"github.com/tonedefdev/opendepot/services/version/internal/buildbroker"
 	"github.com/tonedefdev/opendepot/services/version/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -147,6 +148,10 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&tokenRefreshHelper, "token-refresh-helper", false,
 		"Run as the ServiceAccount token refresh sidecar")
+	var ociBuilds ociBuildFlags
+	registerOCIBuildFlags(flag.CommandLine, &ociBuilds)
+	var buildHelper buildHelperFlags
+	registerBuildHelperFlags(flag.CommandLine, &buildHelper)
 	opts := zap.Options{
 		Development: true,
 	}
@@ -178,6 +183,11 @@ func main() {
 
 	if tokenRefreshHelper {
 		runTokenRefreshHelper()
+		return
+	}
+
+	if buildHelper.mode != "" {
+		runBuildHelper(buildHelper)
 		return
 	}
 
@@ -278,6 +288,18 @@ func main() {
 		}
 	}
 
+	ociBuildOptions, err := ociBuilds.options()
+	if err != nil {
+		setupLog.Error(err, "invalid in-cluster build settings")
+		os.Exit(1)
+	}
+
+	if ociBuildOptions.Enabled {
+		// Build Jobs and Pods are cached only in the builds namespace. This applies in both cluster-wide and
+		// WATCH_NAMESPACE modes, where it overrides the default namespace for these two types.
+		mgrOptions.Cache.ByObject = ociBuildCacheOptions(ociBuildOptions.Namespace)
+	}
+
 	config, err := ctrl.GetConfig()
 	if err != nil {
 		setupLog.Error(err, "unable to load Kubernetes config")
@@ -302,7 +324,7 @@ func main() {
 		}
 	}
 
-	if err := (&controller.VersionReconciler{
+	versionReconciler := &controller.VersionReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Log:                     logger,
@@ -325,9 +347,34 @@ func main() {
 		SchemaExtractionTimeout: schemaExtractionTimeout,
 		OCIAllowedRegistries:    allowedRegistries,
 		FilesystemMountPath:     filesystemMountPath,
-	}).SetupWithManager(mgr); err != nil {
+		OCIBuilds:               ociBuildOptions,
+	}
+
+	if err := versionReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Version")
 		os.Exit(1)
+	}
+
+	if ociBuildOptions.Enabled {
+		// The broker runs on every replica, so the build Jobs can reach it through the Service whichever replica is
+		// the leader.
+		broker, err := buildbroker.New(buildbroker.Config{
+			Addr:   ociBuilds.brokerAddr,
+			Reader: mgr.GetClient(),
+			Sinks: func(ctx context.Context, namespace, name string) (buildbroker.BlobSink, error) {
+				return versionReconciler.OCIBlobSinkFor(ctx, namespace, name)
+			},
+			Log: logger.WithName("build-broker"),
+		})
+		if err != nil {
+			setupLog.Error(err, "unable to create the build broker")
+			os.Exit(1)
+		}
+
+		if err := mgr.Add(broker); err != nil {
+			setupLog.Error(err, "unable to add the build broker to the manager")
+			os.Exit(1)
+		}
 	}
 
 	if err := (&controller.ScanPolicyReconciler{

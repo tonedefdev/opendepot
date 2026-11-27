@@ -67,6 +67,12 @@ type OCIArtifactReconciler struct {
 	// AllowedRegistries lists the upstream registry hosts that an OCIArtifact may mirror from. An empty list denies
 	// every mirror.
 	AllowedRegistries []string
+	// OCIBuildsEnabled turns on in-cluster builds of OCIArtifacts that set build. When it is false, build sources are
+	// not synced.
+	OCIBuildsEnabled bool
+	// OCIBuildsAllowedRepoOwners lists the GitHub owners whose repositories may be built. An empty list denies every
+	// build.
+	OCIBuildsAllowedRepoOwners []string
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=ociartifacts,verbs=get;list;watch;update
@@ -100,6 +106,29 @@ func (r *OCIArtifactReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		r.Log.Info("Registry is not on the allow-list", "ociArtifact", ociArtifact.Name, "registry", config.Mirror.Registry)
 		return ctrl.Result{}, nil
+	}
+
+	if config.Build != nil {
+		var buildMsg string
+		switch {
+		case !r.OCIBuildsEnabled:
+			buildMsg = "In-cluster builds are disabled"
+		case !slices.Contains(r.OCIBuildsAllowedRepoOwners, config.Build.RepoOwner):
+			buildMsg = fmt.Sprintf("Repository owner %s is not on the build allow-list", config.Build.RepoOwner)
+		}
+
+		if buildMsg != "" {
+			status := ociArtifact.Status
+			status.Synced = false
+			status.SyncStatus = buildMsg
+			if err = r.updateOCIArtifactStatus(ctx, req.NamespacedName, status); err != nil {
+				r.Log.Error(err, "Failed to update OCIArtifact status", "ociArtifact", ociArtifact.Name)
+				return ctrl.Result{}, err
+			}
+
+			r.Log.Info(buildMsg, "ociArtifact", ociArtifact.Name, "repoOwner", config.Build.RepoOwner)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	configName := ociConfigName(ociArtifact)

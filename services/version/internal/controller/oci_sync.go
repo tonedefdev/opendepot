@@ -129,12 +129,14 @@ func (r *VersionReconciler) syncOCIVersion(
 	}
 
 	switch {
-	case config.Mirror != nil && config.Github == nil:
+	case config.Mirror != nil && config.Github == nil && config.Build == nil:
 		return r.syncOCIMirror(ctx, req, version, config)
-	case config.Github != nil && config.Mirror == nil:
+	case config.Github != nil && config.Mirror == nil && config.Build == nil:
 		return r.syncOCIGithub(ctx, req, version, config)
+	case config.Build != nil && config.Mirror == nil && config.Github == nil:
+		return r.syncOCIBuild(ctx, req, version, config)
 	default:
-		return r.terminalOCI(ctx, req, "exactly one of mirror or github is required")
+		return r.terminalOCI(ctx, req, "exactly one of mirror, github, or build is required")
 	}
 }
 

@@ -50,12 +50,18 @@ func main() {
 	var probeAddr string
 	var enableLeaderElection bool
 	var ociAllowedRegistries string
+	var ociBuildsEnabled bool
+	var ociBuildsAllowedRepoOwners string
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8083", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
 		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
+	flag.BoolVar(&ociBuildsEnabled, "oci-builds-enabled", false,
+		"Allow OCIArtifacts that set build to be synced by in-cluster builds.")
+	flag.StringVar(&ociBuildsAllowedRepoOwners, "oci-builds-allowed-repo-owners", "",
+		"Comma-separated GitHub owners whose repositories may be built. Empty denies every build.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -66,6 +72,9 @@ func main() {
 
 	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
 	setupLog.Info("oci allowed registries", "registries", allowedRegistries)
+
+	buildOwners := parseOCIAllowedRegistries(ociBuildsAllowedRepoOwners)
+	setupLog.Info("oci builds", "enabled", ociBuildsEnabled, "allowedRepoOwners", buildOwners)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -79,10 +88,12 @@ func main() {
 	}
 
 	if err := (&controller.OCIArtifactReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		Log:               ctrl.Log.WithName("controllers").WithName("OCIArtifact"),
-		AllowedRegistries: allowedRegistries,
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		Log:                        ctrl.Log.WithName("controllers").WithName("OCIArtifact"),
+		AllowedRegistries:          allowedRegistries,
+		OCIBuildsEnabled:           ociBuildsEnabled,
+		OCIBuildsAllowedRepoOwners: buildOwners,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OCIArtifact")
 		os.Exit(1)
