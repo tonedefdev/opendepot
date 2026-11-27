@@ -24,6 +24,7 @@ COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY pkg/agentassembly/go.mod pkg/agentassembly/
 COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
 COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
+COPY pkg/ocibuild/go.mod pkg/ocibuild/go.sum pkg/ocibuild/
 COPY pkg/schematic/go.mod pkg/schematic/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
