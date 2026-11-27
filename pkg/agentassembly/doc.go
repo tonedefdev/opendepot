@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package agentassembly is the home of agent assembly logic.
-// It is an empty skeleton until its implementation lands.
+// Package agentassembly models agent assemblies: typed graphs of agents, skills, and MCP servers.
+//
+// Document is the graph. Digest returns its canonical sha256 digest. Validate checks the graph against the
+// validation rules and their stable codes, and ValidateExport also blocks placeholder nodes. Render writes the
+// platform agent files for Copilot, Claude, and agents-md, and RenderHCL writes the pinned opendepot.hcl. Route is the
+// deny-by-default runtime policy that enforces delegates and retry links from an AssemblyManifest.
 package agentassembly
