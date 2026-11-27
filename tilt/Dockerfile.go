@@ -2,9 +2,9 @@ FROM aquasec/trivy:0.76.2 AS trivy-source
 
 FROM debian:bookworm-slim AS tofu-source
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.9
-ARG TOFU_SHA256_AMD64=bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce
-ARG TOFU_SHA256_ARM64=04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3
+ARG TOFU_VERSION=1.13.10
+ARG TOFU_SHA256_AMD64=c1f0d6b34d8328f963d3b1ad10896fae30a6c6890596190ffef477dab991090f
+ARG TOFU_SHA256_ARM64=e8febf96590c59f40bda6a3ea152847eebea8ec5efe7a39ba1d53a979e230cb3
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && rm -rf /var/lib/apt/lists/*
@@ -60,17 +60,17 @@ RUN cd services/depot && CGO_ENABLED=0 go build -o /workspace/bin/depot-controll
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
 
-FROM golang:1.26.10 AS module-runtime
+FROM golang:1.26.10 AS iac-runtime
 WORKDIR /workspace
 COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
 COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
-COPY services/module/go.mod services/module/go.sum services/module/
-RUN go work init ./api/v1alpha1 ./pkg/utils ./services/module \
-  && cd services/module && go mod download
+COPY services/iac/go.mod services/iac/go.sum services/iac/
+RUN go work init ./api/v1alpha1 ./pkg/utils ./services/iac \
+  && cd services/iac && go mod download
 COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/utils/ pkg/utils/
-COPY services/module/ services/module/
-RUN cd services/module && CGO_ENABLED=0 go build -o /workspace/bin/module-controller ./cmd \
+COPY services/iac/ services/iac/
+RUN cd services/iac && CGO_ENABLED=0 go build -o /workspace/bin/iac-controller ./cmd \
   && chown -R 65532:65532 /workspace
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532
@@ -86,21 +86,6 @@ COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/utils/ pkg/utils/
 COPY services/agent/ services/agent/
 RUN cd services/agent && CGO_ENABLED=0 go build -o /workspace/bin/agent-controller ./cmd \
-  && chown -R 65532:65532 /workspace
-ENV GOCACHE=/workspace/.cache/go-build
-USER 65532:65532
-
-FROM golang:1.26.10 AS provider-runtime
-WORKDIR /workspace
-COPY api/v1alpha1/go.mod api/v1alpha1/go.sum api/v1alpha1/
-COPY pkg/utils/go.mod pkg/utils/go.sum pkg/utils/
-COPY services/provider/go.mod services/provider/go.sum services/provider/
-RUN go work init ./api/v1alpha1 ./pkg/utils ./services/provider \
-  && cd services/provider && go mod download
-COPY api/v1alpha1/ api/v1alpha1/
-COPY pkg/utils/ pkg/utils/
-COPY services/provider/ services/provider/
-RUN cd services/provider && CGO_ENABLED=0 go build -o /workspace/bin/provider-controller ./cmd \
   && chown -R 65532:65532 /workspace
 ENV GOCACHE=/workspace/.cache/go-build
 USER 65532:65532

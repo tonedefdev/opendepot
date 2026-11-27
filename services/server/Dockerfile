@@ -23,12 +23,10 @@ COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/signing/go.mod pkg/signing/go.sum pkg/signing/
 COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/depot/go.mod services/depot/go.sum services/depot/
-COPY services/module/go.mod services/module/go.sum services/module/
 COPY services/version/go.mod services/version/go.sum services/version/
-COPY services/provider/go.mod services/provider/go.sum services/provider/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent -dropuse=./services/iac -dropuse=./services/oci -dropuse=./pkg/agentassembly -dropuse=./pkg/mcp -dropuse=./pkg/oci -dropuse=./pkg/schematic
 
 # Download dependencies in workspace mode so replace directives resolve local modules
 WORKDIR /workspace/services/server
@@ -56,7 +54,7 @@ RUN COVER_FLAGS="" && \
 # tofu-release: upstream OpenTofu release binary, verified against the release checksum file; only copied into the final image when INCLUDE_TOFU=true
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS tofu-release
 ARG TARGETARCH
-ARG TOFU_VERSION=1.13.9
+ARG TOFU_VERSION=1.13.10
 RUN set -eux; \
 	apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl unzip \

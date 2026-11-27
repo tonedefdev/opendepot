@@ -9,70 +9,65 @@ vulnerabilities:
   - id: CVE-2026-56864
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/mod sumdb integrity bypass in the upstream OpenTofu 1.13.9 release; no upstream release bundles the fixed dependency yet."
+    statement: "golang.org/x/mod sumdb integrity bypass in the upstream OpenTofu 1.13.10 release; no upstream release bundles the fixed dependency yet."
   - id: CVE-2026-56865
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/mod sumdb/tlog supply-chain issue in the upstream OpenTofu 1.13.9 release; no upstream release bundles the fixed dependency yet."
+    statement: "golang.org/x/mod sumdb/tlog supply-chain issue in the upstream OpenTofu 1.13.10 release; no upstream release bundles the fixed dependency yet."
   - id: CVE-2026-78669
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net http2 denial of service compiled into the upstream OpenTofu 1.13.9 release binary; no upstream release bundles the fixed dependency yet."
+    statement: "golang.org/x/net http2 denial of service compiled into the upstream OpenTofu 1.13.10 release binary; no upstream release bundles the fixed dependency yet."
   - id: CVE-2026-78661
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net/html quadratic-complexity denial of service in text node coalescing compiled into the upstream OpenTofu 1.13.9 release binary; x/net fix 0.62.0 not bundled by any upstream release yet."
+    statement: "golang.org/x/net/html quadratic-complexity denial of service in text node coalescing compiled into the upstream OpenTofu 1.13.10 release binary; x/net fix 0.62.0 not bundled by any upstream release yet."
   - id: CVE-2026-84445
     paths:
       - usr/local/bin/tofu
-    statement: "google.golang.org/grpc denial of service via malformed RPC in the upstream OpenTofu 1.13.9 release binary; no upstream release bundles the fixed dependency yet."
+    statement: "google.golang.org/grpc denial of service via malformed RPC in the upstream OpenTofu 1.13.10 release binary; no upstream release bundles the fixed dependency yet."
   - id: CVE-2026-116587
     paths:
       - usr/local/bin/tofu
-    statement: "github.com/go-jose/go-jose/v4 vulnerability compiled into the upstream OpenTofu 1.13.9 release binary; no upstream release bundles the fixed dependency yet."
+    statement: "github.com/go-jose/go-jose/v4 vulnerability compiled into the upstream OpenTofu 1.13.10 release binary; no upstream release bundles the fixed dependency yet."
   - id: CVE-2026-116585
     paths:
       - usr/local/bin/tofu
-    statement: "github.com/go-jose/go-jose/v4 JWE decryption denial of service compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "github.com/go-jose/go-jose/v4 JWE decryption denial of service compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-116586
     paths:
       - usr/local/bin/tofu
-    statement: "github.com/go-jose/go-jose/v4 JSON parsing denial of service compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "github.com/go-jose/go-jose/v4 JSON parsing denial of service compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-78659
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net http2 trailer header memory exhaustion compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "golang.org/x/net http2 trailer header memory exhaustion compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-78660
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net http2 response smuggling compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "golang.org/x/net http2 response smuggling compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-78663
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net http2 flow control limit bypass compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "golang.org/x/net http2 flow control limit bypass compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-97032
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net http2 HPACK encoder denial of service compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+    statement: "golang.org/x/net http2 HPACK encoder denial of service compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
   - id: CVE-2026-97045
     paths:
       - usr/local/bin/tofu
-    statement: "golang.org/x/net/html cross-site scripting in namespace handling compiled into the upstream OpenTofu 1.13.9 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
-  # no upstream fix; upstream latest 1.13.9; tracked in issue #98
+    statement: "golang.org/x/net/html cross-site scripting in namespace handling compiled into the upstream OpenTofu 1.13.10 (latest release) binary; the upstream binary does not include a fixed Go module, so no upstream fix exists."
+  # no upstream fix; upstream latest 1.13.10; tracked in issue #98
   - id: CVE-2026-128085
     paths:
       - usr/local/bin/tofu
-    statement: "CVE-2026-128085 in the upstream OpenTofu 1.13.9 (latest release) binary; no upstream release bundles a fixed version yet."
+    statement: "CVE-2026-128085 in the upstream OpenTofu 1.13.10 (latest release) binary; no upstream release bundles a fixed version yet."
   # no upstream fix; upstream latest 0.76.2; tracked in issue #98
   - id: CVE-2026-128085
     paths:
       - usr/local/bin/trivy
     statement: "CVE-2026-128085 in the upstream Trivy 0.76.2 (latest release) binary; no upstream release bundles a fixed version yet."
-  # no upstream fix; upstream latest 1.13.9; tracked in issue #98
-  - id: CVE-2026-97054
-    paths:
-      - usr/local/bin/tofu
-    statement: "CVE-2026-97054 in the upstream OpenTofu 1.13.9 (latest release) binary; no upstream release bundles a fixed version yet."
   # no upstream fix; upstream latest 0.76.2; tracked in issue #98
   - id: CVE-2026-97054
     paths:

@@ -8,8 +8,7 @@ on:
     paths:
       - 'services/agent/**'
       - 'services/depot/**'
-      - 'services/module/**'
-      - 'services/provider/**'
+      - 'services/iac/**'
       - 'services/server/**'
       - 'services/version/**'
       - 'pkg/**'
@@ -50,10 +49,8 @@ jobs:
               - 'services/agent/**'
             depot:
               - 'services/depot/**'
-            module:
-              - 'services/module/**'
-            provider:
-              - 'services/provider/**'
+            iac:
+              - 'services/iac/**'
             server:
               - 'services/server/**'
             version:
@@ -69,8 +66,7 @@ jobs:
           COMMON: ${{ steps.filter.outputs.common }}
           AGENT: ${{ steps.filter.outputs.agent }}
           DEPOT: ${{ steps.filter.outputs.depot }}
-          MODULE: ${{ steps.filter.outputs.module }}
-          PROVIDER: ${{ steps.filter.outputs.provider }}
+          IAC: ${{ steps.filter.outputs.iac }}
           SERVER: ${{ steps.filter.outputs.server }}
           VERSION: ${{ steps.filter.outputs.version }}
           SHARED: ${{ steps.filter.outputs.shared }}
@@ -92,8 +88,8 @@ jobs:
           }
 
           if [[ "$COMMON" == true ]]; then
-            build_services+=(agent-controller depot-controller module-controller provider-controller server version-controller)
-            e2e_services+=(agent depot module provider server version)
+            build_services+=(agent-controller depot-controller iac-controller server version-controller)
+            e2e_services+=(agent depot iac server version)
           else
             if [[ "$DEPOT" == true ]]; then
               add_build_service depot-controller
@@ -101,17 +97,11 @@ jobs:
               add_build_service server
               add_e2e_service depot
             fi
-            if [[ "$MODULE" == true ]]; then
-              add_build_service module-controller
+            if [[ "$IAC" == true ]]; then
+              add_build_service iac-controller
               add_build_service version-controller
               add_build_service server
-              add_e2e_service module
-            fi
-            if [[ "$PROVIDER" == true ]]; then
-              add_build_service provider-controller
-              add_build_service version-controller
-              add_build_service server
-              add_e2e_service provider
+              add_e2e_service iac
             fi
             [[ "$SERVER" == true ]] && e2e_services+=(server)
             [[ "$VERSION" == true ]] && e2e_services+=(version)
@@ -134,16 +124,14 @@ jobs:
           unit_services=()
           [[ "$COMMON" == true || "$SHARED" == true || "$AGENT" == true ]] && unit_services+=(agent)
           [[ "$COMMON" == true || "$SHARED" == true || "$DEPOT" == true ]] && unit_services+=(depot)
-          [[ "$COMMON" == true || "$SHARED" == true || "$MODULE" == true ]] && unit_services+=(module)
-          [[ "$COMMON" == true || "$SHARED" == true || "$PROVIDER" == true ]] && unit_services+=(provider)
+          [[ "$COMMON" == true || "$SHARED" == true || "$IAC" == true ]] && unit_services+=(iac)
           [[ "$COMMON" == true || "$SHARED" == true || "$VERSION" == true ]] && unit_services+=(version)
 
           unit_json=$(printf '%s\n' "${unit_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
               if . == "agent" then {service: ., name: "Agent controller unit tests"}
               elif . == "depot" then {service: ., name: "Depot controller unit tests"}
-              elif . == "module" then {service: ., name: "Module controller unit tests"}
-              elif . == "provider" then {service: ., name: "Provider controller unit tests"}
+              elif . == "iac" then {service: ., name: "IaC controller unit tests"}
               else {service: ., name: "Version controller unit tests"}
               end] | {include: .}')
 
@@ -152,13 +140,12 @@ jobs:
           build_json=$(printf '%s\n' "${build_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
               if . == "version-controller" then {service: ., dockerfile: "services/version/Dockerfile", buildArgs: "INCLUDE_TRIVY=true\nINCLUDE_TOFU=true"}
-              else {service: ., dockerfile: ("services/" + (if . == "agent-controller" then "agent" elif . == "depot-controller" then "depot" elif . == "module-controller" then "module" elif . == "provider-controller" then "provider" else "server" end) + "/Dockerfile"), buildArgs: (if . == "server" then "INCLUDE_TOFU=true" else "" end)}
+              else {service: ., dockerfile: ("services/" + (if . == "agent-controller" then "agent" elif . == "depot-controller" then "depot" elif . == "iac-controller" then "iac" else "server" end) + "/Dockerfile"), buildArgs: (if . == "server" then "INCLUDE_TOFU=true" else "" end)}
               end] | {include: .}')
           e2e_json=$(printf '%s\n' "${e2e_services[@]}" | jq -Rsc '
             [split("\n")[] | select(length > 0) |
               if . == "agent" then {name: "Agent controller e2e", workdir: "services/agent", image: "agent-controller", images: "agent-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
-              elif . == "module" then {name: "Module controller e2e", workdir: "services/module", image: "module-controller", images: "module-controller version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "1.6.0", terraform_version: "", install_mkcert: false}
-              elif . == "provider" then {name: "Provider controller e2e", workdir: "services/provider", image: "provider-controller", images: "provider-controller version-controller server", skip_image_build: true, timeout: 40, test_timeout: "30m", tofu_version: "1.6.0", terraform_version: "1.10.5", install_mkcert: true}
+              elif . == "iac" then {name: "IaC controller e2e", workdir: "services/iac", image: "iac-controller", images: "iac-controller version-controller server", skip_image_build: true, timeout: 40, test_timeout: "30m", tofu_version: "1.6.0", terraform_version: "1.10.5", install_mkcert: true}
               elif . == "depot" then {name: "Depot controller e2e", workdir: "services/depot", image: "depot-controller", images: "depot-controller version-controller server", skip_image_build: "", timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}
               elif . == "server" then {name: "Server e2e", workdir: "services/server", image: "server", images: "", runner: "ubuntu-24.04-arm", aws_emulator: true, skip_image_build: "", timeout: 40, test_timeout: "30m", tofu_version: "1.11.5", terraform_version: "", install_mkcert: false}
               else {name: "Version controller e2e", workdir: "services/version", image: "version-controller", images: "version-controller server", skip_image_build: true, timeout: 30, test_timeout: "20m", tofu_version: "", terraform_version: "", install_mkcert: false}

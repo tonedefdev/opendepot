@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -66,6 +67,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var branchSourcingEnabled bool
+	var ociAllowedRegistries string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -86,6 +88,8 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&branchSourcingEnabled, "branch-sourcing-enabled", false,
 		"If set, Skills and Agents may be sourced from a branch with the ref field")
+	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
+		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -94,6 +98,9 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	logger := zap.New(zap.UseFlagOptions(&opts))
+
+	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
+	logger.Info("oci allowed registries", "registries", allowedRegistries)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -250,4 +257,17 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// parseOCIAllowedRegistries splits the comma-separated registry list, trimming whitespace and
+// dropping empty entries. An empty result denies all registries.
+func parseOCIAllowedRegistries(value string) []string {
+	var registries []string
+	for _, registry := range strings.Split(value, ",") {
+		if registry = strings.TrimSpace(registry); registry != "" {
+			registries = append(registries, registry)
+		}
+	}
+
+	return registries
 }

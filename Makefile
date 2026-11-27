@@ -8,14 +8,14 @@ ifndef TAG
 TAG := $(shell date +%s)
 endif
 
-SERVICES := server depot-controller module-controller provider-controller version-controller agent-controller ui docs
+SERVICES := server depot-controller iac-controller oci-controller version-controller agent-controller ui docs
 
 # Map service names to their build context directories
 server_PATH := services/server
 depot-controller_PATH := services/depot
-module-controller_PATH := services/module
+iac-controller_PATH := services/iac
+oci-controller_PATH := services/oci
 agent-controller_PATH := services/agent
-provider-controller_PATH := services/provider
 version-controller_PATH := services/version
 ui_PATH := services/ui
 docs_PATH := services/docs
@@ -23,9 +23,9 @@ docs_PATH := services/docs
 # Map service names to their Docker build context (repo root for services that use local packages)
 server_CONTEXT := .
 depot-controller_CONTEXT := .
-module-controller_CONTEXT := .
+iac-controller_CONTEXT := .
+oci-controller_CONTEXT := .
 agent-controller_CONTEXT := .
-provider-controller_CONTEXT := .
 version-controller_CONTEXT := .
 ui_CONTEXT := services/ui
 docs_CONTEXT := .
@@ -139,7 +139,7 @@ endef
 
 $(foreach svc,$(SERVICES),$(eval $(call SERVICE_RULES,$(svc))))
 
-## Build, load, and deploy a single service: make service NAME=provider-controller
+## Build, load, and deploy a single service: make service NAME=iac-controller
 service:
 	@$(MAKE) build-$(NAME) load-$(NAME) sync-tag TAG=$(TAG)
 
@@ -168,7 +168,7 @@ work-tidy:
 	   for d in json.load(sys.stdin)['Use']]"
 	go work sync
 
-E2E_SERVICES := agent depot module provider server version
+E2E_SERVICES := agent depot iac server version
 
 ## Run e2e tests for all services sequentially
 .PHONY: test-e2e
@@ -206,7 +206,7 @@ coverage-ui:
 	cd services/ui && yarn test:coverage
 
 COVER_E2E_KIND_CLUSTER ?= opendepot-coverage
-COVER_E2E_SERVICES := agent depot module provider server version
+COVER_E2E_SERVICES := agent depot iac server version
 MODULE_DIRS = $(patsubst ./%,%,$(GO_WORK_MODULES))
 
 ## Build COVER=1 images and run the targeted e2e suites on an isolated Kind cluster (never the shared $(KIND_CLUSTER) cluster).
@@ -227,13 +227,9 @@ coverage-e2e: check-go-work-modules
 		-f $(depot-controller_PATH)/Dockerfile \
 		$(depot-controller_CONTEXT)
 	docker build --platform $(PLATFORM) --build-arg COVER=1 \
-		-t module-controller:e2e-test \
-		-f $(module-controller_PATH)/Dockerfile \
-		$(module-controller_CONTEXT)
-	docker build --platform $(PLATFORM) --build-arg COVER=1 \
-		-t provider-controller:e2e-test \
-		-f $(provider-controller_PATH)/Dockerfile \
-		$(provider-controller_CONTEXT)
+		-t iac-controller:e2e-test \
+		-f $(iac-controller_PATH)/Dockerfile \
+		$(iac-controller_CONTEXT)
 	docker build --platform $(PLATFORM) --build-arg COVER=1 \
 		-t server:e2e-test \
 		-f $(server_PATH)/Dockerfile \
@@ -662,7 +658,7 @@ endif
 	  'provider:' \
 	  '  enabled: true' \
 	  '  image:' \
-	  '    repository: $(REGISTRY)/provider-controller' \
+	  '    repository: $(REGISTRY)/iac-controller' \
 	  "    tag: \"$(TAG)\"" \
 	  'scanning:' \
 	  '  enabled: true' \
