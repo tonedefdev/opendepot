@@ -121,6 +121,12 @@ Check only the changed lines against the Developer agent's coding conventions. C
 - `k8serr.IsNotFound` for not-found handling
 - No new types defined outside `api/v1alpha1/`
 - No unnecessary abstractions or helpers added by the diff
+- No hand-rolled reimplementation of a battle-tested library that already exists in `go.mod`, `go.work`, or the standard Go/TS ecosystem. Check these areas:
+  - **Auth/OAuth2/OIDC flows** (token exchange, JWT or OIDC verification, client credentials): BLOCKING. Use `golang.org/x/oauth2` and `github.com/coreos/go-oidc/v3`, which are already in use.
+  - **Crypto and signature verification**: BLOCKING. Use a maintained library such as `github.com/sigstore/sigstore`. Never accept a hand-written verifier.
+  - **Parsers** (JWT, semver, HCL, YAML, and similar): NIT, or BLOCKING when the hand-rolled parser causes a correctness or security defect.
+  - **Bounded LRU/TTL caches**: NIT. Use `github.com/hashicorp/golang-lru/v2/expirable`, and keep the expiry check on the package clock.
+  - A new dependency must have 0 fixable CVEs in `trivy fs --scanners vuln --ignore-unfixed <module>/go.mod`. A missing scan is BLOCKING.
 
 ## Findings Tiers
 

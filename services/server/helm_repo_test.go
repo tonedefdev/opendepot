@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -128,7 +129,7 @@ func isolateHelmIndexCache(t *testing.T) {
 	t.Helper()
 
 	original := helmIndexCache
-	helmIndexCache = newTTLCache[[]byte](helmIndexCacheMaxEntries)
+	helmIndexCache = expirable.NewLRU[string, helmIndexEntry](helmIndexCacheMaxEntries, nil, helmIndexCacheTTL)
 	t.Cleanup(func() { helmIndexCache = original })
 }
 

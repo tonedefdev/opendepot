@@ -4,32 +4,31 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/clientcredentials"
 	"k8s.io/client-go/kubernetes"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
 const (
-	ociRealm                 = "opendepot"
-	ociTokenExchangeTimeout  = 10 * time.Second
-	ociTokenResponseMaxBytes = 64 << 10
-	ociTokenCacheMargin      = time.Minute
-	ociTokenCacheMaxEntries  = 256
-	ociIdentityCacheMaxAge   = 5 * time.Minute
-	ociSchemeHTTP            = "http"
-	ociSchemeHTTPS           = "https"
+	ociRealm                = "opendepot"
+	ociTokenExchangeTimeout = 10 * time.Second
+	ociTokenCacheMargin     = time.Minute
+	ociTokenCacheMaxEntries = 256
+	ociIdentityCacheMaxAge  = 5 * time.Minute
+	ociSchemeHTTP           = "http"
+	ociSchemeHTTPS          = "https"
 )
 
 // ociNow returns the current time. Tests replace it to move the credential and index caches past their expiry.
@@ -37,8 +36,13 @@ var ociNow = time.Now
 
 // ociCredentialCache holds the verified identities of client credentials that were exchanged with the IdP. It is keyed
 // by ociCredentialCacheKey, so a secret is never stored in clear text. An identity holds no GroupBinding, so the
-// binding is resolved on every request and a change to a GroupBinding applies to cached credentials at once.
-var ociCredentialCache = newTTLCache[ociIdentity](ociTokenCacheMaxEntries)
+// binding is resolved on every request and a change to a GroupBinding applies to cached credentials at once. The LRU
+// drops every entry after ociIdentityCacheMaxAge, and an identity is used only until its own expiresAt.
+var ociCredentialCache = expirable.NewLRU[string, ociIdentity](
+	ociTokenCacheMaxEntries,
+	nil,
+	ociIdentityCacheMaxAge,
+)
 
 // ociIdentity is the verified identity of a client credentials caller. The cache holds it until expiresAt.
 type ociIdentity struct {
@@ -95,7 +99,7 @@ func authenticateOCIBasic(r *http.Request, username, password string) (*ociPrinc
 	cacheKey := ""
 	if exchangeable {
 		cacheKey = ociCredentialCacheKey(username, password)
-		if identity, ok := ociCredentialCache.get(cacheKey, ociNow()); ok {
+		if identity, ok := ociCredentialCache.Get(cacheKey); ok && ociNow().Before(identity.expiresAt) {
 			return principalForIdentity(r.Context(), identity)
 		}
 	}
@@ -121,22 +125,26 @@ func authenticateOCIClientCredentials(r *http.Request, cacheKey, clientID, clien
 		return nil, http.StatusUnauthorized
 	}
 
-	accessToken, lifetime, err := exchangeOCIClientCredentials(r.Context(), tokenURL, clientID, clientSecret)
+	token, err := exchangeOCIClientCredentials(r.Context(), tokenURL, clientID, clientSecret)
 	if err != nil {
 		logger.Warn("OCI client credentials exchange failed", "error", err)
 		return nil, http.StatusUnauthorized
 	}
 
-	identity, err := verifyOCIAccessToken(r.Context(), accessToken)
+	identity, err := verifyOCIAccessToken(r.Context(), token.AccessToken)
 	if err != nil {
 		logger.Warn("OCI client credentials token rejected", "error", err)
 		return nil, http.StatusUnauthorized
 	}
 
-	now := ociNow()
+	var lifetime time.Duration
+	if !token.Expiry.IsZero() {
+		lifetime = time.Until(token.Expiry)
+	}
+
 	if ttl := min(lifetime-ociTokenCacheMargin, ociIdentityCacheMaxAge); ttl > 0 {
-		identity.expiresAt = now.Add(ttl)
-		ociCredentialCache.put(cacheKey, identity, identity.expiresAt, now)
+		identity.expiresAt = ociNow().Add(ttl)
+		ociCredentialCache.Add(cacheKey, identity)
 	}
 
 	return principalForIdentity(r.Context(), identity)
@@ -208,23 +216,10 @@ func principalForIdentity(ctx context.Context, identity ociIdentity) (*ociPrinci
 	return &ociPrincipal{clientset: clientset, binding: binding}, 0
 }
 
-// exchangeOCIClientCredentials requests an access token with the client_credentials grant. The client authenticates
-// with HTTP Basic. The request is bounded by a timeout, the response size is limited, and redirects are refused so the
-// secret is never sent to another host. Errors never include the response body or the credentials.
-func exchangeOCIClientCredentials(
-	ctx context.Context,
-	tokenURL, clientID, clientSecret string,
-) (string, time.Duration, error) {
-	form := url.Values{"grant_type": {"client_credentials"}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", 0, fmt.Errorf("build token request: %w", err)
-	}
-
-	req.SetBasicAuth(clientID, clientSecret)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", ociContentTypeJSON)
-
+// exchangeOCIClientCredentials requests an access token with the client_credentials grant from golang.org/x/oauth2. The
+// client authenticates with HTTP Basic. The request is bounded by a timeout, and redirects are refused so the secret is
+// never sent to another host. Errors never include the response body or the credentials.
+func exchangeOCIClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret string) (*oauth2.Token, error) {
 	client := &http.Client{
 		Timeout: ociTokenExchangeTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -232,30 +227,30 @@ func exchangeOCIClientCredentials(
 		},
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("token request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
+	cfg := clientcredentials.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenURL:     tokenURL,
+		AuthStyle:    oauth2.AuthStyleInHeader,
 	}
 
-	var body struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int64  `json:"expires_in"`
+	token, err := cfg.Token(context.WithValue(ctx, oauth2.HTTPClient, client))
+	if err == nil {
+		return token, nil
 	}
 
-	if err := json.NewDecoder(io.LimitReader(resp.Body, ociTokenResponseMaxBytes)).Decode(&body); err != nil {
-		return "", 0, errors.New("token endpoint returned an invalid response")
+	// oauth2 puts the raw response body into its error text, so only the status is reported for a failed exchange.
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) && retrieveErr.Response != nil {
+		return nil, fmt.Errorf("token endpoint returned status %d", retrieveErr.Response.StatusCode)
 	}
 
-	if body.AccessToken == "" {
-		return "", 0, errors.New("token endpoint returned no access token")
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return nil, fmt.Errorf("token request failed: %w", urlErr.Err)
 	}
 
-	return body.AccessToken, time.Duration(body.ExpiresIn) * time.Second, nil
+	return nil, errors.New("token endpoint returned an invalid response")
 }
 
 // ociTokenURL returns the IdP token endpoint for the client credentials exchange. It is --oidc-token-url when set, and
@@ -383,74 +378,4 @@ func (w *ociDiscardWriter) failureStatus() int {
 	}
 
 	return w.status
-}
-
-// ttlCache is a bounded map whose entries expire. When the map is full, it drops the expired entries first, then the
-// entry that expires first.
-type ttlCache[V any] struct {
-	mu         sync.Mutex
-	maxEntries int
-	entries    map[string]ttlCacheEntry[V]
-}
-
-type ttlCacheEntry[V any] struct {
-	value     V
-	expiresAt time.Time
-}
-
-func newTTLCache[V any](maxEntries int) *ttlCache[V] {
-	return &ttlCache[V]{maxEntries: maxEntries, entries: make(map[string]ttlCacheEntry[V])}
-}
-
-// get returns the value stored under key while it has not expired at now.
-func (c *ttlCache[V]) get(key string, now time.Time) (V, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	entry, ok := c.entries[key]
-	if !ok || !now.Before(entry.expiresAt) {
-		delete(c.entries, key)
-
-		var zero V
-
-		return zero, false
-	}
-
-	return entry.value, true
-}
-
-// put stores value under key until expiresAt, evicting an entry when the cache is full.
-func (c *ttlCache[V]) put(key string, value V, expiresAt, now time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxEntries {
-		c.evictLocked(now)
-	}
-
-	c.entries[key] = ttlCacheEntry[V]{value: value, expiresAt: expiresAt}
-}
-
-// evictLocked removes the expired entries and, when the map is still full, the entry that expires first.
-func (c *ttlCache[V]) evictLocked(now time.Time) {
-	for key, entry := range c.entries {
-		if !now.Before(entry.expiresAt) {
-			delete(c.entries, key)
-		}
-	}
-
-	if len(c.entries) < c.maxEntries {
-		return
-	}
-
-	var oldestKey string
-	var oldest time.Time
-	first := true
-	for key, entry := range c.entries {
-		if first || entry.expiresAt.Before(oldest) {
-			oldestKey, oldest, first = key, entry.expiresAt, false
-		}
-	}
-
-	delete(c.entries, oldestKey)
 }

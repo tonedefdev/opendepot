@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	k8sApiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -29,9 +30,16 @@ const (
 	helmProvenanceType       = "text/plain; charset=utf-8"
 )
 
+// helmIndexEntry is a rendered index.yaml and the time until which it may be served. The check against ociNow keeps
+// the expiry deterministic under test, and the LRU bounds the number of entries.
+type helmIndexEntry struct {
+	body      []byte
+	expiresAt time.Time
+}
+
 // helmIndexCache holds rendered index.yaml documents. Each key covers the namespace, the caller's visibility, and the
 // resourceVersion of every OCI Version in the namespace, so a change to any of them misses the cache.
-var helmIndexCache = newTTLCache[[]byte](helmIndexCacheMaxEntries)
+var helmIndexCache = expirable.NewLRU[string, helmIndexEntry](helmIndexCacheMaxEntries, nil, helmIndexCacheTTL)
 
 // helmChartFilePattern matches a chart file name, <name>-<version>.tgz or .prov. Group 1 is the name and version.
 var helmChartFilePattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._+-]{0,254})\.(tgz|prov)$`)
@@ -69,8 +77,9 @@ func HelmIndexHandler(w http.ResponseWriter, r *http.Request) {
 
 	key := helmIndexCacheKey(namespace, principal, versions)
 
-	body, ok := helmIndexCache.get(key, ociNow())
-	if !ok {
+	entry, ok := helmIndexCache.Get(key)
+	body := entry.body
+	if !ok || !ociNow().Before(entry.expiresAt) {
 		body, err = buildHelmIndex(r.Context(), principal, versions)
 		if err != nil {
 			logger.Error("helm: unable to build index.yaml", "error", err, "namespace", namespace)
@@ -79,8 +88,7 @@ func HelmIndexHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		now := ociNow()
-		helmIndexCache.put(key, body, now.Add(helmIndexCacheTTL), now)
+		helmIndexCache.Add(key, helmIndexEntry{body: body, expiresAt: ociNow().Add(helmIndexCacheTTL)})
 	}
 
 	w.Header().Set("Content-Type", helmIndexContentType)

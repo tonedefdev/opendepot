@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -79,7 +82,7 @@ func isolateOCICredentialCache(t *testing.T) {
 	t.Helper()
 
 	original := ociCredentialCache
-	ociCredentialCache = newTTLCache[ociIdentity](ociTokenCacheMaxEntries)
+	ociCredentialCache = expirable.NewLRU[string, ociIdentity](ociTokenCacheMaxEntries, nil, ociIdentityCacheMaxAge)
 	t.Cleanup(func() { ociCredentialCache = original })
 }
 
@@ -258,6 +261,40 @@ func TestAuthenticateOCIRequestClientCredentialsExchangeIsCachedUntilExpiry(t *t
 	}
 }
 
+func TestAuthenticateOCIRequestClientCredentialsShortLivedTokenExpiresOnTime(t *testing.T) {
+	env := newOCITestEnv(t, false)
+	env.addBinding("*")
+	isolateOCICredentialCache(t)
+
+	token := agentTestBearerToken(t, []string{ociTestGroup})
+	idp := newOCITestIdP(t, ociTestClientSecret, token, 120)
+	setOCITokenURL(t, idp.server.URL+ociTestTokenPath)
+	clock := setOCIClock(t, time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+
+	if _, status := authenticateOCIRequest(ociTestClientCredentialsRequest()); status != 0 {
+		t.Fatalf("first exchange status = %d, want success", status)
+	}
+
+	// A 120s token is cached for 60s, its lifetime less the one-minute margin, so 59s on the clock is still a hit.
+	*clock = clock.Add(59 * time.Second)
+	if _, status := authenticateOCIRequest(ociTestClientCredentialsRequest()); status != 0 {
+		t.Fatalf("cached status = %d, want success", status)
+	}
+
+	if calls := idp.calls.Load(); calls != 1 {
+		t.Fatalf("IdP calls before expiry = %d, want 1", calls)
+	}
+
+	*clock = clock.Add(2 * time.Second)
+	if _, status := authenticateOCIRequest(ociTestClientCredentialsRequest()); status != 0 {
+		t.Fatalf("refresh status = %d, want success", status)
+	}
+
+	if calls := idp.calls.Load(); calls != 2 {
+		t.Fatalf("IdP calls after expiry = %d, want 2: a 120s token must expire before its lifetime", calls)
+	}
+}
+
 // ociTestCachedCredentialsEnv returns an OCI test environment whose client credentials are exchanged with a mock IdP.
 // The first exchange has already been cached when it returns. It also returns the IdP and the request target.
 func ociTestCachedCredentialsEnv(t *testing.T, lifetime int64) (*ociTestEnv, *ociTestIdP, string) {
@@ -375,7 +412,7 @@ func TestAuthenticateOCIRequestClientCredentialsRejectsBadSecret(t *testing.T) {
 		t.Fatalf("IdP calls = %d, want 1", calls)
 	}
 
-	if len(ociCredentialCache.entries) != 0 {
+	if ociCredentialCache.Len() != 0 {
 		t.Fatal("a rejected exchange was cached")
 	}
 
@@ -526,53 +563,16 @@ func TestOCICredentialCacheKeyHidesCredentials(t *testing.T) {
 	}
 }
 
-func TestTTLCacheIsBoundedAndExpires(t *testing.T) {
-	start := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+func TestOCICredentialCacheIsBounded(t *testing.T) {
+	isolateOCICredentialCache(t)
 
-	t.Run("expired entries are dropped before the cache evicts", func(t *testing.T) {
-		cache := newTTLCache[int](2)
-		cache.put("a", 1, start.Add(10*time.Second), start)
-		cache.put("b", 2, start.Add(20*time.Second), start)
-		cache.put("c", 3, start.Add(40*time.Second), start.Add(15*time.Second))
+	for i := range ociTokenCacheMaxEntries + 1 {
+		ociCredentialCache.Add(ociCredentialCacheKey(ociTestClientID, strconv.Itoa(i)), ociIdentity{subject: ociTestClientID})
+	}
 
-		if _, ok := cache.get("a", start.Add(15*time.Second)); ok {
-			t.Fatal("expired entry a is still cached")
-		}
-
-		if value, ok := cache.get("b", start.Add(15*time.Second)); !ok || value != 2 {
-			t.Fatal("live entry b was evicted")
-		}
-
-		if len(cache.entries) > 2 {
-			t.Fatalf("cache holds %d entries, want at most 2", len(cache.entries))
-		}
-	})
-
-	t.Run("a full cache evicts the entry that expires first", func(t *testing.T) {
-		cache := newTTLCache[int](2)
-		cache.put("a", 1, start.Add(10*time.Second), start)
-		cache.put("b", 2, start.Add(20*time.Second), start)
-		cache.put("c", 3, start.Add(30*time.Second), start)
-
-		if _, ok := cache.get("a", start); ok {
-			t.Fatal("the entry that expires first was kept")
-		}
-
-		for _, key := range []string{"b", "c"} {
-			if _, ok := cache.get(key, start); !ok {
-				t.Fatalf("entry %s was evicted", key)
-			}
-		}
-	})
-
-	t.Run("an expired get reports a miss", func(t *testing.T) {
-		cache := newTTLCache[int](1)
-		cache.put("a", 1, start, start.Add(-time.Second))
-
-		if _, ok := cache.get("a", start); ok {
-			t.Fatal("expired entry was returned")
-		}
-	})
+	if got := ociCredentialCache.Len(); got > ociTokenCacheMaxEntries {
+		t.Fatalf("cache holds %d entries, want at most %d", got, ociTokenCacheMaxEntries)
+	}
 }
 
 func TestHasBasicScheme(t *testing.T) {
