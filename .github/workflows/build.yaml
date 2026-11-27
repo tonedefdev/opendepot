@@ -108,7 +108,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ matrix.service.name == 'ui' && format('APK_PATCH_STAMP={0}-{1}', github.run_id, github.run_attempt) || matrix.service.buildArgs }}
+          build-args: ${{ (matrix.service.name == 'ui' || matrix.service.name == 'docs') && format('APK_PATCH_STAMP={0}-{1}', github.run_id, github.run_attempt) || matrix.service.buildArgs }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -32,7 +32,7 @@ spec:
         fsGroup: 65532
       initContainers:
       - name: init-service-account
-        image: busybox:1.37
+        image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
         command: ["sh", "-c", "cat /var/run/opendepot-serviceaccount/ca.crt > /var/run/secrets/kubernetes.io/serviceaccount/ca.crt && cat /var/run/opendepot-serviceaccount/namespace > /var/run/secrets/kubernetes.io/serviceaccount/namespace && cat /var/run/opendepot-serviceaccount/token > /var/run/secrets/kubernetes.io/serviceaccount/token"]
         securityContext:
           allowPrivilegeEscalation: false
@@ -55,7 +55,7 @@ spec:
           mountPath: /var/run/secrets/kubernetes.io/serviceaccount
       {{- if and .Values.storage.filesystem.enabled .Values.storage.filesystem.hostPath }}
       - name: fix-permissions
-        image: busybox:1.37
+        image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
         command: ["sh", "-c", "chown -R 65532:65532 {{ .Values.storage.filesystem.mountPath }}"]
         resources:
           limits:
@@ -71,7 +71,7 @@ spec:
           mountPath: {{ .Values.storage.filesystem.mountPath }}
       {{- end }}
       - name: init-restart-proc
-        image: busybox:1.37
+        image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
         command: ["touch", "/tmp/.restart-proc"]
         securityContext:
           allowPrivilegeEscalation: false

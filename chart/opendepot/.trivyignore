@@ -1,9 +1,0 @@
-# KSV-0109: ConfigMap with secrets
-#
-# The vendored Valkey chart stores an initialization shell script in a ConfigMap.
-# Trivy flags the script's local variable named "password", but no credential is
-# embedded in the ConfigMap. At runtime the script reads the value from the mounted
-# usersExistingSecret, hashes it, and writes the generated ACL file with mode 0400.
-KSV-0109
-
-# No vulnerability suppressions are currently required.
