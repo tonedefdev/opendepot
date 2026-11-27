@@ -44,12 +44,12 @@ jobs:
           - name: server
             context: .
             path: services/server
-            buildArgs: ""
+            buildArgs: "CLI_VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}"
             tagSuffix: ""
           - name: server
             context: .
             path: services/server
-            buildArgs: "INCLUDE_TOFU=true"
+            buildArgs: "INCLUDE_TOFU=true\nCLI_VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}"
             tagSuffix: "-assembly"
           - name: provider-controller
             context: .

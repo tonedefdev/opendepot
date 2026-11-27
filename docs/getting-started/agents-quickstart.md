@@ -28,15 +28,15 @@ Install [Docker](https://docs.docker.com/get-docker/),
 [`kubectl`](https://kubernetes.io/docs/tasks/tools/),
 [Helm 3](https://helm.sh/docs/intro/install/),
 [mkcert](https://github.com/FiloSottile/mkcert#installation), and
-[GPG](https://gnupg.org/download/). You install the `opendepot` CLI in Step 7.
+[GPG](https://gnupg.org/download/). You install the `opendepot` CLI in Step 8.
 
 ## Step 1: Create a cluster
 
 Create a local Kind cluster:
 
 ```bash
-kind create cluster --name opendepot
-kubectl config use-context kind-opendepot
+kind create cluster --name opendepot-quickstart
+kubectl config use-context kind-opendepot-quickstart
 kubectl create namespace opendepot-system
 ```
 
@@ -106,11 +106,11 @@ helm repo add opendepot https://opendepot.defdev.io
 helm repo update
 ```
 
-Install release 0.12.0 with the agent controller and branch sourcing enabled:
+Install release 0.12.1 with the agent controller and branch sourcing enabled:
 
 ```bash
 helm install opendepot opendepot/opendepot \
-  --version 0.12.0 \
+  --version 0.12.1 \
   --namespace opendepot-system \
   --set agent.enabled=true \
   --set branchSourcing.enabled=true \
@@ -159,7 +159,21 @@ kubectl port-forward -n opendepot-system svc/server 8081:80
 The registry API is available at `https://opendepot.localtest.me:8081`. The
 hostname resolves to `127.0.0.1`, and the mkcert certificate covers it.
 
-## Step 6: Deploy the Depot
+## Step 6: Seed the Trivy database
+
+The scanner needs the Trivy vulnerability database before its first scan. The
+`trivy-db-updater` CronJob runs daily at 02:00 UTC, so a fresh cluster has no
+database until that run. Without this step, the first scan fails with
+`--skip-db-update cannot be specified on the first run`.
+
+Create a one-time Job from the CronJob and wait for it to complete:
+
+```bash
+kubectl create job --from=cronjob/trivy-db-updater trivy-db-seed -n opendepot-system
+kubectl wait --for=condition=complete job/trivy-db-seed -n opendepot-system --timeout=15m
+```
+
+## Step 7: Deploy the Depot
 
 Save the following manifest as `agents-depot.yaml`, then apply it:
 
@@ -208,10 +222,11 @@ Check that the Skill and Agent resources are synced:
 kubectl get skills.opendepot.defdev.io,agents.opendepot.defdev.io -n opendepot-system
 ```
 
-The `SYNCED` column shows `true` and `LATESTVERSION` shows `1.0.0` when the first
-version is ready. This can take a minute or two.
+The `SYNCED` column shows `true` and `LATESTVERSION` shows `v1.0.0` when the first
+version is ready. The `opendepot` CLI reports the same version as `1.0.0`. This can
+take a minute or two.
 
-## Step 7: Install the CLI
+## Step 8: Install the CLI
 
 The registry serves prebuilt `opendepot` binaries, so you don't need a Go
 toolchain. Download the binary for your platform and the `SHA256SUMS` file from
@@ -236,9 +251,11 @@ shasum -a 256 -c SHA256SUMS --ignore-missing && \
   opendepot --version
 ```
 
+The last command prints `opendepot version 0.12.1`.
+
 On Linux, replace `shasum -a 256 -c` with `sha256sum -c`. The checksum check must print `OK` before the binary is installed. For Windows and other install options, see [Download the binary](../reference/cli.md#download-the-binary).
 
-## Step 8: Browse the catalog
+## Step 9: Browse the catalog
 
 The CLI reads the catalog without a login because anonymous access is enabled.
 List the published skills and agents:
@@ -252,7 +269,7 @@ Each row shows the `SOURCE` as `namespace/name`. The namespace is the
 Kubernetes namespace of the resource, so both entries appear as
 `opendepot-system/...`.
 
-## Step 9: Install into a project
+## Step 10: Install into a project
 
 Create a scratch project and declare the skill and agent in `opendepot.hcl`:
 
@@ -293,14 +310,14 @@ lock file without network access.
 The first install pins the signing key that signed each package. Later installs
 must match that key. To pin the key up front, add `signing_key` to the block.
 
-## Step 10: Clean up
+## Step 11: Clean up
 
 Remove the Kind cluster and the scratch project when you finish:
 
 ```bash
 cd ..
 rm -rf agents-demo agents-depot.yaml
-kind delete cluster --name opendepot
+kind delete cluster --name opendepot-quickstart
 ```
 
 ## Next steps
