@@ -115,6 +115,13 @@ oci:
     userNamespaces: false
     # runtimeClassName runs build pods under a RuntimeClass, such as Kata. Empty uses the default runtime.
     runtimeClassName: ""
+    # ttlSecondsAfterFinished removes finished build Jobs after this many seconds. 0 uses the controller default of 600.
+    ttlSecondsAfterFinished: 600
+    # nodeSelector and tolerations schedule build pods onto dedicated nodes, such as a builds node pool.
+    nodeSelector: {}
+    tolerations: []
+    # priorityClassName sets the priority of build pods. Empty uses the cluster default.
+    priorityClassName: ""
     broker:
       port: 8090
     networkPolicy:

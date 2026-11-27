@@ -857,9 +857,8 @@ func TestOCIBuildsAdmissionPolicyAllowList(t *testing.T) {
 
 	var allowList string
 	for _, validation := range validations {
-		expression := validation.(map[string]interface{})["expression"].(string)
-		if strings.Contains(expression, "moby/buildkit") {
-			allowList = expression
+		if v := validation.(map[string]interface{}); v["message"] == "images must be the pinned BuildKit image or the build helper image" {
+			allowList = v["expression"].(string)
 		}
 	}
 	assert.Contains(t, allowList, `"moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be"`)
@@ -869,6 +868,90 @@ func TestOCIBuildsAdmissionPolicyAllowList(t *testing.T) {
 	namespaces, _, err := unstructured.NestedString(binding.Object, "spec", "matchResources", "namespaceSelector", "matchLabels", "kubernetes.io/metadata.name")
 	require.NoError(t, err)
 	assert.Equal(t, "opendepot-builds", namespaces)
+}
+
+func TestOCIBuildsSchedulingFlags(t *testing.T) {
+	defaults := renderTemplate(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil, "templates/version-deployment.yaml")
+	defaultArgs := strings.Join(unmarshal[appsv1.Deployment](t, defaults).Spec.Template.Spec.Containers[1].Args, " ")
+	assert.Contains(t, defaultArgs, "--oci-builds-ttl-seconds-after-finished=600")
+	assert.NotContains(t, defaultArgs, "--oci-builds-node-selector")
+	assert.NotContains(t, defaultArgs, "--oci-builds-tolerations")
+	assert.NotContains(t, defaultArgs, "--oci-builds-priority-class-name")
+
+	rendered := renderTemplate(t, map[string]string{
+		"oci.enabled":                        "true",
+		"oci.builds.enabled":                 "true",
+		"scanning.enabled":                   "true",
+		"oci.builds.ttlSecondsAfterFinished": "300",
+		"oci.builds.nodeSelector.pool":       "builds",
+		"oci.builds.tolerations[0].key":      "builds",
+		"oci.builds.tolerations[0].operator": "Equal",
+		"oci.builds.tolerations[0].value":    "builds",
+		"oci.builds.tolerations[0].effect":   "NoSchedule",
+		"oci.builds.priorityClassName":       "opendepot-builds",
+	}, nil, "templates/version-deployment.yaml")
+	args := strings.Join(unmarshal[appsv1.Deployment](t, rendered).Spec.Template.Spec.Containers[1].Args, " ")
+	assert.Contains(t, args, "--oci-builds-ttl-seconds-after-finished=300")
+	assert.Contains(t, args, `--oci-builds-node-selector={"pool":"builds"}`)
+	assert.Contains(t, args, `--oci-builds-tolerations=[{"effect":"NoSchedule","key":"builds","operator":"Equal","value":"builds"}]`)
+	assert.Contains(t, args, "--oci-builds-priority-class-name=opendepot-builds")
+}
+
+func TestOCIBuildsAdmissionPolicyB1Expressions(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	policy := findResource(t, renderedResources(t, rendered), "ValidatingAdmissionPolicy", "opendepot-build-pods")
+
+	validations, found, err := unstructured.NestedSlice(policy.Object, "spec", "validations")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	expressions := map[string]string{}
+	for _, validation := range validations {
+		v := validation.(map[string]interface{})
+		expressions[v["message"].(string)] = v["expression"].(string)
+	}
+
+	hardening := expressions["non-buildkit containers must set allowPrivilegeEscalation false, drop ALL capabilities, use a read-only root filesystem, use the RuntimeDefault seccomp profile, and run as non-root"]
+	require.NotEmpty(t, hardening)
+	assert.Contains(t, hardening, "allowPrivilegeEscalation == false")
+	assert.Contains(t, hardening, `capabilities.drop.exists(d, d == "ALL")`)
+	assert.Contains(t, hardening, "readOnlyRootFilesystem == true")
+	assert.Contains(t, hardening, `seccompProfile.type == "RuntimeDefault"`)
+	assert.Contains(t, hardening, "runAsNonRoot == true")
+
+	limits := expressions["every build container must set cpu, memory, and ephemeral-storage limits"]
+	require.NotEmpty(t, limits)
+	assert.Contains(t, limits, `"cpu" in c.resources.limits`)
+	assert.Contains(t, limits, `"memory" in c.resources.limits`)
+	assert.Contains(t, limits, `"ephemeral-storage" in c.resources.limits`)
+
+	binding := expressions["the buildkit container must use the pinned BuildKit image, and only the buildkit container may use it"]
+	require.NotEmpty(t, binding)
+	assert.Contains(t, binding, `(c.name == "buildkit") == (c.image == "moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be")`)
+
+	buildkit := expressions["the buildkit container must use a read-only root filesystem, drop ALL capabilities, add only SETUID and SETGID, and use Unconfined seccomp and AppArmor profiles"]
+	require.NotEmpty(t, buildkit)
+	assert.Contains(t, buildkit, `c.name != "buildkit"`)
+	assert.Contains(t, buildkit, "readOnlyRootFilesystem == true")
+	assert.Contains(t, buildkit, `c.securityContext.capabilities.add.all(a, a in ["SETUID", "SETGID"])`)
+	assert.Contains(t, buildkit, `seccompProfile.type == "Unconfined"`)
+	assert.Contains(t, buildkit, `appArmorProfile.type == "Unconfined"`)
+
+	volumes := expressions["build pods may only use emptyDir volumes and build token secret volumes"]
+	require.NotEmpty(t, volumes)
+	assert.Contains(t, volumes, "has(v.emptyDir)")
+	assert.Contains(t, volumes, `v.secret.secretName.startsWith("odb-")`)
+	for _, forbidden := range []string{"projected", "csi", "configMap", "persistentVolumeClaim", "ephemeral", "hostPath"} {
+		assert.NotContains(t, volumes, forbidden)
+	}
 }
 
 func TestOCIBuildsNetworkPolicyExceptFamilies(t *testing.T) {

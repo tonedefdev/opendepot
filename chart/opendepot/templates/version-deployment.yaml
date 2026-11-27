@@ -184,6 +184,16 @@ spec:
         {{- if .Values.oci.builds.runtimeClassName }}
         - "--oci-builds-runtime-class={{ .Values.oci.builds.runtimeClassName }}"
         {{- end }}
+        - --oci-builds-ttl-seconds-after-finished={{ .Values.oci.builds.ttlSecondsAfterFinished }}
+        {{- if .Values.oci.builds.nodeSelector }}
+        - {{ printf "--oci-builds-node-selector=%s" (toJson .Values.oci.builds.nodeSelector) | quote }}
+        {{- end }}
+        {{- if .Values.oci.builds.tolerations }}
+        - {{ printf "--oci-builds-tolerations=%s" (toJson .Values.oci.builds.tolerations) | quote }}
+        {{- end }}
+        {{- if .Values.oci.builds.priorityClassName }}
+        - "--oci-builds-priority-class-name={{ .Values.oci.builds.priorityClassName }}"
+        {{- end }}
         - "--oci-builds-snapshotter={{ .Values.oci.builds.snapshotter }}"
         - "--oci-build-broker-addr=:{{ .Values.oci.builds.broker.port }}"
         - "--oci-build-broker-url=http://version-controller-build-broker.{{ .Values.global.namespace }}.svc:{{ .Values.oci.builds.broker.port }}"
