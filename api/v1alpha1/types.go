@@ -1273,6 +1273,11 @@ type VersionStatus struct {
 	// OCIScan is the Trivy scan result for an OCIArtifact Version. Only populated for OCIArtifact Versions when scanning is enabled.
 	// +optional
 	OCIScan *SourceScan `json:"ociScan,omitempty"`
+	// OCIBuild holds the in-cluster build state of an Image OCIArtifact Version that is built from a build source.
+	// Only populated for OCIArtifact Versions that have a build source. It is for display and debugging, and the
+	// server serves only status.ociManifest.
+	// +optional
+	OCIBuild *OCIBuildStatus `json:"ociBuild,omitempty"`
 	// MCPMetadata holds the server metadata parsed from an MCPServer Version's server.json and package.
 	// Only populated for MCPServer Versions.
 	// +optional
@@ -1303,6 +1308,69 @@ type OCIManifestStatus struct {
 	TotalSizeBytes int64 `json:"totalSizeBytes"`
 	// Whether the upstream cosign signature was verified. Only set when a signature check ran.
 	SignatureVerified *bool `json:"signatureVerified,omitempty"`
+}
+
+// OCIBuildStatus describes the in-cluster build of an Image OCIArtifact Version.
+type OCIBuildStatus struct {
+	// The random identifier of the build. It names the build Jobs and the staged context.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]{20}$`
+	BuildID string `json:"buildID"`
+	// The full commit SHA that the Git tag resolved to when the build started.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	SourceCommit string `json:"sourceCommit"`
+	// The Git tag that the build was started from.
+	// +kubebuilder:validation:MaxLength=255
+	SourceTag string `json:"sourceTag"`
+	// The sha256 digest of the staged build context.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	// +optional
+	ContextDigest string `json:"contextDigest,omitempty"`
+	// The sha256 hash of the one-time token that the build Job uses to fetch the build context. The token itself is never stored.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	// +optional
+	FetchTokenHash string `json:"fetchTokenHash,omitempty"`
+	// The sha256 hash of the one-time token that the build Job uses to upload the OCI layout. The token itself is never stored.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	// +optional
+	UploadTokenHash string `json:"uploadTokenHash,omitempty"`
+	// The build's phase.
+	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed
+	Phase string `json:"phase"`
+	// The time that the build started.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// The time that the build completed.
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+	// A human-readable message about the build's phase.
+	// +kubebuilder:validation:MaxLength=1024
+	// +optional
+	Message string `json:"message,omitempty"`
+	// The build status of each platform.
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Platforms []OCIBuildPlatformStatus `json:"platforms,omitempty"`
+}
+
+// OCIBuildPlatformStatus describes the build Job of one platform in an OCIBuildStatus.
+type OCIBuildPlatformStatus struct {
+	// The platform that the build Job builds, such as linux/amd64.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]+/[a-z0-9]+(/[a-z0-9.]+)?$`
+	Platform string `json:"platform"`
+	// The name of the build Job for this platform.
+	// +kubebuilder:validation:MaxLength=63
+	JobName string `json:"jobName"`
+	// The build Job's phase for this platform.
+	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed
+	Phase string `json:"phase"`
+	// The sha256 digest of the manifest that this platform's build produced.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	// +optional
+	ManifestDigest string `json:"manifestDigest,omitempty"`
+	// A human-readable message about this platform's build.
+	// +kubebuilder:validation:MaxLength=1024
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // HelmChartMetadata holds the fields that the OCIArtifact Version parsed from a Helm chart's Chart.yaml.

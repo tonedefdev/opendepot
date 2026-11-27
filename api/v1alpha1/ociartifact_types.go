@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,8 +43,10 @@ type OCIArtifactVersion struct {
 }
 
 // OCIArtifactConfig is the configuration settings for the OCIArtifact and for each Version created by the OCI controller.
-// +kubebuilder:validation:XValidation:rule="has(self.mirror) != has(self.github)",message="exactly one of mirror or github is required"
-// +kubebuilder:validation:XValidation:rule="!has(self.github) || self.artifactType != 'Image'",message="images can only be mirrored"
+// +kubebuilder:validation:XValidation:rule="(has(self.mirror) ? 1 : 0) + (has(self.github) ? 1 : 0) + (has(self.build) ? 1 : 0) == 1",message="exactly one of mirror, github, or build is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.github) || self.artifactType != 'Image'",message="images can only be mirrored or built"
+// +kubebuilder:validation:XValidation:rule="!has(self.build) || self.artifactType == 'Image'",message="build is only valid for Image"
+// +kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.platforms) || self.platforms.all(p, p.startsWith('linux/'))",message="build platforms must be linux"
 // +kubebuilder:validation:XValidation:rule="!has(self.platforms) || self.artifactType == 'Image'",message="platforms is only valid for Image"
 // +kubebuilder:validation:XValidation:rule="!has(self.tagPattern) || !has(self.versionConstraints) || size(self.versionConstraints) == 0",message="tagPattern and versionConstraints are mutually exclusive"
 type OCIArtifactConfig struct {
@@ -60,6 +63,9 @@ type OCIArtifactConfig struct {
 	Mirror *OCIMirrorSource `json:"mirror,omitempty"`
 	// The GitHub release assets that the artifact is built from. Only valid for Helm and Generic artifacts.
 	Github *OCIGithubSource `json:"github,omitempty"`
+	// The GitHub repository that the Image is built from in-cluster with rootless BuildKit. Only valid for Image.
+	// Requires the chart value `oci.builds.enabled`.
+	Build *OCIBuildSource `json:"build,omitempty"`
 	// The platforms, such as linux/amd64, that are mirrored for an Image. Only valid for Image.
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]+/[a-z0-9]+(/[a-z0-9.]+)?$`
@@ -128,6 +134,82 @@ type OCIGithubSource struct {
 	// The artifact type of the manifest. Only used for Generic artifacts.
 	// +kubebuilder:validation:MaxLength=255
 	ArtifactMediaType *string `json:"artifactMediaType,omitempty"`
+}
+
+// OCIBuildSource is a GitHub repository that an Image OCIArtifact is built from in-cluster with rootless BuildKit.
+type OCIBuildSource struct {
+	// Owner of the Github repository.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=39
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`
+	RepoOwner string `json:"repoOwner"`
+	// The full URL of the Github repository. The controller validates it at runtime.
+	// +kubebuilder:validation:MaxLength=512
+	RepoUrl *string `json:"repoUrl,omitempty"`
+	// The prefix of the Git tags that version this source, such as 'my-chart/'. The prefix is
+	// stripped from each tag to produce the version. If omitted, tags are used as-is.
+	// +kubebuilder:validation:MaxLength=128
+	TagPrefix *string `json:"tagPrefix,omitempty"`
+	// The directory that is sent to the build as its context, relative to the root of the repository.
+	// Defaults to '.' when omitted.
+	// +kubebuilder:default="."
+	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`
+	// +kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.'))",message="contextPath must be a relative path without dot segments"
+	// +optional
+	ContextPath string `json:"contextPath,omitempty"`
+	// The path of the Dockerfile, relative to the root of the repository, like docker build -f. It may be outside
+	// the context. Defaults to 'Dockerfile' when omitted.
+	// +kubebuilder:default="Dockerfile"
+	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/') && !self.split('/').exists(s, s == '..' || s == '.')",message="dockerfilePath must be a relative path without dot segments"
+	// +optional
+	DockerfilePath string `json:"dockerfilePath,omitempty"`
+	// The build stage to build, as in docker build --target.
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._-]*$`
+	Target *string `json:"target,omitempty"`
+	// Non-secret build arguments. Values are stored in plain text in the resource and the image history. Do not put secrets here.
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	BuildArgs []OCIBuildArg `json:"buildArgs,omitempty"`
+	// The maximum time in seconds that a build may run. The controller clamps it to the chart maximum.
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=7200
+	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+	// The compute resources for each build. The controller clamps each value to the chart maximum.
+	Resources *OCIBuildResources `json:"resources,omitempty"`
+}
+
+// OCIBuildArg is a non-secret build argument that is passed to the Dockerfile as --build-arg.
+type OCIBuildArg struct {
+	// The name of the build argument.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[A-Za-z_][A-Za-z0-9_]*$`
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('BUILDKIT_') && self != 'SOURCE_DATE_EPOCH'",message="reserved build argument"
+	Name string `json:"name"`
+	// The value of the build argument. Control characters and newlines are not allowed.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:Pattern=`^[^\x00-\x08\x0a-\x1f\x7f]*$`
+	Value string `json:"value"`
+}
+
+// OCIBuildResources are the compute resources that each build Job requests.
+type OCIBuildResources struct {
+	// The CPU that each build Job requests, such as 2 or 500m.
+	// +optional
+	CPU *resource.Quantity `json:"cpu,omitempty"`
+	// The memory that each build Job requests, such as 4Gi.
+	// +optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+	// The ephemeral storage that each build Job requests, such as 10Gi.
+	// +optional
+	EphemeralStorage *resource.Quantity `json:"ephemeralStorage,omitempty"`
 }
 
 // +kubebuilder:object:root=true
