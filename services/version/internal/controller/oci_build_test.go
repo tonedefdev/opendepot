@@ -28,6 +28,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/google/go-github/v81/github"
@@ -803,4 +804,45 @@ func ocibuildPlatform(s string) ocibuild.Platform {
 	Expect(err).NotTo(HaveOccurred())
 
 	return p
+}
+
+func TestOCIBuildJobParamsCarrySchedulingOptions(t *testing.T) {
+	selector := map[string]string{"opendepot.defdev.io/pool": "builds"}
+	tolerations := []corev1.Toleration{{Key: "builds", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+	r := &VersionReconciler{OCIBuilds: OCIBuildOptions{
+		Namespace:               ociBuildsTestNamespace,
+		TTLSecondsAfterFinished: 900,
+		NodeSelector:            selector,
+		Tolerations:             tolerations,
+		PriorityClassName:       "opendepot-builds",
+	}}
+
+	version := &opendepotv1alpha1.Version{}
+	config := &opendepotv1alpha1.OCIArtifactConfig{Build: &opendepotv1alpha1.OCIBuildSource{}}
+	run := ociBuildRun{committedAt: time.Unix(1767323045, 0), timeout: 1800}
+	tokens := ociBuildTokens{fetch: "fetch", upload: "upload"}
+	platform := ocibuild.Platform{OS: "linux", Architecture: "amd64"}
+	contextDigest := digest.Digest("sha256:" + strings.Repeat("a", 64))
+
+	params := r.ociBuildJobParams(version, config, run, "build", platform, contextDigest, tokens)
+	if params.TTLSecondsAfterFinished != 900 {
+		t.Fatalf("TTLSecondsAfterFinished = %d, want 900", params.TTLSecondsAfterFinished)
+	}
+
+	if params.NodeSelector["opendepot.defdev.io/pool"] != "builds" || len(params.NodeSelector) != 1 {
+		t.Fatalf("NodeSelector = %v", params.NodeSelector)
+	}
+
+	if len(params.Tolerations) != 1 || params.Tolerations[0].Key != "builds" {
+		t.Fatalf("Tolerations = %+v", params.Tolerations)
+	}
+
+	if params.PriorityClassName != "opendepot-builds" {
+		t.Fatalf("PriorityClassName = %q", params.PriorityClassName)
+	}
+
+	r.OCIBuilds.TTLSecondsAfterFinished = 0
+	if got := r.ociBuildJobParams(version, config, run, "build", platform, contextDigest, tokens).TTLSecondsAfterFinished; got != ociBuildTTLSecondsAfterFinished {
+		t.Fatalf("unset TTL = %d, want the default %d", got, ociBuildTTLSecondsAfterFinished)
+	}
 }

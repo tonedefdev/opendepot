@@ -69,7 +69,7 @@ const (
 	ociBuildDefaultTimeoutSeconds int64 = 1800
 	// ociBuildDefaultMaxConcurrentJobs is the slot cap when MaxConcurrentJobs is unset.
 	ociBuildDefaultMaxConcurrentJobs = 2
-	// ociBuildTTLSecondsAfterFinished is how long a finished build Job is kept before the TTL controller removes it.
+	// ociBuildTTLSecondsAfterFinished is how long a finished build Job is kept when TTLSecondsAfterFinished is unset.
 	ociBuildTTLSecondsAfterFinished int32 = 600
 	// ociBuildDefaultPlatform is built when no platform is set and no default is configured.
 	ociBuildDefaultPlatform = "linux/amd64"
@@ -125,6 +125,14 @@ type OCIBuildOptions struct {
 	RuntimeClassName *string
 	// Snapshotter is ocibuild.SnapshotterAuto or ocibuild.SnapshotterNative.
 	Snapshotter string
+	// TTLSecondsAfterFinished is how long a finished build Job is kept. Zero uses 600 seconds.
+	TTLSecondsAfterFinished int32
+	// NodeSelector is merged with the platform selector of build Pods.
+	NodeSelector map[string]string
+	// Tolerations are applied to build Pods.
+	Tolerations []corev1.Toleration
+	// PriorityClassName is the priority class of build Pods. Empty uses the default priority.
+	PriorityClassName string
 }
 
 // ociBuildRun holds the settings that one build's Jobs are rendered from.
@@ -554,6 +562,11 @@ func (r *VersionReconciler) ociBuildJobParams(
 	tokens ociBuildTokens,
 ) ocibuild.JobParams {
 	src := config.Build
+	ttl := r.OCIBuilds.TTLSecondsAfterFinished
+	if ttl == 0 {
+		ttl = ociBuildTTLSecondsAfterFinished
+	}
+
 	params := ocibuild.JobParams{
 		Namespace:               r.OCIBuilds.Namespace,
 		BuildID:                 buildID,
@@ -567,12 +580,15 @@ func (r *VersionReconciler) ociBuildJobParams(
 		BuildKitImage:           r.OCIBuilds.BuildKitImage,
 		HelperImage:             r.OCIBuilds.HelperImage,
 		ActiveDeadlineSeconds:   run.timeout,
-		TTLSecondsAfterFinished: ociBuildTTLSecondsAfterFinished,
+		TTLSecondsAfterFinished: ttl,
 		Resources:               run.resources,
 		VolumeSizeLimit:         run.resources.Limits[corev1.ResourceEphemeralStorage],
 		RuntimeClassName:        r.OCIBuilds.RuntimeClassName,
 		UserNamespaces:          r.OCIBuilds.UserNamespaces,
 		Snapshotter:             r.OCIBuilds.Snapshotter,
+		NodeSelector:            r.OCIBuilds.NodeSelector,
+		Tolerations:             r.OCIBuilds.Tolerations,
+		PriorityClassName:       r.OCIBuilds.PriorityClassName,
 		FetchToken:              tokens.fetch,
 		UploadToken:             tokens.upload,
 	}

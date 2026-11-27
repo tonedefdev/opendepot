@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -35,6 +37,7 @@ const (
 	defaultOCIBuildsMaxImageBytes   = "8Gi"
 	defaultOCIBuildsSnapshotter     = ocibuild.SnapshotterAuto
 	defaultOCIBuildBrokerAddr       = ":8090"
+	defaultOCIBuildTTLSeconds       = 600
 )
 
 // ociBuildFlags holds the values of the --oci-builds-* and --oci-build-broker-* flags.
@@ -58,6 +61,10 @@ type ociBuildFlags struct {
 	snapshotter       string
 	brokerAddr        string
 	brokerURL         string
+	ttlSeconds        int
+	nodeSelector      string
+	tolerations       string
+	priorityClassName string
 }
 
 // registerOCIBuildFlags binds the build flags to f on fs.
@@ -101,6 +108,14 @@ func registerOCIBuildFlags(fs *flag.FlagSet, f *ociBuildFlags) {
 	fs.StringVar(&f.brokerURL, "oci-build-broker-url", "",
 		"The base URL of the build broker that build Pods reach, "+
 			"such as http://version-controller-build-broker.opendepot:8090.")
+	fs.IntVar(&f.ttlSeconds, "oci-builds-ttl-seconds-after-finished", defaultOCIBuildTTLSeconds,
+		"How long a finished build Job is kept before it is removed. Zero uses the default of 600 seconds.")
+	fs.StringVar(&f.nodeSelector, "oci-builds-node-selector", "",
+		"A JSON object of node labels that build Pods must match, such as {\"pool\":\"builds\"}.")
+	fs.StringVar(&f.tolerations, "oci-builds-tolerations", "",
+		"A JSON array of tolerations that build Pods carry, such as [{\"key\":\"builds\",\"operator\":\"Exists\"}].")
+	fs.StringVar(&f.priorityClassName, "oci-builds-priority-class-name", "",
+		"The priority class of build Pods. Empty uses the default priority.")
 }
 
 // options checks the flags and returns the controller options. A disabled build feature needs no other settings. An
@@ -169,6 +184,21 @@ func (f ociBuildFlags) options() (controller.OCIBuildOptions, error) {
 		return controller.OCIBuildOptions{}, err
 	}
 
+	if f.ttlSeconds < 0 || f.ttlSeconds > math.MaxInt32 {
+		return controller.OCIBuildOptions{}, errors.New(
+			"--oci-builds-ttl-seconds-after-finished must be between 0 and 2147483647")
+	}
+
+	nodeSelector, err := parseOCIBuildNodeSelector("--oci-builds-node-selector", f.nodeSelector)
+	if err != nil {
+		return controller.OCIBuildOptions{}, err
+	}
+
+	tolerations, err := parseOCIBuildTolerations("--oci-builds-tolerations", f.tolerations)
+	if err != nil {
+		return controller.OCIBuildOptions{}, err
+	}
+
 	platforms := parseOCIAllowedRegistries(f.defaultPlatforms)
 	for _, platform := range platforms {
 		if _, err := ocibuild.ParsePlatform(platform); err != nil {
@@ -182,25 +212,61 @@ func (f ociBuildFlags) options() (controller.OCIBuildOptions, error) {
 	}
 
 	return controller.OCIBuildOptions{
-		Enabled:               true,
-		Namespace:             strings.TrimSpace(f.namespace),
-		BrokerURL:             strings.TrimRight(strings.TrimSpace(f.brokerURL), "/"),
-		BuildKitImage:         strings.TrimSpace(f.buildKitImage),
-		HelperImage:           strings.TrimSpace(f.helperImage),
-		MaxConcurrentJobs:     f.maxConcurrent,
-		AllowedRepoOwners:     parseOCIAllowedRegistries(f.allowedRepoOwners),
-		DefaultPlatforms:      platforms,
-		DefaultTimeoutSeconds: int64(f.defaultTimeout / time.Second),
-		MaxTimeoutSeconds:     int64(f.maxTimeout / time.Second),
-		DefaultResources:      defaults,
-		MaxResources:          maxima,
-		MaxContextBytes:       contextBytes,
-		MaxImageBytes:         imageBytes,
-		RequireScanning:       f.requireScanning,
-		UserNamespaces:        f.userNamespaces,
-		RuntimeClassName:      runtimeClass,
-		Snapshotter:           f.snapshotter,
+		Enabled:                 true,
+		Namespace:               strings.TrimSpace(f.namespace),
+		BrokerURL:               strings.TrimRight(strings.TrimSpace(f.brokerURL), "/"),
+		BuildKitImage:           strings.TrimSpace(f.buildKitImage),
+		HelperImage:             strings.TrimSpace(f.helperImage),
+		MaxConcurrentJobs:       f.maxConcurrent,
+		AllowedRepoOwners:       parseOCIAllowedRegistries(f.allowedRepoOwners),
+		DefaultPlatforms:        platforms,
+		DefaultTimeoutSeconds:   int64(f.defaultTimeout / time.Second),
+		MaxTimeoutSeconds:       int64(f.maxTimeout / time.Second),
+		DefaultResources:        defaults,
+		MaxResources:            maxima,
+		MaxContextBytes:         contextBytes,
+		MaxImageBytes:           imageBytes,
+		RequireScanning:         f.requireScanning,
+		UserNamespaces:          f.userNamespaces,
+		RuntimeClassName:        runtimeClass,
+		Snapshotter:             f.snapshotter,
+		TTLSecondsAfterFinished: int32(f.ttlSeconds),
+		NodeSelector:            nodeSelector,
+		Tolerations:             tolerations,
+		PriorityClassName:       strings.TrimSpace(f.priorityClassName),
 	}, nil
+}
+
+// parseOCIBuildNodeSelector parses a JSON object of node labels such as {"pool":"builds"}. An empty value selects
+// no labels.
+func parseOCIBuildNodeSelector(flagName, value string) (map[string]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	var selector map[string]string
+	if err := json.Unmarshal([]byte(value), &selector); err != nil {
+		return nil, fmt.Errorf("%s: must be a JSON object of strings: %w", flagName, err)
+	}
+
+	return selector, nil
+}
+
+// parseOCIBuildTolerations parses a JSON array of tolerations such as [{"key":"builds","operator":"Exists"}]. An
+// empty value sets no tolerations.
+func parseOCIBuildTolerations(flagName, value string) ([]corev1.Toleration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	var tolerations []corev1.Toleration
+	if err := json.Unmarshal([]byte(value), &tolerations); err != nil {
+		return nil, fmt.Errorf("%s: must be a JSON array of tolerations: %w", flagName, err)
+	}
+
+	return tolerations, nil
 }
 
 // parseOCIBuildResources parses cpu, memory, and ephemeral-storage from a comma-separated list such as

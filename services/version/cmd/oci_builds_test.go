@@ -143,6 +143,12 @@ func TestOCIBuildsRejectInvalidSettings(t *testing.T) {
 		"resource quantity is bad":   "--oci-builds-resources-default=cpu=lots,memory=2Gi,ephemeral-storage=10Gi",
 		"resource has no quantity":   "--oci-builds-resources-max=cpu,memory=8Gi,ephemeral-storage=20Gi",
 		"image size is not a number": "--oci-builds-max-image-bytes=big",
+		"ttl is negative":            "--oci-builds-ttl-seconds-after-finished=-1",
+		"ttl overflows int32":        "--oci-builds-ttl-seconds-after-finished=2147483648",
+		"node selector is not JSON":  "--oci-builds-node-selector={pool:builds",
+		"node selector is an array":  "--oci-builds-node-selector=[\"builds\"]",
+		"tolerations are not JSON":   "--oci-builds-tolerations=[{key:builds",
+		"tolerations are an object":  "--oci-builds-tolerations={\"key\":\"builds\"}",
 	}
 
 	for name, arg := range cases {
@@ -171,6 +177,56 @@ func TestOCIBuildsDefaults(t *testing.T) {
 
 	if opts.DefaultTimeoutSeconds != int64((30 * time.Minute).Seconds()) {
 		t.Fatalf("DefaultTimeoutSeconds = %d", opts.DefaultTimeoutSeconds)
+	}
+
+	if opts.TTLSecondsAfterFinished != 600 {
+		t.Fatalf("TTLSecondsAfterFinished = %d, want 600", opts.TTLSecondsAfterFinished)
+	}
+
+	if opts.NodeSelector != nil || opts.Tolerations != nil || opts.PriorityClassName != "" {
+		t.Fatalf("scheduling = %v / %v / %q, want unset", opts.NodeSelector, opts.Tolerations, opts.PriorityClassName)
+	}
+}
+
+func TestOCIBuildsSchedulingFromFlags(t *testing.T) {
+	args := append(validOCIBuildArgs(),
+		"--oci-builds-ttl-seconds-after-finished=900",
+		`--oci-builds-node-selector={"pool":"builds","zone":"a"}`,
+		`--oci-builds-tolerations=[{"key":"builds","operator":"Exists","effect":"NoSchedule"}]`,
+		"--oci-builds-priority-class-name= opendepot-builds ",
+	)
+
+	opts, err := parseOCIBuildArgs(t, args...).options()
+	if err != nil {
+		t.Fatalf("valid scheduling settings rejected: %v", err)
+	}
+
+	if opts.TTLSecondsAfterFinished != 900 {
+		t.Fatalf("TTLSecondsAfterFinished = %d, want 900", opts.TTLSecondsAfterFinished)
+	}
+
+	if len(opts.NodeSelector) != 2 || opts.NodeSelector["pool"] != "builds" || opts.NodeSelector["zone"] != "a" {
+		t.Fatalf("NodeSelector = %v", opts.NodeSelector)
+	}
+
+	if len(opts.Tolerations) != 1 || opts.Tolerations[0].Key != "builds" ||
+		opts.Tolerations[0].Operator != corev1.TolerationOpExists || opts.Tolerations[0].Effect != corev1.TaintEffectNoSchedule {
+		t.Fatalf("Tolerations = %+v", opts.Tolerations)
+	}
+
+	if opts.PriorityClassName != "opendepot-builds" {
+		t.Fatalf("PriorityClassName = %q", opts.PriorityClassName)
+	}
+}
+
+func TestOCIBuildsTTLZeroIsAccepted(t *testing.T) {
+	opts, err := parseOCIBuildArgs(t, append(validOCIBuildArgs(), "--oci-builds-ttl-seconds-after-finished=0")...).options()
+	if err != nil {
+		t.Fatalf("zero TTL rejected: %v", err)
+	}
+
+	if opts.TTLSecondsAfterFinished != 0 {
+		t.Fatalf("TTLSecondsAfterFinished = %d, want 0 so the controller applies its default", opts.TTLSecondsAfterFinished)
 	}
 }
 
