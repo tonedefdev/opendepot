@@ -647,15 +647,19 @@ spec:
 			"-n", providerNamespace,
 		)
 		Expect(pfCmd.Start()).To(Succeed(), "Failed to restart port-forward")
-		time.Sleep(3 * time.Second)
 
 		By("verifying unauthenticated request returns 401")
-		unauthResp, err := http.Get(fmt.Sprintf( //nolint:noctx
-			"http://localhost:%s/opendepot/providers/v1/%s/%s/versions",
-			serverPortForwardPort, providerNamespace, providerCRName))
-		Expect(err).NotTo(HaveOccurred())
-		_ = unauthResp.Body.Close()
-		Expect(unauthResp.StatusCode).To(Equal(http.StatusUnauthorized))
+		Eventually(func() int {
+			unauthResp, requestErr := http.Get(fmt.Sprintf( //nolint:noctx
+				"http://localhost:%s/opendepot/providers/v1/%s/%s/versions",
+				serverPortForwardPort, providerNamespace, providerCRName))
+			if requestErr != nil {
+				return 0
+			}
+			_ = unauthResp.Body.Close()
+
+			return unauthResp.StatusCode
+		}, 30*time.Second, 500*time.Millisecond).Should(Equal(http.StatusUnauthorized))
 
 		mirrorVersionsURL := fmt.Sprintf("%s/opendepot/providers/mirror/v1/%s/registry.opentofu.org/hashicorp/null/index.json",
 			mirrorTLSServer.URL, providerNamespace)
