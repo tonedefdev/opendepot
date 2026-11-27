@@ -43,6 +43,10 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Namespace: testNamespace,
 		}
 
+		nameFor := func(tag string) string {
+			return ociVersionName(resourceName, tag)
+		}
+
 		newOCIArtifact := func(config opendepotv1alpha1.OCIArtifactConfig, versions ...string) *opendepotv1alpha1.OCIArtifact {
 			entries := make([]opendepotv1alpha1.OCIArtifactVersion, 0, len(versions))
 			for _, version := range versions {
@@ -111,7 +115,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			versionList := &opendepotv1alpha1.VersionList{}
 			Expect(k8sClient.List(ctx, versionList,
 				client.InNamespace(testNamespace),
-				client.MatchingLabels{"opendepot.defdev.io/ociartifact": resourceName},
+				client.MatchingLabels{ociArtifactLabelKey: resourceName},
 			)).To(Succeed())
 
 			return versionList.Items
@@ -130,7 +134,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 		AfterEach(func() {
 			Expect(k8sClient.DeleteAllOf(ctx, &opendepotv1alpha1.Version{}, client.InNamespace(testNamespace),
-				client.MatchingLabels{"opendepot.defdev.io/ociartifact": resourceName})).To(Succeed())
+				client.MatchingLabels{ociArtifactLabelKey: resourceName})).To(Succeed())
 
 			ociArtifact := &opendepotv1alpha1.OCIArtifact{}
 			err := k8sClient.Get(ctx, typeNamespacedName, ociArtifact)
@@ -145,16 +149,16 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			reconcileOCIArtifact()
 
-			version := getVersion("oci-test-oci-1-0-0")
+			version := getVersion(nameFor("1.0.0"))
 			Expect(version.Spec.Type).To(Equal(opendepotv1alpha1.OpenDepotOCIArtifact))
 			Expect(version.Spec.Version).To(Equal("1.0.0"))
 			Expect(version.Spec.OCIArtifactConfigRef).NotTo(BeNil())
 			Expect(version.Spec.OCIArtifactConfigRef.ArtifactType).To(Equal("Helm"))
-			Expect(version.Labels).To(HaveKeyWithValue("opendepot.defdev.io/ociartifact", resourceName))
+			Expect(version.Labels).To(HaveKeyWithValue(ociArtifactLabelKey, resourceName))
 			Expect(version.OwnerReferences).To(HaveLen(1))
 			Expect(version.OwnerReferences[0].Kind).To(Equal("OCIArtifact"))
 
-			Expect(getVersion("oci-test-oci-v1-1-0").Spec.Version).To(Equal("v1.1.0"))
+			Expect(getVersion(nameFor("v1.1.0")).Spec.Version).To(Equal("v1.1.0"))
 		})
 
 		It("should create a Version for each Generic version", func() {
@@ -163,7 +167,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			reconcileOCIArtifact()
 
-			version := getVersion("oci-test-oci-2-0-0")
+			version := getVersion(nameFor("2.0.0"))
 			Expect(version.Spec.Type).To(Equal(opendepotv1alpha1.OpenDepotOCIArtifact))
 			Expect(version.Spec.OCIArtifactConfigRef.ArtifactType).To(Equal("Generic"))
 		})
@@ -209,7 +213,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Expect(ociArtifact.Spec.Versions[1].Version).To(Equal("1.2.0"))
 			Expect(ociArtifact.Status.LatestVersion).To(HaveValue(Equal("2.0.0")))
 			Expect(listVersions()).To(HaveLen(2))
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "oci-test-oci-1-0-0", Namespace: testNamespace}, &opendepotv1alpha1.Version{})).
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nameFor("1.0.0"), Namespace: testNamespace}, &opendepotv1alpha1.Version{})).
 				To(MatchError(k8serr.IsNotFound, "version 1.0.0 should be trimmed"))
 		})
 
@@ -254,7 +258,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			versions := listVersions()
 			Expect(versions).To(HaveLen(1))
-			Expect(versions[0].Name).To(Equal("oci-test-oci-2-0-0"))
+			Expect(versions[0].Name).To(Equal(nameFor("2.0.0")))
 		})
 
 		It("should report the digest and sync state of each Version", func() {
@@ -265,7 +269,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Expect(getOCIArtifact().Status.Synced).To(BeFalse())
 			Expect(getOCIArtifact().Status.SyncStatus).To(Equal("Syncing 0 of 2 versions"))
 
-			setVersionSynced("oci-test-oci-6-5-0")
+			setVersionSynced(nameFor("6.5.0"))
 			reconcileOCIArtifact()
 
 			status := getOCIArtifact().Status
@@ -273,7 +277,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Expect(status.SyncStatus).To(Equal("Syncing 1 of 2 versions"))
 			Expect(status.VersionRefs).To(HaveLen(2))
 			Expect(status.VersionRefs["6.5.0"]).To(Equal(&opendepotv1alpha1.OCIArtifactVersion{
-				Name:    "oci-test-oci-6-5-0",
+				Name:    nameFor("6.5.0"),
 				Version: "6.5.0",
 				Digest:  digest,
 				Synced:  true,
@@ -281,7 +285,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Expect(status.VersionRefs["6.5.1"].Synced).To(BeFalse())
 			Expect(status.VersionRefs["6.5.1"].Digest).To(BeEmpty())
 
-			setVersionSynced("oci-test-oci-6-5-1")
+			setVersionSynced(nameFor("6.5.1"))
 			reconcileOCIArtifact()
 
 			status = getOCIArtifact().Status
@@ -295,7 +299,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 			Expect(k8sClient.Create(ctx, ociArtifact)).To(Succeed())
 
 			reconcileOCIArtifact()
-			Expect(getVersion("oci-test-oci-1-0-0").Spec.ForceSync).To(BeFalse())
+			Expect(getVersion(nameFor("1.0.0")).Spec.ForceSync).To(BeFalse())
 
 			ociArtifact = getOCIArtifact()
 			ociArtifact.Spec.ForceSync = true
@@ -303,7 +307,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			reconcileOCIArtifact()
 
-			Expect(getVersion("oci-test-oci-1-0-0").Spec.ForceSync).To(BeTrue())
+			Expect(getVersion(nameFor("1.0.0")).Spec.ForceSync).To(BeTrue())
 			Expect(getOCIArtifact().Spec.ForceSync).To(BeFalse())
 		})
 
@@ -319,7 +323,7 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			reconcileOCIArtifact()
 
-			ref := getVersion("oci-test-oci-1-0-0").Spec.OCIArtifactConfigRef
+			ref := getVersion(nameFor("1.0.0")).Spec.OCIArtifactConfigRef
 			Expect(ref.Immutable).To(HaveValue(BeFalse()))
 		})
 
@@ -329,12 +333,156 @@ var _ = Describe("OCIArtifact Controller", func() {
 
 			reconcileOCIArtifact()
 			artifactVersion := getOCIArtifact().ResourceVersion
-			versionVersion := getVersion("oci-test-oci-6-5-0").ResourceVersion
+			versionVersion := getVersion(nameFor("6.5.0")).ResourceVersion
 
 			reconcileOCIArtifact()
 
 			Expect(getOCIArtifact().ResourceVersion).To(Equal(artifactVersion))
-			Expect(getVersion("oci-test-oci-6-5-0").ResourceVersion).To(Equal(versionVersion))
+			Expect(getVersion(nameFor("6.5.0")).ResourceVersion).To(Equal(versionVersion))
+		})
+
+		Context("when OCIArtifact names collide", func() {
+			const otherName = "other-oci"
+			otherNamespacedName := types.NamespacedName{Name: otherName, Namespace: testNamespace}
+
+			reconcileNamed := func(key types.NamespacedName) {
+				controllerReconciler := &OCIArtifactReconciler{
+					Client:            k8sClient,
+					Scheme:            k8sClient.Scheme(),
+					AllowedRegistries: []string{"ghcr.io"},
+				}
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			AfterEach(func() {
+				Expect(k8sClient.DeleteAllOf(ctx, &opendepotv1alpha1.Version{}, client.InNamespace(testNamespace),
+					client.MatchingLabels{ociArtifactLabelKey: otherName})).To(Succeed())
+
+				// Removes the Version created without labels by the collision specs.
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &opendepotv1alpha1.Version{
+					ObjectMeta: metav1.ObjectMeta{Name: nameFor("1.0.0"), Namespace: testNamespace},
+				}))).To(Succeed())
+
+				other := &opendepotv1alpha1.OCIArtifact{}
+				if err := k8sClient.Get(ctx, otherNamespacedName, other); err == nil {
+					Expect(k8sClient.Delete(ctx, other)).To(Succeed())
+				}
+			})
+
+			It("should keep Versions distinct when repository names normalize to the same Version name", func() {
+				first := githubConfig("Helm")
+				first.Name = new("charts/app")
+				Expect(k8sClient.Create(ctx, newOCIArtifact(first, "1.0"))).To(Succeed())
+
+				second := githubConfig("Helm")
+				second.Name = new("charts-app")
+				otherArtifact := newOCIArtifact(second, "1.0")
+				otherArtifact.Name = otherName
+				Expect(k8sClient.Create(ctx, otherArtifact)).To(Succeed())
+
+				reconcileOCIArtifact()
+				reconcileNamed(otherNamespacedName)
+
+				firstVersion := getVersion(ociVersionName("charts/app", "1.0"))
+				secondVersion := getVersion(ociVersionName("charts-app", "1.0"))
+				Expect(firstVersion.Name).NotTo(Equal(secondVersion.Name))
+				Expect(firstVersion.Labels).To(HaveKeyWithValue(ociArtifactLabelKey, resourceName))
+				Expect(secondVersion.Labels).To(HaveKeyWithValue(ociArtifactLabelKey, otherName))
+				Expect(firstVersion.Spec.OCIArtifactConfigRef.Name).To(HaveValue(Equal("charts/app")))
+				Expect(secondVersion.Spec.OCIArtifactConfigRef.Name).To(HaveValue(Equal("charts-app")))
+				Expect(getOCIArtifact().Status.SyncStatus).NotTo(ContainSubstring("collision"))
+			})
+
+			It("should skip and flag a non-OCI Version with the same name without patching it", func() {
+				Expect(k8sClient.Create(ctx, &opendepotv1alpha1.Version{
+					ObjectMeta: metav1.ObjectMeta{Name: nameFor("1.0.0"), Namespace: testNamespace},
+					Spec: opendepotv1alpha1.VersionSpec{
+						Type:    opendepotv1alpha1.OpenDepotModule,
+						Version: "1.0.0",
+					},
+				})).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, newOCIArtifact(githubConfig("Generic"), "1.0.0"))).To(Succeed())
+
+				reconcileOCIArtifact()
+
+				existing := getVersion(nameFor("1.0.0"))
+				Expect(existing.Spec.Type).To(Equal(opendepotv1alpha1.OpenDepotModule))
+				Expect(existing.Spec.OCIArtifactConfigRef).To(BeNil())
+				Expect(existing.OwnerReferences).To(BeEmpty())
+				Expect(existing.Labels).To(BeEmpty())
+
+				status := getOCIArtifact().Status
+				Expect(status.Synced).To(BeFalse())
+				Expect(status.SyncStatus).To(ContainSubstring("collision"))
+				Expect(status.VersionRefs).To(BeEmpty())
+			})
+
+			It("should skip and flag an OCI Version with matching labels that the OCIArtifact does not control", func() {
+				Expect(k8sClient.Create(ctx, &opendepotv1alpha1.Version{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      nameFor("1.0.0"),
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							ociArtifactLabelKey:  resourceName,
+							ociNamespaceLabelKey: testNamespace,
+						},
+					},
+					Spec: opendepotv1alpha1.VersionSpec{
+						Type:    opendepotv1alpha1.OpenDepotOCIArtifact,
+						Version: "1.0.0",
+					},
+				})).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, newOCIArtifact(githubConfig("Generic"), "1.0.0"))).To(Succeed())
+
+				reconcileOCIArtifact()
+
+				existing := getVersion(nameFor("1.0.0"))
+				Expect(existing.Spec.OCIArtifactConfigRef).To(BeNil())
+				Expect(existing.OwnerReferences).To(BeEmpty())
+				Expect(getOCIArtifact().Status.SyncStatus).To(ContainSubstring("collision"))
+			})
+
+			It("should keep distinct Versions for tags that normalize to the same Version name", func() {
+				Expect(k8sClient.Create(ctx, newOCIArtifact(githubConfig("Generic"), "1.2.3", "1-2-3"))).To(Succeed())
+
+				reconcileOCIArtifact()
+
+				dotted := getVersion(nameFor("1.2.3"))
+				dashed := getVersion(nameFor("1-2-3"))
+				Expect(dotted.Name).NotTo(Equal(dashed.Name))
+				Expect(dotted.Spec.Version).To(Equal("1.2.3"))
+				Expect(dashed.Spec.Version).To(Equal("1-2-3"))
+				Expect(listVersions()).To(HaveLen(2))
+			})
+
+			It("should flag duplicate repository names and create no Versions for either OCIArtifact", func() {
+				Expect(k8sClient.Create(ctx, newOCIArtifact(githubConfig("Generic"), "1.0.0"))).To(Succeed())
+
+				duplicate := githubConfig("Generic")
+				duplicate.Name = new(resourceName)
+				otherArtifact := newOCIArtifact(duplicate, "1.0.0")
+				otherArtifact.Name = otherName
+				Expect(k8sClient.Create(ctx, otherArtifact)).To(Succeed())
+
+				reconcileOCIArtifact()
+				reconcileNamed(otherNamespacedName)
+
+				versionList := &opendepotv1alpha1.VersionList{}
+				Expect(k8sClient.List(ctx, versionList, client.InNamespace(testNamespace),
+					client.MatchingLabels{ociNamespaceLabelKey: testNamespace})).To(Succeed())
+				Expect(versionList.Items).To(BeEmpty())
+
+				for _, key := range []types.NamespacedName{typeNamespacedName, otherNamespacedName} {
+					artifact := &opendepotv1alpha1.OCIArtifact{}
+					Expect(k8sClient.Get(ctx, key, artifact)).To(Succeed())
+					Expect(artifact.Status.Synced).To(BeFalse())
+					Expect(artifact.Status.SyncStatus).To(ContainSubstring("duplicate OCIArtifact repository name"))
+				}
+			})
 		})
 	})
 })

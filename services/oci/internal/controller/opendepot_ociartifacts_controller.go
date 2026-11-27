@@ -18,9 +18,13 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/mod/semver"
@@ -40,7 +44,17 @@ const (
 	ociArtifactsControllerName = "opendepot-ociartifacts-controller"
 	ociArtifactLabelKey        = "opendepot.defdev.io/ociartifact"
 	ociNamespaceLabelKey       = "opendepot.defdev.io/namespace"
+	// ociVersionHashLength is the number of hex characters of the SHA-256 digest appended to a Version name.
+	ociVersionHashLength = 8
+	// ociVersionNameMaxLength is the maximum length of a Version name, which must be a DNS-1123 label.
+	ociVersionNameMaxLength = 63
+	// ociDuplicateRecheckInterval is how often an OCIArtifact that claims a duplicated repository name is reconciled
+	// again, so that it resumes syncing once the duplicate is removed.
+	ociDuplicateRecheckInterval = time.Minute
 )
+
+// errOCIVersionCollision reports that a Version with the same name exists but was not created by the OCIArtifact.
+var errOCIVersionCollision = errors.New("version name collides with a Version not owned by this OCIArtifact")
 
 // ociNameReplacer maps the characters that are valid in a repository path or a tag but not in a Version name.
 var ociNameReplacer = strings.NewReplacer(".", "-", "_", "-", "/", "-")
@@ -88,6 +102,28 @@ func (r *OCIArtifactReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	configName := ociConfigName(ociArtifact)
+	claims, err := countOCIRepositoryClaims(ctx, r.Client, ociArtifact.GetNamespace(), configName)
+	if err != nil {
+		r.Log.Error(err, "Failed to list OCIArtifacts", "ociArtifact", ociArtifact.Name)
+		return ctrl.Result{}, err
+	}
+
+	// Two OCIArtifacts that claim the same repository name would write the same Versions, so neither may sync.
+	if claims > 1 {
+		status := ociArtifact.Status
+		status.Synced = false
+		status.SyncStatus = fmt.Sprintf("duplicate OCIArtifact repository name %s: %d OCIArtifacts in namespace %s claim it",
+			configName, claims, ociArtifact.GetNamespace())
+		if err = r.updateOCIArtifactStatus(ctx, req.NamespacedName, status); err != nil {
+			r.Log.Error(err, "Failed to update OCIArtifact status", "ociArtifact", ociArtifact.Name)
+			return ctrl.Result{}, err
+		}
+
+		r.Log.Info("Duplicate OCIArtifact repository name", "ociArtifact", ociArtifact.Name, "repository", configName)
+		return ctrl.Result{RequeueAfter: ociDuplicateRecheckInterval}, nil
+	}
+
 	discovered := config.TagPattern != nil
 	limit := config.VersionHistoryLimit
 	original := slices.Clone(ociArtifact.Spec.Versions)
@@ -110,7 +146,7 @@ func (r *OCIArtifactReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	forceSync := ociArtifact.Spec.ForceSync
-	versionObjects, err := reconcileOCIVersions(ctx, r.Client, r.Scheme, r.Log, ociArtifact, keep, forceSync)
+	versionObjects, collisions, err := reconcileOCIVersions(ctx, r.Client, r.Scheme, r.Log, ociArtifact, keep, forceSync)
 	if err != nil {
 		r.Log.Error(err, "Failed to reconcile OCIArtifact versions", "ociArtifact", ociArtifact.Name)
 		return ctrl.Result{}, err
@@ -131,7 +167,6 @@ func (r *OCIArtifactReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	configName := ociConfigName(ociArtifact)
 	refs := make(map[string]*opendepotv1alpha1.OCIArtifactVersion, len(keep))
 	syncedCount := 0
 	for _, entry := range keep {
@@ -163,12 +198,24 @@ func (r *OCIArtifactReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		VersionRefs:   refs,
 	}
 
+	// Colliding names are kept out of removal so that a Version this OCIArtifact does not own is never deleted.
+	keepNames := ociVersionNameSet(versionObjects)
+	for _, name := range collisions {
+		keepNames[name] = struct{}{}
+	}
+
+	if len(collisions) > 0 {
+		status.Synced = false
+		status.SyncStatus = fmt.Sprintf("Version name collision with a Version not owned by this OCIArtifact: %s",
+			strings.Join(collisions, ", "))
+	}
+
 	if err = r.updateOCIArtifactStatus(ctx, req.NamespacedName, status); err != nil {
 		r.Log.Error(err, "Failed to update OCIArtifact status", "ociArtifact", ociArtifact.Name)
 		return ctrl.Result{}, err
 	}
 
-	if err = reconcileOCIVersionRemovals(ctx, r.Client, r.Log, ociArtifact, ociVersionNameSet(versionObjects)); err != nil {
+	if err = reconcileOCIVersionRemovals(ctx, r.Client, r.Log, ociArtifact, keepNames); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -210,7 +257,9 @@ func (r *OCIArtifactReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // reconcileOCIVersions creates a Version for each entry that does not already exist and brings existing Versions in
-// line with the config and ForceSync. The returned map is keyed by the Version resource name.
+// line with the config and ForceSync. The returned map is keyed by the Version resource name. The returned collisions
+// are the Version names of entries whose name is held by a Version that the OCIArtifact does not own. Those entries
+// are left untouched.
 func reconcileOCIVersions(
 	ctx context.Context,
 	c client.Client,
@@ -219,18 +268,26 @@ func reconcileOCIVersions(
 	owner *opendepotv1alpha1.OCIArtifact,
 	entries []opendepotv1alpha1.OCIArtifactVersion,
 	forceSync bool,
-) (map[string]*opendepotv1alpha1.Version, error) {
+) (map[string]*opendepotv1alpha1.Version, []string, error) {
 	configName := ociConfigName(owner)
 	config := owner.Spec.OCIArtifactConfig
 
 	versionObjects := make(map[string]*opendepotv1alpha1.Version, len(entries))
+	var collisions []string
 	for _, entry := range entries {
 		versionName := ociVersionName(configName, entry.Version)
 		existing := &opendepotv1alpha1.Version{}
 		err := c.Get(ctx, client.ObjectKey{Name: versionName, Namespace: owner.GetNamespace()}, existing)
 		if err == nil {
-			if err = syncOCIVersion(ctx, c, log, existing, &config, forceSync); err != nil {
-				return nil, fmt.Errorf("sync oci version %s: %w", versionName, err)
+			if err = syncOCIVersion(ctx, c, log, owner, existing, &config, forceSync); err != nil {
+				if errors.Is(err, errOCIVersionCollision) {
+					log.Info("Skipping version that collides with an existing Version",
+						"name", owner.GetName(), "version", entry.Version, "versionName", versionName)
+					collisions = append(collisions, versionName)
+					continue
+				}
+
+				return nil, nil, fmt.Errorf("sync oci version %s: %w", versionName, err)
 			}
 
 			versionObjects[versionName] = existing
@@ -238,7 +295,7 @@ func reconcileOCIVersions(
 		}
 
 		if !k8serr.IsNotFound(err) {
-			return nil, fmt.Errorf("get oci version %s: %w", versionName, err)
+			return nil, nil, fmt.Errorf("get oci version %s: %w", versionName, err)
 		}
 
 		ociVersion := &opendepotv1alpha1.Version{
@@ -260,13 +317,13 @@ func reconcileOCIVersions(
 		// Set the ownerRef for the Version, ensuring that the Version
 		// is garbage collected when its OCIArtifact is deleted.
 		if err = controllerutil.SetControllerReference(owner, ociVersion, scheme); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if err = c.Create(ctx, ociVersion, &client.CreateOptions{
 			FieldManager: ociArtifactsControllerName,
 		}); err != nil {
-			return nil, fmt.Errorf("create oci version %s: %w", versionName, err)
+			return nil, nil, fmt.Errorf("create oci version %s: %w", versionName, err)
 		}
 
 		versionObjects[versionName] = ociVersion
@@ -277,7 +334,33 @@ func reconcileOCIVersions(
 		)
 	}
 
-	return versionObjects, nil
+	return versionObjects, collisions, nil
+}
+
+// countOCIRepositoryClaims returns how many OCIArtifacts in the namespace claim the repository name.
+func countOCIRepositoryClaims(ctx context.Context, c client.Client, namespace string, configName string) (int, error) {
+	ociArtifactList := opendepotv1alpha1.OCIArtifactList{}
+	if err := c.List(ctx, &ociArtifactList, client.InNamespace(namespace)); err != nil {
+		return 0, err
+	}
+
+	claims := 0
+	for i := range ociArtifactList.Items {
+		if ociConfigName(&ociArtifactList.Items[i]) == configName {
+			claims++
+		}
+	}
+
+	return claims, nil
+}
+
+// ociVersionOwnedBy reports whether a Version was created by the OCIArtifact owner. Only such a Version may be patched
+// or removed by the owner.
+func ociVersionOwnedBy(version *opendepotv1alpha1.Version, owner *opendepotv1alpha1.OCIArtifact) bool {
+	return version.Spec.Type == opendepotv1alpha1.OpenDepotOCIArtifact &&
+		version.Labels[ociArtifactLabelKey] == owner.GetName() &&
+		version.Labels[ociNamespaceLabelKey] == owner.GetNamespace() &&
+		metav1.IsControlledBy(version, owner)
 }
 
 // ociVersionOutdated reports whether an existing Version differs from its OCIArtifact. A Version needs a
@@ -287,15 +370,21 @@ func ociVersionOutdated(version *opendepotv1alpha1.Version, config *opendepotv1a
 }
 
 // syncOCIVersion patches an existing Version so that its ociArtifactConfigRef matches the OCIArtifact and so that it
-// is asked to synchronize when ForceSync is set. Nothing is written when the Version is already in line.
+// is asked to synchronize when ForceSync is set. Nothing is written when the Version is already in line. A Version
+// that the owner did not create is never patched and errOCIVersionCollision is returned instead.
 func syncOCIVersion(
 	ctx context.Context,
 	c client.Client,
 	log logr.Logger,
+	owner *opendepotv1alpha1.OCIArtifact,
 	version *opendepotv1alpha1.Version,
 	config *opendepotv1alpha1.OCIArtifactConfig,
 	forceSync bool,
 ) error {
+	if !ociVersionOwnedBy(version, owner) {
+		return fmt.Errorf("%w: %s", errOCIVersionCollision, version.Name)
+	}
+
 	if !ociVersionOutdated(version, config, forceSync) {
 		return nil
 	}
@@ -303,6 +392,10 @@ func syncOCIVersion(
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(version), version); err != nil {
 			return err
+		}
+
+		if !ociVersionOwnedBy(version, owner) {
+			return fmt.Errorf("%w: %s", errOCIVersionCollision, version.Name)
 		}
 
 		if !ociVersionOutdated(version, config, forceSync) {
@@ -380,15 +473,23 @@ func ociConfigName(ociArtifact *opendepotv1alpha1.OCIArtifact) string {
 	return ociArtifact.Name
 }
 
-// ociVersionName returns the Version resource name for a tag, for example oci-podinfo-6-5-0. The repository name can
-// contain '/' and the tag can contain '.' and '_', so both are mapped to '-' to produce a Kubernetes-safe name.
+// ociVersionName returns the Version resource name for a tag, for example oci-podinfo-6-5-0-1a2b3c4d. The repository
+// name can contain '/' and the tag can contain '.' and '_', so both are mapped to '-' to produce a Kubernetes-safe
+// name. Because that mapping is lossy, a SHA-256 suffix of the unnormalized repository name and tag keeps names
+// distinct. The base is truncated so the name stays within the DNS-1123 label length.
 func ociVersionName(configName string, tag string) string {
-	name := fmt.Sprintf("oci-%s-%s",
+	base := strings.Trim(fmt.Sprintf("oci-%s-%s",
 		ociNameReplacer.Replace(strings.ToLower(configName)),
 		ociNameReplacer.Replace(strings.ToLower(tag)),
-	)
+	), "-")
 
-	return strings.Trim(name, "-")
+	maxBaseLength := ociVersionNameMaxLength - ociVersionHashLength - 1
+	if len(base) > maxBaseLength {
+		base = strings.TrimRight(base[:maxBaseLength], "-")
+	}
+
+	digest := sha256.Sum256([]byte(configName + "\x00" + tag))
+	return base + "-" + hex.EncodeToString(digest[:ociVersionHashLength/2])
 }
 
 // ociSemver returns the tag as a semantic version. Tags that are not semantic versions sort below the valid ones.
