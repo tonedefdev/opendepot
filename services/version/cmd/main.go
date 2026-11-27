@@ -320,6 +320,7 @@ func main() {
 		AssemblyEnabled:         assemblyEnabled,
 		TofuBinPath:             tofuBinPath,
 		SchemaExtractionTimeout: schemaExtractionTimeout,
+		OCIAllowedRegistries:    allowedRegistries,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Version")
 		os.Exit(1)

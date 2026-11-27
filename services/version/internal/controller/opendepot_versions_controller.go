@@ -107,6 +107,12 @@ type VersionReconciler struct {
 	TofuBinPath string
 	// SchemaExtractionTimeout bounds how long a single `tofu providers schema` run may take.
 	SchemaExtractionTimeout time.Duration
+	// OCIAllowedRegistries lists the upstream registries that an OCIArtifact may mirror from. An empty list denies every registry.
+	OCIAllowedRegistries []string
+	// ociRegistryFor builds the upstream client for a mirror. A nil value uses oci.NewUpstream.
+	ociRegistryFor func(allowed []string, dockerConfigJSON []byte) (ociRegistry, error)
+	// ociGithubClientFor builds the GitHub client for a GitHub OCIArtifact. A nil value uses the GitHub client helper.
+	ociGithubClientFor func(ctx context.Context, version *opendepotv1alpha1.Version, config *opendepotv1alpha1.OCIArtifactConfig) (*github.Client, error)
 	// scanSem limits the number of concurrent Trivy processes. Each Trivy
 	// invocation loads the full vulnerability DB (~2 GiB) so running more than
 	// one at a time risks OOMKill even with a generous container memory limit.
@@ -1307,9 +1313,9 @@ func (r *VersionReconciler) reconcileDeletion(ctx context.Context, version *open
 // unsupportedBuildSyncStatus is the SyncStatus written to OCIArtifact and MCPServer Versions until their sync is built in.
 const unsupportedBuildSyncStatus = "unsupported in this build"
 
-// reconcileOCIVersion is the OCIArtifact dispatch target. The OCI sync is not built in yet, so the Version is marked unsupported.
+// reconcileOCIVersion is the OCIArtifact dispatch target. It mirrors or packages the artifact and records its manifest.
 func (r *VersionReconciler) reconcileOCIVersion(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (ctrl.Result, error) {
-	return r.reconcileUnsupportedVersion(ctx, req, version)
+	return r.syncOCIVersion(ctx, req, version)
 }
 
 // reconcileMCPVersion is the MCPServer dispatch target. The MCP sync is not built in yet, so the Version is marked unsupported.
@@ -2163,6 +2169,10 @@ func getVersionStorageConfig(version *opendepotv1alpha1.Version) (*opendepotv1al
 
 	if version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.StorageConfig != nil {
 		return version.Spec.ProviderConfigRef.StorageConfig, nil
+	}
+
+	if version.Spec.OCIArtifactConfigRef != nil && version.Spec.OCIArtifactConfigRef.StorageConfig != nil {
+		return version.Spec.OCIArtifactConfigRef.StorageConfig, nil
 	}
 
 	return nil, fmt.Errorf("storage config is not configured on moduleConfigRef or providerConfigRef")

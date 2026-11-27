@@ -9,6 +9,8 @@ require (
 	github.com/hashicorp/go-version v1.8.0
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
+	github.com/opencontainers/go-digest v1.0.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	github.com/tonedefdev/opendepot/pkg/agentspec v0.0.0
 	github.com/tonedefdev/opendepot/pkg/archive v0.0.0
