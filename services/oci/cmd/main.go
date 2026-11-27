@@ -14,9 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Command oci-controller hosts the OCIArtifact manager. This is a placeholder: it starts a
-// controller-runtime manager with health probes and registers no reconcilers yet.
-// The OCIArtifact reconciler is added in a later release step.
+// Command oci-controller hosts the OCIArtifact manager. It starts a controller-runtime manager with health probes
+// and registers the OCIArtifact reconciler.
 package main
 
 import (
@@ -32,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/services/oci/internal/controller"
 )
 
 var (
@@ -75,6 +75,16 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err := (&controller.OCIArtifactReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Log:               ctrl.Log.WithName("controllers").WithName("OCIArtifact"),
+		AllowedRegistries: allowedRegistries,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OCIArtifact")
 		os.Exit(1)
 	}
 
