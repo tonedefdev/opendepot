@@ -8,6 +8,7 @@ This plan assumes that agents do the implementation work. Steps are small, and e
 0.13.0 turns OpenDepot from a registry for OpenTofu and agent content into a general registry with an agentic workflow builder. It adds:
 
 - **OCI artifacts and Helm.** One `OCIArtifact` CRD with `artifactType: Helm | Image | Generic`. Artifacts are mirrored from upstream OCI registries, or built from GitHub release assets for Helm and Generic. They are served through the pull side of the OCI Distribution API (`/v2/...`) and as a classic Helm `index.yaml` repository.
+- **In-cluster rootless image builds.** An `OCIArtifact` with `artifactType: Image` can have a `build:` source. It builds from a GitHub tag pinned to a commit, using rootless BuildKit in a dedicated builds namespace. The result goes through the same scan and serving path as a mirror. Design: [oci-builds.md](oci-builds.md). The B0 spike is complete.
 - **MCP servers in the registry.** An `MCPServer` CRD with four source types: `Image` (it uses an `OCIArtifact`), `Npm`, `PyPI`, and `Source`. MCP servers are published through `agents.v1` as a third kind. `opendepot apply` writes pinned MCP client configuration. In-cluster runtime and the proxy are in 0.14.0 (see the appendix).
 - **One `iac` controller.** The Module and Provider reconcilers move into one `services/iac` deployment. It serves both Terraform and OpenTofu, and its name doesn't clash with Flux's `tofu-controller`. The CRDs do not change. Chart values move to `iac.*`, and the old keys still work for one release.
 - **Jev suggest.** `POST /opendepot/agents/v1/suggest` and `opendepot suggest`, as described in [jev-skill-suggest-design.md](jev-skill-suggest-design.md). Suggest also ranks MCP servers.
@@ -20,7 +21,7 @@ This plan assumes that agents do the implementation work. Steps are small, and e
 | # | Decision | Source |
 |---|---|---|
 | D1 | OCI sources are upstream mirrors and GitHub release assets. There is no push API. Push endpoints return the OCI `UNSUPPORTED` error. | User Q2 |
-| D2 | One `OCIArtifact` CRD with `artifactType`. Images can only be mirrored. | User Q3 |
+| D2 | One `OCIArtifact` CRD with `artifactType`. Images can be mirrored or built (`build:`, see D13). | User Q3 |
 | D3 | Helm is served both through OCI (`helm pull oci://`) and as a classic `index.yaml` repository. | User Q4 |
 | D4 | MCP source types are `Image`, `Npm`, `PyPI`, and `Source`. `Source` is listed in the registry but can't run until in-cluster builds exist. | User Q5 |
 | D5 | MCP runtime (inheriting the Deployment spec), secrets through `secretRefs`, ESO, and the proxy are in 0.14.0. 0.13.0 MCP support is registry-only, and `apply` writes client configuration. | User Q1 and follow-up Q2 |
@@ -31,6 +32,7 @@ This plan assumes that agents do the implementation work. Steps are small, and e
 | D10 | `Schematic` CRD. Access through GroupBinding. Saving is on by default: any authenticated caller matched by a GroupBinding can save in that binding's namespace. Operators can turn it off per binding or for the whole cluster. | User Q12, Q13, P6 follow-up |
 | D11 | In-app guided tour, driven by built-in Schematics with placeholder nodes. | User Q14, follow-up Q1 |
 | D12 | Jev suggest ships as designed. Step 1 explains the 0/5 canary result first. | User Q15 |
+| D13 | In-cluster rootless image builds are in scope: `OCIArtifact` `build:` from a GitHub source, run in the `opendepot-builds` namespace (PSS `privileged` with a ValidatingAdmissionPolicy, and internet-only build egress). `Source` MCP servers stay `runnable: false`. OCI push stays out of scope. The B0 spike ran on Kind. See [oci-builds.md](oci-builds.md). | User approval of oci-builds Q1–Q3, 2026-11-27 |
 
 Decisions the planner made, which the user later confirmed, are under [Planner decisions](#planner-decisions).
 
@@ -873,7 +875,7 @@ All of these were confirmed by the user.
 
 - MCP runtime, proxy, secretRefs, and ESO (see the appendix).
 - OCI push, `helm push`, and OpenDepot re-signing of mirrored artifacts. Verifying upstream cosign signatures is in scope.
-- In-cluster image builds for `Source` MCP servers.
+- Running `Source` MCP servers. `MCPServer` `Source` stays `runnable: false` in 0.13.0. In-cluster `OCIArtifact` `build:` sources are in scope (D13).
 - Removing the deprecated `module.*` and `provider.*` values. They are removed in 0.14.0.
 - Changes to the Module or Provider CRDs.
 - Per-user Jev keys. In 0.13.0 the Jev credential is per group, through the GroupBinding's `jevSecretRef`. A later release can add a per-user key, used before the group key when it's set, without changing the API shape.
