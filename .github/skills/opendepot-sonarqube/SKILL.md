@@ -90,7 +90,9 @@ zsh -ic 'sonar-scanner \
   -Dsonar.working.directory=/tmp/opendepot-sonar'
 ```
 
-Coverage must be generated before the scan. Run `make coverage` from the repository root first. It writes one Go profile per `go.work` module to `coverage/go/*.out` and the UI report to `services/ui/coverage/lcov.info`. Without it, the scan reports 0% coverage. `make coverage` also writes `coverage/go/services-version-jevharness.out`, from the second `services/version` pass with `-tags jevharness`. `coverage-go` runs `hack/check-go-work-modules.py` first.
+**`make coverage` is MANDATORY before every `sonar-scanner` run.** Skipping `make coverage` is forbidden. A scan without it reports 0% coverage, and the Quality Gate result is then invalid. The `coverage/` output is gitignored and temporary, so generating it does not violate read-only review rules. Never skip it to avoid touching the workspace.
+
+Run `make coverage` from the repository root first. It writes one Go profile per `go.work` module to `coverage/go/*.out` and the UI report to `services/ui/coverage/lcov.info`. Without it, the scan reports 0% coverage. `make coverage` also writes `coverage/go/services-version-jevharness.out`, from the second `services/version` pass with `-tags jevharness`. `coverage-go` runs `hack/check-go-work-modules.py` first.
 
 ### Coverage Denominator
 
@@ -122,6 +124,21 @@ The scan analyzes the working tree as checked out, including uncommitted changes
 ```bash
 rm -rf /tmp/opendepot-sonar
 ```
+
+## 4a. Quality Gate Check (Mandatory)
+
+After every scan, read the project Quality Gate. This step is required:
+
+```bash
+zsh -ic 'curl -s -u "$SONAR_TOKEN:" "${SONAR_HOST_URL:-http://localhost:9000}/api/qualitygates/project_status?projectKey=opendepot"'
+```
+
+Report:
+
+- `projectStatus.status` (`OK` or `ERROR`)
+- Every condition in `projectStatus.conditions` whose `status` is not `OK`, including `new_coverage` (must be at least 80%), `new_violations`, and `new_duplicated_lines_density`. Give each one's `metricKey`, `status`, `actualValue`, and `errorThreshold`.
+
+`projectStatus.status != "OK"` is a **HARD FAIL / BLOCKING** gate. This includes `new_coverage < 80%`. Do not describe a failing gate as passing, and do not treat a scan without `make coverage` as valid. Report the failure to the caller with the failing conditions. Do not change the gate; it is read-only.
 
 ## 5. Read Open Issues
 

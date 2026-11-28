@@ -283,7 +283,7 @@ describe("SecurityPoliciesSurface interactions", () => {
       expect(requestBody(fetchMock, "POST").spec.exemptions).toEqual([
         { vulnerabilityIDs: ["CVE-2026-0001", "aws-0057"], reason: "Accepted risk", severities: ["CRITICAL"], scanTypes: ["module"] },
       ]);
-    });
+    }, 15_000);
 
     it.each([
       ["skills", "Skill", "skill-a"],

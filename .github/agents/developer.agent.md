@@ -32,6 +32,10 @@ Classify every failure:
 ## Documentation
 Documentation is handled by the Orchestrator after review. In your summary, list the changes that need documentation updates, and nothing else.
 
+## Release Engineering
+
+When a layer adds a controller, a CRD watch, a service, an image, or an e2e suite, follow `.github/skills/opendepot-release-engineering/SKILL.md`. Add the chart RBAC in the same layer as the code that needs it, and check the build, e2e, and release workflows for coverage. Do not push or open PRs; the Orchestrator does that.
+
 ## CRITICAL: Helm Chart Versioning Policy
 
 - **Chart-only changes:**

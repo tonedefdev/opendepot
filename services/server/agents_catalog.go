@@ -22,8 +22,16 @@ const (
 
 var agentCatalogNamespacePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
+// agentCatalogKindSkill, agentCatalogKindAgent, and agentCatalogKindMCPServer are the browse kinds listed by the
+// catalog.
+const (
+	agentCatalogKindSkill     = "skill"
+	agentCatalogKindAgent     = "agent"
+	agentCatalogKindMCPServer = agentMCPServerPrefix
+)
+
 // agentCatalogKinds are the browse kinds listed by the catalog.
-var agentCatalogKinds = []string{"skill", "agent"}
+var agentCatalogKinds = []string{agentCatalogKindSkill, agentCatalogKindAgent, agentCatalogKindMCPServer}
 
 // handleAgentCatalog returns a paginated catalog of the Skills and Agents the caller can see.
 // Authentication and visibility follow the UI browse endpoint. The catalog fails with 500 when any
@@ -141,18 +149,19 @@ func buildAgentCatalogItems(cs *kubernetes.Clientset, r *http.Request, namespace
 
 	for i := range versions {
 		v := &versions[i]
-		if v.Spec.AgentSourceRef == nil || v.Spec.AgentSourceRef.Name == nil {
+		sourceName := agentVersionSourceName(v)
+		if sourceName == nil {
 			continue
 		}
 
-		key := agentCatalogParentKey(v.Namespace, v.Spec.Type, *v.Spec.AgentSourceRef.Name)
+		key := agentCatalogParentKey(v.Namespace, v.Spec.Type, *sourceName)
 		versionsByParent[key] = append(versionsByParent[key], v)
 	}
 
 	items := make([]AgentCatalogItem, 0)
 
 	for _, kindName := range agentCatalogKinds {
-		kind := browseAgentKind(kindName)
+		kind := agentCatalogKind(kindName)
 		parents, listErr := agentCatalogParents(cs, r, kindName)
 		if listErr != nil {
 			return nil, listErr
@@ -224,6 +233,10 @@ func agentCatalogItemFor(kind agentKind, kindName, namespace, name string, versi
 		item.UnavailableCandidate = &newestCandidate
 	}
 
+	if kind.versionType == opendepotv1alpha1.OpenDepotMCPServer {
+		applyAgentCatalogMCPFields(&item, latest, newest)
+	}
+
 	if latest != nil {
 		item.LatestVersion = trimVersionPrefix(latest.Spec.Version)
 		if assessment := latest.Status.JevAssessment; assessment != nil {
@@ -260,9 +273,9 @@ func agentCatalogParentKey(namespace, versionType, name string) string {
 	return namespace + "/" + versionType + "/" + name
 }
 
-// agentCatalogParents lists the Skills or Agents of one browse kind.
+// agentCatalogParents lists the Skills, Agents, or MCPServers of one catalog kind.
 func agentCatalogParents(cs *kubernetes.Clientset, r *http.Request, kindName string) ([]agentCardObject, error) {
-	resource := browseAgentResource(kindName)
+	resource := agentCatalogKind(kindName).resource
 	raw, err := cs.RESTClient().
 		Get().
 		AbsPath("/apis/opendepot.defdev.io/v1alpha1").

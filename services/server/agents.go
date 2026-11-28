@@ -69,13 +69,15 @@ func (p agentParent) versionEntries() []struct {
 	return entries
 }
 
-// agentKindFromRequest resolves the kind URL segment, which is either "skills" or "agents".
+// agentKindFromRequest resolves the kind URL segment, which is "skills", "agents", or "mcpserver".
 func agentKindFromRequest(r *http.Request) (agentKind, bool) {
 	switch chi.URLParam(r, "kind") {
 	case "skills":
 		return agentKind{resource: "skills", prefix: "skill", versionType: opendepotv1alpha1.OpenDepotSkill}, true
 	case "agents":
 		return agentKind{resource: "agents", prefix: "agent", versionType: opendepotv1alpha1.OpenDepotAgent}, true
+	case agentKindMCPServer.prefix:
+		return agentKindMCPServer, true
 	}
 
 	return agentKind{}, false
@@ -93,12 +95,14 @@ func agentVersionBlocked(version *opendepotv1alpha1.Version) bool {
 	return version.Status.JevAssessment != nil && version.Status.JevAssessment.Blocked
 }
 
-// agentVersionMatches reports whether a Version is of the kind's type and sourced from the named Skill or Agent.
+// agentVersionMatches reports whether a Version is of the kind's type and sourced from the named Skill, Agent,
+// or MCPServer.
 func agentVersionMatches(version *opendepotv1alpha1.Version, kind agentKind, name string) bool {
+	sourceName := agentVersionSourceName(version)
+
 	return version.Spec.Type == kind.versionType &&
-		version.Spec.AgentSourceRef != nil &&
-		version.Spec.AgentSourceRef.Name != nil &&
-		*version.Spec.AgentSourceRef.Name == name
+		sourceName != nil &&
+		*sourceName == name
 }
 
 // agentVersionServable reports whether a Version may be served for the named Skill or Agent.
@@ -598,6 +602,19 @@ func getAgentDownloadMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isMCPImageVersion(version) {
+		response, ok := buildMCPImageDownload(w, r, namespace, name, version)
+		if !ok {
+			return
+		}
+
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logger.Error("mcpserver image: failed to encode download response", "error", err)
+		}
+
+		return
+	}
+
 	if version.Spec.FileName == nil || version.Status.Checksum == nil || version.Status.ShaSums == "" || version.Status.ShaSumsSignature == "" {
 		http.Error(w, "version artifact not yet available", http.StatusServiceUnavailable)
 		return
@@ -680,6 +697,7 @@ func serveAgentArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	version = agentArchiveVersion(version)
 	agentSourceRef := version.Spec.AgentSourceRef
 	if agentSourceRef == nil || agentSourceRef.StorageConfig == nil || agentSourceRef.Name == nil || version.Spec.FileName == nil {
 		logger.Error("agent storage configuration not available", "version", version.Name)

@@ -39,7 +39,7 @@ SonarQube provides static analysis (bugs, vulnerabilities, and code smells) that
 If a precondition fails, skip the scan, tell the Orchestrator which precondition failed, and do not return APPROVED. Still complete the manual checklist so the Orchestrator has the full review.
 
 ### Run the Scan
-From the repository root, run `make coverage` first so the coverage reports exist. Without them, the scan reports 0% coverage. When the diff changes e2e-exercised code, follow the E2E Coverage Workflow in the `opendepot-sonarqube` skill (`make coverage-merge`) instead, so the e2e paths are included.
+**`make coverage` is MANDATORY before `sonar-scanner`.** From the repository root, run `make coverage` first so the coverage reports exist. Generating these gitignored coverage files is required. Never skip it to avoid touching the workspace. Without them, the scan reports 0% coverage, and the Quality Gate result is invalid. When the diff changes e2e-exercised code, follow the E2E Coverage Workflow in the `opendepot-sonarqube` skill (`make coverage-merge`) instead, so the e2e paths are included.
 
 ```bash
 zsh -ic 'sonar-scanner \
@@ -79,8 +79,11 @@ The scan analyzes the checked-out working tree. Community Edition has no branch 
 
 Sonar findings on untouched lines, or in files the diff does not change, are FOLLOW-UP. Summarize them as one line per file with a count, not one line per finding.
 
+### SonarQube Quality Gate
+After the scan, run `zsh -ic 'curl -s -u "$SONAR_TOKEN:" "${SONAR_HOST_URL:-http://localhost:9000}/api/qualitygates/project_status?projectKey=opendepot"'`. Report `projectStatus.status` and the `new_coverage` percentage in the SonarQube Report. List every failing condition as well, including `new_violations` and `new_duplicated_lines_density`.
+
 ### SonarQube Report
-Include every in-scope finding in a table sorted from lowest to highest severity (`INFO` → `MINOR` → `MAJOR` → `CRITICAL` → `BLOCKER`):
+Start with the Quality Gate status and `new_coverage` percentage. Then include every in-scope finding in a table sorted from lowest to highest severity (`INFO` → `MINOR` → `MAJOR` → `CRITICAL` → `BLOCKER`):
 
 | Severity | Tier | Type | File | Line | Rule | Message |
 |---|---|---|---|---|---|---|
@@ -136,6 +139,8 @@ Tag every finding with one tier:
 - **FOLLOW-UP**: A real issue that exists on `main` or in untouched code, or is outside the plan, or a SonarQube finding outside the changed lines.
 - **NIT**: Style, naming, or a suggestion that does not affect correctness, or a SonarQube `MINOR` or `INFO` finding on a changed line.
 
+**A failing SonarQube Quality Gate is an automatic BLOCKING defect.** This includes `projectStatus.status != "OK"` and `new_coverage < 80%`. You MUST NOT return APPROVED unless the SonarQube Quality Gate is `OK` with real coverage reports loaded (from `make coverage`).
+
 Only BLOCKING findings require a fix. Report FOLLOW-UP and NIT items briefly so the Orchestrator can record them.
 
 ## Decision
@@ -149,7 +154,7 @@ After completing all checks, choose one of two paths:
 4. Return all three to the **OpenDepot Orchestrator**. Do not approve until every BLOCKING defect is fixed and you have confirmed it, including any SonarQube finding, and a fresh scan has been run to confirm it.
 
 ### Path B — Approved
-Only if the SonarQube scan completed and there are no BLOCKING defects:
+Only if the SonarQube scan completed, the SonarQube Quality Gate is `OK` (`new_coverage` at least 80%, with real coverage reports loaded), and there are no BLOCKING defects. A failing Quality Gate (`status != "OK"`, including `new_coverage < 80%`) is an automatic BLOCKING defect, and APPROVED is forbidden in that case:
 1. Summarize what was implemented in a short paragraph
 2. Include the SonarQube Report
 3. List FOLLOW-UP items in one line each, or state "none"
