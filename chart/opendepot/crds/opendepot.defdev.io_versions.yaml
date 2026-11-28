@@ -809,6 +809,134 @@ spec:
                     - Image
                     - Generic
                     type: string
+                  build:
+                    description: |-
+                      The GitHub repository that the Image is built from in-cluster with rootless BuildKit. Only valid for Image.
+                      Requires the chart value `oci.builds.enabled`.
+                    properties:
+                      buildArgs:
+                        description: Non-secret build arguments. Values are stored
+                          in plain text in the resource and the image history. Do
+                          not put secrets here.
+                        items:
+                          description: OCIBuildArg is a non-secret build argument
+                            that is passed to the Dockerfile as --build-arg.
+                          properties:
+                            name:
+                              description: The name of the build argument.
+                              maxLength: 128
+                              pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+                              type: string
+                              x-kubernetes-validations:
+                              - message: reserved build argument
+                                rule: '!self.startsWith(''BUILDKIT_'') && self !=
+                                  ''SOURCE_DATE_EPOCH'''
+                            value:
+                              description: The value of the build argument. Control
+                                characters and newlines are not allowed.
+                              maxLength: 4096
+                              pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                              type: string
+                          required:
+                          - name
+                          - value
+                          type: object
+                        maxItems: 32
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      contextPath:
+                        default: .
+                        description: |-
+                          The directory that is sent to the build as its context, relative to the root of the repository.
+                          Defaults to '.' when omitted.
+                        maxLength: 256
+                        pattern: ^[A-Za-z0-9._/-]+$
+                        type: string
+                        x-kubernetes-validations:
+                        - message: contextPath must be a relative path without dot
+                            segments
+                          rule: self == '.' || (!self.startsWith('/') && self != '..'
+                            && !self.startsWith('../') && !self.contains('/../') &&
+                            !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./')
+                            && !self.endsWith('/.'))
+                      dockerfilePath:
+                        default: Dockerfile
+                        description: |-
+                          The path of the Dockerfile, relative to the root of the repository, like docker build -f. It may be outside
+                          the context. Defaults to 'Dockerfile' when omitted.
+                        maxLength: 256
+                        pattern: ^[A-Za-z0-9._/-]+$
+                        type: string
+                        x-kubernetes-validations:
+                        - message: dockerfilePath must be a relative path without
+                            dot segments
+                          rule: self != '.' && self != '..' && !self.startsWith('/')
+                            && !self.startsWith('../') && !self.contains('/../') &&
+                            !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./')
+                            && !self.endsWith('/.')
+                      repoOwner:
+                        description: Owner of the Github repository.
+                        maxLength: 39
+                        pattern: ^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$
+                        type: string
+                      repoUrl:
+                        description: The full URL of the Github repository. The controller
+                          validates it at runtime.
+                        maxLength: 512
+                        type: string
+                      resources:
+                        description: The compute resources for each build. The controller
+                          clamps each value to the chart maximum.
+                        properties:
+                          cpu:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: The CPU that each build Job requests, such
+                              as 2 or 500m.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          ephemeralStorage:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: The ephemeral storage that each build Job
+                              requests, such as 10Gi.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          memory:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: The memory that each build Job requests,
+                              such as 4Gi.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        type: object
+                      tagPrefix:
+                        description: |-
+                          The prefix of the Git tags that version this source, such as 'my-chart/'. The prefix is
+                          stripped from each tag to produce the version. If omitted, tags are used as-is.
+                        maxLength: 128
+                        type: string
+                      target:
+                        description: The build stage to build, as in docker build
+                          --target.
+                        maxLength: 128
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
+                        type: string
+                      timeoutSeconds:
+                        description: The maximum time in seconds that a build may
+                          run. The controller clamps it to the chart maximum.
+                        format: int32
+                        maximum: 7200
+                        minimum: 60
+                        type: integer
+                    required:
+                    - repoOwner
+                    type: object
                   github:
                     description: The GitHub release assets that the artifact is built
                       from. Only valid for Helm and Generic artifacts.
@@ -1047,10 +1175,16 @@ spec:
                 - artifactType
                 type: object
                 x-kubernetes-validations:
-                - message: exactly one of mirror or github is required
-                  rule: has(self.mirror) != has(self.github)
-                - message: images can only be mirrored
+                - message: exactly one of mirror, github, or build is required
+                  rule: '(has(self.mirror) ? 1 : 0) + (has(self.github) ? 1 : 0) +
+                    (has(self.build) ? 1 : 0) == 1'
+                - message: images can only be mirrored or built
                   rule: '!has(self.github) || self.artifactType != ''Image'''
+                - message: build is only valid for Image
+                  rule: '!has(self.build) || self.artifactType == ''Image'''
+                - message: build platforms must be linux
+                  rule: '!has(self.build) || !has(self.platforms) || self.platforms.all(p,
+                    p.startsWith(''linux/''))'
                 - message: platforms is only valid for Image
                   rule: '!has(self.platforms) || self.artifactType == ''Image'''
                 - message: tagPattern and versionConstraints are mutually exclusive
@@ -1918,6 +2052,108 @@ spec:
                     type: string
                 required:
                 - runnable
+                type: object
+              ociBuild:
+                description: |-
+                  OCIBuild holds the in-cluster build state of an Image OCIArtifact Version that is built from a build source.
+                  Only populated for OCIArtifact Versions that have a build source. It is for display and debugging, and the
+                  server serves only status.ociManifest.
+                properties:
+                  buildID:
+                    description: The random identifier of the build. It names the
+                      build Jobs and the staged context.
+                    pattern: ^[a-z0-9]{20}$
+                    type: string
+                  completedAt:
+                    description: The time that the build completed.
+                    format: date-time
+                    type: string
+                  contextDigest:
+                    description: The sha256 digest of the staged build context.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                  fetchTokenHash:
+                    description: The sha256 hash of the one-time token that the build
+                      Job uses to fetch the build context. The token itself is never
+                      stored.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                  message:
+                    description: A human-readable message about the build's phase.
+                    maxLength: 1024
+                    type: string
+                  phase:
+                    description: The build's phase.
+                    enum:
+                    - Pending
+                    - Running
+                    - Succeeded
+                    - Failed
+                    type: string
+                  platforms:
+                    description: The build status of each platform.
+                    items:
+                      description: OCIBuildPlatformStatus describes the build Job
+                        of one platform in an OCIBuildStatus.
+                      properties:
+                        jobName:
+                          description: The name of the build Job for this platform.
+                          maxLength: 63
+                          type: string
+                        manifestDigest:
+                          description: The sha256 digest of the manifest that this
+                            platform's build produced.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        message:
+                          description: A human-readable message about this platform's
+                            build.
+                          maxLength: 1024
+                          type: string
+                        phase:
+                          description: The build Job's phase for this platform.
+                          enum:
+                          - Pending
+                          - Running
+                          - Succeeded
+                          - Failed
+                          type: string
+                        platform:
+                          description: The platform that the build Job builds, such
+                            as linux/amd64.
+                          pattern: ^[a-z0-9]+/[a-z0-9]+(/[a-z0-9.]+)?$
+                          type: string
+                      required:
+                      - jobName
+                      - phase
+                      - platform
+                      type: object
+                    maxItems: 16
+                    type: array
+                  sourceCommit:
+                    description: The full commit SHA that the Git tag resolved to
+                      when the build started.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
+                  sourceTag:
+                    description: The Git tag that the build was started from.
+                    maxLength: 255
+                    type: string
+                  startedAt:
+                    description: The time that the build started.
+                    format: date-time
+                    type: string
+                  uploadTokenHash:
+                    description: The sha256 hash of the one-time token that the build
+                      Job uses to upload the OCI layout. The token itself is never
+                      stored.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                required:
+                - buildID
+                - phase
+                - sourceCommit
+                - sourceTag
                 type: object
               ociManifest:
                 description: |-
