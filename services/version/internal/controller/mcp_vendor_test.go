@@ -614,3 +614,191 @@ func TestCheckNPMTarballsRejectsNativeAddon(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckNPMTarballsSkipsUnresolvedEntries(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "package-lock.json")
+	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(map[string]npmLockEntry{
+		"node_modules/bundled": {Version: "1.0.0", Integrity: "sha512-JJJJ"},
+	})})
+
+	rootURL := "https://registry.npmjs.org/example-mcp/-/example-mcp-1.0.0.tgz"
+	resolver := &fakeMCPResolver{tarballs: map[string][]byte{
+		rootURL: testTarball(t, map[string]string{"package/index.js": "export {}"}),
+	}}
+	if err := checkNPMTarballs(context.Background(), resolver, lock); err != nil {
+		t.Fatalf("bundled entry without resolved should be skipped: %v", err)
+	}
+}
+
+func TestCheckNPMTarballsFetchErrorIsNotAFinding(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "package-lock.json")
+	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(map[string]npmLockEntry{
+		"node_modules/transitive": {Version: "1.0.0", Resolved: "https://registry.npmjs.org/transitive/-/transitive-1.0.0.tgz", Integrity: "sha512-JJJJ"},
+	})})
+
+	err := checkNPMTarballs(context.Background(), &fakeMCPResolver{}, lock)
+	if err == nil {
+		t.Fatal("tarball fetch failure should fail the sync")
+	}
+
+	if got := mcpFindingCode(err); got != "" {
+		t.Fatalf("transient fetch failure became finding %q, want a retryable error", got)
+	}
+}
+
+func TestMCPResolveErrorMapping(t *testing.T) {
+	transient := errors.New("registry timeout")
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "no compatible wheel", err: mcp.ErrNoCompatibleWheel, want: mcpFindingSdistOnly},
+		{name: "version not found", err: mcp.ErrVersionNotFound, want: mcpFindingInvalid},
+		{name: "registry denied", err: mcp.ErrDenied, want: mcpFindingInvalid},
+		{name: "transient error is retryable", err: transient},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mcpResolveError(tc.err)
+			if got := mcpFindingCode(err); got != tc.want {
+				t.Fatalf("finding code = %q, want %q (err=%v)", got, tc.want, err)
+			}
+
+			if tc.want == "" && !errors.Is(err, transient) {
+				t.Fatalf("transient error = %v, want it wrapped", err)
+			}
+		})
+	}
+}
+
+func TestMCPResolverForUsesInjectedResolver(t *testing.T) {
+	injected := &fakeMCPResolver{}
+	reconciler := &VersionReconciler{mcpClient: injected}
+
+	resolver, err := reconciler.mcpResolverFor()
+	if err != nil {
+		t.Fatalf("mcpResolverFor: %v", err)
+	}
+
+	if resolver != injected {
+		t.Fatal("mcpResolverFor did not return the injected resolver")
+	}
+}
+
+func TestMCPResolverForBuildsAllowListedClients(t *testing.T) {
+	reconciler := &VersionReconciler{
+		MCPAllowedNpmRegistries: []string{"registry.npmjs.org"},
+		MCPAllowedPyPIIndexes:   []string{"pypi.org"},
+	}
+
+	resolver, err := reconciler.mcpResolverFor()
+	if err != nil {
+		t.Fatalf("mcpResolverFor: %v", err)
+	}
+
+	combined, ok := resolver.(mcpCombinedResolver)
+	if !ok {
+		t.Fatalf("resolver = %T, want mcpCombinedResolver", resolver)
+	}
+
+	_, err = combined.ResolveNPM(context.Background(), "https://evil.example.com", "example-mcp", "1.0.0")
+	if !errors.Is(err, mcp.ErrDenied) {
+		t.Fatalf("npm off-list registry err = %v, want ErrDenied", err)
+	}
+
+	_, err = combined.ResolvePyPI(context.Background(), "https://evil.example.com/simple", "example-mcp", "1.0.0", mcp.PyPIFilter{})
+	if !errors.Is(err, mcp.ErrDenied) {
+		t.Fatalf("pypi off-list index err = %v, want ErrDenied", err)
+	}
+
+	_, err = combined.FetchTarball(context.Background(), "https://evil.example.com/pkg.tgz")
+	if !errors.Is(err, mcp.ErrDenied) {
+		t.Fatalf("tarball off-list err = %v, want ErrDenied", err)
+	}
+}
+
+func TestMCPResolverForRejectsInvalidAllowList(t *testing.T) {
+	reconciler := &VersionReconciler{MCPAllowedNpmRegistries: []string{"http://[bad"}}
+
+	if _, err := reconciler.mcpResolverFor(); err == nil {
+		t.Fatal("mcpResolverFor accepted an invalid npm allow-list")
+	}
+}
+
+func TestMatchedPlatformsSortedAndDeduplicated(t *testing.T) {
+	release := mcp.PyPIRelease{Wheels: []mcp.PyPIWheel{
+		{PlatformTags: []string{"win_amd64"}},
+		{PlatformTags: []string{"manylinux_x86_64", "win_amd64"}},
+	}}
+
+	got := matchedPlatforms(release, []string{"win_amd64", "manylinux_x86_64", "macosx_arm64"})
+	want := []string{"manylinux_x86_64", "win_amd64"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("matchedPlatforms = %v, want %v", got, want)
+	}
+
+	if got := matchedPlatforms(release, nil); len(got) != 0 {
+		t.Fatalf("matchedPlatforms with no platforms = %v, want none", got)
+	}
+}
+
+func TestNPMEntryPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkgName string
+		files   map[string]string
+		noJSON  bool
+		entry   *opendepotv1alpha1.MCPEntrypoint
+		want    string
+		finding string
+	}{
+		{name: "explicit command skips the package entry", pkgName: "example-mcp", files: nil, entry: &opendepotv1alpha1.MCPEntrypoint{Command: "npx"}, want: ""},
+		{name: "missing package.json", pkgName: "example-mcp", noJSON: true, finding: mcpFindingInvalid},
+		{name: "invalid package.json", pkgName: "example-mcp", files: map[string]string{"package.json": `{"bin":`}, finding: mcpFindingInvalid},
+		{name: "string bin", pkgName: "example-mcp", files: map[string]string{"package.json": `{"bin":"./bin/server.js"}`, "bin/server.js": "x"}, want: "node_modules/example-mcp/bin/server.js"},
+		{name: "single-entry bin map", pkgName: "example-mcp", files: map[string]string{"package.json": `{"bin":{"tool":"dist/tool.js"}}`, "dist/tool.js": "x"}, want: "node_modules/example-mcp/dist/tool.js"},
+		{name: "bin map keyed by package base name", pkgName: "@scope/example-mcp", files: map[string]string{"package.json": `{"bin":{"other":"a.js","example-mcp":"cli.js"}}`, "cli.js": "x"}, want: "node_modules/@scope/example-mcp/cli.js"},
+		{name: "main fallback", pkgName: "example-mcp", files: map[string]string{"package.json": `{"main":"index.js"}`, "index.js": "x"}, want: "node_modules/example-mcp/index.js"},
+		{name: "no bin or main", pkgName: "example-mcp", files: map[string]string{"package.json": `{}`}, finding: mcpFindingInvalid},
+		{name: "entry escapes the package", pkgName: "example-mcp", files: map[string]string{"package.json": `{"main":"../outside.js"}`}, finding: mcpFindingInvalid},
+		{name: "entry missing from the tree", pkgName: "example-mcp", files: map[string]string{"package.json": `{"main":"gone.js"}`}, finding: mcpFindingInvalid},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if !tc.noJSON {
+				writeMCPFiles(t, dir, tc.files)
+			}
+
+			got, err := npmEntryPath(dir, tc.pkgName, tc.entry)
+			if got := mcpFindingCode(err); got != tc.finding {
+				t.Fatalf("finding = %q, want %q (err=%v)", got, tc.finding, err)
+			}
+
+			if err == nil && got != tc.want {
+				t.Fatalf("npmEntryPath = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVendorMCPSourceRejectsInvalidCommit(t *testing.T) {
+	reconciler := &VersionReconciler{}
+	version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0", SourceCommit: "not-a-sha"}}
+	cfg := &opendepotv1alpha1.MCPServerSourceConfig{
+		Source: opendepotv1alpha1.MCPServerSource{
+			Type:   mcpSourceRepo,
+			Source: &opendepotv1alpha1.MCPRepoSource{RepoOwner: "owner"},
+		},
+	}
+
+	if _, err := reconciler.vendorMCPSource(context.Background(), version, cfg, mcp.TransportStdio, t.TempDir()); err == nil {
+		t.Fatal("vendorMCPSource accepted a malformed source commit")
+	}
+}

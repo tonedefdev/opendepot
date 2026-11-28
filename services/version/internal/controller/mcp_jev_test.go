@@ -18,13 +18,20 @@ package controller
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
+	"github.com/tonedefdev/opendepot/services/version/internal/policy"
 )
 
 const testServerJSON = `{
@@ -194,5 +201,226 @@ func TestMCPAgentShadowCarriesJevConfig(t *testing.T) {
 
 	if version.Spec.Type != opendepotv1alpha1.OpenDepotMCPServer {
 		t.Fatal("mcpAgentShadow mutated the MCPServer Version")
+	}
+}
+
+func TestReadMCPMetadataFallbacks(t *testing.T) {
+	long := strings.Repeat("n", mcpMaxNameRunes+10)
+	tests := []struct {
+		name        string
+		files       map[string]string
+		cfgName     *string
+		version     string
+		wantName    string
+		wantDesc    string
+		wantFinding string
+	}{
+		{
+			name:     "package.json supplies name and description",
+			files:    map[string]string{"package.json": `{"name":"pkg-mcp","description":"from package"}`},
+			wantName: "pkg-mcp",
+			wantDesc: "from package",
+		},
+		{
+			name:     "spec name overrides server.json",
+			files:    map[string]string{"server.json": testServerJSON},
+			cfgName:  &long,
+			wantName: long[:mcpMaxNameRunes],
+			wantDesc: "An example MCP server",
+		},
+		{
+			name:     "no metadata falls back to the Version name",
+			files:    map[string]string{},
+			version:  "fallback-version",
+			wantName: "fallback-version",
+		},
+		{
+			name:        "invalid server.json is terminal",
+			files:       map[string]string{"server.json": `{"name":`},
+			wantFinding: mcpFindingInvalid,
+		},
+		{
+			name:        "invalid package.json is terminal",
+			files:       map[string]string{"package.json": `{"name":`},
+			wantFinding: mcpFindingInvalid,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pkgDir := t.TempDir()
+			writeMCPFiles(t, pkgDir, tc.files)
+
+			cfg := &opendepotv1alpha1.MCPServerSourceConfig{
+				Name:   tc.cfgName,
+				Source: opendepotv1alpha1.MCPServerSource{Type: "Unknown"},
+			}
+			version := &opendepotv1alpha1.Version{ObjectMeta: metav1.ObjectMeta{Name: tc.version}}
+
+			meta, err := readMCPMetadata(pkgDir, cfg, version)
+			if got := mcpFindingCode(err); got != tc.wantFinding {
+				t.Fatalf("finding = %q, want %q (err=%v)", got, tc.wantFinding, err)
+			}
+
+			if tc.wantFinding != "" {
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("readMCPMetadata: %v", err)
+			}
+
+			if meta.name != tc.wantName || meta.description != tc.wantDesc {
+				t.Fatalf("meta = %+v, want name %q and description %q", meta, tc.wantName, tc.wantDesc)
+			}
+		})
+	}
+}
+
+func TestReadMCPMetadataRequiresName(t *testing.T) {
+	cfg := &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: "Unknown"}}
+	version := &opendepotv1alpha1.Version{}
+
+	if _, err := readMCPMetadata(t.TempDir(), cfg, version); mcpFindingCode(err) != mcpFindingInvalid {
+		t.Fatalf("nameless package finding = %v, want invalid", err)
+	}
+}
+
+func TestMCPSourceNameByType(t *testing.T) {
+	version := &opendepotv1alpha1.Version{ObjectMeta: metav1.ObjectMeta{Name: "version-name"}}
+
+	tests := []struct {
+		name string
+		cfg  *opendepotv1alpha1.MCPServerSourceConfig
+		want string
+	}{
+		{
+			name: "Npm package",
+			cfg:  &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceNpm, Npm: &opendepotv1alpha1.MCPNpmSource{Package: "npm-pkg"}}},
+			want: "npm-pkg",
+		},
+		{
+			name: "PyPI package",
+			cfg:  &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourcePyPI, PyPI: &opendepotv1alpha1.MCPPyPISource{Package: "py-pkg"}}},
+			want: "py-pkg",
+		},
+		{
+			name: "Source repository path base",
+			cfg:  &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceRepo, Source: &opendepotv1alpha1.MCPRepoSource{Path: "servers/tools/"}}},
+			want: "tools",
+		},
+		{
+			name: "Npm without a package block uses the Version name",
+			cfg:  &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceNpm}},
+			want: "version-name",
+		},
+		{
+			name: "Source without a repository block uses the Version name",
+			cfg:  &opendepotv1alpha1.MCPServerSourceConfig{Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceRepo}},
+			want: "version-name",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mcpSourceName(tc.cfg, version); got != tc.want {
+				t.Fatalf("mcpSourceName = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func newMCPJevGateReconciler(t *testing.T, endpoint string, version *opendepotv1alpha1.Version) *VersionReconciler {
+	t.Helper()
+
+	reconciler := newJevTestReconciler(t, endpoint)
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+
+	if err := opendepotv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "jev-token", Namespace: "default"},
+		Data:       map[string][]byte{"jevToken": []byte(jevSentinelToken)},
+	}
+
+	reconciler.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).WithRuntimeObjects(version).WithStatusSubresource(&opendepotv1alpha1.Version{}).Build()
+	reconciler.Scheme = scheme
+	reconciler.Log = logr.Discard()
+
+	return reconciler
+}
+
+func testMCPJevGateContent(t *testing.T) *agentContent {
+	t.Helper()
+
+	pkgDir := t.TempDir()
+	writeMCPFiles(t, pkgDir, map[string]string{"server.json": testServerJSON, "package.json": `{"name":"example-mcp"}`})
+	content, err := stageMCPJev(&mcpVendored{tree: pkgDir, pkgDir: pkgDir}, mcpMeta{name: "example-mcp"}, "abc123")
+	if err != nil {
+		t.Fatalf("stageMCPJev: %v", err)
+	}
+
+	return content
+}
+
+func TestGateMCPJevAllowsCleanAssessment(t *testing.T) {
+	endpoint, calls := newJevEndpoint(t, jevOK)
+	version := newMCPJevTestVersion(nil)
+	reconciler := newMCPJevGateReconciler(t, endpoint, version)
+	req := ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: "default"}}
+
+	gate, _, stop, err := reconciler.gateMCPJev(context.Background(), req, version, policy.Resolved{}, nil, nil, testMCPJevGateContent(t))
+	if err != nil || stop {
+		t.Fatalf("gateMCPJev stop=%v err=%v, want a clean pass", stop, err)
+	}
+
+	if gate.assessment == nil || gate.assessment.Blocked || calls.Load() != 1 {
+		t.Fatalf("gate assessment = %+v after %d calls, want an unblocked assessment", gate.assessment, calls.Load())
+	}
+}
+
+func TestGateMCPJevStopsWhenDisabled(t *testing.T) {
+	version := newMCPJevTestVersion(nil)
+	reconciler := newMCPJevGateReconciler(t, "", version)
+	reconciler.JevEnabled = false
+	req := ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: "default"}}
+
+	gate, _, stop, _ := reconciler.gateMCPJev(context.Background(), req, version, policy.Resolved{}, nil, nil, testMCPJevGateContent(t))
+	if !stop {
+		t.Fatal("disabled Jev did not stop the Version from publishing")
+	}
+
+	if gate.assessment == nil || !gate.assessment.Blocked {
+		t.Fatalf("disabled Jev assessment = %+v, want a blocked assessment", gate.assessment)
+	}
+
+	current := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(context.Background(), req.NamespacedName, current); err != nil {
+		t.Fatalf("get version: %v", err)
+	}
+
+	if current.Status.JevAssessment == nil || !current.Status.JevAssessment.Blocked {
+		t.Fatalf("persisted assessment = %+v, want blocked", current.Status.JevAssessment)
+	}
+}
+
+func TestGateMCPJevHoldsWhenServiceUnavailable(t *testing.T) {
+	endpoint, _ := newJevEndpoint(t, jevStatus(http.StatusServiceUnavailable, `{"error":"down"}`))
+	version := newMCPJevTestVersion(nil)
+	reconciler := newMCPJevGateReconciler(t, endpoint, version)
+	req := ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: "default"}}
+
+	_, result, stop, _ := reconciler.gateMCPJev(context.Background(), req, version, policy.Resolved{}, nil, nil, testMCPJevGateContent(t))
+	if !stop {
+		t.Fatal("unavailable Jev service did not hold the Version")
+	}
+
+	if result.RequeueAfter == 0 && !result.IsZero() {
+		t.Fatalf("result = %+v, want a requeue or a terminal hold", result)
 	}
 }
