@@ -34,12 +34,15 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-github/v81/github"
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -132,6 +135,10 @@ type VersionReconciler struct {
 	jevDeadline time.Duration
 	// jevRetries holds the failed Jev attempts per Version archive, so retries stop even when the status write fails.
 	jevRetries jevRetryTracker
+	// OCIBuilds configures in-cluster builds of OCIArtifacts that set build. The zero value disables builds.
+	OCIBuilds OCIBuildOptions
+	// ociBuildMu serializes the build slot check with the launch of a build in this process.
+	ociBuildMu sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions,verbs=get;list;watch;create;update;patch;delete
@@ -1277,6 +1284,12 @@ func (r *VersionReconciler) reconcileDeletion(ctx context.Context, version *open
 		return ctrl.Result{}, nil
 	}
 
+	if version.Spec.Type == opendepotv1alpha1.OpenDepotOCIArtifact {
+		if err := r.cleanupOCIBuildsOnDelete(ctx, version); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	filePath, err := getVersionFilePath(version)
 	if err != nil {
 		// If the file path cannot be resolved (e.g. FileName was never persisted
@@ -2011,6 +2024,14 @@ func (r *VersionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.moduleVersionsForProviderSchema),
 			ctrlbuilder.WithPredicates(providerSchemaExtracted),
 		)
+	}
+
+	// Build Jobs and their Pods live in the builds namespace. Their events enqueue the Version that owns them, so a build
+	// is observed as soon as a platform finishes. The watches exist only when builds are enabled, because the cache
+	// watches them only in that case.
+	if r.OCIBuilds.Enabled {
+		builder = builder.Watches(&batchv1.Job{}, handler.EnqueueRequestsFromMapFunc(versionForOCIBuildObject)).
+			Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(versionForOCIBuildObject))
 	}
 
 	return builder.Complete(r)

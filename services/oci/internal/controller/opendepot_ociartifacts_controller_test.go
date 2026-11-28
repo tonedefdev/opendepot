@@ -30,6 +30,9 @@ import (
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
 
+// testBuildOwner is the GitHub owner that the build specs use. It is on the build allow-list unless a spec says otherwise.
+const testBuildOwner = "tonedefdev"
+
 var _ = Describe("OCIArtifact Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-oci"
@@ -86,17 +89,32 @@ var _ = Describe("OCIArtifact Controller", func() {
 			}
 		}
 
-		reconcileOCIArtifact := func() {
+		buildConfig := func(repoOwner string) opendepotv1alpha1.OCIArtifactConfig {
+			return opendepotv1alpha1.OCIArtifactConfig{
+				ArtifactType: "Image",
+				Build: &opendepotv1alpha1.OCIBuildSource{
+					RepoOwner: repoOwner,
+				},
+			}
+		}
+
+		reconcileOCIArtifactWithBuilds := func(buildsEnabled bool, buildOwners []string) {
 			controllerReconciler := &OCIArtifactReconciler{
-				Client:            k8sClient,
-				Scheme:            k8sClient.Scheme(),
-				AllowedRegistries: []string{"ghcr.io"},
+				Client:                     k8sClient,
+				Scheme:                     k8sClient.Scheme(),
+				AllowedRegistries:          []string{"ghcr.io"},
+				OCIBuildsEnabled:           buildsEnabled,
+				OCIBuildsAllowedRepoOwners: buildOwners,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
+		}
+
+		reconcileOCIArtifact := func() {
+			reconcileOCIArtifactWithBuilds(false, nil)
 		}
 
 		getOCIArtifact := func() *opendepotv1alpha1.OCIArtifact {
@@ -197,6 +215,52 @@ var _ = Describe("OCIArtifact Controller", func() {
 			status := getOCIArtifact().Status
 			Expect(status.Synced).To(BeFalse())
 			Expect(status.SyncStatus).To(ContainSubstring("not on the allow-list"))
+		})
+
+		It("should deny a build when in-cluster builds are disabled and create no Versions", func() {
+			ociArtifact := newOCIArtifact(buildConfig(testBuildOwner), "1.0.0")
+			Expect(k8sClient.Create(ctx, ociArtifact)).To(Succeed())
+
+			reconcileOCIArtifactWithBuilds(false, []string{testBuildOwner})
+
+			Expect(listVersions()).To(BeEmpty())
+			status := getOCIArtifact().Status
+			Expect(status.Synced).To(BeFalse())
+			Expect(status.SyncStatus).To(Equal("In-cluster builds are disabled"))
+		})
+
+		It("should deny a build whose repository owner is not on the build allow-list", func() {
+			ociArtifact := newOCIArtifact(buildConfig("someone-else"), "1.0.0")
+			Expect(k8sClient.Create(ctx, ociArtifact)).To(Succeed())
+
+			reconcileOCIArtifactWithBuilds(true, []string{testBuildOwner})
+
+			Expect(listVersions()).To(BeEmpty())
+			status := getOCIArtifact().Status
+			Expect(status.Synced).To(BeFalse())
+			Expect(status.SyncStatus).To(Equal("Repository owner someone-else is not on the build allow-list"))
+		})
+
+		It("should deny every build when the build allow-list is empty", func() {
+			ociArtifact := newOCIArtifact(buildConfig(testBuildOwner), "1.0.0")
+			Expect(k8sClient.Create(ctx, ociArtifact)).To(Succeed())
+
+			reconcileOCIArtifactWithBuilds(true, nil)
+
+			Expect(listVersions()).To(BeEmpty())
+			Expect(getOCIArtifact().Status.SyncStatus).To(ContainSubstring("not on the build allow-list"))
+		})
+
+		It("should pass a build whose repository owner is on the allow-list to Version creation", func() {
+			ociArtifact := newOCIArtifact(buildConfig(testBuildOwner), "1.0.0")
+			Expect(k8sClient.Create(ctx, ociArtifact)).To(Succeed())
+
+			reconcileOCIArtifactWithBuilds(true, []string{testBuildOwner})
+
+			version := getVersion(nameFor("1.0.0"))
+			Expect(version.Spec.OCIArtifactConfigRef).NotTo(BeNil())
+			Expect(version.Spec.OCIArtifactConfigRef.Build).NotTo(BeNil())
+			Expect(version.Spec.OCIArtifactConfigRef.Build.RepoOwner).To(Equal(testBuildOwner))
 		})
 
 		It("should keep the newest semantic versions within versionHistoryLimit", func() {
