@@ -38,6 +38,7 @@ const (
 	ScanTypeSource = "source"
 	ScanTypeModule = "module"
 	ScanTypeAgent  = "agent"
+	ScanTypeMCP    = "mcp"
 )
 
 // wildcard is the only pattern supported in exemption and target reference lists.

@@ -104,6 +104,9 @@ func main() {
 	var jevEnabled bool
 	var branchSourcingEnabled bool
 	var ociAllowedRegistries string
+	var mcpAllowedNpmRegistries string
+	var mcpAllowedPyPIIndexes string
+	var mcpPyPIDefaultPlatforms string
 	var filesystemMountPath string
 	var jevEndpoint string
 	var jevMaxRetries int
@@ -133,6 +136,12 @@ func main() {
 		"Download Skill and Agent Versions pinned to a commit SHA from a branch and assign their semantic versions.")
 	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
 		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
+	flag.StringVar(&mcpAllowedNpmRegistries, "mcp-allowed-npm-registries", "registry.npmjs.org",
+		"Comma-separated npm registry hosts an MCPServer may vendor from. Empty denies all registries.")
+	flag.StringVar(&mcpAllowedPyPIIndexes, "mcp-allowed-pypi-indexes", "pypi.org,files.pythonhosted.org",
+		"Comma-separated PyPI index and wheel hosts an MCPServer may vendor from. Empty denies all indexes.")
+	flag.StringVar(&mcpPyPIDefaultPlatforms, "mcp-pypi-default-platforms", "manylinux_2_28_x86_64,manylinux_2_28_aarch64,macosx_11_0_arm64",
+		"Comma-separated wheel platform tags vendored for a PyPI MCPServer that does not set platforms.")
 	flag.StringVar(&filesystemMountPath, "filesystem-mount-path", "/data/modules",
 		"Allowed root path for filesystem storage. OCIArtifact directories outside this prefix are rejected.")
 	var assemblyEnabled bool
@@ -165,6 +174,10 @@ func main() {
 
 	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
 	logger.Info("oci allowed registries", "registries", allowedRegistries)
+	mcpNpmRegistries := parseOCIAllowedRegistries(mcpAllowedNpmRegistries)
+	mcpPyPIIndexes := parseOCIAllowedRegistries(mcpAllowedPyPIIndexes)
+	mcpPlatforms := parseOCIAllowedRegistries(mcpPyPIDefaultPlatforms)
+	logger.Info("mcp allow-lists", "npmRegistries", mcpNpmRegistries, "pypiIndexes", mcpPyPIIndexes, "pypiPlatforms", mcpPlatforms)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -346,6 +359,9 @@ func main() {
 		TofuBinPath:             tofuBinPath,
 		SchemaExtractionTimeout: schemaExtractionTimeout,
 		OCIAllowedRegistries:    allowedRegistries,
+		MCPAllowedNpmRegistries: mcpNpmRegistries,
+		MCPAllowedPyPIIndexes:   mcpPyPIIndexes,
+		MCPPyPIDefaultPlatforms: mcpPlatforms,
 		FilesystemMountPath:     filesystemMountPath,
 		OCIBuilds:               ociBuildOptions,
 	}

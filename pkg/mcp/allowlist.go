@@ -59,6 +59,17 @@ func (al *AllowList) allows(u *url.URL) bool {
 	return false
 }
 
+// CheckURL reports whether rawURL is an https URL without userinfo whose host is on the allow-list. The error never
+// carries the URL, so a token in a query or path cannot leak into logs or status.
+func (al *AllowList) CheckURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("%w: URL does not parse", ErrDenied)
+	}
+
+	return checkURL(al, u, false)
+}
+
 // checkURL enforces the registry policy on one URL. The scheme must be https (or http when the test-only plainHTTP
 // flag is set), the URL must not carry userinfo, and its host must be on the allow-list.
 func checkURL(al *AllowList, u *url.URL, plainHTTP bool) error {

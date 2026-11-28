@@ -115,6 +115,14 @@ type VersionReconciler struct {
 	// FilesystemMountPath is the root under which OCIArtifact blobs may be written to the filesystem storage backend. An
 	// empty path disables the check.
 	FilesystemMountPath string
+	// MCPAllowedNpmRegistries lists the npm registry hosts an MCPServer may vendor from. An empty list denies every registry.
+	MCPAllowedNpmRegistries []string
+	// MCPAllowedPyPIIndexes lists the PyPI index and wheel hosts an MCPServer may vendor from. An empty list denies every index.
+	MCPAllowedPyPIIndexes []string
+	// MCPPyPIDefaultPlatforms lists the wheel platform tags used when a PyPI MCPServer does not set platforms.
+	MCPPyPIDefaultPlatforms []string
+	// mcpClient resolves MCP packages. A nil value builds a client from the allow-lists.
+	mcpClient mcpResolver
 	// ociRegistryFor builds the upstream client for a mirror. A nil value uses oci.NewUpstream.
 	ociRegistryFor func(allowed []string, dockerConfigJSON []byte) (ociRegistry, error)
 	// ociGithubClientFor builds the GitHub client for a GitHub OCIArtifact. A nil value uses the GitHub client helper.
@@ -144,6 +152,7 @@ type VersionReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=versions/finalizers,verbs=update
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=ociartifacts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules,verbs=get
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=modules/status,verbs=get;update;patch
@@ -1326,35 +1335,9 @@ func (r *VersionReconciler) reconcileDeletion(ctx context.Context, version *open
 	return ctrl.Result{}, nil
 }
 
-// unsupportedBuildSyncStatus is the SyncStatus written to OCIArtifact and MCPServer Versions until their sync is built in.
-const unsupportedBuildSyncStatus = "unsupported in this build"
-
 // reconcileOCIVersion is the OCIArtifact dispatch target. It mirrors or packages the artifact and records its manifest.
 func (r *VersionReconciler) reconcileOCIVersion(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (ctrl.Result, error) {
 	return r.syncOCIVersion(ctx, req, version)
-}
-
-// reconcileMCPVersion is the MCPServer dispatch target. The MCP sync is not built in yet, so the Version is marked unsupported.
-func (r *VersionReconciler) reconcileMCPVersion(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (ctrl.Result, error) {
-	return r.reconcileUnsupportedVersion(ctx, req, version)
-}
-
-// reconcileUnsupportedVersion records the unsupported status once and returns without requeuing.
-func (r *VersionReconciler) reconcileUnsupportedVersion(ctx context.Context, req ctrl.Request, version *opendepotv1alpha1.Version) (ctrl.Result, error) {
-	if !version.Status.Synced && version.Status.SyncStatus == unsupportedBuildSyncStatus {
-		return ctrl.Result{}, nil
-	}
-
-	r.Log.V(5).Info("version type is unsupported in this build; writing status",
-		"version", version.Name,
-		"type", version.Spec.Type,
-	)
-
-	if err := r.persistSyncStatus(ctx, req, false, unsupportedBuildSyncStatus); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
 }
 
 // prepareModuleVersion resolves the backing Module metadata required to reconcile a module Version.
@@ -2199,6 +2182,10 @@ func getVersionStorageConfig(version *opendepotv1alpha1.Version) (*opendepotv1al
 		return version.Spec.OCIArtifactConfigRef.StorageConfig, nil
 	}
 
+	if version.Spec.MCPServerSourceRef != nil && version.Spec.MCPServerSourceRef.StorageConfig != nil {
+		return version.Spec.MCPServerSourceRef.StorageConfig, nil
+	}
+
 	return nil, fmt.Errorf("storage config is not configured on moduleConfigRef or providerConfigRef")
 }
 
@@ -2214,6 +2201,9 @@ func getVersionName(version *opendepotv1alpha1.Version) (*string, error) {
 		storageName = version.Spec.ModuleConfigRef.Name
 	case version.Spec.ProviderConfigRef != nil && version.Spec.ProviderConfigRef.Name != nil:
 		storageName = version.Spec.ProviderConfigRef.Name
+	case version.Spec.MCPServerSourceRef != nil && version.Spec.MCPServerSourceRef.Name != nil:
+		name := mcpStorageNamePrefix + *version.Spec.MCPServerSourceRef.Name
+		storageName = &name
 	default:
 		return nil, fmt.Errorf("unable to resolve version name from moduleConfigRef or providerConfigRef")
 	}
