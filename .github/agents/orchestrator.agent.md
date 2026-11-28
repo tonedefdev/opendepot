@@ -106,7 +106,7 @@ Run read-only `git --no-pager diff --name-only <root-branch>...<top-layer-branch
 - Files outside the plan need a one-sentence reason from the Developer that cites a plan requirement. If there is no such reason, have the Developer revert those files. If the reason is unclear, ask the user.
 
 ### 5. Code Review
-Send the scope contract, the diff file list, and the Developer's summary. Code Review returns findings in tiers. Triage each one with the rubric below:
+Send the scope contract, the diff file list, and the Developer's summary. Code Review cannot approve while the SonarQube Quality Gate is `ERROR` (including `new_coverage < 80%`) or if `make coverage` was skipped. Code Review returns findings in tiers. Triage each one with the rubric below:
 - **BLOCKING**: send to the Developer as a numbered fix list, each item with its file and reason.
 - **FOLLOW-UP**: add to the final report.
 - **NIT**: drop without comment.
