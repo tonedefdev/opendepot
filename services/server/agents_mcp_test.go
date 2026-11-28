@@ -228,8 +228,21 @@ func TestAgentMCPServerDownloadArchivedSources(t *testing.T) {
 				t.Fatalf("download = %+v, want shasum and shasums URL", download)
 			}
 
-			if download.OCIReference != "" || download.OCIDigest != "" {
-				t.Fatalf("archive download carries OCI fields: %+v", download)
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("unmarshal raw download: %v", err)
+			}
+
+			for _, key := range []string{"filename", "download_url", "shasum", "shasums_url", "shasums_signature_url", "signing_keys"} {
+				if _, ok := raw[key]; !ok {
+					t.Fatalf("archive download missing %q: %s", key, response.Body.String())
+				}
+			}
+
+			for _, key := range []string{"ociReference", "ociDigest"} {
+				if _, ok := raw[key]; ok {
+					t.Fatalf("archive download carries OCI field %q: %s", key, response.Body.String())
+				}
 			}
 		})
 	}
@@ -306,7 +319,7 @@ func TestAgentMCPServerImageDownloadReturnsOCIReference(t *testing.T) {
 				t.Fatalf("download status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 			}
 
-			var download AgentDownloadResponse
+			var download AgentImageDownloadResponse
 			if err := json.Unmarshal(response.Body.Bytes(), &download); err != nil {
 				t.Fatalf("unmarshal download: %v", err)
 			}
@@ -320,8 +333,15 @@ func TestAgentMCPServerImageDownloadReturnsOCIReference(t *testing.T) {
 				t.Fatalf("OCIDigest = %q, want %q", download.OCIDigest, agentMCPTestDigest)
 			}
 
-			if download.DownloadURL != "" || download.Shasum != "" {
-				t.Fatalf("Image download carries archive fields: %+v", download)
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("unmarshal raw download: %v", err)
+			}
+
+			for _, key := range []string{"download_url", "filename", "shasum", "shasums_url", "shasums_signature_url", "signing_keys"} {
+				if _, ok := raw[key]; ok {
+					t.Fatalf("Image download carries archive field %q: %s", key, response.Body.String())
+				}
 			}
 		})
 	}

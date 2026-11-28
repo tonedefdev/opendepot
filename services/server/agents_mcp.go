@@ -137,18 +137,18 @@ func buildMCPImageDownload(
 	r *http.Request,
 	namespace, name string,
 	version *opendepotv1alpha1.Version,
-) (AgentDownloadResponse, bool) {
+) (AgentImageDownloadResponse, bool) {
 	metadata := version.Status.MCPMetadata
 	if metadata == nil || metadata.PackageDigest == "" {
 		http.Error(w, "version artifact not yet available", http.StatusServiceUnavailable)
-		return AgentDownloadResponse{}, false
+		return AgentImageDownloadResponse{}, false
 	}
 
 	cs, err := browseSAClient()
 	if err != nil {
 		logger.Error("mcpserver image: failed to create SA client", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return AgentDownloadResponse{}, false
+		return AgentImageDownloadResponse{}, false
 	}
 
 	artifactName := version.Spec.MCPServerSourceRef.Source.Image.OCIArtifactRef.Name
@@ -156,14 +156,14 @@ func buildMCPImageDownload(
 	artifact, err := getOCIArtifactByName(r.Context(), cs, namespace, artifactName)
 	if k8sApiErrors.IsNotFound(err) {
 		http.Error(w, "version artifact not yet available", http.StatusServiceUnavailable)
-		return AgentDownloadResponse{}, false
+		return AgentImageDownloadResponse{}, false
 	}
 
 	if err != nil {
 		logger.Error("mcpserver image: unable to get ociartifact",
 			"error", err, "namespace", namespace, "ociartifact", artifactName)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return AgentDownloadResponse{}, false
+		return AgentImageDownloadResponse{}, false
 	}
 
 	host := r.Host
@@ -171,7 +171,7 @@ func buildMCPImageDownload(
 		host = *opendepotRegistryHost
 	}
 
-	return AgentDownloadResponse{
+	return AgentImageDownloadResponse{
 		Protocols:    []string{"1.0"},
 		Kind:         agentKindMCPServer.prefix,
 		Name:         name,

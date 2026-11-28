@@ -244,6 +244,17 @@ func TestGetAgentDownloadMetadataSuccess(t *testing.T) {
 		t.Fatalf("ascii_armor is not a public key block")
 	}
 
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw download metadata: %v", err)
+	}
+
+	for _, key := range []string{"filename", "download_url", "shasum", "shasums_url", "shasums_signature_url", "signing_keys"} {
+		if _, ok := raw[key]; !ok {
+			t.Fatalf("archive download missing %q: %s", key, response.Body.String())
+		}
+	}
+
 	if strings.Contains(response.Body.String(), "PRIVATE KEY") {
 		t.Fatalf("response leaked private key material: %s", response.Body.String())
 	}

@@ -98,23 +98,33 @@ type AgentCatalogItem struct {
 	Runnable             *bool                      `json:"runnable,omitempty"`
 }
 
-// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint. An Image MCPServer
-// returns OCIReference and OCIDigest instead of the archive fields.
+// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.
 type AgentDownloadResponse struct {
 	Protocols           []string                         `json:"protocols"`
 	Kind                string                           `json:"kind"`
 	Name                string                           `json:"name"`
 	Version             string                           `json:"version"`
 	Yanked              bool                             `json:"yanked"`
-	Filename            string                           `json:"filename,omitempty"`
-	DownloadURL         string                           `json:"download_url,omitempty"`
-	Shasum              string                           `json:"shasum,omitempty"`
-	ShasumsURL          string                           `json:"shasums_url,omitempty"`
-	ShasumsSignatureURL string                           `json:"shasums_signature_url,omitempty"`
-	SigningKeys         *ProviderSigningKeys             `json:"signing_keys,omitempty"`
-	OCIReference        string                           `json:"ociReference,omitempty"`
-	OCIDigest           string                           `json:"ociDigest,omitempty"`
+	Filename            string                           `json:"filename"`
+	DownloadURL         string                           `json:"download_url"`
+	Shasum              string                           `json:"shasum"`
+	ShasumsURL          string                           `json:"shasums_url"`
+	ShasumsSignatureURL string                           `json:"shasums_signature_url"`
+	SigningKeys         *ProviderSigningKeys             `json:"signing_keys"`
 	Assessment          *opendepotv1alpha1.JevAssessment `json:"assessment,omitempty"`
+}
+
+// AgentImageDownloadResponse is the JSON body returned by the agents.v1 download endpoint for an Image MCPServer.
+// It carries the OCI reference and digest instead of the archive fields.
+type AgentImageDownloadResponse struct {
+	Protocols    []string                         `json:"protocols"`
+	Kind         string                           `json:"kind"`
+	Name         string                           `json:"name"`
+	Version      string                           `json:"version"`
+	Yanked       bool                             `json:"yanked"`
+	OCIReference string                           `json:"ociReference"`
+	OCIDigest    string                           `json:"ociDigest"`
+	Assessment   *opendepotv1alpha1.JevAssessment `json:"assessment,omitempty"`
 }
 
 // LoginV1Info carries the OIDC authorization endpoints advertised to tofu CLI
