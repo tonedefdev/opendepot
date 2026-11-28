@@ -48,6 +48,31 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - mcpservers
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - mcpservers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - ociartifacts
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: {{ if .Values.rbac.scopeToNamespace }}RoleBinding{{ else }}ClusterRoleBinding{{ end }}
