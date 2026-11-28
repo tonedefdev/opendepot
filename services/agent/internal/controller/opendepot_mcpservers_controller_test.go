@@ -2,14 +2,21 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"strings"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
@@ -381,5 +388,447 @@ var _ = Describe("MCPServer Controller", func() {
 
 			Expect(versionExists(mcpVersionKey("9.9.9"))).To(BeTrue())
 		})
+	})
+})
+
+var _ = Describe("MCPServer Controller reconcile coverage", func() {
+	const (
+		resourceName = "cov-mcp-server"
+		artifactName = "cov-mcp-image"
+	)
+
+	ctx := context.Background()
+
+	key := types.NamespacedName{
+		Name:      resourceName,
+		Namespace: "default",
+	}
+
+	newMCPServer := func(source opendepotv1alpha1.MCPServerSource, versions []opendepotv1alpha1.MCPServerVersion, limit *int) *opendepotv1alpha1.MCPServer {
+		return &opendepotv1alpha1.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      resourceName,
+				Namespace: "default",
+			},
+			Spec: opendepotv1alpha1.MCPServerSpec{
+				MCPServerSourceConfig: opendepotv1alpha1.MCPServerSourceConfig{
+					Source:              source,
+					VersionHistoryLimit: limit,
+				},
+				Versions: versions,
+			},
+		}
+	}
+
+	npmSource := func(pkg string) opendepotv1alpha1.MCPServerSource {
+		return opendepotv1alpha1.MCPServerSource{
+			Type: "Npm",
+			Npm:  &opendepotv1alpha1.MCPNpmSource{Package: pkg},
+		}
+	}
+
+	imageSource := func() opendepotv1alpha1.MCPServerSource {
+		return opendepotv1alpha1.MCPServerSource{
+			Type:  "Image",
+			Image: &opendepotv1alpha1.MCPImageSource{OCIArtifactRef: corev1.LocalObjectReference{Name: artifactName}},
+		}
+	}
+
+	reconcileWith := func(c client.Client) (reconcile.Result, error) {
+		controllerReconciler := &MCPServerReconciler{
+			Client: c,
+			Scheme: k8sClient.Scheme(),
+		}
+
+		return controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+	}
+
+	getMCPServer := func() *opendepotv1alpha1.MCPServer {
+		mcpServer := &opendepotv1alpha1.MCPServer{}
+		Expect(k8sClient.Get(ctx, key, mcpServer)).To(Succeed())
+		return mcpServer
+	}
+
+	getVersion := func(version string) *opendepotv1alpha1.Version {
+		versionObject := &opendepotv1alpha1.Version{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: mcpVersionName(resourceName, version), Namespace: "default"}, versionObject)).To(Succeed())
+		return versionObject
+	}
+
+	AfterEach(func() {
+		Expect(k8sClient.DeleteAllOf(ctx, &opendepotv1alpha1.Version{}, client.InNamespace("default"),
+			client.MatchingLabels{mcpServerLabelKey: resourceName})).To(Succeed())
+
+		mcpServer := &opendepotv1alpha1.MCPServer{}
+		if err := k8sClient.Get(ctx, key, mcpServer); err == nil {
+			Expect(k8sClient.Delete(ctx, mcpServer)).To(Succeed())
+		}
+
+		artifact := &opendepotv1alpha1.OCIArtifact{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Name: artifactName, Namespace: "default"}, artifact); err == nil {
+			Expect(k8sClient.Delete(ctx, artifact)).To(Succeed())
+		}
+	})
+
+	It("should return no error when the MCPServer does not exist", func() {
+		result, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(BeZero())
+	})
+
+	It("should return the error when reading the MCPServer fails", func() {
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return errors.New("mcpserver read failed")
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("mcpserver read failed"))
+	})
+
+	It("should return the error when the Image OCIArtifact cannot be read", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(imageSource(), []opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, objKey client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.OCIArtifact); ok {
+					return errors.New("oci artifact read failed")
+				}
+
+				return c.Get(ctx, objKey, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError(ContainSubstring("oci artifact read failed")))
+		versionErr := k8sClient.Get(ctx, client.ObjectKey{Name: mcpVersionName(resourceName, "1.0.0"), Namespace: "default"},
+			&opendepotv1alpha1.Version{})
+		Expect(k8serr.IsNotFound(versionErr)).To(BeTrue())
+	})
+
+	It("should return the error when the invalid Image source status cannot be written", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(imageSource(), []opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				return errors.New("status update failed")
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("status update failed"))
+	})
+
+	It("should return the error when the trimmed spec.versions cannot be written", func() {
+		limit := 1
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}, {Version: "2.0.0"}}, &limit))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					return errors.New("spec update failed")
+				}
+
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("spec update failed"))
+	})
+
+	It("should return the error when the MCPServer cannot be re-read before trimming", func() {
+		limit := 1
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}, {Version: "2.0.0"}}, &limit))).To(Succeed())
+
+		reads := 0
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, objKey client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					reads++
+					if reads > 1 {
+						return errors.New("mcpserver reread failed")
+					}
+				}
+
+				return c.Get(ctx, objKey, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("mcpserver reread failed"))
+	})
+
+	It("should return the error when an existing Version cannot be read", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, objKey client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.Version); ok {
+					return errors.New("version read failed")
+				}
+
+				return c.Get(ctx, objKey, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError(ContainSubstring("version read failed")))
+	})
+
+	It("should return the error when a Version cannot be created", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.Version); ok {
+					return errors.New("version create failed")
+				}
+
+				return c.Create(ctx, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError(ContainSubstring("version create failed")))
+	})
+
+	It("should return the error when the owner reference cannot be set on a new Version", func() {
+		owner := newMCPServer(npmSource("example-mcp-server"), nil, nil)
+		config := mcpSourceRef(owner)
+
+		_, _, err := reconcileMCPVersions(ctx, k8sClient, runtime.NewScheme(), logr.Discard(), owner, config,
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, false)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("should return the error when an owned Version cannot be patched for ForceSync", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := getMCPServer()
+		updated.Spec.ForceSync = true
+		Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
+				return errors.New("version patch failed")
+			},
+		})
+
+		_, err = reconcileWith(failing)
+		Expect(err).To(MatchError(ContainSubstring("version patch failed")))
+	})
+
+	It("should return the error when the ForceSync reset cannot be written", func() {
+		mcpServer := newMCPServer(npmSource("example-mcp-server"), []opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil)
+		mcpServer.Spec.ForceSync = true
+		Expect(k8sClient.Create(ctx, mcpServer)).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					return errors.New("forcesync update failed")
+				}
+
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("forcesync update failed"))
+	})
+
+	It("should return the error when the MCPServer status cannot be written", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				return errors.New("mcp status update failed")
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("mcp status update failed"))
+	})
+
+	It("should return the error when owned Versions cannot be listed for removal", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return errors.New("version list failed")
+			},
+		})
+
+		_, err := reconcileWith(failing)
+		Expect(err).To(MatchError("version list failed"))
+	})
+
+	It("should return the error when an undeclared owned Version cannot be deleted", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}, {Version: "2.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := getMCPServer()
+		updated.Spec.Versions = []opendepotv1alpha1.MCPServerVersion{{Version: "2.0.0"}}
+		Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+
+		failing := covInterceptedClient(interceptor.Funcs{
+			Delete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
+				return errors.New("version delete failed")
+			},
+		})
+
+		_, err = reconcileWith(failing)
+		Expect(err).To(MatchError("version delete failed"))
+	})
+
+	It("should report synced Versions in the status once they have synced", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		version := getVersion("1.0.0")
+		version.Status.Synced = true
+		Expect(k8sClient.Status().Update(ctx, version)).To(Succeed())
+
+		_, err = reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := getMCPServer()
+		Expect(updated.Status.Synced).To(BeTrue())
+		Expect(updated.Status.SyncStatus).To(Equal("Successfully synced MCPServer"))
+		Expect(updated.Status.VersionRefs["1.0.0"].Synced).To(BeTrue())
+	})
+
+	It("should report an Image source without an ociArtifactRef as invalid", func() {
+		r := &MCPServerReconciler{Client: k8sClient}
+
+		msg, err := r.validateMCPImageSource(ctx, newMCPServer(opendepotv1alpha1.MCPServerSource{Type: "Image"}, nil, nil))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(msg).To(Equal("Image source requires an ociArtifactRef"))
+	})
+
+	It("should return the error when a status read fails during the status update", func() {
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return errors.New("mcpserver status read failed")
+			},
+		})
+
+		r := &MCPServerReconciler{Client: failing}
+		err := r.updateMCPServerStatus(ctx, key, opendepotv1alpha1.MCPServerStatus{})
+		Expect(err).To(MatchError("mcpserver status read failed"))
+	})
+
+	It("should return the error when an in-sync check cannot re-read the Version", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		owner := getMCPServer()
+		version := getVersion("1.0.0")
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.Version); ok {
+					return errors.New("version reread failed")
+				}
+
+				return nil
+			},
+		})
+
+		err = syncMCPVersion(ctx, failing, logr.Discard(), owner, version, mcpSourceRef(owner), true)
+		Expect(err).To(MatchError("version reread failed"))
+	})
+
+	It("should report a collision when the Version is no longer owned after re-reading", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		owner := getMCPServer()
+		version := getVersion("1.0.0")
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+				if v, ok := obj.(*opendepotv1alpha1.Version); ok {
+					v.Labels = map[string]string{mcpServerLabelKey: "other-mcp-server", mcpNamespaceLabelKey: "default"}
+				}
+
+				return nil
+			},
+		})
+
+		err = syncMCPVersion(ctx, failing, logr.Discard(), owner, version, mcpSourceRef(owner), true)
+		Expect(errors.Is(err, errMCPVersionCollision)).To(BeTrue())
+	})
+
+	It("should skip the patch when the Version is already in sync after re-reading", func() {
+		Expect(k8sClient.Create(ctx, newMCPServer(npmSource("example-mcp-server"),
+			[]opendepotv1alpha1.MCPServerVersion{{Version: "1.0.0"}}, nil))).To(Succeed())
+		_, err := reconcileWith(k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		owner := getMCPServer()
+		version := getVersion("1.0.0")
+		failing := covInterceptedClient(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+				if v, ok := obj.(*opendepotv1alpha1.Version); ok {
+					v.Spec.ForceSync = true
+				}
+
+				return nil
+			},
+			Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
+				return errors.New("unexpected patch")
+			},
+		})
+
+		err = syncMCPVersion(ctx, failing, logr.Discard(), owner, version, mcpSourceRef(owner), true)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("should build a bounded Version name when the config name is long", func() {
+		longName := strings.Repeat("a", 80)
+
+		name := mcpVersionName(longName, "1.0.0")
+		Expect(len(name)).To(BeNumerically("<=", mcpVersionNameMaxLength))
+		Expect(name).To(HavePrefix("mcp-aaaa"))
+		Expect(name).NotTo(HaveSuffix("-"))
+		Expect(mcpVersionName(longName, "1.0.0")).To(Equal(name))
+	})
+
+	It("should describe the sync progress of the kept versions", func() {
+		Expect(mcpSyncStatus(0, 0)).To(Equal("No versions declared"))
+		Expect(mcpSyncStatus(2, 2)).To(Equal("Successfully synced MCPServer"))
+		Expect(mcpSyncStatus(1, 3)).To(Equal("Syncing 1 of 3 versions"))
+	})
+
+	It("should register the reconciler with a manager", func() {
+		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+			Scheme:  k8sClient.Scheme(),
+			Metrics: metricsserver.Options{BindAddress: "0"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		controllerReconciler := &MCPServerReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}
+		Expect(controllerReconciler.SetupWithManager(mgr)).To(Succeed())
 	})
 })
