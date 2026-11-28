@@ -272,13 +272,16 @@ func agentPresignSetSourcePresign(ns, enabled string) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to patch the Agent presign setting")
 }
 
-// agentPresignVersionField returns a field of the propagation Version with a kubectl JSONPath expression.
-func agentPresignVersionField(ns, name, jsonPath string) string {
+// agentPresignVersionField returns a field of the propagation Version with a kubectl JSONPath expression. It returns the
+// error instead of asserting so callers can poll it with Eventually while the Version is still being created.
+func agentPresignVersionField(ns, name, jsonPath string) (string, error) {
 	cmd := exec.Command("kubectl", "get", "version", name, "-n", ns, "-o", "jsonpath="+jsonPath)
 	out, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to read the Version field %s", jsonPath)
+	if err != nil {
+		return "", fmt.Errorf("read the Version field %s: %w", jsonPath, err)
+	}
 
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(out), nil
 }
 
 // agentPresignEmulatorFiles copies the emulator CA bundle and shared credentials file into dir. The files are read
@@ -531,10 +534,11 @@ var _ = Describe("Agent presign", Ordered, func() {
 			agentPresignApply(agentPresignPropagationManifest(agentPresignPropNS, bucket))
 
 			By("waiting for the controller to create the Version and staging the archive under its fileName")
-			Eventually(func() string {
+			Eventually(func() (string, error) {
 				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion, "{.spec.fileName}")
 			}, 2*time.Minute, 2*time.Second).ShouldNot(BeEmpty())
-			fileName := agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion, "{.spec.fileName}")
+			fileName, err := agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion, "{.spec.fileName}")
+			Expect(err).NotTo(HaveOccurred(), "Failed to read the Version fileName")
 
 			checksum = agentPresignStageArchiveAt(agentPresignS3Client(caPath, credsPath), bucket,
 				fmt.Sprintf("agent-%s/%s", agentPresignPropAgent, fileName))
@@ -557,8 +561,10 @@ var _ = Describe("Agent presign", Ordered, func() {
 		})
 
 		It("serves the archive proxied while presign is disabled on the source", func() {
-			Expect(agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
-				"{.spec.agentSourceRef.storageConfig.presign.enabled}")).To(Equal("false"))
+			field, err := agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
+				"{.spec.agentSourceRef.storageConfig.presign.enabled}")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(field).To(Equal("false"))
 
 			status, headers, body := agentPresignGet(client, agentPresignPropArchiveURL(), "")
 			Expect(status).To(Equal(http.StatusOK))
@@ -569,7 +575,7 @@ var _ = Describe("Agent presign", Ordered, func() {
 		It("redirects to a presigned URL after presign is enabled on the source", func() {
 			agentPresignSetSourcePresign(agentPresignPropNS, "true")
 
-			Eventually(func() string {
+			Eventually(func() (string, error) {
 				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
 					"{.spec.agentSourceRef.storageConfig.presign.enabled}")
 			}, 60*time.Second, 1*time.Second).Should(Equal("true"))
@@ -582,7 +588,7 @@ var _ = Describe("Agent presign", Ordered, func() {
 		It("proxies the archive again after presign is disabled on the source", func() {
 			agentPresignSetSourcePresign(agentPresignPropNS, "false")
 
-			Eventually(func() string {
+			Eventually(func() (string, error) {
 				return agentPresignVersionField(agentPresignPropNS, agentPresignPropVersion,
 					"{.spec.agentSourceRef.storageConfig.presign.enabled}")
 			}, 60*time.Second, 1*time.Second).Should(Equal("false"))

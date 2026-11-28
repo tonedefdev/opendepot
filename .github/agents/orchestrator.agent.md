@@ -120,7 +120,7 @@ Same flow. Security findings with an available upstream fix are BLOCKING at any 
 After Code Review and Security Review both approve, delegate to the **OpenDepot Documentation** agent with only the doc-impacting items from the In Scope list. Do not request docs for out-of-scope work.
 
 ### 8. Close
-Report to the user using the final report format below. Stop there. Do not commit, push, or merge.
+Report to the user using the final report format below. Stop there. Do not commit, push, or merge. When a wave is pushed or its PRs are opened, follow `.github/skills/opendepot-release-engineering/SKILL.md`: verify stack ancestry, push feature layers with `--force-with-lease`, and run the Post-Push CI Gate on every PR. Never report a wave as ready while any PR has a failing check.
 
 ## Triage Rubric
 
