@@ -88,6 +88,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - opendepot.defdev.io
+  resources:
+  - ociartifacts
+  - mcpservers
+  verbs:
+  - get
+  - list
+  - watch
 {{- if .Values.rbac.scopeToNamespace }}
 - apiGroups:
   - ""
