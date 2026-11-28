@@ -490,6 +490,20 @@ func isResourceAllowed(binding *opendepotv1alpha1.GroupBinding, resourceType, re
 				return true
 			}
 		}
+	case agentMCPServerPrefix:
+		for _, pattern := range binding.Spec.MCPServerResources {
+			matched, err := path.Match(pattern, resourceName)
+			if err != nil {
+				logger.Error("auth: GroupBinding carries a malformed mcpserver resource pattern",
+					"groupBinding", binding.Name, "pattern", pattern, "error", err)
+
+				continue
+			}
+
+			if matched {
+				return true
+			}
+		}
 	}
 
 	return false

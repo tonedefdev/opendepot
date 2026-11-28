@@ -87,6 +87,7 @@ func agentCatalogTestServer(t *testing.T, fixture agentCatalogTestFixture) *http
 		"namespaces":    map[string]any{"items": nsItems},
 		"skills":        map[string]any{"items": fixture.skills},
 		"agents":        map[string]any{"items": fixture.agents},
+		"mcpservers":    map[string]any{"items": []map[string]any{}},
 		"versions":      opendepotv1alpha1.VersionList{Items: fixture.versions},
 		"groupbindings": opendepotv1alpha1.GroupBindingList{Items: fixture.bindings},
 	}

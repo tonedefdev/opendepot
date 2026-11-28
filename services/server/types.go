@@ -93,21 +93,27 @@ type AgentCatalogItem struct {
 	RiskScore            *float64                   `json:"riskScore,omitempty"`
 	UnavailableCandidate *AgentUnavailableCandidate `json:"unavailableCandidate,omitempty"`
 	Description          string                     `json:"description,omitempty"`
+	SourceType           string                     `json:"sourceType,omitempty"`
+	Transport            string                     `json:"transport,omitempty"`
+	Runnable             *bool                      `json:"runnable,omitempty"`
 }
 
-// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint.
+// AgentDownloadResponse is the JSON body returned by the agents.v1 download endpoint. An Image MCPServer
+// returns OCIReference and OCIDigest instead of the archive fields.
 type AgentDownloadResponse struct {
 	Protocols           []string                         `json:"protocols"`
 	Kind                string                           `json:"kind"`
 	Name                string                           `json:"name"`
 	Version             string                           `json:"version"`
 	Yanked              bool                             `json:"yanked"`
-	Filename            string                           `json:"filename"`
-	DownloadURL         string                           `json:"download_url"`
-	Shasum              string                           `json:"shasum"`
-	ShasumsURL          string                           `json:"shasums_url"`
-	ShasumsSignatureURL string                           `json:"shasums_signature_url"`
-	SigningKeys         *ProviderSigningKeys             `json:"signing_keys"`
+	Filename            string                           `json:"filename,omitempty"`
+	DownloadURL         string                           `json:"download_url,omitempty"`
+	Shasum              string                           `json:"shasum,omitempty"`
+	ShasumsURL          string                           `json:"shasums_url,omitempty"`
+	ShasumsSignatureURL string                           `json:"shasums_signature_url,omitempty"`
+	SigningKeys         *ProviderSigningKeys             `json:"signing_keys,omitempty"`
+	OCIReference        string                           `json:"ociReference,omitempty"`
+	OCIDigest           string                           `json:"ociDigest,omitempty"`
 	Assessment          *opendepotv1alpha1.JevAssessment `json:"assessment,omitempty"`
 }
 
