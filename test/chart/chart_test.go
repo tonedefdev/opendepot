@@ -870,6 +870,55 @@ func TestOCIBuildsAdmissionPolicyAllowList(t *testing.T) {
 	assert.Equal(t, "opendepot-builds", namespaces)
 }
 
+func TestOCIBuildsAdmissionPolicyEphemeralContainers(t *testing.T) {
+	rendered := renderChart(t, map[string]string{
+		"oci.enabled":        "true",
+		"oci.builds.enabled": "true",
+		"scanning.enabled":   "true",
+	}, nil)
+	policy := findResource(t, renderedResources(t, rendered), "ValidatingAdmissionPolicy", "opendepot-build-pods")
+
+	resourceRules, found, err := unstructured.NestedSlice(policy.Object, "spec", "matchConstraints", "resourceRules")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	var resources []string
+	for _, rule := range resourceRules {
+		r := rule.(map[string]interface{})
+		for _, resource := range r["resources"].([]interface{}) {
+			resources = append(resources, resource.(string))
+		}
+	}
+	assert.Contains(t, resources, "pods")
+	assert.Contains(t, resources, "pods/ephemeralcontainers")
+
+	containers, found, err := unstructured.NestedSlice(policy.Object, "spec", "variables")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	var containersExpression string
+	for _, variable := range containers {
+		v := variable.(map[string]interface{})
+		if v["name"] == "containers" {
+			containersExpression = v["expression"].(string)
+		}
+	}
+	assert.Contains(t, containersExpression, "object.spec.ephemeralContainers")
+
+	validations, found, err := unstructured.NestedSlice(policy.Object, "spec", "validations")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	var ephemeralExpression string
+	for _, validation := range validations {
+		v := validation.(map[string]interface{})
+		if v["message"] == "ephemeral containers are not allowed in build pods" {
+			ephemeralExpression = v["expression"].(string)
+		}
+	}
+	assert.Equal(t, "!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0", ephemeralExpression)
+}
+
 func TestOCIBuildsSchedulingFlags(t *testing.T) {
 	defaults := renderTemplate(t, map[string]string{
 		"oci.enabled":        "true",
@@ -922,6 +971,7 @@ func TestOCIBuildsAdmissionPolicyB1Expressions(t *testing.T) {
 	hardening := expressions["non-buildkit containers must set allowPrivilegeEscalation false, drop ALL capabilities, use a read-only root filesystem, use the RuntimeDefault seccomp profile, and run as non-root"]
 	require.NotEmpty(t, hardening)
 	assert.Contains(t, hardening, "allowPrivilegeEscalation == false")
+	assert.Contains(t, hardening, "has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false")
 	assert.Contains(t, hardening, `capabilities.drop.exists(d, d == "ALL")`)
 	assert.Contains(t, hardening, "readOnlyRootFilesystem == true")
 	assert.Contains(t, hardening, `seccompProfile.type == "RuntimeDefault"`)
@@ -940,7 +990,7 @@ func TestOCIBuildsAdmissionPolicyB1Expressions(t *testing.T) {
 	buildkit := expressions["the buildkit container must use a read-only root filesystem, drop ALL capabilities, add only SETUID and SETGID, and use Unconfined seccomp and AppArmor profiles"]
 	require.NotEmpty(t, buildkit)
 	assert.Contains(t, buildkit, `c.name != "buildkit"`)
-	assert.Contains(t, buildkit, "readOnlyRootFilesystem == true")
+	assert.Contains(t, buildkit, "has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true")
 	assert.Contains(t, buildkit, `c.securityContext.capabilities.add.all(a, a in ["SETUID", "SETGID"])`)
 	assert.Contains(t, buildkit, `seccompProfile.type == "Unconfined"`)
 	assert.Contains(t, buildkit, `appArmorProfile.type == "Unconfined"`)

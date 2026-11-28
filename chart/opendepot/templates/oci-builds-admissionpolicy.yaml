@@ -12,11 +12,13 @@ spec:
     - apiGroups: [""]
       apiVersions: ["v1"]
       operations: ["CREATE", "UPDATE"]
-      resources: ["pods"]
+      resources: ["pods", "pods/ephemeralcontainers"]
   variables:
   - name: containers
-    expression: 'object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])'
+    expression: 'object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])'
   validations:
+  - expression: '!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0'
+    message: "ephemeral containers are not allowed in build pods"
   - expression: 'variables.containers.all(c, c.image == {{ $buildkitImage | toJson }} || c.image == {{ $helperImage | toJson }})'
     message: "images must be the pinned BuildKit image or the build helper image"
   - expression: 'variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || !c.securityContext.privileged)'
@@ -41,13 +43,13 @@ spec:
     message: "Unconfined seccomp and AppArmor profiles are only allowed on the buildkit container"
   - expression: 'variables.containers.all(c, (has(c.securityContext) && has(c.securityContext.runAsUser) ? c.securityContext.runAsUser : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) ? object.spec.securityContext.runAsUser : 0)) in [1000, 65532])'
     message: "build containers must run as UID 1000 or 65532"
-  - expression: 'variables.containers.all(c, c.name == "buildkit" || (has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == "ALL") && ((has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == "RuntimeDefault") || (!has(c.securityContext.seccompProfile) && has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type == "RuntimeDefault")) && ((has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true) || (!has(c.securityContext.runAsNonRoot) && has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))))'
+  - expression: 'variables.containers.all(c, c.name == "buildkit" || (has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == "ALL") && ((has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == "RuntimeDefault") || (!has(c.securityContext.seccompProfile) && has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type == "RuntimeDefault")) && ((has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true) || (!has(c.securityContext.runAsNonRoot) && has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true))))'
     message: "non-buildkit containers must set allowPrivilegeEscalation false, drop ALL capabilities, use a read-only root filesystem, use the RuntimeDefault seccomp profile, and run as non-root"
   - expression: 'variables.containers.all(c, has(c.resources) && has(c.resources.limits) && ("cpu" in c.resources.limits) && ("memory" in c.resources.limits) && ("ephemeral-storage" in c.resources.limits))'
     message: "every build container must set cpu, memory, and ephemeral-storage limits"
   - expression: 'variables.containers.all(c, (c.name == "buildkit") == (c.image == {{ $buildkitImage | toJson }}))'
     message: "the buildkit container must use the pinned BuildKit image, and only the buildkit container may use it"
-  - expression: 'variables.containers.all(c, c.name != "buildkit" || (has(c.securityContext) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == "ALL") && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a in ["SETUID", "SETGID"])) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == "Unconfined" && has(c.securityContext.appArmorProfile) && c.securityContext.appArmorProfile.type == "Unconfined"))'
+  - expression: 'variables.containers.all(c, c.name != "buildkit" || (has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == "ALL") && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a in ["SETUID", "SETGID"])) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == "Unconfined" && has(c.securityContext.appArmorProfile) && c.securityContext.appArmorProfile.type == "Unconfined"))'
     message: "the buildkit container must use a read-only root filesystem, drop ALL capabilities, add only SETUID and SETGID, and use Unconfined seccomp and AppArmor profiles"
   - expression: '!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.emptyDir) || (has(v.secret) && has(v.secret.secretName) && v.secret.secretName.startsWith("odb-")))'
     message: "build pods may only use emptyDir volumes and build token secret volumes"

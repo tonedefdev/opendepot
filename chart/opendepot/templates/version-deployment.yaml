@@ -192,7 +192,7 @@ spec:
         - {{ printf "--oci-builds-tolerations=%s" (toJson .Values.oci.builds.tolerations) | quote }}
         {{- end }}
         {{- if .Values.oci.builds.priorityClassName }}
-        - "--oci-builds-priority-class-name={{ .Values.oci.builds.priorityClassName }}"
+        - {{ printf "--oci-builds-priority-class-name=%s" .Values.oci.builds.priorityClassName | quote }}
         {{- end }}
         - "--oci-builds-snapshotter={{ .Values.oci.builds.snapshotter }}"
         - "--oci-build-broker-addr=:{{ .Values.oci.builds.broker.port }}"
