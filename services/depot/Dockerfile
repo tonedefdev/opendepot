@@ -28,7 +28,7 @@ COPY services/server/go.mod services/server/go.sum services/server/
 COPY services/version/go.mod services/version/go.sum services/version/
 
 # Drop test/integration from the workspace — its terratest dependency causes a grpc ambiguous import conflict
-RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent -dropuse=./services/iac -dropuse=./services/oci -dropuse=./pkg/agentassembly -dropuse=./pkg/mcp -dropuse=./pkg/oci -dropuse=./pkg/schematic
+RUN go work edit -dropuse=./test/integration -dropuse=./cli -dropuse=./services/agent -dropuse=./services/iac -dropuse=./services/oci -dropuse=./pkg/agentassembly -dropuse=./pkg/schematic
 
 # Download dependencies in workspace mode so replace directives resolve local modules
 WORKDIR /workspace/services/depot
@@ -41,6 +41,8 @@ COPY api/v1alpha1/ api/v1alpha1/
 COPY pkg/storage/ pkg/storage/
 COPY pkg/github/ pkg/github/
 COPY pkg/registry/ pkg/registry/
+COPY pkg/oci/ pkg/oci/
+COPY pkg/mcp/ pkg/mcp/
 COPY services/depot/cmd/ services/depot/cmd/
 COPY services/depot/internal/ services/depot/internal/
 

@@ -148,6 +148,58 @@ func (c *Client) ResolvePyPI(
 	return release, nil
 }
 
+// PyPIVersions lists the versions of pkgName that have at least one compatible, non-yanked wheel. Sdist-only
+// versions are skipped, and the result is sorted.
+func (c *Client) PyPIVersions(ctx context.Context, index, pkgName string, filter PyPIFilter) ([]string, error) {
+	if !pypiNamePattern.MatchString(pkgName) {
+		return nil, fmt.Errorf("mcp: invalid PyPI package name %q", pkgName)
+	}
+
+	if err := validateFilter(filter); err != nil {
+		return nil, err
+	}
+
+	jsonURL, err := projectJSONURL(index, normalizePyPIName(pkgName))
+	if err != nil {
+		return nil, err
+	}
+
+	var project pypiProject
+	if err := c.getJSON(ctx, jsonURL, &project); err != nil {
+		return nil, err
+	}
+
+	var versions []string
+	for version, files := range project.Releases {
+		if hasCompatibleWheel(files, filter) {
+			versions = append(versions, version)
+		}
+	}
+
+	slices.Sort(versions)
+	return versions, nil
+}
+
+// hasCompatibleWheel reports whether files contains a non-yanked binary wheel that matches filter.
+func hasCompatibleWheel(files []pypiFile, filter PyPIFilter) bool {
+	for _, file := range files {
+		if file.PackageType != "bdist_wheel" || file.Yanked {
+			continue
+		}
+
+		wheel, err := parseWheelName(file.Filename)
+		if err != nil {
+			continue
+		}
+
+		if wheelCompatible(wheel, filter) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // normalizePyPIName applies the PEP 503 normalization: lowercase, with runs of -, _, and . collapsed to one -.
 func normalizePyPIName(name string) string {
 	return strings.ToLower(pypiSeparators.ReplaceAllString(name, "-"))
