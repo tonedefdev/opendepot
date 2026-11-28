@@ -744,6 +744,68 @@ func TestReconcileMCPArchiveRejectsOutOfRootStorage(t *testing.T) {
 	}
 }
 
+func TestReconcileMCPArchiveSigningKeyMissingFails(t *testing.T) {
+	t.Setenv(agentSigningKeyEnv, "")
+	stubMCPTrivy(t, testTrivyClean, nil)
+	testNPMArchiveRecorder(t)
+
+	version := newMCPNpmArchiveVersion(t.TempDir())
+	reconciler := newMCPSyncTestClient(t, version)
+	reconciler.mcpClient = testNPMResolver(t)
+	req := ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: "default"}}
+
+	_, err := reconciler.reconcileMCPArchive(context.Background(), req, version, version.Spec.MCPServerSourceRef)
+	if !errors.Is(err, errAgentSigningKeyNotConfigured) {
+		t.Fatalf("reconcileMCPArchive error = %v, want errAgentSigningKeyNotConfigured", err)
+	}
+
+	current := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(context.Background(), req.NamespacedName, current); err != nil {
+		t.Fatalf("get version: %v", err)
+	}
+
+	if current.Status.Synced {
+		t.Fatal("unsigned archive was synced")
+	}
+}
+
+func TestReconcileMCPArchiveInvalidPackageMetadataFails(t *testing.T) {
+	setJevSigningKey(t)
+	stubMCPTrivy(t, testTrivyClean, nil)
+	recordMCPCommands(t, func(dir string, args []string) error {
+		switch args[0] {
+		case "install":
+			writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(nil)})
+		case "ci":
+			writeMCPFiles(t, dir, map[string]string{
+				"node_modules/example-mcp/package.json":  "{not json",
+				"node_modules/example-mcp/dist/index.js": "export {}",
+			})
+		}
+
+		return nil
+	})
+
+	version := newMCPNpmArchiveVersion(t.TempDir())
+	version.Spec.MCPServerSourceRef.Name = nil
+	reconciler := newMCPSyncTestClient(t, version)
+	reconciler.mcpClient = testNPMResolver(t)
+	req := ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: version.Name, Namespace: "default"}}
+
+	if _, err := reconciler.reconcileMCPArchive(context.Background(), req, version, version.Spec.MCPServerSourceRef); err != nil {
+		t.Fatalf("invalid package metadata returned an error instead of a terminal finding: %v", err)
+	}
+
+	current := &opendepotv1alpha1.Version{}
+	if err := reconciler.Get(context.Background(), req.NamespacedName, current); err != nil {
+		t.Fatalf("get version: %v", err)
+	}
+
+	if current.Status.Synced {
+		t.Fatal("Version with invalid package metadata was synced")
+	}
+}
+
 func TestVendorMCPRejectsInvalidSources(t *testing.T) {
 	version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
 	offListRegistry := "https://evil.example.com"

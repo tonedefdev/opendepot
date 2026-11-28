@@ -802,3 +802,143 @@ func TestVendorMCPSourceRejectsInvalidCommit(t *testing.T) {
 		t.Fatal("vendorMCPSource accepted a malformed source commit")
 	}
 }
+
+func TestLoadNPMLockfileRejectsBadInput(t *testing.T) {
+	dir := t.TempDir()
+	writeMCPFiles(t, dir, map[string]string{"package-lock.json": "{not json"})
+
+	_, err := loadNPMLockfile(filepath.Join(dir, "package-lock.json"))
+	if got := mcpFindingCode(err); got != mcpFindingInvalid {
+		t.Fatalf("invalid lockfile finding = %q, want %q", got, mcpFindingInvalid)
+	}
+
+	_, err = loadNPMLockfile(filepath.Join(dir, "missing.json"))
+	if err == nil || mcpFindingCode(err) != "" {
+		t.Fatalf("missing lockfile error = %v, want a non-terminal read error", err)
+	}
+}
+
+func TestVendorPyPIFailureBranches(t *testing.T) {
+	const wheel = "example_mcp-1.0.0-py3-none-any.whl"
+	wheelBytes := []byte("wheel-bytes")
+	sum := sha256.Sum256(wheelBytes)
+	validRelease := mcp.PyPIRelease{
+		Version: "1.0.0",
+		Wheels: []mcp.PyPIWheel{{
+			Filename: wheel,
+			URL:      "https://files.pythonhosted.org/packages/" + wheel,
+			SHA256:   hex.EncodeToString(sum[:]),
+		}},
+	}
+	entry := &opendepotv1alpha1.MCPEntrypoint{Command: "python3", Args: []string{"-m", "example_mcp"}}
+
+	tests := []struct {
+		name     string
+		platform []string
+		release  mcp.PyPIRelease
+		download error
+		install  error
+		entry    *opendepotv1alpha1.MCPEntrypoint
+		finding  string
+		wantErr  string
+	}{
+		{name: "no platforms configured", release: validRelease, entry: entry, finding: mcpFindingInvalid},
+		{name: "wheel hosted off the allow-list", platform: []string{"manylinux_2_28_x86_64"}, release: mcp.PyPIRelease{
+			Version: "1.0.0",
+			Wheels:  []mcp.PyPIWheel{{Filename: wheel, URL: "https://evil.example.com/" + wheel}},
+		}, entry: entry, finding: mcpFindingInvalid},
+		{name: "pip download fails", platform: []string{"manylinux_2_28_x86_64"}, release: validRelease, download: errors.New("exit 1"), entry: entry, wantErr: "pip download failed"},
+		{name: "pip install fails", platform: []string{"manylinux_2_28_x86_64"}, release: validRelease, install: errors.New("exit 1"), entry: entry, wantErr: "pip install failed"},
+		{name: "missing entrypoint", platform: []string{"manylinux_2_28_x86_64"}, release: validRelease, finding: mcpFindingInvalid},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recordMCPCommands(t, func(dir string, args []string) error {
+				switch args[0] {
+				case "download":
+					if tc.download != nil {
+						return tc.download
+					}
+
+					dest := args[slices.Index(args, "--dest")+1]
+					writeMCPFiles(t, dest, map[string]string{wheel: string(wheelBytes)})
+				case "install":
+					if tc.install != nil {
+						return tc.install
+					}
+
+					target := args[slices.Index(args, "--target")+1]
+					writeMCPFiles(t, target, map[string]string{"example_mcp/__init__.py": ""})
+				}
+
+				return nil
+			})
+
+			reconciler := &VersionReconciler{
+				MCPAllowedPyPIIndexes:   []string{"pypi.org", "files.pythonhosted.org"},
+				MCPPyPIDefaultPlatforms: tc.platform,
+				mcpClient:               &fakeMCPResolver{pypi: tc.release},
+			}
+
+			version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
+			spec := &opendepotv1alpha1.MCPPyPISource{Package: "example-mcp"}
+
+			_, err := reconciler.vendorPyPI(context.Background(), spec, version, mcp.TransportStdio, tc.entry, t.TempDir())
+			if tc.finding != "" {
+				if got := mcpFindingCode(err); got != tc.finding {
+					t.Fatalf("finding = %q, want %q (err=%v)", got, tc.finding, err)
+				}
+
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("vendorPyPI error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestVendorNPMCommandFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		failOn string
+		want   string
+	}{
+		{name: "lockfile resolution failure", failOn: "install", want: "npm lockfile resolution failed"},
+		{name: "npm ci failure", failOn: "ci", want: "npm ci failed"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recordMCPCommands(t, func(dir string, args []string) error {
+				switch args[0] {
+				case "install":
+					if tc.failOn == "install" {
+						return errors.New("npm exited 1")
+					}
+
+					writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(nil)})
+				case "ci":
+					return errors.New("npm exited 1")
+				}
+
+				return nil
+			})
+
+			reconciler := &VersionReconciler{
+				MCPAllowedNpmRegistries: []string{"registry.npmjs.org"},
+				mcpClient:               testNPMResolver(t),
+			}
+
+			version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
+			spec := &opendepotv1alpha1.MCPNpmSource{Package: "example-mcp"}
+
+			_, err := reconciler.vendorNPM(context.Background(), spec, version, mcp.TransportStdio, nil, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("vendorNPM error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
