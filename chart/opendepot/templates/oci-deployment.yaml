@@ -32,6 +32,10 @@ spec:
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
         args:
         - "--oci-allowed-registries={{ join "," .Values.oci.allowedRegistries }}"
+        {{- if .Values.oci.builds.enabled }}
+        - --oci-builds-enabled=true
+        - "--oci-builds-allowed-repo-owners={{ join "," .Values.oci.builds.allowedRepoOwners }}"
+        {{- end }}
         {{- if .Values.oci.zapLogLevel }}
         - --zap-log-level={{ .Values.oci.zapLogLevel }}
         {{- end }}

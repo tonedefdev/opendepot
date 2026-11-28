@@ -1,4 +1,9 @@
+{{- include "opendepot.ociBuilds.validate" . }}
 {{- if .Values.version.enabled }}
+{{- $tmpSizeLimit := .Values.version.tmpSizeLimit }}
+{{- if and .Values.oci.builds.enabled (not $tmpSizeLimit) }}
+{{- $tmpSizeLimit = "1Gi" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -160,6 +165,45 @@ spec:
         {{- if .Values.version.zapLogLevel }}
         - --zap-log-level={{ .Values.version.zapLogLevel }}
         {{- end }}
+        {{- if .Values.oci.builds.enabled }}
+        - --oci-builds-enabled=true
+        - "--oci-builds-namespace={{ .Values.oci.builds.namespace }}"
+        - "--oci-builds-buildkit-image={{ .Values.oci.builds.buildkitImage }}"
+        - "--oci-builds-helper-image={{ include "opendepot.ociBuilds.helperImage" . }}"
+        - --oci-builds-max-concurrent={{ .Values.oci.builds.maxConcurrentJobs }}
+        - "--oci-builds-allowed-repo-owners={{ join "," .Values.oci.builds.allowedRepoOwners }}"
+        - "--oci-builds-default-platforms={{ join "," .Values.oci.builds.defaultPlatforms }}"
+        - --oci-builds-default-timeout={{ .Values.oci.builds.timeoutSeconds.default }}s
+        - --oci-builds-max-timeout={{ .Values.oci.builds.timeoutSeconds.max }}s
+        - "--oci-builds-resources-default=cpu={{ .Values.oci.builds.resources.default.cpu }},memory={{ .Values.oci.builds.resources.default.memory }},ephemeral-storage={{ .Values.oci.builds.resources.default.ephemeralStorage }}"
+        - "--oci-builds-resources-max=cpu={{ .Values.oci.builds.resources.max.cpu }},memory={{ .Values.oci.builds.resources.max.memory }},ephemeral-storage={{ .Values.oci.builds.resources.max.ephemeralStorage }}"
+        - "--oci-builds-max-context-bytes={{ .Values.oci.builds.maxContextBytes }}"
+        - "--oci-builds-max-image-bytes={{ .Values.oci.builds.maxImageBytes }}"
+        - --oci-builds-require-scanning={{ .Values.oci.builds.requireScanning }}
+        - --oci-builds-user-namespaces={{ .Values.oci.builds.userNamespaces }}
+        {{- if .Values.oci.builds.runtimeClassName }}
+        - "--oci-builds-runtime-class={{ .Values.oci.builds.runtimeClassName }}"
+        {{- end }}
+        - --oci-builds-ttl-seconds-after-finished={{ .Values.oci.builds.ttlSecondsAfterFinished }}
+        {{- if .Values.oci.builds.nodeSelector }}
+        - {{ printf "--oci-builds-node-selector=%s" (toJson .Values.oci.builds.nodeSelector) | quote }}
+        {{- end }}
+        {{- if .Values.oci.builds.tolerations }}
+        - {{ printf "--oci-builds-tolerations=%s" (toJson .Values.oci.builds.tolerations) | quote }}
+        {{- end }}
+        {{- if .Values.oci.builds.priorityClassName }}
+        - {{ printf "--oci-builds-priority-class-name=%s" .Values.oci.builds.priorityClassName | quote }}
+        {{- end }}
+        - "--oci-builds-snapshotter={{ .Values.oci.builds.snapshotter }}"
+        - "--oci-build-broker-addr=:{{ .Values.oci.builds.broker.port }}"
+        - "--oci-build-broker-url=http://version-controller-build-broker.{{ .Values.global.namespace }}.svc:{{ .Values.oci.builds.broker.port }}"
+        {{- end }}
+        {{- if .Values.oci.builds.enabled }}
+        ports:
+        - name: build-broker
+          containerPort: {{ .Values.oci.builds.broker.port }}
+          protocol: TCP
+        {{- end }}
         env:
         {{- if .Values.rbac.scopeToNamespace }}
         - name: WATCH_NAMESPACE
@@ -231,7 +275,12 @@ spec:
       - name: service-account-runtime
         emptyDir: {}
       - name: version-tmp
+        {{- if $tmpSizeLimit }}
+        emptyDir:
+          sizeLimit: {{ $tmpSizeLimit }}
+        {{- else }}
         emptyDir: {}
+        {{- end }}
       {{- if .Values.storage.filesystem.enabled }}
       - name: modules
         {{- if .Values.storage.filesystem.hostPath }}

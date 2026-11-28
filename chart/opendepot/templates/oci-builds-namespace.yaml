@@ -1,0 +1,10 @@
+{{- if and .Values.oci.builds.enabled .Values.oci.builds.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.oci.builds.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline
+{{- end }}

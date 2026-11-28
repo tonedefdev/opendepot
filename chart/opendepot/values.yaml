@@ -35,6 +35,9 @@ version:
       ephemeral-storage: 2Gi
   # GID for the version-controller pod and container.
   runAsGroup: 65532
+  # tmpSizeLimit sets the sizeLimit of the /tmp emptyDir, which holds build upload spools. Empty leaves it unlimited,
+  # except when oci.builds.enabled is true, where it defaults to 1Gi.
+  tmpSizeLimit: ""
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -73,6 +76,82 @@ oci:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # builds enables in-cluster OCI image builds. Requires oci.enabled. Build pods run in their own namespace
+  # and are only allowed through the ValidatingAdmissionPolicy, NetworkPolicy, and quota rendered below.
+  builds:
+    enabled: false
+    namespace: opendepot-builds
+    # createNamespace renders the builds Namespace with the PSS labels the build pods need (enforce privileged,
+    # warn and audit baseline). Set to false when the namespace is managed outside this chart.
+    createNamespace: true
+    # Pinned by digest. Mirror it for air-gapped clusters.
+    buildkitImage: moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+    # helperImage runs the fetch and upload helpers. Empty uses the version-controller image.
+    helperImage: ""
+    # GitHub owners that can be built. An empty list denies all.
+    allowedRepoOwners: []
+    # Requires scanning.enabled. Builds are refused when scanning is off.
+    requireScanning: true
+    maxConcurrentJobs: 2
+    defaultPlatforms:
+    - linux/amd64
+    timeoutSeconds:
+      default: 1800
+      max: 7200
+    resources:
+      default:
+        cpu: "1"
+        memory: 2Gi
+        ephemeralStorage: 10Gi
+      max:
+        cpu: "4"
+        memory: 8Gi
+        ephemeralStorage: 20Gi
+    maxContextBytes: 256Mi
+    maxImageBytes: 8Gi
+    # auto, overlayfs, or native
+    snapshotter: auto
+    # userNamespaces sets hostUsers: false on build pods. Requires Kubernetes 1.33 or later and a runtime that supports it.
+    userNamespaces: false
+    # runtimeClassName runs build pods under a RuntimeClass, such as Kata. Empty uses the default runtime.
+    runtimeClassName: ""
+    # ttlSecondsAfterFinished removes finished build Jobs after this many seconds. 0 uses the controller default of 600.
+    ttlSecondsAfterFinished: 600
+    # nodeSelector and tolerations schedule build pods onto dedicated nodes, such as a builds node pool.
+    nodeSelector: {}
+    tolerations: []
+    # priorityClassName sets the priority of build pods. Empty uses the cluster default.
+    priorityClassName: ""
+    broker:
+      port: 8090
+    networkPolicy:
+      enabled: true
+      # Build pod egress. The default allows the internet and denies the private, CGNAT, link-local, and ULA ranges.
+      egressCIDRs:
+      - 0.0.0.0/0
+      - ::/0
+      exceptCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 100.64.0.0/10
+      - 169.254.0.0/16
+      - fc00::/7
+      - fe80::/10
+    # ValidatingAdmissionPolicy and binding. Requires Kubernetes 1.30 or later.
+    admissionPolicy:
+      enabled: true
+    resourceQuota:
+      enabled: true
+      hard:
+        pods: "2"
+        count/jobs.batch: "10"
+        requests.cpu: "8"
+        limits.cpu: "8"
+        requests.memory: 16Gi
+        limits.memory: 16Gi
+        requests.ephemeral-storage: 40Gi
+        limits.ephemeral-storage: 40Gi
 
 ## Agent Service (Skills and Agents registry; disabled by default)
 agent:

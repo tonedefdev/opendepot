@@ -1,0 +1,10 @@
+{{- if and .Values.oci.builds.enabled .Values.oci.builds.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: opendepot-build
+  namespace: {{ .Values.oci.builds.namespace }}
+spec:
+  hard:
+    {{- toYaml .Values.oci.builds.resourceQuota.hard | nindent 4 }}
+{{- end }}
