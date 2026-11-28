@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"net/http"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -233,4 +234,199 @@ var _ = Describe("Depot Controller MCP server discovery", func() {
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: serverName, Namespace: "default"}, &opendepotv1alpha1.MCPServer{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
+
+	It("updates an existing MCPServer when newer tags are discovered", func() {
+		http.DefaultTransport = githubTagsTransport{tags: []string{discoveryTagV100}}
+
+		serverName := "updated-server"
+		setDiscoveryDepotSpec(ctx, depotKey, func(depot *opendepotv1alpha1.Depot) {
+			depot.Spec.MCPServerConfigs = []opendepotv1alpha1.MCPServerSourceConfig{{
+				Name: &serverName,
+				Source: opendepotv1alpha1.MCPServerSource{
+					Type: mcpSourceTypeSource,
+					Source: &opendepotv1alpha1.MCPRepoSource{
+						RepoOwner: discoveryRepoOwner,
+						Path:      "servers/updated",
+					},
+				},
+			}}
+		})
+
+		reconciler := newDiscoveryReconciler()
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, reconciler)).To(Succeed())
+
+		http.DefaultTransport = githubTagsTransport{tags: []string{discoveryTagV100, discoveryTagV110}}
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, reconciler)).To(Succeed())
+
+		server := &opendepotv1alpha1.MCPServer{}
+		key := types.NamespacedName{Name: serverName, Namespace: "default"}
+		Expect(k8sClient.Get(ctx, key, server)).To(Succeed())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, server)
+		})
+
+		names := make([]string, 0, len(server.Spec.Versions))
+		for _, v := range server.Spec.Versions {
+			names = append(names, v.Name)
+		}
+		Expect(names).To(ConsistOf(discoveryTagV100, discoveryTagV110))
+		Expect(metav1.IsControlledBy(server, mustGetDepot(ctx, depotKey))).To(BeTrue())
+	})
+
+	It("fails to discover an Image server whose OCIArtifact does not exist", func() {
+		serverName := "missing-image-server"
+		setDiscoveryDepotSpec(ctx, depotKey, func(depot *opendepotv1alpha1.Depot) {
+			depot.Spec.MCPServerConfigs = []opendepotv1alpha1.MCPServerSourceConfig{{
+				Name: &serverName,
+				Source: opendepotv1alpha1.MCPServerSource{
+					Type: mcpSourceTypeImage,
+					Image: &opendepotv1alpha1.MCPImageSource{
+						OCIArtifactRef: corev1.LocalObjectReference{Name: "does-not-exist"},
+					},
+				},
+			}}
+		})
+
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, newDiscoveryReconciler())).To(HaveOccurred())
+
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: serverName, Namespace: "default"}, &opendepotv1alpha1.MCPServer{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
 })
+
+func TestMCPServerDiscoveryRejectsInvalidNames(t *testing.T) {
+	r := &DepotReconciler{}
+	depot := &opendepotv1alpha1.Depot{}
+
+	empty := "  "
+	invalid := "Not_A_DNS_Name"
+	for _, name := range []*string{nil, &empty, &invalid} {
+		if _, err := r.reconcileMCPServerConfig(context.Background(), depot, opendepotv1alpha1.MCPServerSourceConfig{Name: name}); err == nil {
+			t.Fatalf("expected an error for name %v", name)
+		}
+	}
+}
+
+func TestMCPServerDiscoveryRequiresMatchingSource(t *testing.T) {
+	r := &DepotReconciler{}
+	ctx := context.Background()
+	name := "server"
+
+	cases := map[string]opendepotv1alpha1.MCPServerSourceConfig{
+		"unsupported type": {Name: &name, Source: opendepotv1alpha1.MCPServerSource{Type: "Bogus"}},
+		"npm":              {Name: &name, Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceTypeNpm}},
+		"pypi":             {Name: &name, Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceTypePyPI}},
+		"source":           {Name: &name, Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceTypeSource}},
+		"image":            {Name: &name, Source: opendepotv1alpha1.MCPServerSource{Type: mcpSourceTypeImage}},
+	}
+
+	for test, config := range cases {
+		if _, err := r.discoverMCPServerVersions(ctx, "default", &config); err == nil {
+			t.Fatalf("%s: expected an error", test)
+		}
+	}
+}
+
+func TestMCPServerDiscoveryDeniesUnlistedRegistries(t *testing.T) {
+	r := &DepotReconciler{}
+	ctx := context.Background()
+	registry := "registry.example.com"
+	index := "pypi.example.com"
+	python := "3.12"
+
+	npm := &opendepotv1alpha1.MCPServerSourceConfig{
+		Source: opendepotv1alpha1.MCPServerSource{
+			Type: mcpSourceTypeNpm,
+			Npm:  &opendepotv1alpha1.MCPNpmSource{Package: "server", Registry: &registry},
+		},
+	}
+	if _, err := r.discoverNpmVersions(ctx, npm); err == nil {
+		t.Fatal("expected npm registry to be denied")
+	}
+
+	pypi := &opendepotv1alpha1.MCPServerSourceConfig{
+		Source: opendepotv1alpha1.MCPServerSource{
+			Type: mcpSourceTypePyPI,
+			PyPI: &opendepotv1alpha1.MCPPyPISource{
+				Package:       "server",
+				Index:         &index,
+				Platforms:     []string{"manylinux_2_28_x86_64"},
+				PythonVersion: &python,
+			},
+		},
+	}
+	if _, err := r.discoverPyPIVersions(ctx, pypi); err == nil {
+		t.Fatal("expected PyPI index to be denied")
+	}
+}
+
+func TestMCPServerDiscoveryMissingSourceConfigs(t *testing.T) {
+	r := &DepotReconciler{}
+	ctx := context.Background()
+	config := &opendepotv1alpha1.MCPServerSourceConfig{}
+
+	if _, err := r.discoverNpmVersions(ctx, config); err == nil {
+		t.Fatal("expected npm source error")
+	}
+
+	if _, err := r.discoverPyPIVersions(ctx, config); err == nil {
+		t.Fatal("expected pypi source error")
+	}
+
+	if _, err := r.discoverMCPSourceVersions(ctx, "default", config); err == nil {
+		t.Fatal("expected source error")
+	}
+
+	if _, err := r.discoverImageVersions(ctx, "default", config); err == nil {
+		t.Fatal("expected image source error")
+	}
+}
+
+func TestFilterSemverVersions(t *testing.T) {
+	versions := []string{"v1.2.0", "not-a-version", "2.0.0", "v0.9.0"}
+
+	all, err := filterSemverVersions(versions, " ")
+	if err != nil {
+		t.Fatalf("blank constraints: %v", err)
+	}
+
+	if len(all) != 3 || all[0] != "v1.2.0" {
+		t.Fatalf("blank constraints kept %v", all)
+	}
+
+	matched, err := filterSemverVersions(versions, ">= 1.0.0, < 2.0.0")
+	if err != nil {
+		t.Fatalf("constraints: %v", err)
+	}
+
+	if len(matched) != 1 || matched[0] != "v1.2.0" {
+		t.Fatalf("constraints kept %v", matched)
+	}
+
+	if _, err := filterSemverVersions(versions, "not a constraint"); err == nil {
+		t.Fatal("expected an invalid constraint error")
+	}
+}
+
+func TestWithSchemeDefaultsToHTTPS(t *testing.T) {
+	cases := map[string]string{
+		"registry.example.com":            "https://registry.example.com",
+		"  https://registry.example.com ": "https://registry.example.com",
+		"http://localhost:8080":           "http://localhost:8080",
+	}
+
+	for in, want := range cases {
+		if got := withScheme(in); got != want {
+			t.Fatalf("withScheme(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestMergeMCPVersionsWithoutLimit(t *testing.T) {
+	discovered := []opendepotv1alpha1.MCPServerVersion{{Name: discoveryTagV100, Version: discoveryTagV100}}
+
+	merged := mergeMCPVersions(nil, discovered, nil)
+	if len(merged) != 1 || merged[0].Name != discoveryTagV100 {
+		t.Fatalf("merged %v", merged)
+	}
+}

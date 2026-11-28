@@ -23,9 +23,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -277,7 +279,198 @@ var _ = Describe("Depot Controller OCI artifact discovery", func() {
 		_, err = compileTagPattern(&long)
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("updates an existing OCIArtifact when newer GitHub releases are discovered", func() {
+		http.DefaultTransport = githubReleaseAssetsTransport{releases: []map[string]any{
+			githubRelease(discoveryTagV100, false, discoveryAssetTgz),
+		}}
+
+		artifactName := "updated-assets"
+		setDiscoveryDepotSpec(ctx, depotKey, func(depot *opendepotv1alpha1.Depot) {
+			depot.Spec.OCIArtifactConfigs = []opendepotv1alpha1.OCIArtifactConfig{{
+				Name:         &artifactName,
+				ArtifactType: "Generic",
+				Github: &opendepotv1alpha1.OCIGithubSource{
+					RepoOwner:    discoveryRepoOwner,
+					AssetPattern: "*.tgz",
+				},
+			}}
+		})
+
+		reconciler := newDiscoveryReconciler()
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, reconciler)).To(Succeed())
+
+		http.DefaultTransport = githubReleaseAssetsTransport{releases: []map[string]any{
+			githubRelease(discoveryTagV100, false, discoveryAssetTgz),
+			githubRelease(discoveryTagV110, false, discoveryAssetTgz),
+		}}
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, reconciler)).To(Succeed())
+
+		artifact := &opendepotv1alpha1.OCIArtifact{}
+		key := types.NamespacedName{Name: artifactName, Namespace: "default"}
+		Expect(k8sClient.Get(ctx, key, artifact)).To(Succeed())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, artifact)
+		})
+
+		names := make([]string, 0, len(artifact.Spec.Versions))
+		for _, v := range artifact.Spec.Versions {
+			names = append(names, v.Name)
+		}
+		Expect(names).To(ConsistOf(discoveryTagV100, discoveryTagV110))
+	})
+
+	It("fails GitHub discovery when an assetPattern is malformed", func() {
+		http.DefaultTransport = githubReleaseAssetsTransport{releases: []map[string]any{
+			githubRelease(discoveryTagV100, false, discoveryAssetTgz),
+		}}
+
+		artifactName := "bad-pattern"
+		setDiscoveryDepotSpec(ctx, depotKey, func(depot *opendepotv1alpha1.Depot) {
+			depot.Spec.OCIArtifactConfigs = []opendepotv1alpha1.OCIArtifactConfig{{
+				Name:         &artifactName,
+				ArtifactType: "Generic",
+				Github: &opendepotv1alpha1.OCIGithubSource{
+					RepoOwner:    discoveryRepoOwner,
+					AssetPattern: "[",
+				},
+			}}
+		})
+
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, newDiscoveryReconciler())).To(HaveOccurred())
+
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: artifactName, Namespace: "default"}, &opendepotv1alpha1.OCIArtifact{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	It("rejects mirror discovery when the credentials secret is missing or has the wrong type", func() {
+		artifactName := "mirror-secret"
+		secretName := "mirror-credentials"
+		setDiscoveryDepotSpec(ctx, depotKey, func(depot *opendepotv1alpha1.Depot) {
+			depot.Spec.OCIArtifactConfigs = []opendepotv1alpha1.OCIArtifactConfig{{
+				Name:         &artifactName,
+				ArtifactType: discoveryArtifactImage,
+				Mirror: &opendepotv1alpha1.OCIMirrorSource{
+					Registry:             "registry.example.com",
+					Repository:           "team/tool",
+					CredentialsSecretRef: &corev1.LocalObjectReference{Name: secretName},
+				},
+			}}
+		})
+
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, newDiscoveryReconciler())).To(HaveOccurred())
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: "default"},
+			Type:       corev1.SecretTypeOpaque,
+		}
+		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, secret)
+		})
+
+		Expect(reconcileDiscoveryDepot(ctx, depotKey, newDiscoveryReconciler())).To(HaveOccurred())
+	})
 })
+
+func TestCompileTagPatternBlankAndInvalid(t *testing.T) {
+	blank := "   "
+	re, err := compileTagPattern(&blank)
+	if err != nil || re != nil {
+		t.Fatalf("blank pattern: re=%v err=%v", re, err)
+	}
+
+	invalid := "["
+	if _, err := compileTagPattern(&invalid); err == nil {
+		t.Fatal("expected an invalid tagPattern error")
+	}
+}
+
+func TestFilterTagNamesWithVersionConstraints(t *testing.T) {
+	names := []string{discoveryTagV100, discoveryTagV200, discoveryNameKey, "other-1.5.0", discoveryTagNotSemver}
+
+	matched, err := filterTagNames(names, "v", nil, ">= 1.0.0, < 2.0.0")
+	if err != nil {
+		t.Fatalf("constraints: %v", err)
+	}
+
+	if len(matched) != 1 || matched[0] != discoveryTagV100 {
+		t.Fatalf("constraints kept %v", matched)
+	}
+
+	if _, err := filterTagNames(names, "v", nil, "not a constraint"); err == nil {
+		t.Fatal("expected an invalid constraint error")
+	}
+}
+
+func TestRepoNameFromURLFallbacks(t *testing.T) {
+	repoURL := "https://github.com/tonedefdev/opendepot/"
+	if got := repoNameFromURL(&repoURL, nil); got != "opendepot" {
+		t.Fatalf("repo from URL = %q", got)
+	}
+
+	blank := " "
+	fallback := "fallback"
+	if got := repoNameFromURL(&blank, &fallback); got != fallback {
+		t.Fatalf("blank URL fallback = %q", got)
+	}
+
+	if got := repoNameFromURL(nil, nil); got != "" {
+		t.Fatalf("nil inputs = %q", got)
+	}
+}
+
+func TestOCIArtifactDiscoveryRejectsInvalidConfigs(t *testing.T) {
+	r := &DepotReconciler{}
+	ctx := context.Background()
+	depot := &opendepotv1alpha1.Depot{}
+
+	empty := "  "
+	invalid := "Not_A_DNS_Name"
+	for _, name := range []*string{nil, &empty, &invalid} {
+		if _, err := r.reconcileOCIArtifactConfig(ctx, depot, opendepotv1alpha1.OCIArtifactConfig{Name: name}); err == nil {
+			t.Fatalf("expected an error for name %v", name)
+		}
+	}
+
+	name := "artifact"
+	badPattern := "["
+	if _, err := r.reconcileOCIArtifactConfig(ctx, depot, opendepotv1alpha1.OCIArtifactConfig{Name: &name, TagPattern: &badPattern}); err == nil {
+		t.Fatal("expected an invalid tagPattern error")
+	}
+
+	if _, err := r.discoverOCIArtifactVersions(ctx, "default", &opendepotv1alpha1.OCIArtifactConfig{}, nil); err == nil {
+		t.Fatal("expected an error when no source is set")
+	}
+}
+
+func TestOCIDiscoveryDeniesInvalidRepositoriesAndRegistries(t *testing.T) {
+	r := &DepotReconciler{}
+	ctx := context.Background()
+
+	mirror := &opendepotv1alpha1.OCIArtifactConfig{
+		Mirror: &opendepotv1alpha1.OCIMirrorSource{Registry: "registry.example.com", Repository: "team/tool"},
+	}
+	if _, err := r.discoverMirrorVersions(ctx, "default", mirror, nil); err == nil {
+		t.Fatal("expected mirror registry to be denied")
+	}
+
+	github := &opendepotv1alpha1.OCIArtifactConfig{
+		Github: &opendepotv1alpha1.OCIGithubSource{RepoOwner: "bad owner!", AssetPattern: "*.tgz"},
+	}
+	if _, err := r.discoverGithubAssetVersions(ctx, "default", github, nil); err == nil {
+		t.Fatal("expected invalid repository owner to be rejected")
+	}
+}
+
+func TestMergeOCIVersionsWithoutLimit(t *testing.T) {
+	discovered := []opendepotv1alpha1.OCIArtifactVersion{{Name: discoveryTagV100, Version: discoveryTagV100}}
+
+	merged := mergeOCIVersions(nil, discovered, nil)
+	if len(merged) != 1 || merged[0].Name != discoveryTagV100 {
+		t.Fatalf("merged %v", merged)
+	}
+}
 
 // mustGetDepot returns the current Depot identified by key.
 func mustGetDepot(ctx context.Context, key types.NamespacedName) *opendepotv1alpha1.Depot {
