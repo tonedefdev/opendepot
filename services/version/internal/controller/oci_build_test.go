@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -782,6 +783,152 @@ var _ = Describe("OCIArtifact in-cluster builds", func() {
 		Expect(buildJobs()).To(BeEmpty())
 		_, err = secretFor(buildID)
 		Expect(k8serr.IsNotFound(err)).To(BeTrue())
+	})
+
+	Context("when a build's Jobs or blobs are reached directly", func() {
+		buildRequest := func() ctrl.Request {
+			return ctrl.Request{NamespacedName: k8stypes.NamespacedName{Name: buildName, Namespace: ociTestNamespace}}
+		}
+
+		// newPendingBuild returns a build pinned to firstSHA with one linux/amd64 platform.
+		newPendingBuild := func(buildID string, contextDigest string, tokens ociBuildTokens) *opendepotv1alpha1.OCIBuildStatus {
+			return &opendepotv1alpha1.OCIBuildStatus{
+				BuildID:         buildID,
+				SourceCommit:    firstSHA,
+				SourceTag:       tag,
+				ContextDigest:   contextDigest,
+				FetchTokenHash:  "sha256:" + ocibuild.HashToken(tokens.fetch),
+				UploadTokenHash: "sha256:" + ocibuild.HashToken(tokens.upload),
+				Phase:           ociBuildPhaseRunning,
+				StartedAt:       &metav1.Time{Time: time.Now()},
+				Platforms: []opendepotv1alpha1.OCIBuildPlatformStatus{
+					{Platform: "linux/amd64", JobName: ocibuild.JobName(buildID, ocibuildPlatform("linux/amd64")), Phase: ociBuildPhasePending},
+				},
+			}
+		}
+
+		It("creates the Job of a missing platform once and tolerates a repeated create", func() {
+			createOCIVersion(buildName, buildConfig())
+			r := newBuildReconciler()
+			current := getOCIVersion(buildName)
+
+			tokens, err := newOCIBuildTokens()
+			Expect(err).NotTo(HaveOccurred())
+
+			build := newPendingBuild("abcdefghijklmnopqrst", digest.FromString("context").String(), tokens)
+			platform := ocibuildPlatform("linux/amd64")
+			Expect(r.createMissingOCIBuildJob(ctx, current, current.Spec.OCIArtifactConfigRef, build, platform, tokens)).To(Succeed())
+			Expect(r.createMissingOCIBuildJob(ctx, current, current.Spec.OCIArtifactConfigRef, build, platform, tokens)).To(Succeed())
+
+			Expect(buildJobs()).To(HaveLen(1))
+			Expect(buildJobs()[0].Name).To(Equal(ocibuild.JobName(build.BuildID, platform)))
+		})
+
+		It("reports an error when the pinned commit of a Job cannot be resolved", func() {
+			createOCIVersion(buildName, buildConfig())
+			r := newBuildReconciler()
+			current := getOCIVersion(buildName)
+
+			tokens, err := newOCIBuildTokens()
+			Expect(err).NotTo(HaveOccurred())
+
+			build := newPendingBuild("abcdefghijklmnopqrst", digest.FromString("context").String(), tokens)
+			build.SourceCommit = "cccccccccccccccccccccccccccccccccccccccc"
+			err = r.createMissingOCIBuildJob(ctx, current, current.Spec.OCIArtifactConfigRef, build, ocibuildPlatform("linux/amd64"), tokens)
+			Expect(err).To(MatchError(ContainSubstring("resolve pinned commit")))
+			Expect(buildJobs()).To(BeEmpty())
+		})
+
+		It("resolves the settings of the pinned commit from GitHub", func() {
+			createOCIVersion(buildName, buildConfig())
+			r := newBuildReconciler()
+			current := getOCIVersion(buildName)
+
+			build := newPendingBuild("abcdefghijklmnopqrst", "", ociBuildTokens{})
+			run, err := r.resolveOCIBuildRun(ctx, current, current.Spec.OCIArtifactConfigRef, build)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(run.sha).To(Equal(firstSHA))
+			Expect(run.tag).To(Equal(tag))
+			Expect(run.repoName).To(Equal("app"))
+			Expect(run.committedAt.UTC()).To(Equal(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)))
+		})
+
+		It("relaunches a build with a staged context and a new build ID", func() {
+			createOCIVersion(buildName, buildConfig())
+			r := newBuildReconciler()
+			current := getOCIVersion(buildName)
+
+			tokens, err := newOCIBuildTokens()
+			Expect(err).NotTo(HaveOccurred())
+
+			build := newPendingBuild("abcdefghijklmnopqrst", digest.FromString("context").String(), tokens)
+			_, err = r.relaunchOCIBuild(ctx, buildRequest(), current, current.Spec.OCIArtifactConfigRef, build)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(getBuild().BuildID).NotTo(Equal(build.BuildID))
+			Expect(getBuild().Phase).To(Equal(ociBuildPhaseRunning))
+			Expect(buildJobs()).To(HaveLen(1))
+		})
+
+		It("fails a relaunch when the staged build context is missing", func() {
+			createOCIVersion(buildName, buildConfig())
+			r := newBuildReconciler()
+			current := getOCIVersion(buildName)
+
+			tokens, err := newOCIBuildTokens()
+			Expect(err).NotTo(HaveOccurred())
+
+			build := newPendingBuild("abcdefghijklmnopqrst", "", tokens)
+			current.Status.OCIBuild = build
+			Expect(k8sClient.Status().Update(ctx, current)).To(Succeed())
+
+			_, err = r.relaunchOCIBuild(ctx, buildRequest(), current, current.Spec.OCIArtifactConfigRef, build)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(buildJobs()).To(BeEmpty())
+			Expect(getBuild().Phase).To(Equal(ociBuildPhaseFailed))
+		})
+
+		It("serves blobs and manifests of the Version through the build sink", func() {
+			createOCIVersion(buildName, buildConfig())
+
+			sink, err := newBuildReconciler().OCIBlobSinkFor(ctx, ociTestNamespace, buildName)
+			Expect(err).NotTo(HaveOccurred())
+
+			content := []byte("build context blob")
+			d := digest.FromBytes(content)
+			Expect(sink.PutBlob(ctx, d, bytes.NewReader(content))).To(Succeed())
+
+			rc, err := sink.GetBlob(ctx, d)
+			Expect(err).NotTo(HaveOccurred())
+			defer rc.Close()
+
+			stored, err := io.ReadAll(rc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored).To(Equal(content))
+
+			manifest := []byte(`{"schemaVersion":2}`)
+			manifestDigest, err := sink.PutManifest(ctx, manifest)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(manifestDigest).To(Equal(digest.FromBytes(manifest)))
+		})
+
+		It("returns NotFound from the build sink when the Version does not exist", func() {
+			_, err := newBuildReconciler().OCIBlobSinkFor(ctx, ociTestNamespace, "missing-build")
+			Expect(k8serr.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("deletes a stored blob and treats a repeated delete as success", func() {
+			createOCIVersion(buildName, buildConfig())
+			blobs, err := newBuildReconciler().ociBlobStoreFor(ctx, getOCIVersion(buildName))
+			Expect(err).NotTo(HaveOccurred())
+
+			content := []byte("blob to delete")
+			desc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageLayer, Digest: digest.FromBytes(content), Size: int64(len(content))}
+			Expect(blobs.putBlob(ctx, desc, bytes.NewReader(content))).To(Succeed())
+
+			Expect(blobs.deleteBlob(ctx, desc.Digest)).To(Succeed())
+			Expect(blobs.deleteBlob(ctx, desc.Digest)).To(Succeed())
+		})
 	})
 })
 
