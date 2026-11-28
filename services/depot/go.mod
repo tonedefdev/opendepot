@@ -10,6 +10,8 @@ require (
 	github.com/onsi/gomega v1.40.0
 	github.com/tonedefdev/opendepot/api/v1alpha1 v0.2.7
 	github.com/tonedefdev/opendepot/pkg/github v0.2.7
+	github.com/tonedefdev/opendepot/pkg/mcp v0.0.0
+	github.com/tonedefdev/opendepot/pkg/oci v0.0.0
 	github.com/tonedefdev/opendepot/pkg/registry v0.0.0-20260531075737-3500a5f0c756
 	github.com/tonedefdev/opendepot/pkg/testutils v0.2.7
 	k8s.io/api v0.35.4

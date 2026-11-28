@@ -68,6 +68,9 @@ func main() {
 	var enableHTTP2 bool
 	var branchSourcingEnabled bool
 	var ociAllowedRegistries string
+	var mcpAllowedNpmRegistries string
+	var mcpAllowedPyPIIndexes string
+	var mcpPyPIDefaultPlatforms string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -90,6 +93,13 @@ func main() {
 		"If set, Skills and Agents may be sourced from a branch with the ref field")
 	flag.StringVar(&ociAllowedRegistries, "oci-allowed-registries", "",
 		"Comma-separated OCI registries allowed for auth decisions. Empty denies all registries.")
+	flag.StringVar(&mcpAllowedNpmRegistries, "mcp-allowed-npm-registries", "registry.npmjs.org",
+		"Comma-separated npm registry hosts that MCP npm sources may contact.")
+	flag.StringVar(&mcpAllowedPyPIIndexes, "mcp-allowed-pypi-indexes", "pypi.org,files.pythonhosted.org",
+		"Comma-separated PyPI index hosts that MCP PyPI sources may contact.")
+	flag.StringVar(&mcpPyPIDefaultPlatforms, "mcp-pypi-default-platforms",
+		"manylinux_2_28_x86_64,manylinux_2_28_aarch64,macosx_11_0_arm64",
+		"Comma-separated wheel platforms used when an MCP PyPI source does not set platforms.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -101,6 +111,14 @@ func main() {
 
 	allowedRegistries := parseOCIAllowedRegistries(ociAllowedRegistries)
 	logger.Info("oci allowed registries", "registries", allowedRegistries)
+	mcpNpmRegistries := parseOCIAllowedRegistries(mcpAllowedNpmRegistries)
+	mcpPyPIIndexes := parseOCIAllowedRegistries(mcpAllowedPyPIIndexes)
+	mcpPlatforms := parseOCIAllowedRegistries(mcpPyPIDefaultPlatforms)
+	logger.Info("mcp allow-lists",
+		"npmRegistries", mcpNpmRegistries,
+		"pypiIndexes", mcpPyPIIndexes,
+		"pypiPlatforms", mcpPlatforms,
+	)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -216,11 +234,15 @@ func main() {
 	}
 
 	if err := (&controller.DepotReconciler{
-		Client:                mgr.GetClient(),
-		Scheme:                mgr.GetScheme(),
-		Log:                   logger,
-		BranchSourcingEnabled: branchSourcingEnabled,
-		APIReader:             mgr.GetAPIReader(),
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Log:                     logger,
+		BranchSourcingEnabled:   branchSourcingEnabled,
+		APIReader:               mgr.GetAPIReader(),
+		OCIAllowedRegistries:    allowedRegistries,
+		MCPAllowedNpmRegistries: mcpNpmRegistries,
+		MCPAllowedPyPIIndexes:   mcpPyPIIndexes,
+		MCPPyPIDefaultPlatforms: mcpPlatforms,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Depot")
 		os.Exit(1)

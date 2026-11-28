@@ -48,6 +48,14 @@ type DepotReconciler struct {
 	BranchSourcingEnabled bool
 	// APIReader reads the GitHub App secret straight from the API server, bypassing the cache.
 	APIReader client.Reader
+	// OCIAllowedRegistries lists the registry hosts that OCI mirror sources may contact.
+	OCIAllowedRegistries []string
+	// MCPAllowedNpmRegistries lists the npm registry hosts that MCP npm sources may contact.
+	MCPAllowedNpmRegistries []string
+	// MCPAllowedPyPIIndexes lists the PyPI index hosts that MCP PyPI sources may contact.
+	MCPAllowedPyPIIndexes []string
+	// MCPPyPIDefaultPlatforms are the wheel platforms used when an MCP PyPI source does not set platforms.
+	MCPPyPIDefaultPlatforms []string
 }
 
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=depots,verbs=get;list;watch;create;update;patch;delete
@@ -57,6 +65,8 @@ type DepotReconciler struct {
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=providers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=skills,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=opendepot.defdev.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=ociartifacts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=opendepot.defdev.io,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //
 // For more details, check Reconcile and its Result here:
@@ -621,6 +631,44 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		managedAgents = append(managedAgents, *agentConfig.Name)
 	}
 
+	var managedOCIArtifacts []string
+	for _, ociConfig := range depot.Spec.OCIArtifactConfigs {
+		// Apply global configs if not set on this OCI artifact config.
+		if ociConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			ociConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if ociConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			ociConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		name, err := r.reconcileOCIArtifactConfig(ctx, &depot, ociConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		managedOCIArtifacts = append(managedOCIArtifacts, name)
+	}
+
+	var managedMCPServers []string
+	for _, mcpConfig := range depot.Spec.MCPServerConfigs {
+		// Apply global configs if not set on this MCP server config.
+		if mcpConfig.StorageConfig == nil && depot.Spec.GlobalConfig != nil {
+			mcpConfig.StorageConfig = depot.Spec.GlobalConfig.StorageConfig
+		}
+
+		if mcpConfig.GithubClientConfig == nil && depot.Spec.GlobalConfig != nil {
+			mcpConfig.GithubClientConfig = depot.Spec.GlobalConfig.GithubClientConfig
+		}
+
+		name, err := r.reconcileMCPServerConfig(ctx, &depot, mcpConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		managedMCPServers = append(managedMCPServers, name)
+	}
+
 	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if err := r.Get(ctx, req.NamespacedName, &depot); err != nil {
 			return err
@@ -630,6 +678,8 @@ func (r *DepotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		depot.Status.Providers = managedProviders
 		depot.Status.Skills = managedSkills
 		depot.Status.Agents = managedAgents
+		depot.Status.OCIArtifacts = managedOCIArtifacts
+		depot.Status.MCPServers = managedMCPServers
 		if err := r.Status().Update(ctx, &depot); err != nil {
 			return err
 		}

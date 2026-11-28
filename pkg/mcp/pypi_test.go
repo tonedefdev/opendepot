@@ -242,6 +242,29 @@ func TestProjectJSONURL(t *testing.T) {
 	}
 }
 
+func TestPyPIVersionsListsWheelReleases(t *testing.T) {
+	index, client := newPyPIServer(t)
+	ctx := context.Background()
+
+	got, err := client.PyPIVersions(ctx, index, "Example.Tool", PyPIFilter{
+		Platforms:     []string{"manylinux_2_28_x86_64"},
+		PythonVersion: "3.12",
+	})
+	if err != nil {
+		t.Fatalf("PyPIVersions() error = %v", err)
+	}
+
+	// 0.9.0 ships only an sdist, so it is skipped. 1.0.0 has a compatible wheel, and 1.0.1 and 1.0.2 ship py3-none-any wheels.
+	want := []string{"1.0.0", "1.0.1", "1.0.2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("PyPIVersions() = %v, want %v", got, want)
+	}
+
+	if _, err := client.PyPIVersions(ctx, "https://denied.example.net/simple", "example-tool", PyPIFilter{}); err == nil {
+		t.Fatal("PyPIVersions() on a denied index error = nil, want error")
+	}
+}
+
 func TestNormalizePyPIName(t *testing.T) {
 	if got := normalizePyPIName("Example_Tool.Name--x"); got != "example-tool-name-x" {
 		t.Errorf("normalizePyPIName() = %q, want PEP 503 normalization", got)
