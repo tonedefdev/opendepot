@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -27,6 +28,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	opendepotv1alpha1 "github.com/tonedefdev/opendepot/api/v1alpha1"
 )
@@ -291,6 +294,69 @@ var _ = Describe("Depot Controller MCP server discovery", func() {
 
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: serverName, Namespace: "default"}, &opendepotv1alpha1.MCPServer{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	It("surfaces MCPServer create, read, and update failures", func() {
+		http.DefaultTransport = githubTagsTransport{tags: []string{discoveryTagV100}}
+
+		serverName := "failing-mcp-server"
+		config := opendepotv1alpha1.MCPServerSourceConfig{
+			Name: &serverName,
+			Source: opendepotv1alpha1.MCPServerSource{
+				Type: mcpSourceTypeSource,
+				Source: &opendepotv1alpha1.MCPRepoSource{
+					RepoOwner: discoveryRepoOwner,
+					Path:      "servers/failing",
+				},
+			},
+		}
+
+		createFailing := covInterceptedClient(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					return errors.New("mcp server create failed")
+				}
+
+				return c.Create(ctx, obj, opts...)
+			},
+		})
+
+		depot := mustGetDepot(ctx, depotKey)
+		_, err := (&DepotReconciler{Client: createFailing, APIReader: k8sClient, Scheme: k8sClient.Scheme()}).reconcileMCPServerConfig(ctx, depot, config)
+		Expect(err).To(MatchError("mcp server create failed"))
+
+		_, err = newDiscoveryReconciler().reconcileMCPServerConfig(ctx, depot, config)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(ctx, &opendepotv1alpha1.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: serverName, Namespace: "default"}})
+		})
+
+		getFailing := covInterceptedClient(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					return errors.New("mcp server read failed")
+				}
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+
+		_, err = (&DepotReconciler{Client: getFailing, APIReader: k8sClient, Scheme: k8sClient.Scheme()}).reconcileMCPServerConfig(ctx, depot, config)
+		Expect(err).To(MatchError("mcp server read failed"))
+
+		http.DefaultTransport = githubTagsTransport{tags: []string{discoveryTagV100, discoveryTagV110}}
+		updateFailing := covInterceptedClient(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*opendepotv1alpha1.MCPServer); ok {
+					return errors.New("mcp server update failed")
+				}
+
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+
+		_, err = (&DepotReconciler{Client: updateFailing, APIReader: k8sClient, Scheme: k8sClient.Scheme()}).reconcileMCPServerConfig(ctx, depot, config)
+		Expect(err).To(MatchError("mcp server update failed"))
 	})
 })
 
