@@ -1,0 +1,229 @@
+metadata:
+  annotations:
+    opendepot.defdev.io/build-id: 3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+    opendepot.defdev.io/version-name: acme-modules-1.2.3
+    opendepot.defdev.io/version-namespace: opendepot
+  labels:
+    opendepot.defdev.io/build: "true"
+    opendepot.defdev.io/build-id: 3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+  name: odb-3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d-arm-v7
+  namespace: opendepot-builds
+spec:
+  activeDeadlineSeconds: 900
+  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - status: "True"
+        type: DisruptionTarget
+    - action: FailJob
+      onExitCodes:
+        operator: NotIn
+        values:
+        - 0
+  template:
+    metadata:
+      annotations:
+        opendepot.defdev.io/build-id: 3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+        opendepot.defdev.io/version-name: acme-modules-1.2.3
+        opendepot.defdev.io/version-namespace: opendepot
+      labels:
+        opendepot.defdev.io/build: "true"
+        opendepot.defdev.io/build-id: 3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - --build-helper=upload
+        - --build-url=http://version-controller-build-broker.opendepot.svc:8090/internal/builds/v1/opendepot/acme-modules-1.2.3/3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+        - --token-file=/var/run/secrets/opendepot-build/upload/upload-token
+        - --layout=/output/layout
+        - --platform=linux/arm/v7
+        image: opendepot/version-controller@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        name: upload
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 1Gi
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            ephemeral-storage: 256Mi
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /var/run/secrets/opendepot-build/upload
+          name: upload-token
+          readOnly: true
+        - mountPath: /output
+          name: output
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - args:
+        - --build-helper=fetch
+        - --build-url=http://version-controller-build-broker.opendepot.svc:8090/internal/builds/v1/opendepot/acme-modules-1.2.3/3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+        - --token-file=/var/run/secrets/opendepot-build/fetch/fetch-token
+        - --context-digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        image: opendepot/version-controller@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        name: fetch-context
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 1Gi
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            ephemeral-storage: 256Mi
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/run/secrets/opendepot-build/fetch
+          name: fetch-token
+          readOnly: true
+        - mountPath: /workspace
+          name: workspace
+      - args:
+        - build
+        - --frontend
+        - dockerfile.v0
+        - --local
+        - context=/workspace/context
+        - --local
+        - dockerfile=/workspace/dockerfile
+        - --opt
+        - filename=Dockerfile
+        - --opt
+        - platform=linux/arm/v7
+        - --opt
+        - target=release
+        - --opt
+        - build-arg:SOURCE_DATE_EPOCH=1767225600
+        - --opt
+        - build-arg:APP_VERSION=a=b,c
+        - --output
+        - type=oci,dest=/output/layout,tar=false,rewrite-timestamp=true
+        command:
+        - buildctl-daemonless.sh
+        env:
+        - name: BUILDKITD_FLAGS
+          value: --oci-worker-no-process-sandbox
+        - name: DOCKER_CONFIG
+          value: /tmp/docker-config
+        image: moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+        name: buildkit
+        resources:
+          limits:
+            cpu: "2"
+            ephemeral-storage: 10Gi
+            memory: 4Gi
+          requests:
+            cpu: "2"
+            ephemeral-storage: 10Gi
+            memory: 4Gi
+        securityContext:
+          allowPrivilegeEscalation: true
+          appArmorProfile:
+            type: Unconfined
+          capabilities:
+            add:
+            - SETUID
+            - SETGID
+            drop:
+            - ALL
+          procMount: Default
+          readOnlyRootFilesystem: true
+          runAsGroup: 1000
+          runAsNonRoot: true
+          runAsUser: 1000
+          seccompProfile:
+            type: Unconfined
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /workspace
+          name: workspace
+          readOnly: true
+        - mountPath: /output
+          name: output
+        - mountPath: /home/user/.local/share/buildkit
+          name: buildkitd
+        - mountPath: /home/user/.local/tmp
+          name: rootlesskit
+        - mountPath: /run/user/1000
+          name: run
+        - mountPath: /tmp
+          name: tmp
+      nodeSelector:
+        kubernetes.io/arch: arm
+        kubernetes.io/os: linux
+        opendepot.defdev.io/pool: builders
+      priorityClassName: opendepot-builds
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: opendepot-build
+      shareProcessNamespace: false
+      volumes:
+      - emptyDir:
+          sizeLimit: 10Gi
+        name: workspace
+      - emptyDir:
+          sizeLimit: 10Gi
+        name: output
+      - emptyDir:
+          sizeLimit: 10Gi
+        name: buildkitd
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: rootlesskit
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: run
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: tmp
+      - name: fetch-token
+        secret:
+          defaultMode: 288
+          items:
+          - key: fetch-token
+            path: fetch-token
+          secretName: odb-3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+      - name: upload-token
+        secret:
+          defaultMode: 288
+          items:
+          - key: upload-token
+            path: upload-token
+          secretName: odb-3f2a9c1d-0e4b-4a5f-8c7d-9e0f1a2b3c4d
+  ttlSecondsAfterFinished: 600
+status: {}

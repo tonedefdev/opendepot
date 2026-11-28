@@ -460,3 +460,50 @@ func TestPutAndGetBlobFromSeekerReadsFromStart(t *testing.T) {
 		t.Fatalf("stored %q, want full content %q", got, content)
 	}
 }
+
+func TestDeleteBlobRemovesStoredBlobAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	store, root := newTestStore(t)
+	content := []byte("staged context")
+	d := digest.FromBytes(content)
+
+	if err := store.PutBlob(ctx, "acme", "chart", d, bytes.NewReader(content)); err != nil {
+		t.Fatalf("PutBlob: %v", err)
+	}
+
+	want := filepath.Join(root, "oci", "acme", "chart", "blobs", "sha256", d.Encoded())
+	if err := store.DeleteBlob(ctx, "acme", "chart", d); err != nil {
+		t.Fatalf("DeleteBlob: %v", err)
+	}
+
+	if _, err := os.Stat(want); !os.IsNotExist(err) {
+		t.Fatalf("blob still present after delete: %v", err)
+	}
+
+	if err := store.DeleteBlob(ctx, "acme", "chart", d); err != nil {
+		t.Fatalf("DeleteBlob of a missing blob should be a no-op: %v", err)
+	}
+}
+
+func TestDeleteBlobValidatesNamesAndDigest(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	d := digest.FromBytes([]byte("x"))
+
+	if err := store.DeleteBlob(ctx, "../etc", "repo", d); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("namespace traversal: got %v, want ErrInvalidName", err)
+	}
+
+	if err := store.DeleteBlob(ctx, "ns", "a..b", d); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("repo with dot-dot: got %v, want ErrInvalidName", err)
+	}
+
+	if err := store.DeleteBlob(ctx, "ns", "repo", digest.Digest("sha256:../../x")); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("malformed digest: got %v, want ErrInvalidName", err)
+	}
+
+	sha512Digest := digest.Digest("sha512:" + strings.Repeat("a", 128))
+	if err := store.DeleteBlob(ctx, "ns", "repo", sha512Digest); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("non-sha256 digest: got %v, want ErrInvalidName", err)
+	}
+}

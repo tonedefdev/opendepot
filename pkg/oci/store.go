@@ -91,6 +91,22 @@ func (s *Store) GetBlob(ctx context.Context, namespace, repo string, d digest.Di
 	return s.get(ctx, blobsDir, namespace, repo, d)
 }
 
+// DeleteBlob removes the blob addressed by d. Deleting a blob that is not stored is not an error, so the call is
+// idempotent.
+func (s *Store) DeleteBlob(ctx context.Context, namespace, repo string, d digest.Digest) error {
+	key, err := s.objectPath(blobsDir, namespace, repo, d)
+	if err != nil {
+		return err
+	}
+
+	soi := &types.StorageObjectInput{FilePath: &key, Method: types.Delete}
+	if err := s.backend.DeleteObject(ctx, soi); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("oci: delete %s: %w", d, err)
+	}
+
+	return nil
+}
+
 // PutManifest stores a manifest or index and returns its sha256 digest.
 func (s *Store) PutManifest(ctx context.Context, namespace, repo string, content []byte) (digest.Digest, error) {
 	d := digest.FromBytes(content)

@@ -25,6 +25,7 @@ COPY pkg/registry/go.mod pkg/registry/
 COPY pkg/hclschema/go.mod pkg/hclschema/go.sum pkg/hclschema/
 COPY pkg/mcp/go.mod pkg/mcp/go.sum pkg/mcp/
 COPY pkg/oci/go.mod pkg/oci/go.sum pkg/oci/
+COPY pkg/ocibuild/go.mod pkg/ocibuild/go.sum pkg/ocibuild/
 COPY pkg/agentassembly/go.mod pkg/agentassembly/
 COPY pkg/schematic/go.mod pkg/schematic/
 COPY services/version/go.mod services/version/go.sum services/version/

@@ -11,6 +11,7 @@ use (
 	./pkg/jev
 	./pkg/mcp
 	./pkg/oci
+	./pkg/ocibuild
 	./pkg/registry
 	./pkg/schematic
 	./pkg/signing
