@@ -17,10 +17,16 @@ limitations under the License.
 package controller
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,9 +37,10 @@ import (
 
 // fakeMCPResolver returns canned registry answers so vendoring tests never reach a registry.
 type fakeMCPResolver struct {
-	npm  mcp.NPMVersion
-	pypi mcp.PyPIRelease
-	err  error
+	npm      mcp.NPMVersion
+	pypi     mcp.PyPIRelease
+	tarballs map[string][]byte
+	err      error
 }
 
 func (f *fakeMCPResolver) ResolveNPM(_ context.Context, _, _, _ string) (mcp.NPMVersion, error) {
@@ -42,6 +49,75 @@ func (f *fakeMCPResolver) ResolveNPM(_ context.Context, _, _, _ string) (mcp.NPM
 
 func (f *fakeMCPResolver) ResolvePyPI(_ context.Context, _, _, _ string, _ mcp.PyPIFilter) (mcp.PyPIRelease, error) {
 	return f.pypi, f.err
+}
+
+func (f *fakeMCPResolver) FetchTarball(_ context.Context, rawURL string) ([]byte, error) {
+	body, ok := f.tarballs[rawURL]
+	if !ok {
+		return nil, errors.New("unexpected tarball request")
+	}
+
+	return body, nil
+}
+
+// testAllowList returns an allow-list of the given entries.
+func testAllowList(t *testing.T, entries ...string) *mcp.AllowList {
+	t.Helper()
+
+	al, err := mcp.NewAllowList(entries)
+	if err != nil {
+		t.Fatalf("NewAllowList(%v) error = %v", entries, err)
+	}
+
+	return al
+}
+
+// testTarball returns a gzip-compressed tar archive that holds the given files.
+func testTarball(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, content := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("write tar header %s: %v", name, err)
+		}
+
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatalf("write tar entry %s: %v", name, err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+
+	return buf.Bytes()
+}
+
+// recordMCPCommands replaces runMCPCommand. Each call's arguments are recorded, and onRun runs in place of the tool so
+// a test can write the files that the next vendoring step expects.
+func recordMCPCommands(t *testing.T, onRun func(dir string, args []string) error) *[][]string {
+	t.Helper()
+
+	var calls [][]string
+	original := runMCPCommand
+	t.Cleanup(func() { runMCPCommand = original })
+	runMCPCommand = func(_ context.Context, dir string, _ []string, _ string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if err := onRun(dir, args); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}
+
+	return &calls
 }
 
 // mcpFindingCode returns the finding code of err, or an empty string when err is not a terminal finding.
@@ -131,7 +207,8 @@ func TestCheckNPMLockfileClean(t *testing.T) {
 	lock := filepath.Join(dir, "package-lock.json")
 	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(nil)})
 
-	err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity})
+	allow := testAllowList(t, "registry.npmjs.org")
+	err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity}, allow)
 	if err != nil {
 		t.Fatalf("clean lockfile rejected: %v", err)
 	}
@@ -192,7 +269,8 @@ func TestCheckNPMLockfileNativeAddonDetection(t *testing.T) {
 			lock := filepath.Join(dir, "package-lock.json")
 			writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(tc.extra)})
 
-			err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity})
+			allow := testAllowList(t, "registry.npmjs.org")
+			err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity}, allow)
 			if got := mcpFindingCode(err); got != tc.want {
 				t.Fatalf("finding code = %q, want %q (err=%v)", got, tc.want, err)
 			}
@@ -205,7 +283,8 @@ func TestCheckNPMLockfileRootMismatch(t *testing.T) {
 	lock := filepath.Join(dir, "package-lock.json")
 	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(nil)})
 
-	err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "2.0.0", Integrity: testNPMIntegrity})
+	allow := testAllowList(t, "registry.npmjs.org")
+	err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "2.0.0", Integrity: testNPMIntegrity}, allow)
 	if got := mcpFindingCode(err); got != mcpFindingInvalid {
 		t.Fatalf("finding code = %q, want %q (err=%v)", got, mcpFindingInvalid, err)
 	}
@@ -370,22 +449,168 @@ func TestVendorNPMRejectsOffListRegistry(t *testing.T) {
 	}
 }
 
-func TestMCPHostAllowed(t *testing.T) {
-	allow := []string{"pypi.org", "files.pythonhosted.org"}
+func TestCheckNPMLockfileRejectsDisallowedHost(t *testing.T) {
+	allow := testAllowList(t, "registry.npmjs.org")
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "package-lock.json")
+	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(map[string]npmLockEntry{
+		"node_modules/transitive": {Version: "1.0.0", Resolved: "https://evil.example.com/t.tgz", Integrity: "sha512-GGGG"},
+	})})
 
-	if !mcpHostAllowed(allow, "https://files.pythonhosted.org/packages/a.whl") {
-		t.Fatal("allow-listed https host rejected")
+	err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity}, allow)
+	if got := mcpFindingCode(err); got != mcpFindingInvalid {
+		t.Fatalf("disallowed host finding = %q, want %q (err=%v)", got, mcpFindingInvalid, err)
+	}
+}
+
+func TestCheckNPMLockfileAcceptsAllowedHost(t *testing.T) {
+	allow := testAllowList(t, "registry.npmjs.org", "mirror.example.com")
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "package-lock.json")
+	writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(map[string]npmLockEntry{
+		"node_modules/transitive": {Version: "1.0.0", Resolved: "https://mirror.example.com/t.tgz", Integrity: "sha512-HHHH"},
+	})})
+
+	if err := checkNPMLockfile(lock, "example-mcp", mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity}, allow); err != nil {
+		t.Fatalf("allow-listed host rejected: %v", err)
+	}
+}
+
+func TestNPMArgsReplaceRegistryHost(t *testing.T) {
+	calls := recordMCPCommands(t, func(dir string, args []string) error {
+		if args[0] == "install" {
+			writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(nil)})
+		}
+
+		return nil
+	})
+
+	reconciler := &VersionReconciler{
+		MCPAllowedNpmRegistries: []string{"registry.npmjs.org"},
+		mcpClient: &fakeMCPResolver{
+			npm:      mcp.NPMVersion{Version: "1.0.0", Integrity: testNPMIntegrity, Tarball: "https://registry.npmjs.org/example-mcp/-/example-mcp-1.0.0.tgz"},
+			tarballs: map[string][]byte{"https://registry.npmjs.org/example-mcp/-/example-mcp-1.0.0.tgz": testTarball(t, map[string]string{"index.js": "export {}"})},
+		},
 	}
 
-	if mcpHostAllowed(allow, "http://pypi.org/simple") {
-		t.Fatal("plain http accepted")
+	version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
+	spec := &opendepotv1alpha1.MCPNpmSource{Package: "example-mcp"}
+
+	_, _ = reconciler.vendorNPM(context.Background(), spec, version, mcp.TransportStdio, nil, t.TempDir())
+
+	var sawInstall, sawCI bool
+	for _, args := range *calls {
+		if !slices.Contains(args, "--replace-registry-host=always") {
+			continue
+		}
+
+		switch args[0] {
+		case "install":
+			sawInstall = true
+		case "ci":
+			sawCI = true
+		}
 	}
 
-	if mcpHostAllowed(allow, "https://pypi.org.evil.example/simple") {
-		t.Fatal("host suffix match accepted")
+	if !sawInstall || !sawCI {
+		t.Fatalf("--replace-registry-host=always missing (install=%t ci=%t) calls=%v", sawInstall, sawCI, *calls)
+	}
+}
+
+func TestPyPIArgsIncludeNoDeps(t *testing.T) {
+	index := "https://pypi.org/simple"
+	wheel := "example_mcp-1.0.0-py3-none-any.whl"
+	sum := sha256.Sum256([]byte("wheel-bytes"))
+	release := mcp.PyPIRelease{Version: "1.0.0", Wheels: []mcp.PyPIWheel{{
+		Filename: wheel,
+		URL:      "https://files.pythonhosted.org/packages/" + wheel,
+		SHA256:   hex.EncodeToString(sum[:]),
+	}}}
+
+	calls := recordMCPCommands(t, func(_ string, args []string) error {
+		if args[0] == "download" {
+			writeMCPFiles(t, argValue(args, "--dest"), map[string]string{wheel: "wheel-bytes"})
+		}
+
+		return nil
+	})
+
+	reconciler := &VersionReconciler{
+		MCPAllowedPyPIIndexes:   []string{"pypi.org", "files.pythonhosted.org"},
+		MCPPyPIDefaultPlatforms: []string{"manylinux_2_28_x86_64"},
+		mcpClient:               &fakeMCPResolver{pypi: release},
 	}
 
-	if mcpHostAllowed(nil, "https://pypi.org/simple") {
-		t.Fatal("empty allow-list accepted a host")
+	version := &opendepotv1alpha1.Version{Spec: opendepotv1alpha1.VersionSpec{Version: "1.0.0"}}
+	spec := &opendepotv1alpha1.MCPPyPISource{Package: "example-mcp", Index: &index}
+	entry := &opendepotv1alpha1.MCPEntrypoint{Command: "python3", Args: []string{"-m", "example_mcp"}}
+
+	_, _ = reconciler.vendorPyPI(context.Background(), spec, version, mcp.TransportStdio, entry, t.TempDir())
+
+	var sawDownload, sawInstall bool
+	for _, args := range *calls {
+		if !slices.Contains(args, "--no-deps") {
+			continue
+		}
+
+		switch args[0] {
+		case "download":
+			sawDownload = true
+		case "install":
+			sawInstall = true
+		}
+	}
+
+	if !sawDownload || !sawInstall {
+		t.Fatalf("--no-deps missing (download=%t install=%t) calls=%v", sawDownload, sawInstall, *calls)
+	}
+}
+
+func TestVerifyPyPIWheelsRejectsUnverifiedFile(t *testing.T) {
+	dir := t.TempDir()
+	wheel := "example_mcp-1.0.0-py3-none-any.whl"
+	writeMCPFiles(t, dir, map[string]string{wheel: "wheel-bytes", "extra_dep-2.0.0-py3-none-any.whl": "smuggled"})
+
+	sum, err := fileSHA256(filepath.Join(dir, wheel))
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+
+	release := mcp.PyPIRelease{Version: "1.0.0", Wheels: []mcp.PyPIWheel{{Filename: wheel, SHA256: sum}}}
+	if got := mcpFindingCode(verifyPyPIWheels(dir, "example-mcp", release)); got != mcpFindingInvalid {
+		t.Fatalf("unverified wheel finding = %q, want %q", got, mcpFindingInvalid)
+	}
+}
+
+func TestCheckNPMTarballsRejectsNativeAddon(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{name: "compiled .node entry", files: map[string]string{"package/build/Release/addon.node": "ELF"}, want: mcpFindingNativeAddon},
+		{name: "binding.gyp entry", files: map[string]string{"package/binding.gyp": "{}"}, want: mcpFindingNativeAddon},
+		{name: "plain JavaScript", files: map[string]string{"package/index.js": "export {}"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tarURL := "https://registry.npmjs.org/transitive/-/transitive-1.0.0.tgz"
+			rootURL := "https://registry.npmjs.org/example-mcp/-/example-mcp-1.0.0.tgz"
+			dir := t.TempDir()
+			lock := filepath.Join(dir, "package-lock.json")
+			writeMCPFiles(t, dir, map[string]string{"package-lock.json": testNPMLock(map[string]npmLockEntry{
+				"node_modules/transitive": {Version: "1.0.0", Resolved: tarURL, Integrity: "sha512-JJJJ"},
+			})})
+
+			resolver := &fakeMCPResolver{tarballs: map[string][]byte{
+				rootURL: testTarball(t, map[string]string{"package/index.js": "export {}"}),
+				tarURL:  testTarball(t, tc.files),
+			}}
+			err := checkNPMTarballs(context.Background(), resolver, lock)
+			if got := mcpFindingCode(err); got != tc.want {
+				t.Fatalf("finding code = %q, want %q (err=%v)", got, tc.want, err)
+			}
+		})
 	}
 }

@@ -17,7 +17,9 @@ limitations under the License.
 package controller
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,11 +28,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -45,6 +48,8 @@ const (
 	mcpDefaultPyPIIndex = "https://pypi.org/simple"
 	// mcpMaxPlatforms matches the MCPMetadata.Platforms bound in the CRD.
 	mcpMaxPlatforms = 8
+	// mcpMaxTarballExpandedBytes bounds how much of an npm tarball is inspected for native addon files.
+	mcpMaxTarballExpandedBytes = 256 << 20
 
 	mcpFindingNativeAddon = "mcp-native-addon"
 	mcpFindingSdistOnly   = "mcp-sdist-only"
@@ -68,6 +73,7 @@ var mcpNativeBuildDeps = map[string]struct{}{
 type mcpResolver interface {
 	ResolveNPM(ctx context.Context, registry, pkgName, version string) (mcp.NPMVersion, error)
 	ResolvePyPI(ctx context.Context, index, pkgName, version string, filter mcp.PyPIFilter) (mcp.PyPIRelease, error)
+	FetchTarball(ctx context.Context, rawURL string) ([]byte, error)
 }
 
 // mcpFindingError is a terminal finding that fails the MCPServer Version. Its code is one of the mcp-* finding codes.
@@ -107,21 +113,19 @@ var runMCPCommand = func(ctx context.Context, dir string, env []string, name str
 	return cmd.CombinedOutput()
 }
 
-// mcpHostAllowed reports whether the URL uses https and its host is listed in allow.
-func mcpHostAllowed(allow []string, raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return false
+// mcpAllowLists returns the npm and PyPI allow-lists built from the reconciler configuration.
+func (r *VersionReconciler) mcpAllowLists() (*mcp.AllowList, *mcp.AllowList, error) {
+	npmAllow, err := mcp.NewAllowList(r.MCPAllowedNpmRegistries)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mcp npm allow-list: %w", err)
 	}
 
-	host := strings.ToLower(u.Host)
-	for _, entry := range allow {
-		if strings.ToLower(strings.TrimSpace(entry)) == host {
-			return true
-		}
+	pypiAllow, err := mcp.NewAllowList(r.MCPAllowedPyPIIndexes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mcp pypi allow-list: %w", err)
 	}
 
-	return false
+	return npmAllow, pypiAllow, nil
 }
 
 // mcpResolverFor returns the injected resolver or a client built from the allow-lists.
@@ -130,14 +134,9 @@ func (r *VersionReconciler) mcpResolverFor() (mcpResolver, error) {
 		return r.mcpClient, nil
 	}
 
-	npmAllow, err := mcp.NewAllowList(r.MCPAllowedNpmRegistries)
+	npmAllow, pypiAllow, err := r.mcpAllowLists()
 	if err != nil {
-		return nil, fmt.Errorf("mcp npm allow-list: %w", err)
-	}
-
-	pypiAllow, err := mcp.NewAllowList(r.MCPAllowedPyPIIndexes)
-	if err != nil {
-		return nil, fmt.Errorf("mcp pypi allow-list: %w", err)
+		return nil, err
 	}
 
 	return mcpCombinedResolver{npm: mcp.NewClient(npmAllow), pypi: mcp.NewClient(pypiAllow)}, nil
@@ -155,6 +154,10 @@ func (c mcpCombinedResolver) ResolveNPM(ctx context.Context, registry, pkgName, 
 
 func (c mcpCombinedResolver) ResolvePyPI(ctx context.Context, index, pkgName, version string, filter mcp.PyPIFilter) (mcp.PyPIRelease, error) {
 	return c.pypi.ResolvePyPI(ctx, index, pkgName, version, filter)
+}
+
+func (c mcpCombinedResolver) FetchTarball(ctx context.Context, rawURL string) ([]byte, error) {
+	return c.npm.FetchTarball(ctx, rawURL)
 }
 
 // mcpResolveError maps resolver errors to terminal findings where the registry says the package cannot be used.
@@ -212,7 +215,12 @@ func (r *VersionReconciler) vendorNPM(ctx context.Context, spec *opendepotv1alph
 		registry = *spec.Registry
 	}
 
-	if !mcpHostAllowed(r.MCPAllowedNpmRegistries, registry) {
+	npmAllow, _, err := r.mcpAllowLists()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := npmAllow.CheckURL(registry); err != nil {
 		return nil, newMCPFinding(mcpFindingInvalid, "npm registry is not on the allow-list")
 	}
 
@@ -254,16 +262,21 @@ func (r *VersionReconciler) vendorNPM(ctx context.Context, spec *opendepotv1alph
 	}
 
 	env := mcpMinimalEnv(scratch)
-	lockArgs := []string{"install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=" + registry}
+	lockArgs := []string{"install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", "--replace-registry-host=always", "--registry=" + registry}
 	if _, err := runMCPCommand(ctx, vendorDir, env, "npm", lockArgs...); err != nil {
 		return nil, fmt.Errorf("npm lockfile resolution failed: %w", err)
 	}
 
-	if err := checkNPMLockfile(filepath.Join(vendorDir, "package-lock.json"), spec.Package, resolved); err != nil {
+	lockPath := filepath.Join(vendorDir, "package-lock.json")
+	if err := checkNPMLockfile(lockPath, spec.Package, resolved, npmAllow); err != nil {
 		return nil, err
 	}
 
-	ciArgs := []string{"ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=" + registry}
+	if err := checkNPMTarballs(ctx, resolver, lockPath); err != nil {
+		return nil, err
+	}
+
+	ciArgs := []string{"ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--replace-registry-host=always", "--registry=" + registry}
 	if _, err := runMCPCommand(ctx, vendorDir, env, "npm", ciArgs...); err != nil {
 		return nil, fmt.Errorf("npm ci failed: %w", err)
 	}
@@ -324,18 +337,28 @@ type npmLockEntry struct {
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
 }
 
-// checkNPMLockfile verifies that the lock pins the requested package to the resolved version and integrity, that
-// every entry is fetched from an allow-listed host with an integrity value, and that no entry is a local link or a
-// native addon.
-func checkNPMLockfile(lockPath, pkgName string, resolved mcp.NPMVersion) error {
+// loadNPMLockfile reads and decodes the lockfile subset that the vendoring checks use.
+func loadNPMLockfile(lockPath string) (npmLockfile, error) {
 	data, err := os.ReadFile(lockPath)
 	if err != nil {
-		return fmt.Errorf("read npm lockfile: %w", err)
+		return npmLockfile{}, fmt.Errorf("read npm lockfile: %w", err)
 	}
 
 	var lock npmLockfile
 	if err := json.Unmarshal(data, &lock); err != nil {
-		return newMCPFinding(mcpFindingInvalid, "npm lockfile is not valid JSON")
+		return npmLockfile{}, newMCPFinding(mcpFindingInvalid, "npm lockfile is not valid JSON")
+	}
+
+	return lock, nil
+}
+
+// checkNPMLockfile verifies that the lock pins the requested package to the resolved version and integrity, that
+// every entry is fetched over https from a host on the npm allow-list with an integrity value, and that no entry is a
+// local link or a native addon.
+func checkNPMLockfile(lockPath, pkgName string, resolved mcp.NPMVersion, allow *mcp.AllowList) error {
+	lock, err := loadNPMLockfile(lockPath)
+	if err != nil {
+		return err
 	}
 
 	root, ok := lock.Packages["node_modules/"+pkgName]
@@ -357,8 +380,10 @@ func checkNPMLockfile(lockPath, pkgName string, resolved mcp.NPMVersion) error {
 			return newMCPFinding(mcpFindingInvalid, "npm lockfile entry %s has no integrity value", name)
 		}
 
-		if entry.Resolved != "" && !strings.HasPrefix(entry.Resolved, "https://") {
-			return newMCPFinding(mcpFindingInvalid, "npm lockfile entry %s is not fetched over https", name)
+		if entry.Resolved != "" {
+			if err := allow.CheckURL(entry.Resolved); err != nil {
+				return newMCPFinding(mcpFindingInvalid, "npm lockfile entry %s is fetched from outside the allow-list", name)
+			}
 		}
 
 		if entry.HasInstallScript && mcpNativeInstall(name, entry) {
@@ -371,6 +396,75 @@ func checkNPMLockfile(lockPath, pkgName string, resolved mcp.NPMVersion) error {
 	}
 
 	return nil
+}
+
+// checkNPMTarballs downloads every tarball that the lockfile names through the allow-listed registry client and
+// rejects any package that ships a native addon source or binary. It covers all platforms, because the lockfile lists
+// optional packages for every platform, and it runs before npm ci executes any package code.
+func checkNPMTarballs(ctx context.Context, resolver mcpResolver, lockPath string) error {
+	lock, err := loadNPMLockfile(lockPath)
+	if err != nil {
+		return err
+	}
+
+	for _, key := range slices.Sorted(maps.Keys(lock.Packages)) {
+		entry := lock.Packages[key]
+		if key == "" || entry.Resolved == "" {
+			continue
+		}
+
+		body, err := resolver.FetchTarball(ctx, entry.Resolved)
+		if err != nil {
+			if errors.Is(err, mcp.ErrDenied) {
+				return newMCPFinding(mcpFindingInvalid, "npm tarball for %s is outside the allow-list", mcpLockEntryName(key))
+			}
+
+			return fmt.Errorf("fetch npm tarball for %s: %w", mcpLockEntryName(key), err)
+		}
+
+		if err := inspectNPMTarball(body); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// inspectNPMTarball fails when a gzip-compressed npm tarball contains a binding.gyp file or a *.node addon at any
+// depth. The expanded size is bounded, and an archive that does not finish inside the bound is rejected.
+func inspectNPMTarball(body []byte) error {
+	gz, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return newMCPFinding(mcpFindingInvalid, "npm tarball is not gzip-compressed")
+	}
+
+	defer func() { _ = gz.Close() }()
+
+	expanded := &io.LimitedReader{R: gz, N: mcpMaxTarballExpandedBytes}
+	tr := tar.NewReader(expanded)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			if expanded.N == 0 {
+				return newMCPFinding(mcpFindingInvalid, "npm tarball exceeds the inspection bound")
+			}
+
+			return nil
+		}
+
+		if err != nil {
+			return newMCPFinding(mcpFindingInvalid, "npm tarball is not a valid archive within the inspection bound")
+		}
+
+		if hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+
+		base := path.Base(hdr.Name)
+		if base == "binding.gyp" || strings.EqualFold(path.Ext(base), ".node") {
+			return newMCPFinding(mcpFindingNativeAddon, "npm tarball ships native addon file %s", hdr.Name)
+		}
+	}
 }
 
 // mcpLockEntryName returns the package name for a lockfile key such as node_modules/@scope/name.
@@ -510,7 +604,12 @@ func (r *VersionReconciler) vendorPyPI(ctx context.Context, spec *opendepotv1alp
 		index = *spec.Index
 	}
 
-	if !mcpHostAllowed(r.MCPAllowedPyPIIndexes, index) {
+	_, pypiAllow, err := r.mcpAllowLists()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pypiAllow.CheckURL(index); err != nil {
 		return nil, newMCPFinding(mcpFindingInvalid, "PyPI index is not on the allow-list")
 	}
 
@@ -542,7 +641,7 @@ func (r *VersionReconciler) vendorPyPI(ctx context.Context, spec *opendepotv1alp
 	}
 
 	for _, wheel := range release.Wheels {
-		if !mcpHostAllowed(r.MCPAllowedPyPIIndexes, wheel.URL) {
+		if err := pypiAllow.CheckURL(wheel.URL); err != nil {
 			return nil, newMCPFinding(mcpFindingInvalid, "wheel %s is hosted outside the allow-list", wheel.Filename)
 		}
 	}
@@ -554,7 +653,7 @@ func (r *VersionReconciler) vendorPyPI(ctx context.Context, spec *opendepotv1alp
 
 	pin := spec.Package + "==" + release.Version
 	env := mcpMinimalEnv(scratch)
-	downloadArgs := []string{"download", "--only-binary=:all:", "--dest", wheelsDir, "--index-url", index, "--disable-pip-version-check", "--no-cache-dir"}
+	downloadArgs := []string{"download", "--only-binary=:all:", "--no-deps", "--dest", wheelsDir, "--index-url", index, "--disable-pip-version-check", "--no-cache-dir"}
 	downloadArgs = append(downloadArgs, mcpPlatformArgs(platforms, pythonVersion)...)
 	downloadArgs = append(downloadArgs, pin)
 
@@ -572,7 +671,7 @@ func (r *VersionReconciler) vendorPyPI(ctx context.Context, spec *opendepotv1alp
 	}
 
 	tree := filepath.Join(scratch, "tree")
-	installArgs := []string{"install", "--no-index", "--find-links", wheelsDir, "--target", tree, "--only-binary=:all:", "--no-cache-dir", "--disable-pip-version-check"}
+	installArgs := []string{"install", "--no-index", "--no-deps", "--find-links", wheelsDir, "--target", tree, "--only-binary=:all:", "--no-cache-dir", "--disable-pip-version-check"}
 	installArgs = append(installArgs, mcpPlatformArgs(platforms, pythonVersion)...)
 	installArgs = append(installArgs, pin)
 
@@ -625,8 +724,8 @@ func mcpSdistOnlyOutput(out []byte) bool {
 	return bytes.Contains(out, []byte("from versions: none")) || bytes.Contains(out, []byte("No matching distribution"))
 }
 
-// verifyPyPIWheels checks the SHA-256 of every downloaded wheel that the index publishes for this release, and
-// requires the package's own wheel to be present.
+// verifyPyPIWheels requires every file in wheelsDir to be a wheel that the index publishes for this release, with a
+// matching SHA-256. An unverified file is rejected, never skipped, and the package's own wheel must be present.
 func verifyPyPIWheels(wheelsDir, pkgName string, release mcp.PyPIRelease) error {
 	published := make(map[string]string, len(release.Wheels))
 	for _, wheel := range release.Wheels {
@@ -641,8 +740,8 @@ func verifyPyPIWheels(wheelsDir, pkgName string, release mcp.PyPIRelease) error 
 	found := false
 	for _, entry := range entries {
 		want, ok := published[entry.Name()]
-		if !ok {
-			continue
+		if !ok || !entry.Type().IsRegular() {
+			return newMCPFinding(mcpFindingInvalid, "unverified file %s was downloaded for %s", entry.Name(), pkgName)
 		}
 
 		sum, err := fileSHA256(filepath.Join(wheelsDir, entry.Name()))
@@ -671,7 +770,7 @@ func matchedPlatforms(release mcp.PyPIRelease, platforms []string) []string {
 	var out []string
 	for _, p := range platforms {
 		for _, wheel := range release.Wheels {
-			if containsString(wheel.PlatformTags, p) {
+			if slices.Contains(wheel.PlatformTags, p) {
 				out = append(out, p)
 
 				break
@@ -723,15 +822,4 @@ func relativeTo(root, p string) string {
 	}
 
 	return filepath.ToSlash(rel)
-}
-
-// containsString reports whether values contains target.
-func containsString(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-
-	return false
 }

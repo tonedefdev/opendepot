@@ -77,6 +77,23 @@ func TestEmptyAllowListDeniesEverything(t *testing.T) {
 	}
 }
 
+func TestAllowListCheckURL(t *testing.T) {
+	al, err := NewAllowList([]string{testAllowedHost})
+	if err != nil {
+		t.Fatalf("NewAllowList() error = %v", err)
+	}
+
+	if err := al.CheckURL("https://registry.npmjs.org/pkg/-/pkg-1.0.0.tgz"); err != nil {
+		t.Fatalf("allow-listed https URL denied: %v", err)
+	}
+
+	for _, rawURL := range []string{"http://registry.npmjs.org/pkg", testUnlistedHost, "https://registry.npmjs.org.evil.net/x", "://bad", ""} {
+		if err := al.CheckURL(rawURL); !errors.Is(err, ErrDenied) {
+			t.Errorf("CheckURL(%q) error = %v, want ErrDenied", rawURL, err)
+		}
+	}
+}
+
 func TestCheckDialAddrBlocksUnsafeAddresses(t *testing.T) {
 	unsafe := []string{
 		"0.0.0.0",
