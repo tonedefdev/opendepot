@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -184,6 +185,94 @@ func TestOpenDepotOCIArtifactJSONRoundTrip(t *testing.T) {
 			assertJSONKeys(t, data, "versionRefs", "mirror", "verify")
 		}
 	}
+}
+
+func TestOpenDepotOCIBuildJSONRoundTrip(t *testing.T) {
+	timeout := int32(1800)
+	repoURL := "https://github.com/example/app"
+	target := "runtime"
+	buildArgs := []OCIBuildArg{
+		{Name: "GO_VERSION", Value: "1.26"},
+		{Name: "FLAGS", Value: "-ldflags=-s,-w"},
+	}
+	artifact := &OCIArtifact{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-image", Namespace: "opendepot"},
+		Spec: OCIArtifactSpec{
+			OCIArtifactConfig: OCIArtifactConfig{
+				ArtifactType: "Image",
+				Build: &OCIBuildSource{
+					RepoOwner:      "example",
+					RepoUrl:        &repoURL,
+					ContextPath:    "services/app",
+					DockerfilePath: "services/app/Dockerfile",
+					Target:         &target,
+					BuildArgs:      buildArgs,
+					TimeoutSeconds: &timeout,
+					Resources: &OCIBuildResources{
+						CPU:              ptrQuantity(t, "2"),
+						Memory:           ptrQuantity(t, "4Gi"),
+						EphemeralStorage: ptrQuantity(t, "10Gi"),
+					},
+				},
+				Platforms: []string{"linux/amd64", "linux/arm64"},
+			},
+			Versions: []OCIArtifactVersion{{Name: "app-image", Version: "1.0.0"}},
+		},
+	}
+
+	out, data := jsonRoundTrip(t, artifact)
+	if !reflect.DeepEqual(artifact, out) {
+		t.Fatalf("round trip mismatch:\nin:  %+v\nout: %+v", artifact, out)
+	}
+
+	assertJSONKeys(t, data, "build", "repoOwner", "repoUrl", "contextPath", "dockerfilePath", "target", "buildArgs", "timeoutSeconds", "resources", "cpu", "memory", "ephemeralStorage")
+
+	_, mirrorData := jsonRoundTrip(t, &testOCIArtifacts()[0].Spec.OCIArtifactConfig)
+	if strings.Contains(string(mirrorData), `"build"`) {
+		t.Fatalf("unset build must be omitted: %s", mirrorData)
+	}
+
+	version := &Version{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-image-1.0.0", Namespace: "opendepot"},
+		Spec: VersionSpec{
+			Type:                 OpenDepotOCIArtifact,
+			Version:              "1.0.0",
+			OCIArtifactConfigRef: &artifact.Spec.OCIArtifactConfig,
+		},
+		Status: VersionStatus{
+			SyncStatus: "Building",
+			OCIBuild: &OCIBuildStatus{
+				BuildID:         "abcdefghij0123456789",
+				SourceCommit:    strings.Repeat("c", 40),
+				SourceTag:       "v1.0.0",
+				ContextDigest:   "sha256:" + strings.Repeat("b", 64),
+				FetchTokenHash:  "sha256:" + strings.Repeat("c", 64),
+				UploadTokenHash: "sha256:" + strings.Repeat("d", 64),
+				Phase:           "Running",
+				StartedAt:       &metav1.Time{Time: time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC).Local()},
+				Message:         "building linux/amd64",
+				Platforms: []OCIBuildPlatformStatus{
+					{Platform: "linux/amd64", JobName: "opendepot-build-abcdefghij0123456789-amd64", Phase: "Succeeded", ManifestDigest: "sha256:" + strings.Repeat("e", 64)},
+					{Platform: "linux/arm64", JobName: "opendepot-build-abcdefghij0123456789-arm64", Phase: "Running"},
+				},
+			},
+		},
+	}
+
+	out2, data2 := jsonRoundTrip(t, version)
+	if !reflect.DeepEqual(version, out2) {
+		t.Fatalf("round trip mismatch:\nin:  %+v\nout: %+v", version, out2)
+	}
+
+	assertJSONKeys(t, data2, "ociBuild", "buildID", "sourceCommit", "sourceTag", "contextDigest", "fetchTokenHash", "uploadTokenHash", "phase", "startedAt", "platforms", "jobName", "manifestDigest")
+}
+
+func ptrQuantity(t *testing.T, value string) *resource.Quantity {
+	t.Helper()
+
+	quantity := resource.MustParse(value)
+
+	return &quantity
 }
 
 func testMCPServers() []*MCPServer {
@@ -516,8 +605,10 @@ func assertMarkers(t *testing.T, text string, markers ...string) {
 func TestOpenDepotOCIArtifactConfigValidationRules(t *testing.T) {
 	text := markerText(t, "ociartifact_types.go", "OCIArtifactConfig", "")
 	assertMarkers(t, text,
-		`+kubebuilder:validation:XValidation:rule="has(self.mirror) != has(self.github)",message="exactly one of mirror or github is required"`,
-		`+kubebuilder:validation:XValidation:rule="!has(self.github) || self.artifactType != 'Image'",message="images can only be mirrored"`,
+		`+kubebuilder:validation:XValidation:rule="(has(self.mirror) ? 1 : 0) + (has(self.github) ? 1 : 0) + (has(self.build) ? 1 : 0) == 1",message="exactly one of mirror, github, or build is required"`,
+		`+kubebuilder:validation:XValidation:rule="!has(self.github) || self.artifactType != 'Image'",message="images can only be mirrored or built"`,
+		`+kubebuilder:validation:XValidation:rule="!has(self.build) || self.artifactType == 'Image'",message="build is only valid for Image"`,
+		`+kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.platforms) || self.platforms.all(p, p.startsWith('linux/'))",message="build platforms must be linux"`,
 		`+kubebuilder:validation:XValidation:rule="!has(self.platforms) || self.artifactType == 'Image'",message="platforms is only valid for Image"`,
 		`+kubebuilder:validation:XValidation:rule="!has(self.tagPattern) || !has(self.versionConstraints) || size(self.versionConstraints) == 0",message="tagPattern and versionConstraints are mutually exclusive"`,
 	)
@@ -527,6 +618,123 @@ func TestOpenDepotOCIArtifactConfigValidationRules(t *testing.T) {
 
 	platforms := markerText(t, "ociartifact_types.go", "OCIArtifactConfig", "Platforms")
 	assertMarkers(t, platforms, "+kubebuilder:validation:MaxItems=16")
+
+	build := markerText(t, "ociartifact_types.go", "OCIArtifactConfig", "Build")
+	assertMarkers(t, build, "Requires the chart value `oci.builds.enabled`.")
+
+	ociArtifactConfigs := markerText(t, "types.go", "DepotSpec", "OCIArtifactConfigs")
+	assertMarkers(t, ociArtifactConfigs, "+kubebuilder:validation:MaxItems=64")
+}
+
+func TestOpenDepotOCIBuildSourceValidationRules(t *testing.T) {
+	repoOwner := markerText(t, "ociartifact_types.go", "OCIBuildSource", "RepoOwner")
+	assertMarkers(t, repoOwner,
+		"+kubebuilder:validation:Required",
+		"+kubebuilder:validation:MaxLength=39",
+		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`",
+	)
+
+	repoURL := markerText(t, "ociartifact_types.go", "OCIBuildSource", "RepoUrl")
+	assertMarkers(t, repoURL, "+kubebuilder:validation:MaxLength=512")
+
+	tagPrefix := markerText(t, "ociartifact_types.go", "OCIBuildSource", "TagPrefix")
+	assertMarkers(t, tagPrefix, "+kubebuilder:validation:MaxLength=128")
+
+	contextPath := markerText(t, "ociartifact_types.go", "OCIBuildSource", "ContextPath")
+	assertMarkers(t, contextPath,
+		`+kubebuilder:default="."`,
+		"+kubebuilder:validation:MaxLength=256",
+		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`",
+		`+kubebuilder:validation:XValidation:rule="self == '.' || (!self.startsWith('/') && self != '..' && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.'))",message="contextPath must be a relative path without dot segments"`,
+	)
+
+	dockerfilePath := markerText(t, "ociartifact_types.go", "OCIBuildSource", "DockerfilePath")
+	assertMarkers(t, dockerfilePath,
+		`+kubebuilder:default="Dockerfile"`,
+		"+kubebuilder:validation:MaxLength=256",
+		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9._/-]+$`",
+		`+kubebuilder:validation:XValidation:rule="self != '.' && self != '..' && !self.startsWith('/') && !self.startsWith('../') && !self.contains('/../') && !self.endsWith('/..') && !self.startsWith('./') && !self.contains('/./') && !self.endsWith('/.')",message="dockerfilePath must be a relative path without dot segments"`,
+	)
+
+	target := markerText(t, "ociartifact_types.go", "OCIBuildSource", "Target")
+	assertMarkers(t, target,
+		"+kubebuilder:validation:MaxLength=128",
+		"+kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9._-]*$`",
+	)
+
+	buildArgs := markerText(t, "ociartifact_types.go", "OCIBuildSource", "BuildArgs")
+	assertMarkers(t, buildArgs,
+		"+kubebuilder:validation:MaxItems=32",
+		"+listType=map",
+		"+listMapKey=name",
+		"Do not put secrets here.",
+	)
+
+	timeout := markerText(t, "ociartifact_types.go", "OCIBuildSource", "TimeoutSeconds")
+	assertMarkers(t, timeout, "+kubebuilder:validation:Minimum=60", "+kubebuilder:validation:Maximum=7200")
+
+	resources := markerText(t, "ociartifact_types.go", "OCIBuildSource", "Resources")
+	assertMarkers(t, resources, "The controller clamps each value to the chart maximum.")
+}
+
+func TestOpenDepotOCIBuildArgValidationRules(t *testing.T) {
+	name := markerText(t, "ociartifact_types.go", "OCIBuildArg", "Name")
+	assertMarkers(t, name,
+		"+kubebuilder:validation:Required",
+		"+kubebuilder:validation:MaxLength=128",
+		"+kubebuilder:validation:Pattern=`^[A-Za-z_][A-Za-z0-9_]*$`",
+		`+kubebuilder:validation:XValidation:rule="!self.startsWith('BUILDKIT_') && self != 'SOURCE_DATE_EPOCH'",message="reserved build argument"`,
+	)
+
+	value := markerText(t, "ociartifact_types.go", "OCIBuildArg", "Value")
+	assertMarkers(t, value,
+		"+kubebuilder:validation:Required",
+		"+kubebuilder:validation:MaxLength=4096",
+		"+kubebuilder:validation:Pattern=`^[^\\x00-\\x08\\x0a-\\x1f\\x7f]*$`",
+	)
+}
+
+func TestOpenDepotOCIBuildStatusValidationRules(t *testing.T) {
+	const sha256Pattern = "+kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`"
+
+	buildID := markerText(t, "types.go", "OCIBuildStatus", "BuildID")
+	assertMarkers(t, buildID, "+kubebuilder:validation:Pattern=`^[a-z0-9]{20}$`")
+
+	sourceCommit := markerText(t, "types.go", "OCIBuildStatus", "SourceCommit")
+	assertMarkers(t, sourceCommit, "+kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`")
+
+	sourceTag := markerText(t, "types.go", "OCIBuildStatus", "SourceTag")
+	assertMarkers(t, sourceTag, "+kubebuilder:validation:MaxLength=255")
+
+	contextDigest := markerText(t, "types.go", "OCIBuildStatus", "ContextDigest")
+	assertMarkers(t, contextDigest, sha256Pattern, "+optional")
+
+	fetchTokenHash := markerText(t, "types.go", "OCIBuildStatus", "FetchTokenHash")
+	assertMarkers(t, fetchTokenHash, sha256Pattern, "+optional")
+
+	uploadTokenHash := markerText(t, "types.go", "OCIBuildStatus", "UploadTokenHash")
+	assertMarkers(t, uploadTokenHash, sha256Pattern, "+optional")
+
+	phase := markerText(t, "types.go", "OCIBuildStatus", "Phase")
+	assertMarkers(t, phase, "+kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed")
+
+	message := markerText(t, "types.go", "OCIBuildStatus", "Message")
+	assertMarkers(t, message, "+kubebuilder:validation:MaxLength=1024")
+
+	platforms := markerText(t, "types.go", "OCIBuildStatus", "Platforms")
+	assertMarkers(t, platforms, "+kubebuilder:validation:MaxItems=16")
+
+	platform := markerText(t, "types.go", "OCIBuildPlatformStatus", "Platform")
+	assertMarkers(t, platform, "+kubebuilder:validation:Pattern=`^[a-z0-9]+/[a-z0-9]+(/[a-z0-9.]+)?$`")
+
+	jobName := markerText(t, "types.go", "OCIBuildPlatformStatus", "JobName")
+	assertMarkers(t, jobName, "+kubebuilder:validation:MaxLength=63")
+
+	platformPhase := markerText(t, "types.go", "OCIBuildPlatformStatus", "Phase")
+	assertMarkers(t, platformPhase, "+kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed")
+
+	manifestDigest := markerText(t, "types.go", "OCIBuildPlatformStatus", "ManifestDigest")
+	assertMarkers(t, manifestDigest, sha256Pattern, "+optional")
 }
 
 func TestOpenDepotMCPServerSourceValidationRules(t *testing.T) {
