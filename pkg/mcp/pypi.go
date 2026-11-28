@@ -148,7 +148,6 @@ func (c *Client) ResolvePyPI(
 	return release, nil
 }
 
-// normalizePyPIName applies the PEP 503 normalization: lowercase, with runs of -, _, and . collapsed to one -.
 // PyPIVersions lists the versions of pkgName that have at least one compatible, non-yanked wheel. Sdist-only
 // versions are skipped, and the result is sorted.
 func (c *Client) PyPIVersions(ctx context.Context, index, pkgName string, filter PyPIFilter) ([]string, error) {
@@ -201,6 +200,7 @@ func hasCompatibleWheel(files []pypiFile, filter PyPIFilter) bool {
 	return false
 }
 
+// normalizePyPIName applies the PEP 503 normalization: lowercase, with runs of -, _, and . collapsed to one -.
 func normalizePyPIName(name string) string {
 	return strings.ToLower(pypiSeparators.ReplaceAllString(name, "-"))
 }
